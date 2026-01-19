@@ -3,74 +3,199 @@
 
 An AI-powered intelligent support operations platform for enterprise ticket management.
 
-## 🎯 Project Vision
-CORTEX revolutionizes support operations by intelligently routing tickets based on skills, workload, and historical patterns. Built for Syniti's DSP platform operations.
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
+![.NET](https://img.shields.io/badge/.NET-10-purple)
+![React](https://img.shields.io/badge/React-18-blue)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
 
-## 🚀 Features (In Progress)
-- ✅ RESTful API with ticket endpoints
-- ✅ Dual ownership model (Syniti + Business)
-- ✅ String-based ticket IDs (TICKET-001, etc.)
-- ✅ React frontend with Tailwind UI
-- ⏳ Real-time environment deployment tracking
-- ⏳ Smart ticket routing (skill + workload based)
+---
+
+## 🎯 Overview
+
+CORTEX revolutionizes support operations by intelligently routing tickets based on skills, workload, and historical patterns. Built to solve real workflow problems in Syniti's DSP platform operations.
+
+**Key Innovation:** Dual ownership model separating technical execution (Syniti Owner) from business verification (Business Owner) - solving the ambiguity in current support workflows.
+
+---
+
+## ✨ Current Features
+
+### Backend API (.NET 10)
+- ✅ **7 RESTful endpoints** with full CRUD operations
+- ✅ **Dual ownership tracking** (Technical + Business owners)
+- ✅ **String-based ticket IDs** (TICKET-001, TICKET-002, etc.)
+- ✅ **Filtering capabilities** (by status, priority)
+- ✅ **Audit trail** (CreatedBy, LastModifiedBy, timestamps)
+- ✅ **Immutable field protection** (ID, creation metadata)
+- ✅ **Swagger/OpenAPI documentation**
+- ✅ **CORS enabled** for frontend integration
+
+### Frontend (React + TypeScript + Tailwind)
+- ✅ **Modern, responsive UI** with gradient design
+- ✅ **Real-time ticket display** from API
+- ✅ **Interactive filtering** (status, priority with partial match)
+- ✅ **Modal editing** (click any ticket to view/edit)
+- ✅ **Editable fields:** Priority, Status, Syniti Owner, Business Owner
+- ✅ **Visual priority badges** (color-coded: Critical/High/Medium/Low)
+- ✅ **Status indicators** (New/In Progress/Pending Review/Resolved/Closed)
+- ✅ **Metadata display** (creation date, last modified, owners)
+
+### Planned Features
+- ⏳ Smart routing engine (skill + workload based)
+- ⏳ Environment deployment tracking (Dev → QA → Prod)
 - ⏳ CTS archive integration
-- ⏳ AI-powered categorization
+- ⏳ AI-powered ticket categorization (ML.NET)
 - ⏳ Predictive analytics
+- ⏳ Real-time updates (SignalR)
+- ⏳ Database persistence (SQL Server + EF Core)
+
+---
 
 ## 🛠 Tech Stack
-- **Backend:** .NET 10, ASP.NET Core Minimal APIs
-- **Frontend:** React 18, TypeScript, Tailwind CSS (coming soon)
-- **Database:** SQL Server + EF Core (planned)
-- **AI/ML:** ML.NET (planned)
-- **Real-time:** SignalR (planned)
 
-## 📅 Timeline
-- **January 2026:** Backend API ✅
-- **February-March 2026:** Frontend + Core Features
-- **April-June 2026:** AI/ML Intelligence Layer
-- **July-August 2026:** Advanced Features + Polish
-- **September-October 2026:** DemoJam Preparation
-- **November 2026:** 🏆 Syniti DemoJam
+**Backend:**
+- .NET 10
+- ASP.NET Core Minimal APIs
+- Swagger/OpenAPI for documentation
 
-## 🏃‍♂️ Getting Started
+**Frontend:**
+- React 18
+- TypeScript 5
+- Tailwind CSS 3
+- Vite (build tool)
+
+**Planned:**
+- SQL Server + Entity Framework Core
+- ML.NET for AI features
+- SignalR for real-time
+- Azure for deployment
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-- .NET 10 SDK
-- Node.js 20+
-- Visual Studio 2026 or VS Code
+- .NET 10 SDK ([Download](https://dotnet.microsoft.com/download))
+- Node.js 20+ ([Download](https://nodejs.org/))
+- Visual Studio 2022+ or VS Code
 
 ### Run Backend API
 ```bash
 cd Cortex.API
 dotnet run
 ```
-API available at: `http://localhost:5214`
 
-**Endpoints:**
-- `GET /api/tickets` - List all tickets
-- `GET /api/tickets/{id}` - Get ticket by ID
-- `POST /api/tickets` - Create new ticket
+API runs at: `http://localhost:5214`
 
-## 📝 Current Status
-**Day 1 Complete (January 15, 2026):**
-- ✅ Project initialized
-- ✅ Backend API functional
-- ✅ 3 REST endpoints working
-- ✅ Data models defined
-- ✅ Version control established
+**Swagger UI:** `http://localhost:5214/swagger`
 
-**Next Up:**
-- Create Ticket Button
-- Automate Audit History and User Assignment
-- API integration
+### Run Frontend
+```bash
+cd cortex-ui
+npm install
+npm run dev
+```
 
-## 👨‍💻 Developer
-**Adam Hooper** | Syniti Senior Consultant  
-*Building CORTEX to demonstrate full-stack engineering capabilities for internal Engineer II position*
+Frontend runs at: `http://localhost:5173`
 
 ---
 
-**Status:** 🚧 Active Development | **Visibility:** 🔒 Private | **Target:** 🎯 Production-Ready by Nov 2026
+## 📍 API Endpoints
+
+### Health
+- `GET /` - API health check
+
+### Tickets
+- `GET /api/tickets` - List all tickets
+- `GET /api/tickets/{id}` - Get specific ticket by ID
+- `GET /api/tickets/status/{status}` - Filter tickets by status
+- `GET /api/tickets/priority/{priority}` - Filter tickets by priority
+- `POST /api/tickets` - Create new ticket (auto-generates ID)
+- `PUT /api/tickets/{id}` - Update ticket (preserves immutable fields)
+
+**Protected Fields (Immutable):**
+- Ticket ID
+- Created By
+- Created Date
+
+**Editable Fields:**
+- Title, Description
+- Priority (Critical/High/Medium/Low)
+- Status (New/In Progress/Pending Business Review/Resolved/Closed)
+- Syniti Owner
+- Business Owner
+
+---
+
+## 🏗 Architecture
+
+**Clean Separation of Concerns:**
+```
+Backend (Cortex.API)
+├── Extensions/         # Endpoint definitions
+│   └── TicketEndpoints.cs
+├── Models/            # Data models
+│   └── Ticket.cs
+└── Program.cs         # Application setup
+
+Frontend (cortex-ui)
+├── components/        # React components
+│   ├── TicketCard.tsx
+│   └── TicketModal.tsx
+├── services/          # API integration
+│   └── api.ts
+├── types/             # TypeScript definitions
+│   └── ticket.ts
+└── App.tsx           # Main application
+```
+
+---
+
+## 📝 Development Timeline
+
+**Week 1 (Jan 13-19, 2026):** ✅ **COMPLETE**
+- Backend API with 7 endpoints
+- React frontend with Tailwind UI
+- Full CRUD operations
+- Filtering and editing capabilities
+- Swagger documentation
+- GitHub repository established
+
+**Next Steps:**
+- Database integration (SQL Server + EF Core)
+- Authentication (JWT)
+- Smart routing algorithm
+- AI-powered categorization
+- Environment tracking
+
+**Target:** Production-ready by November 2026 DemoJam
+
+---
+
+## 👨‍💻 About
+
+**Developer:** Adam Hooper  
+**Role:** Senior Consultant at Syniti  
+**Purpose:** Full-stack engineering demonstration for internal Engineer II position
+
+**Project Goals:**
+1. Demonstrate full-stack development capability
+2. Solve real support operations problems
+3. Showcase modern tech stack proficiency
+4. Build production-quality software
+5. Present at Syniti DemoJam (November 2026)
+
+---
+
+## 📧 Contact
+
+**Adam Hooper**  
+Senior Consultant | Syniti  
+[GitHub](https://github.com/Airsicktitan)
+
+---
+
+**Status:** 🚧 Active Development | **Visibility:** 🔓 Public | **License:** Private (Syniti Internal Project)
 
 
 ## 📸 Demo Screenshots
