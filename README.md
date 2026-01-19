@@ -30,9 +30,9 @@ In enterprise support operations, ticket ownership is often ambiguous. A single 
 
 The Solution:
 CORTEX introduces a dual ownership model that mirrors how enterprise support actually works:
-RoleResponsibilitySyniti OwnerTechnical execution - implements fixes, configurations, deploymentsBusiness OwnerBusiness verification - confirms the solution meets requirements
-This separation eliminates ambiguity, speeds up resolution, and creates clear audit trails for compliance.
-Built from Experience:
+- RoleResponsibilitySyniti OwnerTechnical execution - implements fixes, configurations, deploymentsBusiness OwnerBusiness verification - confirms the solution meets requirements
+- This separation eliminates ambiguity, speeds up resolution, and creates clear audit trails for compliance.
+### Built from Experience:
 This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on experience supporting JnJ's mDPI operations on the DSP platform - solving real problems I see every day.
 
 ---
