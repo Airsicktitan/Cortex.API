@@ -18,6 +18,25 @@ CORTEX revolutionizes support operations by intelligently routing tickets based 
 
 ---
 
+## ❓ Why CORTEX?
+
+The Problem:
+In enterprise support operations, ticket ownership is often ambiguous. A single "owner" field doesn't capture the reality of how work actually flows - technical teams execute fixes while business stakeholders must verify outcomes. This leads to:
+
+- 🔄 Tickets bouncing between teams with unclear responsibility
+- ⏱️ Delays waiting for the "right person" to take action
+- 📉 Difficulty tracking who did what and when
+- 🤷 No clear accountability for technical vs. business sign-off
+
+The Solution:
+CORTEX introduces a dual ownership model that mirrors how enterprise support actually works:
+RoleResponsibilitySyniti OwnerTechnical execution - implements fixes, configurations, deploymentsBusiness OwnerBusiness verification - confirms the solution meets requirements
+This separation eliminates ambiguity, speeds up resolution, and creates clear audit trails for compliance.
+Built from Experience:
+This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on experience supporting JnJ's mDPI operations on the DSP platform - solving real problems I see every day.
+
+---
+
 ## ✨ Current Features
 
 ### Backend API (.NET 10)
