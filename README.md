@@ -71,3 +71,45 @@ API available at: `http://localhost:5214`
 ---
 
 **Status:** 🚧 Active Development | **Visibility:** 🔒 Private | **Target:** 🎯 Production-Ready by Nov 2026
+
+
+## 📸 Demo Screenshots
+
+### React Frontend
+![CORTEX Main View](screenshots/frontend-main.png)
+*Main dashboard showing all tickets with filtering capability*
+
+![Filtered View](screenshots/frontend-filter.png)
+*Filtering tickets by status*
+
+### Interactive Features
+![Edit Modal](screenshots/modal-edit.png)
+![Edit Modal](screenshots/modal-edit-audit-history.png)
+![Edit Modal](screenshots/modal-edit-save.png)
+*Click any ticket to view details and edit priority, status, and owners*
+
+### API Documentation
+![Swagger UI](screenshots/swagger-api.png)
+*RESTful API with 7 endpoints documented in Swagger*
+
+![Swagger UI](screenshots/swagger-detail.png)
+*RESTful API with endpoint Get displaying sample data*
+
+### Code Quality
+![Backend Code](screenshots/code-backend-program-file.png)
+![Backend Code](screenshots/code-backend-endpoints-01.png)
+![Backend Code](screenshots/code-backend-endpoints-02.png)
+![Backend Code](screenshots/code-backend-sampledata-file.png)
+![Backend Code](screenshots/code-backend-ticket-model.png)
+*Clean, organized endpoint structure*
+
+![Frontend Code](screenshots/code-frontend-app-01.png)
+![Frontend Code](screenshots/code-frontend-app-02.png)
+![Frontend Code](screenshots/code-frontend-app-03.png)
+![Frontend Code](screenshots/code-frontend-api.png)
+![Frontend Code](screenshots/code-frontend-ticketCard-component.png)
+![Frontend Code](screenshots/code-frontend-ticketmodal-01.png)
+![Frontend Code](screenshots/code-frontend-ticketmodal-02.png)
+![Frontend Code](screenshots/code-frontend-ticketmodal-03.png)
+![Frontend Code](screenshots/code-frontend-ticketmodal-04.png)
+*Modern React with TypeScript and Tailwind CSS*
