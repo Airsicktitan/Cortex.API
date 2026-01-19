@@ -1,0 +1,52 @@
+using Cortex.API.Extensions;
+using Swashbuckle.AspNetCore.SwaggerGen;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "CORTEX API",
+        Version = "v1",
+        Description = "Central Operations & Routing Technology EXpert - Intelligent Support Operations Platform",
+        Contact = new Microsoft.OpenApi.Models.OpenApiContact
+        {
+            Name = "Adam Hooper",
+            Email = "adam.hooper@syniti.com"
+        }
+    });
+});
+
+// Add CORS for React Frontend
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+var app = builder.Build();
+
+// Enable Swagger in Dev
+if (app.Environment.IsProduction())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
+        options.RoutePrefix = "swagger";
+    });
+}
+
+app.UseCors();
+
+// Map all ticket endpoints
+app.MapTicketEndpoints();
+
+app.Run();
