@@ -40,3 +40,4 @@ C:\Users\adamc\Documents\Cortex.API\obj\Debug\net8.0\refint\Cortex.API.dll
 C:\Users\adamc\Documents\Cortex.API\obj\Debug\net8.0\Cortex.API.pdb
 C:\Users\adamc\Documents\Cortex.API\obj\Debug\net8.0\Cortex.API.genruntimeconfig.cache
 C:\Users\adamc\Documents\Cortex.API\obj\Debug\net8.0\ref\Cortex.API.dll
+C:\Users\adamc\Documents\Cortex.API\obj\Debug\net8.0\Cortex.API.sourcelink.json

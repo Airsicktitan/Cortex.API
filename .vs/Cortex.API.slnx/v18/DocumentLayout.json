@@ -40,7 +40,7 @@
               "RelativeDocumentMoniker": "Extensions\\TicketEndpoints.cs",
               "ToolTip": "C:\\Users\\adamc\\Documents\\Cortex.API\\Extensions\\TicketEndpoints.cs",
               "RelativeToolTip": "Extensions\\TicketEndpoints.cs",
-              "ViewState": "AgIAADAAAAAAAAAAAAAAAE4AAAAiAAAAAAAAAA==",
+              "ViewState": "AgIAADAAAAAAAAAAAAAAADwAAAAiAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-01-19T05:29:23.059Z",
               "EditorCaption": ""
@@ -55,8 +55,7 @@
               "RelativeToolTip": "Properties\\launchSettings.json",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAOAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2026-01-19T04:54:09.002Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-01-19T04:54:09.002Z"
             },
             {
               "$type": "Document",
@@ -68,8 +67,7 @@
               "RelativeToolTip": "Cortex.API.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAKAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-01-19T04:53:49.122Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-01-19T04:53:49.122Z"
             },
             {
               "$type": "Document",
@@ -81,8 +79,7 @@
               "RelativeToolTip": "Data\\SampleData.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAwCAAAAAOAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-18T08:36:42.142Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-01-18T08:36:42.142Z"
             },
             {
               "$type": "Document",
@@ -94,8 +91,7 @@
               "RelativeToolTip": "Program.cs",
               "ViewState": "AgIAAAwAAAAAAAAAAAAAADEAAAAZAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-18T07:20:35.486Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-01-18T07:20:35.486Z"
             }
           ]
         }
