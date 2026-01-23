@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\adamc\\documents\\Cortex.Api\\Cortex.API.csproj": {}
+    "C:\\Users\\adamc\\documents\\Cortex.API\\Cortex.API.csproj": {}
   },
   "projects": {
-    "C:\\Users\\adamc\\documents\\Cortex.Api\\Cortex.API.csproj": {
+    "C:\\Users\\adamc\\documents\\Cortex.API\\Cortex.API.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\adamc\\documents\\Cortex.Api\\Cortex.API.csproj",
+        "projectUniqueName": "C:\\Users\\adamc\\documents\\Cortex.API\\Cortex.API.csproj",
         "projectName": "Cortex.API",
-        "projectPath": "C:\\Users\\adamc\\documents\\Cortex.Api\\Cortex.API.csproj",
+        "projectPath": "C:\\Users\\adamc\\documents\\Cortex.API\\Cortex.API.csproj",
         "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\adamc\\documents\\Cortex.Api\\obj\\",
+        "outputPath": "C:\\Users\\adamc\\documents\\Cortex.API\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -51,6 +51,16 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "dependencies": {
+            "Microsoft.EntityFrameworkCore.Design": {
+              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[8.0.1, )"
+            },
+            "Microsoft.EntityFrameworkCore.SqlServer": {
+              "target": "Package",
+              "version": "[8.0.1, )"
+            },
             "Newtonsoft.Json": {
               "target": "Package",
               "version": "[13.0.3, )"
