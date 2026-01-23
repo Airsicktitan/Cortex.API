@@ -80,6 +80,7 @@ This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on e
 - .NET 10
 - ASP.NET Core Minimal APIs
 - Swagger/OpenAPI for documentation
+- SQL Server + Entity Framework Core
 
 **Frontend:**
 - React 18
@@ -88,7 +89,6 @@ This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on e
 - Vite (build tool)
 
 **Planned:**
-- SQL Server + Entity Framework Core
 - ML.NET for AI features
 - SignalR for real-time
 - Azure for deployment
