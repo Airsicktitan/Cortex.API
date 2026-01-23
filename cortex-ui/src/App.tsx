@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Ticket } from "./types/ticket";
 import { ticketService } from "./services/api";
 import TicketCard from "./components/TicketCard";
@@ -115,7 +115,7 @@ function App() {
             <div className="flex items-center space-x-4">
               <select
                 value={filter}
-                onChange={(e) => {
+                onChange={(e: { target: { value: any; }; }) => {
                   setFilter(e.target.value as any);
                   setFilterValue("");
                 }}

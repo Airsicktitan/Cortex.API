@@ -1,7 +1,14 @@
+using Microsoft.EntityFrameworkCore;
 using Cortex.API.Extensions;
+using Cortex.API.Database;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddDbContext<CortexDbContext>(options =>
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("CortexDb")
+    ));
+
 
 // Add services
 builder.Services.AddEndpointsApiExplorer();

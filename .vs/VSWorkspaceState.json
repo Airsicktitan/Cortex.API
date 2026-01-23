@@ -2,9 +2,10 @@
   "ExpandedNodes": [
     "",
     "\\Data",
+    "\\Database",
     "\\Extensions",
     "\\Properties"
   ],
-  "SelectedNode": "\\screenshots",
+  "SelectedNode": "\\Database\\CortexDbContext.cs",
   "PreviewInSolutionExplorer": false
 }
