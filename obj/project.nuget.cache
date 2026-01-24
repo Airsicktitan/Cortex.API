@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "RagVN6h5fXs=",
+  "dgSpecHash": "ZaL16GOsaXY=",
   "success": true,
-  "projectFilePath": "C:\\Users\\adamc\\documents\\Cortex.API\\Cortex.API.csproj",
+  "projectFilePath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\adamc\\.nuget\\packages\\azure.core\\1.25.0\\azure.core.1.25.0.nupkg.sha512",
     "C:\\Users\\adamc\\.nuget\\packages\\azure.identity\\1.7.0\\azure.identity.1.7.0.nupkg.sha512",

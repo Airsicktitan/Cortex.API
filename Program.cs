@@ -11,9 +11,11 @@ builder.Services.AddDbContext<CortexDbContext>(options =>
 
 
 // Add services
-builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddEndpointsApiExplorer(); // for minimal APIs, needed for Swagger
+// Configure Swagger/OpenAPI
 builder.Services.AddSwaggerGen(options =>
 {
+    // Basic info
     options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
     {
         Title = "CORTEX API",
@@ -38,10 +40,20 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Build app
 var app = builder.Build();
 
-// Enable Swagger in Dev
-if (app.Environment.IsProduction())
+// Enable Swagger in Dev or Production, probably want to lock this down later
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
+        options.RoutePrefix = "swagger";
+    });
+}
+else
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>

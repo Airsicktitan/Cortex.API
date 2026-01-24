@@ -4,6 +4,7 @@ using Cortex.API.Models;
 
 public static class SampleData
 {
+    // Generate sample tickets for testing/demo purposes using JSON-like object initialization
     public static List<Ticket> GetSampleTickets()
     {
         return new List<Ticket>
