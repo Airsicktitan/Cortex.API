@@ -52,6 +52,7 @@ This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on e
 - ✅ **Immutable field protection** (ID, creation metadata)
 - ✅ **Swagger/OpenAPI documentation**
 - ✅ **CORS enabled** for frontend integration
+- ✅ Database persistence (SQL Server + EF Core)
 
 ### Frontend (React + TypeScript + Tailwind)
 - ✅ **Modern, responsive UI** with gradient design
@@ -70,7 +71,6 @@ This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on e
 - ⏳ AI-powered ticket categorization (ML.NET)
 - ⏳ Predictive analytics
 - ⏳ Real-time updates (SignalR)
-- ⏳ Database persistence (SQL Server + EF Core)
 
 ---
 
@@ -80,6 +80,7 @@ This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on e
 - .NET 10
 - ASP.NET Core Minimal APIs
 - Swagger/OpenAPI for documentation
+- SQL Server + Entity Framework Core
 
 **Frontend:**
 - React 18
@@ -88,7 +89,6 @@ This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on e
 - Vite (build tool)
 
 **Planned:**
-- SQL Server + Entity Framework Core
 - ML.NET for AI features
 - SignalR for real-time
 - Azure for deployment
