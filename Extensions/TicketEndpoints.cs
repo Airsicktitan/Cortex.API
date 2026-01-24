@@ -66,22 +66,22 @@ public static class TicketEndpoints
         {
             // Generate next ticket number safely
             var maxNum = db.Tickets
-                .Where(t => t.Id.StartsWith("TICKET-"))
+                .Where(t => t.Id.StartsWith("TICKET-")) // filter to expected format
                 .Select(t => t.Id)
                 .AsEnumerable() // client-side
-                .Select(id => int.Parse(id.Substring(7)))
-                .DefaultIfEmpty(0)
-                .Max();
+                .Select(id => int.Parse(id.Substring(7))) // Current bug that needs to be addressed.  This will crash if the format is unexpected. IE: "TICKET-XYZ"
+                .DefaultIfEmpty(0) // handle empty case
+                .Max(); // get max number
 
 
-            ticket.Id = $"TICKET-{(maxNum + 1):D3}";
-            ticket.CreatedDate = DateTime.UtcNow;
-            ticket.CreatedBy = ticket.CreatedBy ?? "System";
+            ticket.Id = $"TICKET-{(maxNum + 1):D3}"; // format with leading zeros
+            ticket.CreatedDate = DateTime.UtcNow; // set creation date
+            ticket.CreatedBy = ticket.CreatedBy ?? "System"; // default creator if not provided, will change to authenticated user later. ** TODO: auth **
 
-            db.Tickets.Add(ticket);
-            await db.SaveChangesAsync();
+            db.Tickets.Add(ticket); // add to context
+            await db.SaveChangesAsync(); // save to database
 
-            return Results.Created($"/api/tickets/{ticket.Id}", ticket);
+            return Results.Created($"/api/tickets/{ticket.Id}", ticket); // return created response
         })
         .WithName("CreateTicket")
         .WithTags("Tickets")
@@ -104,9 +104,9 @@ public static class TicketEndpoints
 
             // Track modification
             existing.LastModifiedBy = "API User"; // TODO: auth
-            existing.LastModifiedDate = DateTime.UtcNow;
+            existing.LastModifiedDate = DateTime.UtcNow; // set modification date
 
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(); // save changes
 
             return Results.Ok(existing);
         })
@@ -114,5 +114,8 @@ public static class TicketEndpoints
         .WithTags("Tickets")
         .Produces<Ticket>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
+
+        // Delete ticket ** TODO: add auth/roles later and add delete API call to db **
+        // app.MapDelete("/api/tickets/{id}", async (string id, CortexDbContext db) => {}
     }
 }
