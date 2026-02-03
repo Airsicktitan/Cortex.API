@@ -133,5 +133,32 @@ public static class TicketEndpoints
 
         // Delete ticket ** TODO: add auth/roles later and add delete API call to db **
         // app.MapDelete("/api/tickets/{id}", async (string id, CortexDbContext db) => {}
+
+        // User endpoints can be added here similarly
+        app.MapPost("/api/users/test", async (User user, CortexDbContext db) =>
+        {
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+            return Results.Ok(new
+            {
+                message = "User created successfully",
+                userId = user.Id,
+                user
+            });
+        })
+        .WithName("CreateUserTest")
+        .WithTags("Users")
+        .Produces<User>(StatusCodes.Status201Created)
+        .Produces(StatusCodes.Status400BadRequest);
+
+        app.MapGet("/api/users/test", async (CortexDbContext db) =>
+        {
+            var users = await db.Users.ToListAsync();
+            return Results.Ok(users);
+        })
+        .WithName("GetUsersTest")
+        .WithTags("Users")
+        .Produces<List<User>>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status400BadRequest);;
     }
 }
