@@ -11,6 +11,7 @@ public class CortexDbContext : DbContext
     }
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<User> Users => Set<User>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -30,6 +31,27 @@ public class CortexDbContext : DbContext
 
             entity.HasIndex(t => t.Status);
             entity.HasIndex(t => t.Priority);
+        });
+
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasKey(u => u.Id);
+
+            entity.Property(u => u.Username)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(u => u.Email)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.HasIndex(u => u.Username)
+                .IsUnique();
+
+            entity.HasIndex(u => u.Email)
+                .IsUnique();
+            entity.Property(u => u.Role)
+                .HasConversion<string>();
         });
     }
 }
