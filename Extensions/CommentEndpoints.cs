@@ -13,41 +13,13 @@ public static class CommentEndpoints
         var comments = app.MapGroup("/api/tickets/{ticketId}/comments")
             .WithTags("Comments");
 
-        comments.MapGet("/", async (string ticketId, CortexDbContext db) =>
-        {
-            var results = await db.Comments
-                .Where(c => c.TicketId == ticketId)
-                .OrderBy(c => c.CreatedDate)
-                .ToListAsync();
+        comments.MapGet("/", CommentHandlers.GetAllComments)
+            .WithName("GetAllComments")
+            .Produces<List<Comment>>(StatusCodes.Status200OK);
 
-            return Results.Ok(results);
-        });
-
-        comments.MapPost("/", async (
-            string ticketId,
-            CreateCommentRequest request,
-            CortexDbContext db
-        ) =>
-        {
-            var ticketExists = await db.Tickets.AnyAsync(t => t.Id == ticketId);
-            if (!ticketExists) return Results.NotFound();
-
-            var comment = new Comment
-            {
-                TicketId = ticketId,
-                Body = request.Body,
-                CreatedBy = request.CreatedBy ?? "System",
-                CreatedDate = DateTime.UtcNow
-            };
-
-            db.Comments.Add(comment);
-            await db.SaveChangesAsync();
-
-            return Results.Created(
-                $"/api/tickets/{ticketId}/comments/{comment.Id}",
-                comment
-            );
-        });
+        comments.MapPost("/", CommentHandlers.CreateComment)
+            .WithName("CreateComment")
+            .Produces<Comment>(StatusCodes.Status201Created);
     }
     public record CreateCommentRequest(string Body, string? CreatedBy);
 }
