@@ -2,10 +2,12 @@ namespace Cortex.API.Extensions;
 
 using Cortex.API.Models;
 using Cortex.API.Database;
+using Cortex.API.Handlers;
+
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
-/// Defines all ticket-related API endpoints for CORTEX.
+/// Defines all user-related API endpoints for CORTEX.
 /// Implements RESTful CRUD operations with database persistence via Entity Framework Core.
 /// 
 /// Known Limitations:
@@ -28,26 +30,12 @@ public static class UserEndpoints
         var users = app.MapGroup("/api/users")
             .WithTags("Users");
 
-        users.MapPost("/test", async (User user, CortexDbContext db) =>
-        {
-            db.Users.Add(user);
-            await db.SaveChangesAsync();
-            return Results.Ok(new
-            {
-                message = "User created successfully",
-                userId = user.Id,
-                user
-            });
-        })
+        users.MapPost("/test", UserHandlers.CreateUserTest)
         .WithName("CreateUserTest")
         .Produces<User>(StatusCodes.Status201Created)
         .Produces(StatusCodes.Status400BadRequest);
 
-        users.MapGet("/test", async (CortexDbContext db) =>
-        {
-            var users = await db.Users.ToListAsync();
-            return Results.Ok(users);
-        })
+        users.MapGet("/test", UserHandlers.GetUsersTest)
         .WithName("GetUsersTest")
         .Produces<List<User>>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status400BadRequest);;
