@@ -2,6 +2,8 @@ namespace Cortex.API.Extensions;
 
 using Cortex.API.Models;
 using Cortex.API.Database;
+using Cortex.API.Handlers;
+
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
@@ -24,139 +26,46 @@ public static class TicketEndpoints
 {
     public static void MapTicketEndpoints(this WebApplication app)
     {
-        // Root endpoint
-        app.MapGet("/", () => "🧠 CORTEX Online - Central Operations & Routing Technology EXpert")
-            .WithName("Root")
-            .WithTags("Health");
-
         // Get all tickets
         var tickets = app.MapGroup("/api/tickets")
             .WithTags("Tickets")
             .RequireAuthorization();
 
-        tickets.MapGet("/", async (CortexDbContext db) =>
-        {
-            return await db.Tickets.ToListAsync();
-        })
-        .Produces<List<Ticket>>(StatusCodes.Status200OK);
+        tickets.MapGet("/", TicketHandlers.GetAllTickets)
+            .WithName("GetAllTickets")
+            .Produces<List<Ticket>>(StatusCodes.Status200OK);
 
         // Get ticket by ID
-        tickets.MapGet("/{id}", async (string id, CortexDbContext db) =>
-        {
-            var ticket = await db.Tickets.FindAsync(id);
-            return ticket is not null ? Results.Ok(ticket) : Results.NotFound();
-        })
-        .WithName("GetTicketById")
-        .Produces<Ticket>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status404NotFound);
+        tickets.MapGet("/{id}", TicketHandlers.GetTicketById)
+            .WithName("GetTicketById")
+            .Produces<Ticket>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
 
         // Get tickets by status
-        tickets.MapGet("/status/{status}", async (string status, CortexDbContext db) =>
-        {
-            var filtered = await db.Tickets
-                .Where(t => t.Status == status)
-                .ToListAsync();
-
-            return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
-        })
-        .WithName("GetTicketsByStatus")
-        .Produces<List<Ticket>>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status404NotFound);
+        tickets.MapGet("/status/{status}", TicketHandlers.GetTicketsByStatus)
+            .WithName("GetTicketsByStatus")
+            .Produces<List<Ticket>>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
 
         // Get tickets by priority
-        tickets.MapGet("/priority/{priority}", async (string priority, CortexDbContext db) =>
-        {
-            var filtered = await db.Tickets
-                .Where(t => t.Priority == priority)
-                .ToListAsync();
-
-            return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
-        })
-        .WithName("GetTicketsByPriority")
-        .Produces<List<Ticket>>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status404NotFound);
+        tickets.MapGet("/priority/{priority}", TicketHandlers.GetTicketsByPriority)
+            .WithName("GetTicketsByPriority")
+            .Produces<List<Ticket>>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
 
         // Create new ticket
-        tickets.MapPost("/", async (Ticket ticket, CortexDbContext db) =>
-        {
-            // Generate next ticket number safely
-            var maxNum = db.Tickets
-                .Where(t => t.Id.StartsWith("TICKET-")) // filter to expected format
-                .Select(t => t.Id)
-                .AsEnumerable() // client-side
-                .Select(id => int.Parse(id.Substring(7))) // Current bug that needs to be addressed.  This will crash if the format is unexpected. IE: "TICKET-XYZ"
-                .DefaultIfEmpty(0) // handle empty case
-                .Max(); // get max number
-
-
-            ticket.Id = $"TICKET-{(maxNum + 1):D3}"; // format with leading zeros
-            ticket.CreatedDate = DateTime.UtcNow; // set creation date
-            ticket.CreatedBy = ticket.CreatedBy ?? "System"; // default creator if not provided, will change to authenticated user later. ** TODO: auth **
-
-            db.Tickets.Add(ticket); // add to context
-            await db.SaveChangesAsync(); // save to database
-
-            return Results.Created($"/api/tickets/{ticket.Id}", ticket); // return created response
-        })
-        .WithName("CreateTicket")
-        .Produces<Ticket>(StatusCodes.Status201Created);
+        tickets.MapPost("/", TicketHandlers.CreateTicket)
+            .WithName("CreateTicket")
+            .Produces<Ticket>(StatusCodes.Status201Created);
 
         // Update ticket
-        tickets.MapPut("/{id}", async (string id, Ticket updatedTicket, CortexDbContext db) =>
-        {
-            var existing = await db.Tickets.FindAsync(id);
-            if (existing is null)
-                return Results.NotFound();
-
-            // Update mutable fields
-            existing.Title = updatedTicket.Title;
-            existing.Description = updatedTicket.Description;
-            existing.Status = updatedTicket.Status;
-            existing.Priority = updatedTicket.Priority;
-            existing.SynitiOwner = updatedTicket.SynitiOwner;
-            existing.BusinessOwner = updatedTicket.BusinessOwner;
-
-            // Track modification
-            existing.LastModifiedBy = "API User"; // TODO: auth
-            existing.LastModifiedDate = DateTime.UtcNow; // set modification date
-
-            await db.SaveChangesAsync(); // save changes
-
-            return Results.Ok(existing);
-        })
-        .WithName("UpdateTicket")
-        .Produces<Ticket>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status404NotFound);
+        tickets.MapPut("/{id}", TicketHandlers.UpdateTicket)
+            .WithName("UpdateTicket")
+            .Produces<Ticket>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
 
         // Delete ticket ** TODO: add auth/roles later and add delete API call to db **
         // app.MapDelete("/api/tickets/{id}", async (string id, CortexDbContext db) => {}
 
-        // User endpoints can be added here similarly
-        var users = app.MapGroup("/api/users")
-            .WithTags("Users");
-
-        users.MapPost("/test", async (User user, CortexDbContext db) =>
-        {
-            db.Users.Add(user);
-            await db.SaveChangesAsync();
-            return Results.Ok(new
-            {
-                message = "User created successfully",
-                userId = user.Id,
-                user
-            });
-        })
-        .WithName("CreateUserTest")
-        .Produces<User>(StatusCodes.Status201Created)
-        .Produces(StatusCodes.Status400BadRequest);
-
-        users.MapGet("/test", async (CortexDbContext db) =>
-        {
-            var users = await db.Users.ToListAsync();
-            return Results.Ok(users);
-        })
-        .WithName("GetUsersTest")
-        .Produces<List<User>>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status400BadRequest);;
     }
 }
