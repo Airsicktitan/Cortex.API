@@ -31,13 +31,13 @@ public static class UserEndpoints
             .WithTags("Users");
 
         users.MapPost("/test", UserHandlers.CreateUserTest)
-        .WithName("CreateUserTest")
-        .Produces<User>(StatusCodes.Status201Created)
-        .Produces(StatusCodes.Status400BadRequest);
+            .WithName("CreateUserTest")
+            .Produces<User>(StatusCodes.Status201Created)
+            .Produces(StatusCodes.Status400BadRequest);
 
         users.MapGet("/test", UserHandlers.GetUsersTest)
-        .WithName("GetUsersTest")
-        .Produces<List<User>>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status400BadRequest);;
+            .WithName("GetUsersTest")
+            .Produces<List<User>>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest);;
     }
 }

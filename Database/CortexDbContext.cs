@@ -12,6 +12,7 @@ public class CortexDbContext : DbContext
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<Comment> Comments => Set<Comment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -53,5 +54,11 @@ public class CortexDbContext : DbContext
             entity.Property(u => u.Role)
                 .HasConversion<string>();
         });
+
+        modelBuilder.Entity<Comment>()
+            .HasOne(c => c.Ticket)
+            .WithMany(t => t.Comments)
+            .HasForeignKey(c => c.TicketId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

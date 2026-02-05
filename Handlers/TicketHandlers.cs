@@ -89,4 +89,15 @@ public static class TicketHandlers
 
             return Results.Ok(existing);
     }
+    public static async Task<IResult> DeleteTicket(string id, CortexDbContext db)
+    {
+        var existing = await db.Tickets.FindAsync(id);
+            if (existing is null)
+                return Results.NotFound();
+
+            db.Tickets.Remove(existing);
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new { message = "Ticket deleted successfully" });
+    }
 }
