@@ -120,6 +120,19 @@ function App() {
       setTicketToDelete(null); // ✅ close confirm modal
     }
   };
+  const closeModal = () => {
+    setIsModalOpen(false);
+
+    // IMPORTANT: clear AFTER unmount commit
+    setTimeout(() => {
+      setSelectedTicket(null);
+    }, 0);
+  };
+
+  const openTicket = (ticket: Ticket) => {
+    setSelectedTicket(ticket);
+    setIsModalOpen(true);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -160,8 +173,8 @@ function App() {
             </button>
 
             <button
-              onClick={() => {
-                setSelectedTicket({
+              onClick={() =>
+                openTicket({
                   id: "",
                   title: "",
                   description: "",
@@ -169,9 +182,8 @@ function App() {
                   status: "New",
                   createdBy: "UI",
                   createdDate: new Date().toISOString(),
-                } as Ticket);
-                setIsModalOpen(true);
-              }}
+                } as Ticket)
+              }
               className="px-4 py-2 bg-green-600 text-white rounded-md"
             >
               + New Ticket
@@ -204,10 +216,7 @@ function App() {
               <TicketCard
                 key={ticket.id}
                 ticket={ticket}
-                onClick={() => {
-                  setSelectedTicket(ticket);
-                  setIsModalOpen(true);
-                }}
+                onClick={() => openTicket(ticket)}
               />
             ))}
           </div>
@@ -216,10 +225,10 @@ function App() {
 
       {selectedTicket && isModalOpen && (
         <TicketModal
-          key={selectedTicket.id || "new"}
+          key={selectedTicket.id ?? "new"}
           ticket={selectedTicket}
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          isOpen
+          onClose={closeModal}
           onSave={handleSaveTicket}
           onDelete={requestDeleteTicket}
         />
