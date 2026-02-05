@@ -1,7 +1,7 @@
 # 🧠 CORTEX
 **Central Operations & Routing Technology EXpert**
 
-An AI-powered intelligent support operations platform for enterprise ticket management.
+A SaaS-style support operations platform designed to model **real enterprise ownership, accountability, and workflow flow** — not idealized ticket states.
 
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![.NET](https://img.shields.io/badge/.NET-10-purple)
@@ -10,254 +10,131 @@ An AI-powered intelligent support operations platform for enterprise ticket mana
 
 ---
 
-## 🎯 Overview
+## 🚀 Product Summary
 
-CORTEX revolutionizes support operations by intelligently routing tickets based on skills, workload, and historical patterns. Built to solve real workflow problems in Syniti's DSP platform operations.
+CORTEX is an intelligent support operations platform that introduces **explicit, dual ownership** into ticket lifecycles.
 
-**Key Innovation:** Dual ownership model separating technical execution (Syniti Owner) from business verification (Business Owner) - solving the ambiguity in current support workflows.
+Instead of assuming a single “owner,” CORTEX models how enterprise support actually works:
+- Technical teams execute
+- Business teams verify
+- Responsibility shifts — and must be visible
+
+CORTEX is built as a **product**, not a demo:
+- Opinionated domain model
+- API-enforced invariants
+- Frontend designed around accountability
+- Architecture intended to scale
 
 ---
 
-## ❓ Why CORTEX?
+## 🎯 Core Value Proposition
 
-### The Problem:
-In enterprise support operations, ticket ownership is often ambiguous. A single "owner" field doesn't capture the reality of how work actually flows - technical teams execute fixes while business stakeholders must verify outcomes. This leads to:
+**CORTEX answers one question clearly:**
 
-- 🔄 Tickets bouncing between teams with unclear responsibility
-- ⏱️ Delays waiting for the "right person" to take action
-- 📉 Difficulty tracking who did what and when
-- 🤷 No clear accountability for technical vs. business sign-off
+> *Who is responsible for this ticket right now — and why?*
 
-### The Solution:
-CORTEX introduces a dual ownership model that mirrors how enterprise support actually works:
+By separating execution from verification, CORTEX:
+- Reduces ownership ambiguity
+- Shortens handoff delays
+- Improves auditability
+- Makes escalations factual instead of emotional
+
+---
+
+## 🧠 Dual Ownership Model
 
 | Role | Responsibility |
 |------|----------------|
-| **Syniti Owner** | Technical execution - implements fixes, configurations, deployments |
-| **Business Owner** | Business verification - confirms the solution meets requirements |
+| **Syniti Owner** | Technical execution (code, configuration, deployments) |
+| **Business Owner** | Business validation and acceptance |
 
-### Built from Experience:
-This isn't theoretical. CORTEX is designed by someone with 5 years of hands-on experience supporting JnJ's mDPI operations on the DSP platform - solving real problems I see every day.
-
----
-
-## ✨ Current Features
-
-### Backend API (.NET 10)
-- ✅ **7 RESTful endpoints** with full CRUD operations
-- ✅ **Dual ownership tracking** (Technical + Business owners)
-- ✅ **String-based ticket IDs** (TICKET-001, TICKET-002, etc.)
-- ✅ **Filtering capabilities** (by status, priority)
-- ✅ **Audit trail** (CreatedBy, LastModifiedBy, timestamps)
-- ✅ **Immutable field protection** (ID, creation metadata)
-- ✅ **Swagger/OpenAPI documentation**
-- ✅ **CORS enabled** for frontend integration
-- ✅ Database persistence (SQL Server + EF Core)
-
-### Frontend (React + TypeScript + Tailwind)
-- ✅ **Modern, responsive UI** with gradient design
-- ✅ **Real-time ticket display** from API
-- ✅ **Interactive filtering** (status, priority with partial match)
-- ✅ **Modal editing** (click any ticket to view/edit)
-- ✅ **Editable fields:** Priority, Status, Syniti Owner, Business Owner
-- ✅ **Visual priority badges** (color-coded: Critical/High/Medium/Low)
-- ✅ **Status indicators** (New/In Progress/Pending Review/Resolved/Closed)
-- ✅ **Metadata display** (creation date, last modified, owners)
-
-### Planned Features
-- ⏳ Smart routing engine (skill + workload based)
-- ⏳ Environment deployment tracking (Dev → QA → Prod)
-- ⏳ CTS archive integration
-- ⏳ AI-powered ticket categorization (ML.NET)
-- ⏳ Predictive analytics
-- ⏳ Real-time updates (SignalR)
+Ownership is **explicit, enforced, and auditable** — not inferred from comments or status names.
 
 ---
 
-## 🛠 Tech Stack
+## 🏗 SaaS-Oriented Architecture
 
-**Backend:**
-- .NET 10
-- ASP.NET Core Minimal APIs
-- Swagger/OpenAPI for documentation
-- SQL Server + Entity Framework Core
+### Backend (.NET 10)
+- Minimal APIs with route grouping
+- Domain rules enforced at the API boundary
+- Immutable system fields protected server-side
+- SQL Server + EF Core persistence
+- Swagger/OpenAPI documentation
+- CORS configured for multi-client access
 
-**Frontend:**
-- React 18
-- TypeScript 5
-- Tailwind CSS 3
-- Vite (build tool)
+### Frontend (React + TypeScript)
+- Strong typing across API boundaries
+- UI surfaces ownership and responsibility first
+- Filtering designed for operational triage
+- Modal workflows minimize context switching
 
-**Planned:**
-- ML.NET for AI features
-- SignalR for real-time
-- Azure for deployment
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- .NET 10 SDK ([Download](https://dotnet.microsoft.com/download))
-- Node.js 20+ ([Download](https://nodejs.org/))
-- Visual Studio 2022+ or VS Code
-
-### Run Backend API
-```bash
-cd Cortex.API
-dotnet run
-```
-
-API runs at: `http://localhost:5214`
-
-**Swagger UI:** `http://localhost:5214/swagger`
-
-### Run Frontend
-```bash
-cd cortex-ui
-npm install
-npm run dev
-```
-
-Frontend runs at: `http://localhost:5173`
+This architecture intentionally mirrors:
+- Multi-tenant SaaS APIs
+- Internal tooling platforms
+- Operational dashboards
 
 ---
 
-## 📍 API Endpoints
+## ✨ Current Feature Set
 
-### Health
-- `GET /` - API health check
+### Implemented
+- Ticket lifecycle management (CRUD)
+- Dual ownership tracking
+- Priority & status filtering
+- Audit metadata (created / modified)
+- Immutable system fields
+- API documentation
+- Responsive UI with real-time data binding
 
-### Tickets
-- `GET /api/tickets` - List all tickets
-- `GET /api/tickets/{id}` - Get specific ticket by ID
-- `GET /api/tickets/status/{status}` - Filter tickets by status
-- `GET /api/tickets/priority/{priority}` - Filter tickets by priority
-- `POST /api/tickets` - Create new ticket (auto-generates ID)
-- `PUT /api/tickets/{id}` - Update ticket (preserves immutable fields)
-
-**Protected Fields (Immutable):**
-- Ticket ID
-- Created By
-- Created Date
-
-**Editable Fields:**
-- Title, Description
-- Priority (Critical/High/Medium/Low)
-- Status (New/In Progress/Pending Business Review/Resolved/Closed)
-- Syniti Owner
-- Business Owner
+### In Progress / Planned
+- 🔐 Authentication & Authorization (JWT + policies)
+- 🧠 Skill- and workload-based routing engine
+- 📦 Environment progression tracking (Dev → QA → Prod)
+- 📊 SLA and duration analytics
+- 🤖 ML-assisted categorization (ML.NET)
+- 🔄 Real-time updates (SignalR)
 
 ---
 
-## 🏗 Architecture
+## ⚠️ Known Limitations (Intentional)
 
-**Clean Separation of Concerns:**
-```
-Backend (Cortex.API)
-├── Extensions/         # Endpoint definitions
-│   └── TicketEndpoints.cs
-├── Models/            # Data models
-│   └── Ticket.cs
-└── Program.cs         # Application setup
+CORTEX is under active development. The following limitations are **known, documented, and planned**:
 
-Frontend (cortex-ui)
-├── components/        # React components
-│   ├── TicketCard.tsx
-│   └── TicketModal.tsx
-├── services/          # API integration
-│   └── api.ts
-├── types/             # TypeScript definitions
-│   └── ticket.ts
-└── App.tsx           # Main application
-```
+- ❌ No authentication yet (open API during early development)
+- ❌ No multi-tenancy enforcement
+- ❌ Routing logic currently manual
+- ❌ No role-based authorization policies
+- ❌ No historical SLA analytics yet
+- ❌ No real-time push (polling only)
+
+> These are **not oversights** — they are staged deliberately to keep the core domain model stable before layering complexity.
 
 ---
 
-## 📝 Development Timeline
+## 🧪 Product Philosophy
 
-**Week 1 (Jan 13-19, 2026):** ✅ **COMPLETE**
-- Backend API with 7 endpoints
-- React frontend with Tailwind UI
-- Full CRUD operations
-- Filtering and editing capabilities
-- Swagger documentation
-- GitHub repository established
+CORTEX follows a deliberate product approach:
+- **Model reality first**
+- **Protect invariants early**
+- **Add intelligence only when data exists**
+- **Refactor openly as understanding deepens**
 
-**Next Steps:**
-- Database integration (SQL Server + EF Core)
-- Authentication (JWT)
-- Smart routing algorithm
-- AI-powered categorization
-- Environment tracking
-
-**Target:** Production-ready by November 2026 DemoJam
+This repository reflects real-world iteration, not frozen perfection.
 
 ---
 
-## 👨‍💻 About
+## 📌 Project Status
 
-**Developer:** Adam Hooper  
-**Role:** Senior Consultant at Syniti  
-**Purpose:** Full-stack engineering demonstration for internal Engineer II position
-
-**Project Goals:**
-1. Demonstrate full-stack development capability
-2. Solve real support operations problems
-3. Showcase modern tech stack proficiency
-4. Build production-quality software
-5. Present at Syniti DemoJam (November 2026)
+- 🚧 Active development
+- 🧪 Pre-alpha SaaS prototype
+- 🎯 Long-term goal: internal platform-grade deployment
 
 ---
 
-## 📧 Contact
+## 👨‍💻 Author
 
 **Adam Hooper**  
-Senior Consultant | Syniti  
-[GitHub](https://github.com/Airsicktitan)
+Senior Consultant, Syniti  
+Full-Stack / Platform-Focused Engineer  
 
----
-
-**Status:** 🚧 Active Development | **Visibility:** 🔓 Public | **License:** Private (Syniti Internal Project)
-
-
-## 📸 Demo Screenshots
-
-### React Frontend
-![CORTEX Main View](screenshots/frontend-main.png)
-*Main dashboard showing all tickets with filtering capability*
-
-![Filtered View](screenshots/frontend-filter.png)
-*Filtering tickets by status*
-
-### Interactive Features
-![Edit Modal](screenshots/modal-edit.png)
-![Edit Modal](screenshots/modal-edit-audit-history.png)
-![Edit Modal](screenshots/modal-edit-save.png)
-*Click any ticket to view details and edit priority, status, and owners*
-
-### API Documentation
-![Swagger UI](screenshots/swagger-api.png)
-*RESTful API with 7 endpoints documented in Swagger*
-
-![Swagger UI](screenshots/swagger-detail.png)
-*RESTful API with endpoint Get displaying sample data*
-
-### Code Quality
-![Backend Code](screenshots/code-backend-program-file.png)
-![Backend Code](screenshots/code-backend-endpoints-01.png)
-![Backend Code](screenshots/code-backend-endpoints-02.png)
-![Backend Code](screenshots/code-backend-sampledata-file.png)
-![Backend Code](screenshots/code-backend-ticket-model.png)
-*Clean, organized endpoint structure*
-
-![Frontend Code](screenshots/code-frontend-app-01.png)
-![Frontend Code](screenshots/code-frontend-app-02.png)
-![Frontend Code](screenshots/code-frontend-app-03.png)
-![Frontend Code](screenshots/code-frontend-api.png)
-![Frontend Code](screenshots/code-frontend-ticketCard-component.png)
-![Frontend Code](screenshots/code-frontend-ticketmodal-01.png)
-![Frontend Code](screenshots/code-frontend-ticketmodal-02.png)
-![Frontend Code](screenshots/code-frontend-ticketmodal-03.png)
-![Frontend Code](screenshots/code-frontend-ticketmodal-04.png)
-*Modern React with TypeScript and Tailwind CSS*
+GitHub: https://github.com/Airsicktitan
