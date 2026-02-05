@@ -13,7 +13,7 @@ public static class CommentEndpoints
         var comments = app.MapGroup("/api/tickets/{ticketId}/comments")
             .WithTags("Comments");
 
-        comments.MapGet("/", CommentHandlers.GetAllComments)
+        comments.MapGet("/", CommentHandlers.GetComment)
             .WithName("GetAllComments")
             .Produces<List<Comment>>(StatusCodes.Status200OK);
 

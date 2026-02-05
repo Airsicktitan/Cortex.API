@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { Ticket } from "../types/ticket";
 import { commentService } from "../services/commentService";
 import type { Comment } from "../types/comment";
@@ -29,17 +35,24 @@ export default function TicketModal({
   const [saving, setSaving] = useState(false);
   const [description, setDescription] = useState(ticket.description || "");
   const [title, setTitle] = useState(ticket.title || "");
+
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
 
-  useEffect(() => {
+  // Used to prevent older comment fetches from overwriting newer ones
+  const commentsLoadVersion = useRef(0);
+
+  // ✅ CRITICAL: useLayoutEffect prevents the “1 frame of old ticket data”
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+
     setTitle(ticket.title || "");
     setDescription(ticket.description || "");
     setPriority(ticket.priority);
     setStatus(ticket.status);
     setSynitiOwner(ticket.synitiOwner || "");
     setBusinessOwner(ticket.businessOwner || "");
-  }, [ticket]);
+  }, [ticket, isOpen]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -91,16 +104,35 @@ export default function TicketModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, saving, title, onClose, handleSave]);
 
+  // ✅ CRITICAL: clear comments + show loading BEFORE paint, and guard response ordering
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+
+    // Always reset the right panel instantly on ticket change
+    setComments([]);
+    setLoadingComments(!!ticket.id);
+
+    // bump version so older requests can't win
+    commentsLoadVersion.current += 1;
+  }, [isOpen, ticket.id]);
+
   useEffect(() => {
     if (!isOpen || !ticket.id) return;
 
+    const myVersion = commentsLoadVersion.current;
+
     const load = async () => {
       try {
-        setLoadingComments(true);
         const data = await commentService.getByTicket(ticket.id);
+
+        // If something newer started, ignore this result
+        if (commentsLoadVersion.current !== myVersion) return;
+
         setComments(data);
       } finally {
-        setLoadingComments(false);
+        if (commentsLoadVersion.current === myVersion) {
+          setLoadingComments(false);
+        }
       }
     };
 
@@ -110,6 +142,7 @@ export default function TicketModal({
   if (!isOpen) return null;
 
   const handleDelete = () => {
+    // (Keeping your current behavior)
     onClose();
     onDelete(ticket);
   };
@@ -276,7 +309,7 @@ export default function TicketModal({
                     disabled={saving || !title.trim()}
                     className="px-4 py-2 bg-cortex-blue text-white rounded-md"
                   >
-                    Save Changes
+                    {saving ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
               </div>

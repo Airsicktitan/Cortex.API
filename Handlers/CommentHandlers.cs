@@ -7,10 +7,14 @@ using Microsoft.EntityFrameworkCore;
 
 public static class CommentHandlers
 {
-    public static async Task<IResult> GetAllComments(CortexDbContext db)
+    public static async Task<IResult> GetComment(string ticketId, CortexDbContext db)
     {
-        var comments = await db.Comments.ToListAsync();
-        return Results.Ok(comments);
+        var results = await db.Comments
+                .Where(c => c.TicketId == ticketId)
+                .OrderBy(c => c.CreatedDate)
+                .ToListAsync();
+
+            return Results.Ok(results);
     }
 
     public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, CortexDbContext db)
