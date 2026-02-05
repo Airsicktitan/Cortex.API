@@ -67,5 +67,6 @@ app.UseCors();
 
 // Map all ticket endpoints
 app.MapTicketEndpoints();
+app.MapUserEndpoints();
 
 app.Run();
