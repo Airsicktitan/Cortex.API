@@ -1,6 +1,6 @@
 import type { Ticket } from "../types/ticket";
 
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "http://localhost:5214/api";
 
 export const ticketService = {
   // Get all tickets
@@ -55,5 +55,11 @@ export const ticketService = {
     });
     if (!response.ok) throw new Error("Failed to update ticket");
     return response.json();
+  },
+  // Delete ticket
+  async delete(id: string) {
+    await fetch(`${API_BASE_URL}/tickets/${id}`, {
+      method: "DELETE",
+    });
   },
 };

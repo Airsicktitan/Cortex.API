@@ -15,4 +15,6 @@ public class Ticket
     public DateTime CreatedDate { get; set; } = DateTime.Now; // Default to now
     public string? LastModifiedBy { get; set; } // Nullable
     public DateTime? LastModifiedDate { get; set; } // Nullable
+
+    public List<Comment> Comments { get; set; } = []; // Initialize to empty list 
 }

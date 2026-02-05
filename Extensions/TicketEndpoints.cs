@@ -28,8 +28,7 @@ public static class TicketEndpoints
     {
         // Get all tickets
         var tickets = app.MapGroup("/api/tickets")
-            .WithTags("Tickets")
-            .RequireAuthorization();
+            .WithTags("Tickets");
 
         tickets.MapGet("/", TicketHandlers.GetAllTickets)
             .WithName("GetAllTickets")
@@ -64,8 +63,9 @@ public static class TicketEndpoints
             .Produces<Ticket>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
-        // Delete ticket ** TODO: add auth/roles later and add delete API call to db **
-        // app.MapDelete("/api/tickets/{id}", async (string id, CortexDbContext db) => {}
-
+        tickets.MapDelete("/{id}", TicketHandlers.DeleteTicket)
+            .WithName("DeleteTicket")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status404NotFound);
     }
 }

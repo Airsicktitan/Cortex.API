@@ -69,5 +69,6 @@ app.UseCors();
 app.MapRootEndpoint();
 app.MapTicketEndpoints();
 app.MapUserEndpoints();
+app.MapCommentEndpoints();
 
 app.Run();
