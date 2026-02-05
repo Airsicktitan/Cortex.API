@@ -30,27 +30,28 @@ public static class TicketEndpoints
             .WithTags("Health");
 
         // Get all tickets
-        app.MapGet("/api/tickets", async (CortexDbContext db) =>
+        var tickets = app.MapGroup("/api/tickets")
+            .WithTags("Tickets")
+            .RequireAuthorization();
+
+        tickets.MapGet("/", async (CortexDbContext db) =>
         {
             return await db.Tickets.ToListAsync();
         })
-        .WithName("GetAllTickets")
-        .WithTags("Tickets")
         .Produces<List<Ticket>>(StatusCodes.Status200OK);
 
         // Get ticket by ID
-        app.MapGet("/api/tickets/{id}", async (string id, CortexDbContext db) =>
+        tickets.MapGet("/{id}", async (string id, CortexDbContext db) =>
         {
             var ticket = await db.Tickets.FindAsync(id);
             return ticket is not null ? Results.Ok(ticket) : Results.NotFound();
         })
         .WithName("GetTicketById")
-        .WithTags("Tickets")
         .Produces<Ticket>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
         // Get tickets by status
-        app.MapGet("/api/tickets/status/{status}", async (string status, CortexDbContext db) =>
+        tickets.MapGet("/status/{status}", async (string status, CortexDbContext db) =>
         {
             var filtered = await db.Tickets
                 .Where(t => t.Status == status)
@@ -59,12 +60,11 @@ public static class TicketEndpoints
             return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
         })
         .WithName("GetTicketsByStatus")
-        .WithTags("Tickets")
         .Produces<List<Ticket>>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
         // Get tickets by priority
-        app.MapGet("/api/tickets/priority/{priority}", async (string priority, CortexDbContext db) =>
+        tickets.MapGet("/priority/{priority}", async (string priority, CortexDbContext db) =>
         {
             var filtered = await db.Tickets
                 .Where(t => t.Priority == priority)
@@ -73,12 +73,11 @@ public static class TicketEndpoints
             return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
         })
         .WithName("GetTicketsByPriority")
-        .WithTags("Tickets")
         .Produces<List<Ticket>>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
         // Create new ticket
-        app.MapPost("/api/tickets", async (Ticket ticket, CortexDbContext db) =>
+        tickets.MapPost("/", async (Ticket ticket, CortexDbContext db) =>
         {
             // Generate next ticket number safely
             var maxNum = db.Tickets
@@ -100,11 +99,10 @@ public static class TicketEndpoints
             return Results.Created($"/api/tickets/{ticket.Id}", ticket); // return created response
         })
         .WithName("CreateTicket")
-        .WithTags("Tickets")
         .Produces<Ticket>(StatusCodes.Status201Created);
 
         // Update ticket
-        app.MapPut("/api/tickets/{id}", async (string id, Ticket updatedTicket, CortexDbContext db) =>
+        tickets.MapPut("/{id}", async (string id, Ticket updatedTicket, CortexDbContext db) =>
         {
             var existing = await db.Tickets.FindAsync(id);
             if (existing is null)
@@ -127,7 +125,6 @@ public static class TicketEndpoints
             return Results.Ok(existing);
         })
         .WithName("UpdateTicket")
-        .WithTags("Tickets")
         .Produces<Ticket>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
@@ -135,7 +132,10 @@ public static class TicketEndpoints
         // app.MapDelete("/api/tickets/{id}", async (string id, CortexDbContext db) => {}
 
         // User endpoints can be added here similarly
-        app.MapPost("/api/users/test", async (User user, CortexDbContext db) =>
+        var users = app.MapGroup("/api/users")
+            .WithTags("Users");
+
+        users.MapPost("/test", async (User user, CortexDbContext db) =>
         {
             db.Users.Add(user);
             await db.SaveChangesAsync();
@@ -147,17 +147,15 @@ public static class TicketEndpoints
             });
         })
         .WithName("CreateUserTest")
-        .WithTags("Users")
         .Produces<User>(StatusCodes.Status201Created)
         .Produces(StatusCodes.Status400BadRequest);
 
-        app.MapGet("/api/users/test", async (CortexDbContext db) =>
+        users.MapGet("/test", async (CortexDbContext db) =>
         {
             var users = await db.Users.ToListAsync();
             return Results.Ok(users);
         })
         .WithName("GetUsersTest")
-        .WithTags("Users")
         .Produces<List<User>>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status400BadRequest);;
     }
