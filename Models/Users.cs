@@ -5,6 +5,7 @@ public class User
     public int Id { get; set; } = 0; // DB identifier
     public required string Username { get; set; } = string.Empty; // User identifier
     public required string Email { get; set; } = string.Empty; // Default to empty string
+    public required string Password { get; set; } = string.Empty; // Hashed password
     public UserRole? Role { get; set; } = UserRole.User; // Default to User role
     public string? Department { get; set; } // Nullable
 
