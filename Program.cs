@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Cortex.API.Extensions;
 using Cortex.API.Database;
 using Swashbuckle.AspNetCore.SwaggerGen;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<CortexDbContext>(options =>
@@ -27,6 +28,32 @@ builder.Services.AddSwaggerGen(options =>
             Email = "adam.hooper@syniti.com"
         }
     });
+
+    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Description = "Enter: Bearer {your JWT token}"
+    });
+
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new string[] {}
+        }
+    });
+
 });
 
 // Add CORS for React Frontend
@@ -39,6 +66,27 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader();
     });
 });
+
+// Authentication and Authorization can be added here
+var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is not configured");
+var issuer = builder.Configuration["Jwt:Issuer"];
+var audience = builder.Configuration["Jwt:Audience"];
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = issuer,
+            ValidAudience = audience,
+            IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
+builder.Services.AddAuthorization();
 
 // Build app
 var app = builder.Build();
@@ -65,10 +113,15 @@ else
 
 app.UseCors();
 
+// Authentication and Authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
+
 // Map all ticket endpoints
 app.MapRootEndpoint();
 app.MapTicketEndpoints();
 app.MapUserEndpoints();
 app.MapCommentEndpoints();
+app.MapAuthEndpoints();
 
 app.Run();

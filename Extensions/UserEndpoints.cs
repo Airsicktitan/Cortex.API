@@ -31,6 +31,7 @@ public static class UserEndpoints
             .WithTags("Users");
 
         users.MapPost("/test", UserHandlers.CreateUserTest)
+            .RequireAuthorization()
             .WithName("CreateUserTest")
             .Produces<User>(StatusCodes.Status201Created)
             .Produces(StatusCodes.Status400BadRequest);
