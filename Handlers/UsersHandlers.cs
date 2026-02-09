@@ -2,7 +2,10 @@ namespace Cortex.API.Handlers;
 
 using Cortex.API.Models;
 using Cortex.API.Database;
+using Cortex.API.DTOs;
+
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
 
 /// <summary>
 /// Defines all user-related API handlers for CORTEX.
@@ -20,21 +23,61 @@ using Microsoft.EntityFrameworkCore;
 
 public static class UserHandlers
 {
-    public static async Task<IResult> GetUsersTest(CortexDbContext db)
+    public static async Task<IResult> GetUsers(CortexDbContext db)
     {
         var users = await db.Users.ToListAsync();
-        return Results.Ok(users);
+        
+        if (users.Count == 0)
+            return Results.NotFound("No users found.");
+        
+        var response = users.Select(user => new UserResponse
+        {
+            Id = user.Id,
+            Username = user.Username,
+            Email = user.Email,
+            Department = user.Department,
+            Role = user.Role.ToString(),
+            IsActive = user.IsActive,
+            CreatedDate = user.CreatedDate,
+            LastLoginDate = user.LastLoginDate
+        });
+
+        return Results.Ok(response.ToList());
+
     }
-    public static async Task<IResult> CreateUserTest(User user, CortexDbContext db)
+    public static async Task<IResult> CreateUser(CreateUserRequest request, CortexDbContext db)
     {
+        var hasher = new PasswordHasher<User>();
+        
+        var user = new User
+        {
+            Username = request.Username,
+            Email = request.Email,
+            PasswordHash = string.Empty, // Will be set after hashing
+            Department = request.Department,
+            Role = UserRole.User, // Default role
+            IsActive = true,
+            CreatedDate = DateTime.UtcNow
+        };
+
+        user.PasswordHash = hasher.HashPassword(user, request.Password);
+
         db.Users.Add(user);
         await db.SaveChangesAsync();
-        return Results.Ok(new
+
+        var response = new UserResponse
         {
-            message = "User created successfully",
-            userId = user.Id,
-            user
-        });
+            Id = user.Id,
+            Username = user.Username,
+            Email = user.Email,
+            Department = user.Department,
+            Role = user.Role.ToString(),
+            IsActive = user.IsActive,
+            CreatedDate = user.CreatedDate,
+            LastLoginDate = user.LastLoginDate
+        };
+
+        return Results.Created($"/api/users/{user.Id}", response);
     }
     
 }

@@ -24,7 +24,7 @@ public static class AuthHandlers
 
         // This is a placeholder implementation
         var user = await db.Users
-            .FirstOrDefaultAsync(u => u.Username == request.Username && u.Password == request.Password);
+            .FirstOrDefaultAsync(u => u.Username == request.Username && u.PasswordHash == request.Password);
 
         if (user == null)
         {
@@ -77,7 +77,7 @@ public static class AuthHandlers
         {
             Email = request.Username + "@example.com", // Placeholder email
             Username = request.Username,
-            Password = request.Password // In real implementation, hash the password
+            PasswordHash = request.Password // In real implementation, hash the password
         };
 
         db.Users.Add(newUser);
