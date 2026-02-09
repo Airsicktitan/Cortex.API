@@ -5,6 +5,7 @@ using Cortex.API.Database;
 using Cortex.API.Handlers;
 
 using Microsoft.EntityFrameworkCore;
+using Cortex.API.DTOs;
 
 /// <summary>
 /// Defines all user-related API endpoints for CORTEX.
@@ -30,15 +31,12 @@ public static class UserEndpoints
         var users = app.MapGroup("/api/users")
             .WithTags("Users");
 
-        users.MapPost("/test", UserHandlers.CreateUserTest)
-            .RequireAuthorization()
-            .WithName("CreateUserTest")
-            .Produces<User>(StatusCodes.Status201Created)
-            .Produces(StatusCodes.Status400BadRequest);
+        users.MapPost("/", UserHandlers.CreateUser)
+            .WithName("CreateUser")
+            .Produces<UserResponse>(StatusCodes.Status201Created);
 
-        users.MapGet("/test", UserHandlers.GetUsersTest)
-            .WithName("GetUsersTest")
-            .Produces<List<User>>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status400BadRequest);;
+        users.MapGet("/", UserHandlers.GetUsers)
+            .WithName("GetUsers")
+            .Produces<List<UserResponse>>(StatusCodes.Status200OK);
     }
 }
