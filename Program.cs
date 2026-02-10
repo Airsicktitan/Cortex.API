@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Cortex.API.Extensions;
 using Cortex.API.Database;
-using Swashbuckle.AspNetCore.SwaggerGen;
+using Cortex.API.Data;
+using Cortex.API.Data.Repositories;
+
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<CortexDbContext>(options =>
@@ -13,6 +16,9 @@ builder.Services.AddDbContext<CortexDbContext>(options =>
 
 // Add services
 builder.Services.AddEndpointsApiExplorer(); // for minimal APIs, needed for Swagger
+builder.Services.AddScoped<ITicketRepository, TicketRepository>();
+
+
 // Configure Swagger/OpenAPI
 builder.Services.AddSwaggerGen(options =>
 {
