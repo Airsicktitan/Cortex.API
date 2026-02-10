@@ -4,7 +4,7 @@ namespace Cortex.API.Data;
 public interface ITicketRepository
 { 
     public Task<IEnumerable<Ticket>> GetAllTicketsAsync(); 
-    public Task<Ticket?> GetTicketByIdAsync (int id); 
+    public Task<Ticket?> GetTicketByIdAsync (string id); 
     public Task<IEnumerable<Ticket>> GetTicketsByStatusAsync(string status); 
     public Task<IEnumerable<Ticket>> GetTicketsByPriorityAsync(string priority); 
     public Task<Ticket> CreateTicketAsync(Ticket ticket); 
