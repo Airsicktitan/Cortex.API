@@ -24,7 +24,7 @@ public static class TicketHandlers
     
     public static async Task<IResult> GetTicketById(string id, ITicketRepository repo)
     {
-        var ticket = await repo.GetTicketByIdAsync(int.Parse(id));
+        var ticket = await repo.GetTicketByIdAsync(id);
         return ticket is not null ? Results.Ok(ticket) : Results.NotFound();
     }
 
@@ -64,7 +64,7 @@ public static class TicketHandlers
 
     public static async Task<IResult> UpdateTicket(string id, Ticket updatedTicket, ITicketRepository repo)
     {
-        var existing = await repo.GetTicketByIdAsync(int.Parse(id));
+        var existing = await repo.GetTicketByIdAsync(id);
             
         if (existing is null)
             return Results.NotFound();

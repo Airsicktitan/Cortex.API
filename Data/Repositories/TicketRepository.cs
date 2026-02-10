@@ -13,7 +13,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         return await _context.Tickets.ToListAsync();
     }
 
-    public async Task<Ticket?> GetTicketByIdAsync(int id)
+    public async Task<Ticket?> GetTicketByIdAsync(string id)
     {
         return await _context.Tickets.FindAsync(id);
     }

@@ -4,34 +4,32 @@ using Cortex.API.Models;
 using Cortex.API.Database;
 
 using Microsoft.EntityFrameworkCore;
+using Cortex.API.Data;
 
 public static class CommentHandlers
 {
-    public static async Task<IResult> GetComment(string ticketId, CortexDbContext db)
+    public static async Task<IResult> GetComment(string ticketId, ICommentRepository repo)
     {
-        var results = await db.Comments
-                .Where(c => c.TicketId == ticketId)
-                .OrderBy(c => c.CreatedDate)
-                .ToListAsync();
+        var results = await repo.GetCommentsByTicketIdAsync(ticketId);
 
             return Results.Ok(results);
     }
 
-    public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, CortexDbContext db)
+    public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, ICommentRepository commentRepo, ITicketRepository ticketRepo)
     {
-        var ticketExists = await db.Tickets.AnyAsync(t => t.Id == ticketId);
-            if (!ticketExists) return Results.NotFound();
-
-            var comment = new Comment
+        var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
+        if (ticket is null)
+            return Results.NotFound();
+            
+        var comment = await commentRepo.CreateCommentAsync(new Comment
             {
                 TicketId = ticketId,
                 Body = request.Body,
                 CreatedBy = request.CreatedBy ?? "System",
                 CreatedDate = DateTime.UtcNow
-            };
+            });
 
-            db.Comments.Add(comment);
-            await db.SaveChangesAsync();
+            await commentRepo.SaveChangesAsync();
 
             return Results.Created(
                 $"/api/tickets/{ticketId}/comments/{comment.Id}",
