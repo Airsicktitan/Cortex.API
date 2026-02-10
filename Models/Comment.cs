@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Cortex.API.Models;
 
 public class Comment
@@ -8,6 +10,7 @@ public class Comment
     public string TicketId { get; set; } = null!;
 
     // Navigation property to the associated ticket
+    [JsonIgnore] // Prevent circular reference during JSON serialization
     public Ticket Ticket { get; set; } = null!;
 
     public string Body { get; set; } = null!;

@@ -17,6 +17,8 @@ builder.Services.AddDbContext<CortexDbContext>(options =>
 // Add services
 builder.Services.AddEndpointsApiExplorer(); // for minimal APIs, needed for Swagger
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ICommentRepository, CommentRepository>();
 
 
 // Configure Swagger/OpenAPI
