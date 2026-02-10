@@ -1,11 +1,10 @@
 namespace Cortex.API.Handlers;
 
 using Cortex.API.Models;
-using Cortex.API.Database;
 using Cortex.API.DTOs;
 
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
+using Cortex.API.Data;
 
 /// <summary>
 /// Defines all user-related API handlers for CORTEX.
@@ -23,11 +22,11 @@ using Microsoft.AspNetCore.Identity;
 
 public static class UserHandlers
 {
-    public static async Task<IResult> GetUsers(CortexDbContext db)
+    public static async Task<IResult> GetUsers(IUserRepository repo)
     {
-        var users = await db.Users.ToListAsync();
+        var users = await repo.GetAllUsersAsync();
         
-        if (users.Count == 0)
+        if (users.Count() == 0)
             return Results.NotFound("No users found.");
         
         var response = users.Select(user => new UserResponse
@@ -45,7 +44,7 @@ public static class UserHandlers
         return Results.Ok(response.ToList());
 
     }
-    public static async Task<IResult> CreateUser(CreateUserRequest request, CortexDbContext db)
+    public static async Task<IResult> CreateUser(CreateUserRequest request, IUserRepository repo)
     {
         var hasher = new PasswordHasher<User>();
         
@@ -62,8 +61,8 @@ public static class UserHandlers
 
         user.PasswordHash = hasher.HashPassword(user, request.Password);
 
-        db.Users.Add(user);
-        await db.SaveChangesAsync();
+        await repo.CreateUserAsync(user);
+        await repo.SaveChangesAsync();
 
         var response = new UserResponse
         {
