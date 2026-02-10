@@ -61,12 +61,15 @@ Ownership is **explicit, enforced, and auditable** — not inferred from comment
 - SQL Server + EF Core persistence
 - Swagger/OpenAPI documentation
 - CORS configured for multi-client access
+- DTO-based API contracts
+- Password hashing infrastructure
 
 ### Frontend (React + TypeScript)
 - Strong typing across API boundaries
 - UI surfaces ownership and responsibility first
 - Filtering designed for operational triage
 - Modal workflows minimize context switching
+- Comment side panel architecture
 
 This architecture intentionally mirrors:
 - Multi-tenant SaaS APIs
@@ -85,6 +88,9 @@ This architecture intentionally mirrors:
 - Immutable system fields
 - API documentation
 - Responsive UI with real-time data binding
+- Comment system per ticket
+- DTO-based API responses
+- Password hashing and user model foundation
 
 ### In Progress / Planned
 - 🔐 Authentication & Authorization (JWT + policies)
@@ -93,6 +99,7 @@ This architecture intentionally mirrors:
 - 📊 SLA and duration analytics
 - 🤖 ML-assisted categorization (ML.NET)
 - 🔄 Real-time updates (SignalR)
+- 🏢 Multi-tenant support
 
 ---
 
@@ -100,24 +107,119 @@ This architecture intentionally mirrors:
 
 CORTEX is under active development. The following limitations are **known, documented, and planned**:
 
-- ❌ No authentication yet (open API during early development)
-- ❌ No multi-tenancy enforcement
+- ❌ Login endpoint not yet implemented
+- ❌ No role-based authorization policies yet
 - ❌ Routing logic currently manual
-- ❌ No role-based authorization policies
 - ❌ No historical SLA analytics yet
 - ❌ No real-time push (polling only)
 
-> These are **not oversights** — they are staged deliberately to keep the core domain model stable before layering complexity.
+> These are staged deliberately to keep the core domain model stable before layering complexity.
+
+---
+
+## 🧭 Development Log
+
+### Session: Authentication Foundation & Comment System Integration
+
+Today’s work focused on strengthening the application’s **data model, architecture boundaries, and UI behavior**, while preparing the system for authentication and real-time collaboration features.
+
+---
+
+### 🔐 Authentication & User System
+
+#### Implemented
+- Introduced a `User` domain model
+- Added:
+  - Username
+  - Email
+  - PasswordHash
+  - Role
+  - Department
+  - CreatedDate
+  - LastLoginDate
+  - ExpiryDate
+  - IsActive
+
+- Implemented:
+  - `CreateUserRequest` DTO
+  - `UserResponse` DTO
+  - Password hashing using `PasswordHasher<T>`
+  - UserHandlers for:
+    - Creating users
+    - Retrieving users
+
+#### Architectural Decisions
+- Passwords hashed server-side before persistence
+- DTO pattern enforced to prevent exposing sensitive fields
+- Domain models not returned directly from endpoints
+- Responses shaped explicitly for API consumers
+
+This establishes the foundation for:
+- JWT issuance
+- Login endpoints
+- Role-based authorization
+- Multi-tenant architecture
+
+---
+
+### 💬 Comment System
+
+#### Implemented
+- Comment model linked to tickets
+- Ticket modal displays comments in a dedicated side panel
+- Comment creation integrated into UI workflow
+- Comments now load per ticket and persist correctly
+
+#### Fixes & Improvements
+- Fixed handler returning all comments instead of filtering by TicketId
+- Prevented comments bleeding across tickets
+- Improved comment loading lifecycle
+
+---
+
+### 🧠 UI Stability Improvements
+
+Resolved subtle UI issues:
+
+- Modal flicker when switching tickets
+- React StrictMode double-render artifacts
+- State timing issues during modal transitions
+- Comment rendering race conditions
+
+These changes improved perceived performance and stability.
+
+---
+
+### 🛠 Backend Corrections
+
+- Refactored handlers for proper filtering logic
+- Strengthened DTO mapping discipline
+- Improved endpoint separation and structure
+
+---
+
+### 🧩 Architectural Improvements
+
+Continued separation of:
+- Models
+- DTOs
+- Handlers
+- Endpoints
+
+Reinforced API boundary discipline:
+- No direct entity exposure
+- Explicit response shaping
+- Clear ownership of responsibilities
 
 ---
 
 ## 🧪 Product Philosophy
 
 CORTEX follows a deliberate product approach:
-- **Model reality first**
-- **Protect invariants early**
-- **Add intelligence only when data exists**
-- **Refactor openly as understanding deepens**
+- Model reality first
+- Protect invariants early
+- Add intelligence only when data exists
+- Refactor openly as understanding deepens
 
 This repository reflects real-world iteration, not frozen perfection.
 
@@ -128,6 +230,7 @@ This repository reflects real-world iteration, not frozen perfection.
 - 🚧 Active development
 - 🧪 Pre-alpha SaaS prototype
 - 🎯 Long-term goal: internal platform-grade deployment
+- 🎤 Target: Syniti DemoJam presentation
 
 ---
 
