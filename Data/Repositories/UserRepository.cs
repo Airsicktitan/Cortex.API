@@ -20,6 +20,11 @@ public class UserRepository(CortexDbContext context) : IUserRepository
         return user;
     }
 
+    public async Task<User?> GetByAuth0IdAsync(string auth0Id)
+    {
+        return await _context.Users.FirstOrDefaultAsync(u => u.Auth0Id == auth0Id);
+    }
+
     public async Task SaveChangesAsync()
     {
         await _context.SaveChangesAsync();

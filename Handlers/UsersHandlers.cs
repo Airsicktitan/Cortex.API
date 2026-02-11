@@ -2,8 +2,6 @@ namespace Cortex.API.Handlers;
 
 using Cortex.API.Models;
 using Cortex.API.DTOs;
-
-using Microsoft.AspNetCore.Identity;
 using Cortex.API.Data;
 
 /// <summary>
@@ -32,51 +30,57 @@ public static class UserHandlers
         var response = users.Select(user => new UserResponse
         {
             Id = user.Id,
-            Username = user.Username,
+            DisplayName = user.DisplayName,
             Email = user.Email,
             Department = user.Department,
             Role = user.Role.ToString(),
             IsActive = user.IsActive,
             CreatedDate = user.CreatedDate,
-            LastLoginDate = user.LastLoginDate
+            LastLoginDate = user.LastLoginDate,
+            LastModifiedDate = user.LastModifiedDate
         });
 
         return Results.Ok(response.ToList());
 
     }
-    public static async Task<IResult> CreateUser(CreateUserRequest request, IUserRepository repo)
+
+    public static async Task<IResult> GetCurrentUser(HttpContext http, IUserRepository repo)
     {
-        var hasher = new PasswordHasher<User>();
-        
-        var user = new User
+        var auth0Id = http.User.FindFirst("sub")?.Value;
+        var email = http.User.FindFirst("email")?.Value;
+        var name = http.User.FindFirst("name")?.Value;
+
+        if (auth0Id == null)
+            return Results.Unauthorized();
+
+        var user = await repo.GetByAuth0IdAsync(auth0Id);
+
+        if (user == null)
         {
-            Username = request.Username,
-            Email = request.Email,
-            PasswordHash = string.Empty, // Will be set after hashing
-            Department = request.Department,
-            Role = UserRole.User, // Default role
-            IsActive = true,
-            CreatedDate = DateTime.UtcNow
-        };
+            user = new User
+            {
+                Auth0Id = auth0Id,
+                DisplayName = name ?? "Unknown",
+                Email = email ?? "",
+                CreatedDate = DateTime.UtcNow
+            };
+            await repo.CreateUserAsync(user);
+            await repo.SaveChangesAsync();
+        }
 
-        user.PasswordHash = hasher.HashPassword(user, request.Password);
-
-        await repo.CreateUserAsync(user);
-        await repo.SaveChangesAsync();
-
-        var response = new UserResponse
+        return Results.Ok(new UserResponse
         {
             Id = user.Id,
-            Username = user.Username,
+            DisplayName = user.DisplayName,
             Email = user.Email,
             Department = user.Department,
             Role = user.Role.ToString(),
             IsActive = user.IsActive,
             CreatedDate = user.CreatedDate,
-            LastLoginDate = user.LastLoginDate
-        };
+            LastLoginDate = user.LastLoginDate,
+            LastModifiedDate = user.LastModifiedDate
+        });
 
-        return Results.Created($"/api/users/{user.Id}", response);
     }
-    
+
 }

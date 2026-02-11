@@ -29,11 +29,8 @@ public static class UserEndpoints
     {
         // User endpoints can be added here similarly
         var users = app.MapGroup("/api/users")
+            .RequireAuthorization()
             .WithTags("Users");
-
-        users.MapPost("/", UserHandlers.CreateUser)
-            .WithName("CreateUser")
-            .Produces<UserResponse>(StatusCodes.Status201Created);
 
         users.MapGet("/", UserHandlers.GetUsers)
             .WithName("GetUsers")
