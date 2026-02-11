@@ -58,7 +58,7 @@ builder.Services.AddSwaggerGen(options =>
                     Id = "Bearer"
                 }
             },
-            new string[] {}
+            Array.Empty<string>()
         }
     });
 
@@ -76,24 +76,15 @@ builder.Services.AddCors(options =>
 });
 
 // Authentication and Authorization can be added here
-var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is not configured");
-var issuer = builder.Configuration["Jwt:Issuer"];
-var audience = builder.Configuration["Jwt:Audience"];
-
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = issuer,
-            ValidAudience = audience,
-            IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(jwtKey))
-        };
+            options.Authority = builder.Configuration["Auth0:Domain"];
+            options.Audience = builder.Configuration["Auth0:Audience"];
+            options.TokenValidationParameters.ValidAudience = builder.Configuration["Auth0:Audience"];
+        
     });
+
 builder.Services.AddAuthorization();
 
 // Build app
@@ -130,6 +121,5 @@ app.MapRootEndpoint();
 app.MapTicketEndpoints();
 app.MapUserEndpoints();
 app.MapCommentEndpoints();
-app.MapAuthEndpoints();
 
 app.Run();

@@ -38,7 +38,7 @@ public class CortexDbContext : DbContext
         {
             entity.HasKey(u => u.Id);
 
-            entity.Property(u => u.Username)
+            entity.Property(u => u.DisplayName)
                 .IsRequired()
                 .HasMaxLength(100);
 
@@ -46,13 +46,15 @@ public class CortexDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(200);
 
-            entity.HasIndex(u => u.Username)
-                .IsUnique();
-
             entity.HasIndex(u => u.Email)
                 .IsUnique();
+
             entity.Property(u => u.Role)
                 .HasConversion<string>();
+            
+            entity.HasIndex(u => u.Auth0Id)
+                .HasFilter("[Auth0Id] IS NOT NULL")
+                .IsUnique();
         });
 
         modelBuilder.Entity<Comment>()
