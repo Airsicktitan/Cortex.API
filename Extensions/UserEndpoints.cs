@@ -35,5 +35,8 @@ public static class UserEndpoints
         users.MapGet("/", UserHandlers.GetUsers)
             .WithName("GetUsers")
             .Produces<List<UserResponse>>(StatusCodes.Status200OK);
+
+        users.MapGet("/me", UserHandlers.GetCurrentUser)
+            .WithName("GetCurrentUser");
     }
 }
