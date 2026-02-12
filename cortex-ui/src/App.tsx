@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 import type { Ticket } from "./types/ticket";
 import { ticketService } from "./services/api";
 import TicketCard from "./components/TicketCard";
@@ -23,6 +24,14 @@ function normalize(v: string) {
 }
 
 function App() {
+  const {
+    isAuthenticated,
+    isLoading: authLoading,
+    user,
+    loginWithRedirect,
+    logout,
+  } = useAuth0();
+
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,8 +61,10 @@ function App() {
   };
 
   useEffect(() => {
-    loadAllTickets();
-  }, []);
+    if (isAuthenticated) {
+      loadAllTickets();
+    }
+  }, [isAuthenticated]);
 
   const tickets = useMemo(() => {
     const v = normalize(debouncedFilterValue);
@@ -117,13 +128,12 @@ function App() {
       toast.error("Failed to delete ticket");
     } finally {
       setDeleting(false);
-      setTicketToDelete(null); // ✅ close confirm modal
+      setTicketToDelete(null);
     }
   };
+
   const closeModal = () => {
     setIsModalOpen(false);
-
-    // IMPORTANT: clear AFTER unmount commit
     setTimeout(() => {
       setSelectedTicket(null);
     }, 0);
@@ -133,6 +143,34 @@ function App() {
     setSelectedTicket(ticket);
     setIsModalOpen(true);
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cortex-blue mx-auto" />
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold mb-4">🧠 CORTEX</h1>
+          <p className="text-gray-600 mb-6">Support Ticket System</p>
+          <button
+            onClick={() => loginWithRedirect()}
+            className="px-6 py-3 bg-cortex-blue text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Log In
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -188,6 +226,18 @@ function App() {
             >
               + New Ticket
             </button>
+
+            <div className="flex items-center gap-3 ml-4 pl-4 border-l border-gray-300">
+              <span className="text-sm text-gray-700">{user?.name}</span>
+              <button
+                onClick={() =>
+                  logout({ logoutParams: { returnTo: window.location.origin } })
+                }
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+              >
+                Log Out
+              </button>
+            </div>
           </div>
         </div>
       </header>
