@@ -47,6 +47,26 @@ builder.Services.AddSwaggerGen(options =>
         Description = "Enter: Bearer {your JWT token}"
     });
 
+    options.AddSecurityDefinition("oauth2", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.OAuth2,
+        Flows = new Microsoft.OpenApi.Models.OpenApiOAuthFlows
+        {
+            AuthorizationCode = new Microsoft.OpenApi.Models.OpenApiOAuthFlow
+            {
+                AuthorizationUrl = new Uri($"https://{builder.Configuration["Auth0:Domain"]}/authorize"),
+                TokenUrl = new Uri($"https://{builder.Configuration["Auth0:Domain"]}/oauth/token"),
+
+                Scopes = new Dictionary<string, string>
+                {
+                    { "openid", "OpenID Connect scope" },
+                    { "profile", "Profile scope" },
+                    { "email", "Email scope" }
+                }
+            }
+        }
+    });
+
     options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
     {
         {
@@ -59,6 +79,21 @@ builder.Services.AddSwaggerGen(options =>
                 }
             },
             Array.Empty<string>()
+        }
+    });
+
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "oauth2"
+                }
+            },
+            new[] { "openid", "profile", "email" }
         }
     });
 
@@ -79,10 +114,20 @@ builder.Services.AddCors(options =>
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-            options.Authority = builder.Configuration["Auth0:Domain"];
-            options.Audience = builder.Configuration["Auth0:Audience"];
-            options.TokenValidationParameters.ValidAudience = builder.Configuration["Auth0:Audience"];
-        
+        options.Authority = $"https://{builder.Configuration["Auth0:Domain"]}";
+        options.Audience = builder.Configuration["Auth0:Audience"];
+        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+        {
+            ValidateAudience = true,
+            ValidAudiences = new[] { builder.Configuration["Auth0:Audience"] },
+            ValidateIssuer = true,
+            ValidIssuer = $"https://{builder.Configuration["Auth0:Domain"]}/",  // <-- Trailing slash added here
+            ValidateLifetime = true,
+            NameClaimType = "name",
+            RoleClaimType = "role"
+        };
+
+        options.MapInboundClaims = false; // Prevents default claim type mapping
     });
 
 builder.Services.AddAuthorization();
@@ -98,6 +143,12 @@ if (app.Environment.IsDevelopment())
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
         options.RoutePrefix = "swagger";
+        options.OAuthClientId(builder.Configuration["Auth0:ClientId"]);
+        options.OAuthUsePkce(); // Use PKCE for enhanced security in Swagger UI
+        options.OAuthAdditionalQueryStringParams(new Dictionary<string, string>
+        {
+            { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty }
+        });
     });
 }
 else
@@ -107,6 +158,12 @@ else
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
         options.RoutePrefix = "swagger";
+        options.OAuthClientId(builder.Configuration["Auth0:ClientId"]);
+        options.OAuthUsePkce(); // Use PKCE for enhanced security in Swagger UI
+        options.OAuthAdditionalQueryStringParams(new Dictionary<string, string>
+        {
+            { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty }
+        });
     });
 }
 
