@@ -56,16 +56,19 @@ Ownership is **explicit, enforced, and auditable** — not inferred from comment
 
 ### Backend (.NET 10)
 - Minimal APIs with route grouping
+- Repository pattern for persistence boundaries
 - Domain rules enforced at the API boundary
 - Immutable system fields protected server-side
 - SQL Server + EF Core persistence
 - Swagger/OpenAPI documentation
-- CORS configured for multi-client access
 - DTO-based API contracts
-- Password hashing infrastructure
+- Auth0 integration for authentication
+- JWT validation middleware
+- Automatic user provisioning from identity provider
 
 ### Frontend (React + TypeScript)
 - Strong typing across API boundaries
+- Auth0 login/logout flow
 - UI surfaces ownership and responsibility first
 - Filtering designed for operational triage
 - Modal workflows minimize context switching
@@ -78,6 +81,26 @@ This architecture intentionally mirrors:
 
 ---
 
+## 🔐 Authentication & Identity
+
+CORTEX uses **Auth0 as an external identity provider**.
+
+### Implemented
+- OAuth2 Authorization Code flow
+- JWT validation in ASP.NET middleware
+- Swagger OAuth integration
+- `/me` endpoint for current user resolution
+- Automatic user creation on first login
+- Claims-based identity mapping (`sub` as primary key)
+
+### Why This Matters
+This architecture reflects real SaaS platforms where:
+- Identity is externalized
+- Applications manage authorization and domain data
+- Users are provisioned dynamically
+
+---
+
 ## ✨ Current Feature Set
 
 ### Implemented
@@ -87,13 +110,16 @@ This architecture intentionally mirrors:
 - Audit metadata (created / modified)
 - Immutable system fields
 - API documentation
-- Responsive UI with real-time data binding
 - Comment system per ticket
 - DTO-based API responses
-- Password hashing and user model foundation
+- Auth0 authentication
+- Automatic user provisioning
+- Repository-based persistence layer
+- Swagger OAuth login flow
 
 ### In Progress / Planned
-- 🔐 Authentication & Authorization (JWT + policies)
+- 🔐 Role-based authorization policies
+- 👤 Ticket ownership restrictions
 - 🧠 Skill- and workload-based routing engine
 - 📦 Environment progression tracking (Dev → QA → Prod)
 - 📊 SLA and duration analytics
@@ -107,8 +133,8 @@ This architecture intentionally mirrors:
 
 CORTEX is under active development. The following limitations are **known, documented, and planned**:
 
-- ❌ Login endpoint not yet implemented
-- ❌ No role-based authorization policies yet
+- ❌ Authorization policies not fully implemented
+- ❌ Ticket visibility rules still being implemented
 - ❌ Routing logic currently manual
 - ❌ No historical SLA analytics yet
 - ❌ No real-time push (polling only)
@@ -119,97 +145,48 @@ CORTEX is under active development. The following limitations are **known, docum
 
 ## 🧭 Development Log
 
-### Session: Authentication Foundation & Comment System Integration
+### Session: Auth0 Integration & Identity Refactor
 
-Today’s work focused on strengthening the application’s **data model, architecture boundaries, and UI behavior**, while preparing the system for authentication and real-time collaboration features.
+Today’s work focused on transitioning from local authentication to **external identity and claims-based access**.
 
----
+### 🔐 Authentication Changes
+- Removed local JWT issuance
+- Integrated Auth0 OAuth2 flow
+- Configured JWT Bearer middleware
+- Added Swagger OAuth login
+- Implemented `/me` endpoint
+- Auto-provision users in local DB
 
-### 🔐 Authentication & User System
-
-#### Implemented
-- Introduced a `User` domain model
-- Added:
-  - Username
-  - Email
-  - PasswordHash
-  - Role
+### 🧠 Architectural Decisions
+- Auth0 is the source of identity
+- CORTEX stores:
+  - Roles
   - Department
-  - CreatedDate
-  - LastLoginDate
-  - ExpiryDate
-  - IsActive
+  - Activity
+  - Ownership history
 
-- Implemented:
-  - `CreateUserRequest` DTO
-  - `UserResponse` DTO
-  - Password hashing using `PasswordHasher<T>`
-  - UserHandlers for:
-    - Creating users
-    - Retrieving users
-
-#### Architectural Decisions
-- Passwords hashed server-side before persistence
-- DTO pattern enforced to prevent exposing sensitive fields
-- Domain models not returned directly from endpoints
-- Responses shaped explicitly for API consumers
-
-This establishes the foundation for:
-- JWT issuance
-- Login endpoints
-- Role-based authorization
-- Multi-tenant architecture
+This separation aligns with real enterprise SaaS architecture.
 
 ---
 
 ### 💬 Comment System
-
-#### Implemented
 - Comment model linked to tickets
-- Ticket modal displays comments in a dedicated side panel
-- Comment creation integrated into UI workflow
-- Comments now load per ticket and persist correctly
-
-#### Fixes & Improvements
-- Fixed handler returning all comments instead of filtering by TicketId
-- Prevented comments bleeding across tickets
-- Improved comment loading lifecycle
+- Comment filtering by TicketId
+- Repository refactor for comments
+- Improved handler structure
 
 ---
 
-### 🧠 UI Stability Improvements
-
-Resolved subtle UI issues:
-
-- Modal flicker when switching tickets
-- React StrictMode double-render artifacts
-- State timing issues during modal transitions
-- Comment rendering race conditions
-
-These changes improved perceived performance and stability.
-
----
-
-### 🛠 Backend Corrections
-
-- Refactored handlers for proper filtering logic
-- Strengthened DTO mapping discipline
-- Improved endpoint separation and structure
-
----
-
-### 🧩 Architectural Improvements
-
-Continued separation of:
-- Models
-- DTOs
-- Handlers
-- Endpoints
-
-Reinforced API boundary discipline:
-- No direct entity exposure
-- Explicit response shaping
-- Clear ownership of responsibilities
+### 🧩 Backend Architecture Improvements
+- Repository pattern enforced
+- DTO boundaries strengthened
+- Handler logic simplified and isolated
+- Clear separation:
+  - Models
+  - DTOs
+  - Repositories
+  - Handlers
+  - Endpoints
 
 ---
 
