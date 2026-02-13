@@ -75,7 +75,7 @@ public static class TicketHandlers
             SynitiOwner = request.SynitiOwner,
             BusinessOwner = request.BusinessOwner,
             Status = request.Status ?? "New", // default to "New" if not provided
-            CreatedBy = userId, // set from authenticated user
+            CreatedBy = userId ?? "Unknown", // set from authenticated user
             CreatedDate = DateTime.UtcNow // set creation date
         };
 
@@ -85,7 +85,7 @@ public static class TicketHandlers
         return Results.Created($"/api/tickets/{ticket.Id}", ticket);
     }
 
-    public static async Task<IResult> UpdateTicket(string id, UpdateTicketRequest updatedTicket, ITicketRepository repo, ClaimsPrincipal user)
+    public static async Task<IResult> UpdateTicket(string id, UpdateTicketRequest request, ITicketRepository repo, ClaimsPrincipal user)
     {
         var existing = await repo.GetTicketByIdAsync(id);
         var userId = user.FindFirst("sub")?.Value;
@@ -94,12 +94,12 @@ public static class TicketHandlers
             return Results.NotFound();
 
         // Update mutable fields
-        existing.Title = updatedTicket.Title ?? existing.Title;
-        existing.Description = updatedTicket.Description ?? existing.Description;
-        existing.Status = updatedTicket.Status ?? existing.Status;
-        existing.Priority = updatedTicket.Priority ?? existing.Priority;
-        existing.SynitiOwner = updatedTicket.SynitiOwner ?? existing.SynitiOwner;
-        existing.BusinessOwner = updatedTicket.BusinessOwner ?? existing.BusinessOwner;
+        existing.Title = request.Title ?? existing.Title;
+        existing.Description = request.Description ?? existing.Description;
+        existing.Status = request.Status ?? existing.Status;
+        existing.Priority = request.Priority ?? existing.Priority;
+        existing.SynitiOwner = request.SynitiOwner ?? existing.SynitiOwner;
+        existing.BusinessOwner = request.BusinessOwner ?? existing.BusinessOwner;
 
         // Track modification
         existing.LastModifiedBy = userId; // authenticated user
