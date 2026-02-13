@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<CortexDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("CortexDb")
+        builder.Configuration.GetConnectionString("AzureCortexDb")
     ));
 
 
@@ -35,16 +35,6 @@ builder.Services.AddSwaggerGen(options =>
             Name = "Adam Hooper",
             Email = "adam.hooper@syniti.com"
         }
-    });
-
-    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Description = "Enter: Bearer {your JWT token}"
     });
 
     options.AddSecurityDefinition("oauth2", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
@@ -75,27 +65,14 @@ builder.Services.AddSwaggerGen(options =>
                 Reference = new Microsoft.OpenApi.Models.OpenApiReference
                 {
                     Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-
-    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
-    {
-        {
-            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-            {
-                Reference = new Microsoft.OpenApi.Models.OpenApiReference
-                {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
                     Id = "oauth2"
                 }
             },
             new[] { "openid", "profile", "email" }
         }
     });
+
+    options.DocumentFilter<RemoveBearerDocumentFilter>();
 
 });
 
@@ -136,36 +113,18 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 // Enable Swagger in Dev or Production, probably want to lock this down later
-if (app.Environment.IsDevelopment())
+app.UseSwagger();
+app.UseSwaggerUI(options =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
+    options.RoutePrefix = "swagger";
+    options.OAuthClientId(builder.Configuration["Auth0:ClientId"]);
+    options.OAuthUsePkce(); // Use PKCE for enhanced security in Swagger UI
+    options.OAuthAdditionalQueryStringParams(new Dictionary<string, string>
     {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
-        options.RoutePrefix = "swagger";
-        options.OAuthClientId(builder.Configuration["Auth0:ClientId"]);
-        options.OAuthUsePkce(); // Use PKCE for enhanced security in Swagger UI
-        options.OAuthAdditionalQueryStringParams(new Dictionary<string, string>
-        {
-            { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty }
-        });
+        { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty }
     });
-}
-else
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
-        options.RoutePrefix = "swagger";
-        options.OAuthClientId(builder.Configuration["Auth0:ClientId"]);
-        options.OAuthUsePkce(); // Use PKCE for enhanced security in Swagger UI
-        options.OAuthAdditionalQueryStringParams(new Dictionary<string, string>
-        {
-            { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty }
-        });
-    });
-}
+});
 
 app.UseCors();
 

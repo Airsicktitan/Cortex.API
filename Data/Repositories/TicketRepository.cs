@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Cortex.API.Database;
 using Cortex.API.Models;
 
@@ -17,6 +18,12 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
     {
         return await _context.Tickets.FindAsync(id);
     }
+
+    public async Task<IEnumerable<Ticket>> GetTicketByUserAsync(string user)
+    {
+        return await _context.Tickets.Where(t => t.CreatedBy == user).ToListAsync();
+    }
+
 
     public async Task<IEnumerable<Ticket>> GetTicketsByStatusAsync(string status)
     {

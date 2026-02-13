@@ -2,6 +2,7 @@ namespace Cortex.API.Handlers;
 
 using Cortex.API.Models;
 using Cortex.API.Data;
+using System.Security.Claims;
 
 /// <summary>
 /// Defines all ticket-related API handlers for CORTEX.
@@ -40,10 +41,22 @@ public static class TicketHandlers
 
         return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
     }
-    public static async Task<IResult> CreateTicket(Ticket ticket, ITicketRepository repo)
+    public static async Task<IResult> GetTicketsByUser(ClaimsPrincipal user, ITicketRepository repo)
+    {
+        var userId = user.FindFirst("sub")?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+            return Results.Unauthorized();
+
+        var tickets = await repo.GetTicketByUserAsync(userId);
+
+        return Results.Ok(tickets);
+    }
+        public static async Task<IResult> CreateTicket(Ticket ticket, ITicketRepository repo, ClaimsPrincipal user)
     {
         // Generate next ticket number safely
         var tickets = await repo.GetAllTicketsAsync();
+        var userId = user.FindFirst("sub")?.Value ?? "Unknown";
 
         var maxNum = tickets
             .Where(t => t.Id.StartsWith("TICKET-")) // filter to expected format
@@ -54,7 +67,7 @@ public static class TicketHandlers
 
         ticket.Id = $"TICKET-{(maxNum + 1):D3}"; // format with leading zeros
         ticket.CreatedDate = DateTime.UtcNow; // set creation date
-        ticket.CreatedBy = ticket.CreatedBy ?? "System"; // default creator if not provided, will change to authenticated user later. ** TODO: auth **
+        ticket.CreatedBy = userId; // authenticated user later
 
         await repo.CreateTicketAsync(ticket);
         await repo.SaveChangesAsync();
@@ -62,9 +75,10 @@ public static class TicketHandlers
         return Results.Created($"/api/tickets/{ticket.Id}", ticket);
     }
 
-    public static async Task<IResult> UpdateTicket(string id, Ticket updatedTicket, ITicketRepository repo)
+    public static async Task<IResult> UpdateTicket(string id, Ticket updatedTicket, ITicketRepository repo, ClaimsPrincipal user)
     {
         var existing = await repo.GetTicketByIdAsync(id);
+        var userId = user.FindFirst("sub")?.Value ?? "Unknown";
             
         if (existing is null)
             return Results.NotFound();
@@ -78,7 +92,7 @@ public static class TicketHandlers
         existing.BusinessOwner = updatedTicket.BusinessOwner;
 
         // Track modification
-        existing.LastModifiedBy = "API User"; // TODO: auth
+        existing.LastModifiedBy = userId; // authenticated user
         existing.LastModifiedDate = DateTime.UtcNow; // set modification date
 
         await repo.UpdateTicketAsync(existing);
