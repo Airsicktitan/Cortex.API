@@ -11,17 +11,17 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 
     public async Task<IEnumerable<Ticket>> GetAllTicketsAsync()
     {
-        return await _context.Tickets.ToListAsync();
+        return await _context.Tickets.Include(t => t.CreatedByUser).ToListAsync();
     }
 
     public async Task<Ticket?> GetTicketByIdAsync(string id)
     {
-        return await _context.Tickets.FindAsync(id);
+        return await _context.Tickets.Include(t => t.CreatedByUser).FirstOrDefaultAsync(t => t.Id == id);
     }
 
-    public async Task<IEnumerable<Ticket>> GetTicketByUserAsync(string user)
+    public async Task<IEnumerable<Ticket>> GetTicketByUserAsync(int user)
     {
-        return await _context.Tickets.Where(t => t.CreatedBy == user).ToListAsync();
+        return await _context.Tickets.Include(t => t.CreatedByUser).Where(t => t.CreatedBy == user).ToListAsync();
     }
 
 

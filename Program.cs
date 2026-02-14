@@ -5,6 +5,7 @@ using Cortex.API.Data;
 using Cortex.API.Data.Repositories;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Cortex.API.Services;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,6 +20,7 @@ builder.Services.AddEndpointsApiExplorer(); // for minimal APIs, needed for Swag
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<ICommentRepository, CommentRepository>();
+builder.Services.AddScoped<IUserContextService, UserContextService>();
 
 
 // Configure Swagger/OpenAPI
@@ -122,7 +124,8 @@ app.UseSwaggerUI(options =>
     options.OAuthUsePkce(); // Use PKCE for enhanced security in Swagger UI
     options.OAuthAdditionalQueryStringParams(new Dictionary<string, string>
     {
-        { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty }
+        { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty },
+        { "connection", "Username-Password-Authentication" }
     });
 });
 

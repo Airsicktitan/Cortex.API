@@ -10,7 +10,7 @@ public interface ITicketRepository
     public Task<Ticket> CreateTicketAsync(Ticket ticket); 
     public Task<Ticket> UpdateTicketAsync(Ticket ticket); 
     public Task<bool> DeleteTicketAsync(int id); 
-    public Task<IEnumerable<Ticket>> GetTicketByUserAsync (string id); 
+    public Task<IEnumerable<Ticket>> GetTicketByUserAsync (int id); 
 
     Task SaveChangesAsync();
 }

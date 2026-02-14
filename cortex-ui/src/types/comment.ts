@@ -5,4 +5,8 @@ export interface Comment {
   createdBy: string;
   createdDate: string;
   lastModifiedDate: string;
+  createdByUser?: {
+    id: string;
+    displayName: string;
+  };
 }

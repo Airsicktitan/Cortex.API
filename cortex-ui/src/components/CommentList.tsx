@@ -6,11 +6,7 @@ interface Props {
 
 export default function CommentList({ comments }: Props) {
   if (comments.length === 0) {
-    return (
-      <p className="text-sm text-gray-500 italic">
-        No comments yet
-      </p>
-    );
+    return <p className="text-sm text-gray-500 italic">No comments yet</p>;
   }
 
   return (
@@ -22,7 +18,7 @@ export default function CommentList({ comments }: Props) {
           </div>
 
           <div className="mt-2 text-xs text-gray-400">
-            {c.createdBy} ·{" "}
+            {c.createdByUser?.displayName ?? c.createdBy} ·{" "}
             {new Date(c.createdDate).toLocaleString()}
           </div>
         </div>

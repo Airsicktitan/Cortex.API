@@ -18,7 +18,6 @@ public static class SampleData
                 Priority = "Critical",
                 SynitiOwner = "Adam Hooper",
                 BusinessOwner = "Sarah Johnson",
-                CreatedBy = "Sarah Johnson",
                 CreatedDate = DateTime.UtcNow.AddDays(-2)
             },
             new()
@@ -29,7 +28,6 @@ public static class SampleData
                 Status = "New",
                 Priority = "High",
                 BusinessOwner = "Mike Chen",
-                CreatedBy = "Mike Chen",
                 CreatedDate = DateTime.UtcNow.AddHours(-5)
             },
             new()
@@ -41,7 +39,6 @@ public static class SampleData
                 Priority = "Medium",
                 SynitiOwner = "Adam Hooper",
                 BusinessOwner = "Lisa Martinez",
-                CreatedBy = "Lisa Martinez",
                 CreatedDate = DateTime.UtcNow.AddDays(-7)
             },
             new()
@@ -53,7 +50,6 @@ public static class SampleData
                 Priority = "Critical",
                 SynitiOwner = "Adam Hooper",
                 BusinessOwner = "Adam Hooper",
-                CreatedBy = "Adam Hooper",
                 CreatedDate = DateTime.UtcNow.AddDays(-7)
             }
         };

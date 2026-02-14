@@ -5,6 +5,7 @@ using Cortex.API.Database;
 
 using Microsoft.EntityFrameworkCore;
 using Cortex.API.Data;
+using Cortex.API.Services;
 
 public static class CommentHandlers
 {
@@ -15,17 +16,19 @@ public static class CommentHandlers
             return Results.Ok(results);
     }
 
-    public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, ICommentRepository commentRepo, ITicketRepository ticketRepo)
+    public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, ICommentRepository commentRepo, ITicketRepository ticketRepo, IUserContextService userContext, HttpContext http)
     {
         var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
         if (ticket is null)
             return Results.NotFound();
+
+        var currentUser = await userContext.GetCurrentUserAsync(http.User);
             
         var comment = await commentRepo.CreateCommentAsync(new Comment
             {
                 TicketId = ticketId,
                 Body = request.Body,
-                CreatedBy = request.CreatedBy ?? "System",
+                CreatedBy = currentUser.Id,
                 CreatedDate = DateTime.UtcNow
             });
 
@@ -36,5 +39,5 @@ public static class CommentHandlers
                 comment
             );
     }
-    public record CreateCommentRequest(string Body, string? CreatedBy);
+    public record CreateCommentRequest(string Body);
 }

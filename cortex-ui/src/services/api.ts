@@ -36,12 +36,17 @@ export const ticketService = {
   // Create ticket
   async create(
     ticket: Omit<Ticket, "id" | "createdDate" | "createdBy">,
+    token: string,
   ): Promise<Ticket> {
     const response = await fetch(`${API_BASE_URL}/tickets`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(ticket),
     });
+
     if (!response.ok) throw new Error("Failed to create ticket");
     return response.json();
   },

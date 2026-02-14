@@ -15,8 +15,11 @@ public class Comment
 
     public string Body { get; set; } = null!;
 
-    public string CreatedBy { get; set; } = null!; 
+    public int CreatedBy { get; set; }
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     public DateTime LastModifiedDate { get; set; } = DateTime.UtcNow;
+
+    [JsonIgnore] // Prevent circular reference during JSON serialization
+    public User CreatedByUser { get; set; } = null!;
 
 }   

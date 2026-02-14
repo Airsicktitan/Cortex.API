@@ -11,10 +11,11 @@ public class Ticket
     public string? SynitiOwner { get; set; } // Nullable
     public string? BusinessOwner { get; set; } // Nullable
 
-    public string CreatedBy { get; set; } = string.Empty; // Default to empty string
+    public int CreatedBy { get; set; } 
     public DateTime CreatedDate { get; set; } = DateTime.Now; // Default to now
-    public string? LastModifiedBy { get; set; } // Nullable
+    public int LastModifiedBy { get; set; }
     public DateTime? LastModifiedDate { get; set; } // Nullable
 
     public List<Comment> Comments { get; set; } = []; // Initialize to empty list 
+    public User? CreatedByUser { get; set; } // Navigation property for creator
 }

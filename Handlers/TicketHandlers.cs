@@ -4,6 +4,7 @@ using Cortex.API.Models;
 using Cortex.API.Data;
 using System.Security.Claims;
 using Cortex.API.DTOs;
+using Cortex.API.Services;
 
 /// <summary>
 /// Defines all ticket-related API handlers for CORTEX.
@@ -42,22 +43,18 @@ public static class TicketHandlers
 
         return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
     }
-    public static async Task<IResult> GetTicketsByUser(ClaimsPrincipal user, ITicketRepository repo)
+    public static async Task<IResult> GetTicketsByUser(IUserContextService userContext, ITicketRepository repo, HttpContext http)
     {
-        var userId = user.FindFirst("sub")?.Value;
-
-        if (string.IsNullOrEmpty(userId))
-            return Results.Unauthorized();
-
-        var tickets = await repo.GetTicketByUserAsync(userId);
+        var currentUser = await userContext.GetCurrentUserAsync(http.User);
+        var tickets = await repo.GetTicketByUserAsync(currentUser.Id);
 
         return Results.Ok(tickets);
     }
-    public static async Task<IResult> CreateTicket(CreateTicketRequest request, ITicketRepository repo, ClaimsPrincipal user)
+    public static async Task<IResult> CreateTicket(CreateTicketRequest request, ITicketRepository repo, IUserContextService userContext, HttpContext http)
     {
         // Generate next ticket number safely
         var tickets = await repo.GetAllTicketsAsync();
-        var userId = user.FindFirst("sub")?.Value;
+        var currentUser = await userContext.GetCurrentUserAsync(http.User);
 
         var maxNum = tickets
             .Where(t => t.Id.StartsWith("TICKET-")) // filter to expected format
@@ -75,20 +72,22 @@ public static class TicketHandlers
             SynitiOwner = request.SynitiOwner,
             BusinessOwner = request.BusinessOwner,
             Status = request.Status ?? "New", // default to "New" if not provided
-            CreatedBy = userId ?? "Unknown", // set from authenticated user
+            CreatedBy = currentUser.Id, // track creator's name or email
             CreatedDate = DateTime.UtcNow // set creation date
         };
 
         await repo.CreateTicketAsync(ticket);
         await repo.SaveChangesAsync();
 
-        return Results.Created($"/api/tickets/{ticket.Id}", ticket);
+        var createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
+
+        return Results.Created($"/api/tickets/{ticket.Id}", createdTicket);
     }
 
-    public static async Task<IResult> UpdateTicket(string id, UpdateTicketRequest request, ITicketRepository repo, ClaimsPrincipal user)
+    public static async Task<IResult> UpdateTicket(string id, UpdateTicketRequest request, ITicketRepository repo, IUserContextService userContext, HttpContext http)
     {
         var existing = await repo.GetTicketByIdAsync(id);
-        var userId = user.FindFirst("sub")?.Value;
+        var currentUser = await userContext.GetCurrentUserAsync(http.User);
             
         if (existing is null)
             return Results.NotFound();
@@ -102,7 +101,7 @@ public static class TicketHandlers
         existing.BusinessOwner = request.BusinessOwner ?? existing.BusinessOwner;
 
         // Track modification
-        existing.LastModifiedBy = userId; // authenticated user
+        existing.LastModifiedBy = currentUser.Id; // authenticated user
         existing.LastModifiedDate = DateTime.UtcNow; // set modification date
 
         await repo.UpdateTicketAsync(existing);

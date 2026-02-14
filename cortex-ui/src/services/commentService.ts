@@ -9,10 +9,17 @@ export const commentService = {
     return res.json();
   },
 
-  async create(ticketId: string, body: string): Promise<Comment> {
+  async create(
+    ticketId: string,
+    body: string,
+    token: string,
+  ): Promise<Comment> {
     const res = await fetch(`${BASE}/tickets/${ticketId}/comments`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ body }),
     });
 

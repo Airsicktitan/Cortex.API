@@ -6,7 +6,11 @@ export interface Ticket {
   priority: string;
   synitiOwner?: string;
   businessOwner?: string;
-  createdBy: string;
+  createdBy: number;
+  createdByUser?: {
+    id: number;
+    displayName: string;
+  };
   createdDate: string;
   lastModifiedBy?: string;
   lastModifiedDate?: string;

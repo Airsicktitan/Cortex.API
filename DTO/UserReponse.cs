@@ -1,3 +1,5 @@
+using Cortex.API.Models;
+
 namespace Cortex.API.DTOs;
 
 public class UserResponse

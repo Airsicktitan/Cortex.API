@@ -32,6 +32,10 @@ public class CortexDbContext : DbContext
 
             entity.HasIndex(t => t.Status);
             entity.HasIndex(t => t.Priority);
+            entity.HasOne(t => t.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(t => t.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<User>(entity =>
@@ -53,14 +57,15 @@ public class CortexDbContext : DbContext
                 .HasConversion<string>();
             
             entity.HasIndex(u => u.Auth0Id)
+                .IsUnique()
                 .HasFilter("[Auth0Id] IS NOT NULL")
                 .IsUnique();
         });
 
         modelBuilder.Entity<Comment>()
-            .HasOne(c => c.Ticket)
-            .WithMany(t => t.Comments)
-            .HasForeignKey(c => c.TicketId)
+            .HasOne(c => c.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(c => c.CreatedBy)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

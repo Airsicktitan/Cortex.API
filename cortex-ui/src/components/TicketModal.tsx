@@ -10,6 +10,7 @@ import { commentService } from "../services/commentService";
 import type { Comment } from "../types/comment";
 import CommentList from "./CommentList";
 import AddComment from "./AddComment";
+import { useAuth0 } from "@auth0/auth0-react";
 
 interface TicketModalProps {
   ticket: Ticket;
@@ -38,6 +39,8 @@ export default function TicketModal({
 
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
+
+  const { getAccessTokenSilently } = useAuth0();
 
   // Used to prevent older comment fetches from overwriting newer ones
   const commentsLoadVersion = useRef(0);
@@ -150,7 +153,9 @@ export default function TicketModal({
   const addComment = async (body: string) => {
     if (!ticket.id) return;
 
-    const created = await commentService.create(ticket.id, body);
+    const token = await getAccessTokenSilently();
+
+    const created = await commentService.create(ticket.id, body, token);
     setComments((prev) => [...prev, created]);
   };
 
@@ -276,7 +281,7 @@ export default function TicketModal({
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="font-medium">Created By:</span>{" "}
-                    {ticket.createdBy}
+                    {ticket.createdByUser?.displayName}
                   </div>
                   <div>
                     <span className="font-medium">Created Date:</span>{" "}

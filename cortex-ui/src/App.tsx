@@ -45,7 +45,7 @@ function App() {
 
   const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
   const [deleting, setDeleting] = useState(false);
-
+  const { getAccessTokenSilently } = useAuth0();
   const loadAllTickets = async () => {
     setLoading(true);
     setError(null);
@@ -83,11 +83,13 @@ function App() {
 
   const handleSaveTicket = async (updatedTicket: Partial<Ticket>) => {
     if (!selectedTicket) return;
+    const token = await getAccessTokenSilently();
 
     try {
       if (!selectedTicket.id) {
         const created = await ticketService.create(
           updatedTicket as Omit<Ticket, "id" | "createdDate" | "createdBy">,
+          token
         );
         setAllTickets((prev) => [created, ...prev]);
         toast.success("Ticket created");
@@ -218,7 +220,6 @@ function App() {
                   description: "",
                   priority: "Medium",
                   status: "New",
-                  createdBy: "UI",
                   createdDate: new Date().toISOString(),
                 } as Ticket)
               }

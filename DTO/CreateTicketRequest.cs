@@ -9,7 +9,4 @@ public class CreateTicketRequest
     public string? SynitiOwner { get; set; }
     public string? BusinessOwner { get; set; }
     public string? Status { get; set; } // e.g., "Open", "In Progress", "Closed"
-    public string? CreatedBy { get; set; } // will be set from authenticated user
-    public DateTime CreatedDate { get; set; } // will be set in handler
-    public string? Id { get; set; } // will be set in handler
 }

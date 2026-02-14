@@ -11,6 +11,7 @@ public static class CommentEndpoints
     public static void MapCommentEndpoints(this WebApplication app)
     {
         var comments = app.MapGroup("/api/tickets/{ticketId}/comments")
+            .RequireAuthorization()
             .WithTags("Comments");
 
         comments.MapGet("/", CommentHandlers.GetComment)

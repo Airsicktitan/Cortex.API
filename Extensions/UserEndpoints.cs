@@ -38,5 +38,10 @@ public static class UserEndpoints
 
         users.MapGet("/me", UserHandlers.GetCurrentUser)
             .WithName("GetCurrentUser");
+        
+        users.MapPut("/profile", UserHandlers.UpdateUserProfile)
+            .WithName("UpdateUserProfile")
+            .Accepts<UpdateUserProfileRequest>("application/json")
+            .Produces<UserResponse>(StatusCodes.Status200OK);
     }
 }

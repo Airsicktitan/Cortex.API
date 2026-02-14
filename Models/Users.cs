@@ -3,7 +3,7 @@ namespace Cortex.API.Models;
 public class User
 {
     public int Id { get; set; } = 0; // DB identifier
-    public required string DisplayName { get; set; } = string.Empty; // User identifier
+    public string? DisplayName { get; set; } // User identifier
     public required string Email { get; set; } = string.Empty; // Default to empty string
     public UserRole Role { get; set; } = UserRole.User; // Default to User role
     public string? Department { get; set; } // Nullable
