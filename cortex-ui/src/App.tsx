@@ -89,7 +89,7 @@ function App() {
       if (!selectedTicket.id) {
         const created = await ticketService.create(
           updatedTicket as Omit<Ticket, "id" | "createdDate" | "createdBy">,
-          token
+          token,
         );
         setAllTickets((prev) => [created, ...prev]);
         toast.success("Ticket created");
@@ -97,6 +97,7 @@ function App() {
         const saved = await ticketService.update(
           selectedTicket.id,
           updatedTicket,
+          token,
         );
         setAllTickets((prev) =>
           prev.map((t) => (t.id === saved.id ? saved : t)),

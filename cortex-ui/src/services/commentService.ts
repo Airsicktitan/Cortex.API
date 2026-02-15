@@ -3,8 +3,13 @@ import type { Comment } from "../types/comment";
 const BASE = "http://localhost:5214/api";
 
 export const commentService = {
-  async getByTicket(ticketId: string): Promise<Comment[]> {
-    const res = await fetch(`${BASE}/tickets/${ticketId}/comments`);
+  async getByTicket(ticketId: string, token: string): Promise<Comment[]> {
+    const res = await fetch(`${BASE}/tickets/${ticketId}/comments`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
     if (!res.ok) throw new Error("Failed to load comments");
     return res.json();
   },

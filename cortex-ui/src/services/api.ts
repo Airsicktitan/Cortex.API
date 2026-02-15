@@ -52,12 +52,20 @@ export const ticketService = {
   },
 
   // Update ticket
-  async update(id: string, ticket: Partial<Ticket>): Promise<Ticket> {
+  async update(
+    id: string,
+    ticket: Partial<Ticket>,
+    token: string,
+  ): Promise<Ticket> {
     const response = await fetch(`${API_BASE_URL}/tickets/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(ticket),
     });
+
     if (!response.ok) throw new Error("Failed to update ticket");
     return response.json();
   },

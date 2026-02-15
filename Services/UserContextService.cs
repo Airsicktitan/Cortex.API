@@ -1,18 +1,15 @@
 using System.Security.Claims;
+using Cortex.API.Data;
+using Cortex.API.Data.Repositories;
 using Cortex.API.Database;
 using Cortex.API.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Services;
 
-public class UserContextService : IUserContextService
+public class UserContextService(IUserRepository userRepository) : IUserContextService
 {
-    private readonly CortexDbContext _dbContext;
-
-    public UserContextService(CortexDbContext dbContext)
-    {
-        _dbContext = dbContext;
-    }
+    private readonly IUserRepository _userRepo = userRepository;
 
     public async Task<User> GetCurrentUserAsync(ClaimsPrincipal principal)
     {
@@ -30,8 +27,7 @@ public class UserContextService : IUserContextService
                         principal.FindFirst(ClaimTypes.Name)?.Value ??
                         email;
 
-        var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.Auth0Id == auth0Id);
+        var user = await _userRepo.GetByAuth0IdAsync(auth0Id);
 
         if (user == null)
         {
@@ -44,7 +40,7 @@ public class UserContextService : IUserContextService
                 LastLoginDate = DateTime.UtcNow
             };
 
-            _dbContext.Users.Add(user);
+            await _userRepo.CreateUserAsync(user);
             changed = true;
         }
 
@@ -62,7 +58,7 @@ public class UserContextService : IUserContextService
         }
 
         if (changed)
-            await _dbContext.SaveChangesAsync();
+            await _userRepo.SaveChangesAsync();
 
         return user;
     }

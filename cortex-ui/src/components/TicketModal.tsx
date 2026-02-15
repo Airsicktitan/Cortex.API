@@ -126,7 +126,8 @@ export default function TicketModal({
 
     const load = async () => {
       try {
-        const data = await commentService.getByTicket(ticket.id);
+        const token = await getAccessTokenSilently();
+        const data = await commentService.getByTicket(ticket.id, token);
 
         // If something newer started, ignore this result
         if (commentsLoadVersion.current !== myVersion) return;
@@ -140,7 +141,7 @@ export default function TicketModal({
     };
 
     load();
-  }, [isOpen, ticket.id]);
+  }, [getAccessTokenSilently, isOpen, ticket.id]);
 
   if (!isOpen) return null;
 
