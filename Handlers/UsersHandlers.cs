@@ -15,7 +15,7 @@ public static class UserHandlers
     {
         var users = await repo.GetAllUsersAsync();
         
-        if (users.Count() == 0)
+        if (!users.Any())
             return Results.NotFound("No users found.");
         
         var response = users.Select(u => u.ToResponse());
@@ -38,18 +38,11 @@ public static class UserHandlers
         return Results.Ok(user.ToResponse());
     }
 
-    public static async Task<IResult> UpdateUserProfile(HttpContext http, IUserContextService userContext, IUserRepository repo, UpdateUserProfileRequest request)
+    public static async Task<IResult> UpdateUserProfile(HttpContext http, IUserContextService userContext, UpdateUserProfileRequest request)
     {
         var user = await userContext.GetCurrentUserAsync(http.User);
 
-        if (user == null)
-            return Results.Unauthorized();
-
-        // Update only allowed fields
-        user.DisplayName = request.DisplayName ?? user.DisplayName;
-        user.Department = request.Department ?? user.Department;
-
-        await repo.UpdateUserAsync(user);
+        await userContext.UpdateProfileAsync(user, request);
 
         return Results.Ok(user.ToResponse());
     }

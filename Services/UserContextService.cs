@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Cortex.API.Data;
 using Cortex.API.Data.Repositories;
 using Cortex.API.Database;
+using Cortex.API.DTOs;
 using Cortex.API.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -63,4 +64,14 @@ public class UserContextService(IUserRepository userRepository) : IUserContextSe
         return user;
     }
 
+    public async Task<User> UpdateProfileAsync(User user, UpdateUserProfileRequest request)
+    {
+        // Update only allowed fields
+        user.DisplayName = request.DisplayName ?? user.DisplayName;
+        user.Department = request.Department ?? user.Department;
+
+        await _userRepo.SaveChangesAsync();
+
+        return user;
+    }
 }
