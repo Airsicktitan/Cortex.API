@@ -1,0 +1,27 @@
+services:
+  cortex-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cortex-api
+    ports:
+      - "5214:8080"
+    depends_on:
+      - cortex-sql
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__CortexDb=Server=cortex-sql;Database=CortexDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;
+
+  cortex-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: cortex-sql
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourStrong!Passw0rd
+    ports:
+      - "1433:1433"
+    volumes:
+      - cortex_sql_data:/var/opt/mssql
+
+volumes:
+  cortex_sql_data:

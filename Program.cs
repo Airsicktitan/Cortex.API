@@ -11,7 +11,7 @@ using Cortex.API.Services;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<CortexDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("AzureCortexDb")
+        builder.Configuration.GetConnectionString("AzureCortexDB")
     ));
 
 
@@ -140,5 +140,12 @@ app.MapRootEndpoint();
 app.MapTicketEndpoints();
 app.MapUserEndpoints();
 app.MapCommentEndpoints();
+
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<CortexDbContext>();
+    db.Database.Migrate();
+}
 
 app.Run();
