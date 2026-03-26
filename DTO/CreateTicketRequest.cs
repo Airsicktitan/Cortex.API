@@ -1,4 +1,4 @@
-namespace Cortex.API.DTOs;
+namespace Cortex.API.DTO;
 
 public class CreateTicketRequest
 {

@@ -1,7 +1,7 @@
 namespace Cortex.API.Handlers;
 
 using Cortex.API.Models;
-using Cortex.API.DTOs;
+using Cortex.API.DTO;
 using Cortex.API.Data;
 using Cortex.API.Services;
 
@@ -23,10 +23,10 @@ public static class UserHandlers
         return Results.Ok(response.ToList());
     }
 
-    public static async Task<IResult> GetCurrentUser(HttpContext http, IUserContextService userContext)
+    public static async Task<IResult> GetCurrentUser(IUserContextService userContext)
     {
         // Extract Auth0 user ID from JWT claims
-        var user = await userContext.GetCurrentUserAsync(http.User);
+        var user = await userContext.GetCurrentUserAsync();
 
         if(string.IsNullOrWhiteSpace(user.DisplayName))
             return Results.Ok(new
@@ -38,9 +38,9 @@ public static class UserHandlers
         return Results.Ok(user.ToResponse());
     }
 
-    public static async Task<IResult> UpdateUserProfile(HttpContext http, IUserContextService userContext, UpdateUserProfileRequest request)
+    public static async Task<IResult> UpdateUserProfile(IUserContextService userContext, UpdateUserProfileRequest request)
     {
-        var user = await userContext.GetCurrentUserAsync(http.User);
+        var user = await userContext.GetCurrentUserAsync();
 
         await userContext.UpdateProfileAsync(user, request);
 

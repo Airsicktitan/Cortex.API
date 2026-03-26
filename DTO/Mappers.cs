@@ -1,6 +1,6 @@
 using Cortex.API.Models;
 
-namespace Cortex.API.DTOs;
+namespace Cortex.API.DTO;
 
 
 public static class UserResponseExtensions

@@ -2,20 +2,26 @@ using System.Security.Claims;
 using Cortex.API.Data;
 using Cortex.API.Data.Repositories;
 using Cortex.API.Database;
-using Cortex.API.DTOs;
+using Cortex.API.DTO;
 using Cortex.API.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Services;
 
-public class UserContextService(IUserRepository userRepository) : IUserContextService
+public class UserContextService(IUserRepository userRepository, IHttpContextAccessor httpContextAccessor) : IUserContextService
 {
     private readonly IUserRepository _userRepo = userRepository;
+    private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
 
-    public async Task<User> GetCurrentUserAsync(ClaimsPrincipal principal)
+    public async Task<User> GetCurrentUserAsync()
     {
-        var auth0Id = principal.FindFirst("sub")?.Value;
+        var principal = _httpContextAccessor.HttpContext?.User;
         var changed = false;
+
+        if (principal is null || principal.Identity is null || !principal.Identity.IsAuthenticated)
+            throw new UnauthorizedAccessException("No authenticated user found.");
+
+        var auth0Id = principal.FindFirst("sub")?.Value;
 
         if (string.IsNullOrEmpty(auth0Id))
             throw new UnauthorizedAccessException("Missing Sub Claim.");

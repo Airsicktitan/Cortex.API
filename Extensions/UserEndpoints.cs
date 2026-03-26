@@ -5,7 +5,7 @@ using Cortex.API.Database;
 using Cortex.API.Handlers;
 
 using Microsoft.EntityFrameworkCore;
-using Cortex.API.DTOs;
+using Cortex.API.DTO;
 
 /// <summary>
 /// Defines all user-related API endpoints for CORTEX.

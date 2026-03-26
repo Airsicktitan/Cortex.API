@@ -16,13 +16,13 @@ public static class CommentHandlers
             return Results.Ok(results);
     }
 
-    public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, ICommentRepository commentRepo, ITicketRepository ticketRepo, IUserContextService userContext, HttpContext http)
+    public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, ICommentRepository commentRepo, ITicketRepository ticketRepo, IUserContextService userContext)
     {
         var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
         if (ticket is null)
             return Results.NotFound();
 
-        var currentUser = await userContext.GetCurrentUserAsync(http.User);
+        var currentUser = await userContext.GetCurrentUserAsync();
             
         var comment = await commentRepo.CreateCommentAsync(new Comment
             {

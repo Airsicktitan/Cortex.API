@@ -3,7 +3,7 @@ namespace Cortex.API.Handlers;
 using Cortex.API.Models;
 using Cortex.API.Data;
 using System.Security.Claims;
-using Cortex.API.DTOs;
+using Cortex.API.DTO;
 using Cortex.API.Services;
 
 /// <summary>
@@ -43,18 +43,18 @@ public static class TicketHandlers
 
         return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
     }
-    public static async Task<IResult> GetTicketsByUser(IUserContextService userContext, ITicketRepository repo, HttpContext http)
+    public static async Task<IResult> GetTicketsByUser(IUserContextService userContext, ITicketRepository repo)
     {
-        var currentUser = await userContext.GetCurrentUserAsync(http.User);
+        var currentUser = await userContext.GetCurrentUserAsync();
         var tickets = await repo.GetTicketByUserAsync(currentUser.Id);
 
         return Results.Ok(tickets);
     }
-    public static async Task<IResult> CreateTicket(CreateTicketRequest request, ITicketRepository repo, IUserContextService userContext, HttpContext http)
+    public static async Task<IResult> CreateTicket(CreateTicketRequest request, ITicketRepository repo, IUserContextService userContext)
     {
         // Generate next ticket number safely
         var tickets = await repo.GetAllTicketsAsync();
-        var currentUser = await userContext.GetCurrentUserAsync(http.User);
+        var currentUser = await userContext.GetCurrentUserAsync();
 
         var maxNum = tickets
             .Where(t => t.Id.StartsWith("TICKET-")) // filter to expected format
@@ -84,10 +84,10 @@ public static class TicketHandlers
         return Results.Created($"/api/tickets/{ticket.Id}", createdTicket);
     }
 
-    public static async Task<IResult> UpdateTicket(string id, UpdateTicketRequest request, ITicketRepository repo, IUserContextService userContext, HttpContext http)
+    public static async Task<IResult> UpdateTicket(string id, UpdateTicketRequest request, ITicketRepository repo, IUserContextService userContext)
     {
         var existing = await repo.GetTicketByIdAsync(id);
-        var currentUser = await userContext.GetCurrentUserAsync(http.User);
+        var currentUser = await userContext.GetCurrentUserAsync();
             
         if (existing is null)
             return Results.NotFound();
