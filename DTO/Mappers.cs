@@ -21,3 +21,20 @@ public static class UserResponseExtensions
         };
     }
 }
+
+public static class CommentMappings
+{
+    public static CommentResponse ToResponse(this Comment comment)
+    {
+        return new CommentResponse
+        {
+            Id = comment.Id,
+            TicketId = comment.TicketId,
+            Body = comment.Body,
+            CreatedBy = comment.CreatedBy,
+            CreatedByDisplayName = comment.CreatedByUser?.DisplayName ?? "Unknown User",
+            CreatedDate = comment.CreatedDate,
+            LastModifiedDate = comment.LastModifiedDate
+        };
+    }
+}

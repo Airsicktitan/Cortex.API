@@ -18,7 +18,7 @@ export default function CommentList({ comments }: Props) {
           </div>
 
           <div className="mt-2 text-xs text-gray-400">
-            {c.createdByUser?.displayName ?? c.createdBy} ·{" "}
+            {c.createdByDisplayName ?? c.createdBy} ·{" "}
             {new Date(c.createdDate).toLocaleString()}
           </div>
         </div>
