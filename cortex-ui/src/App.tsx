@@ -35,6 +35,7 @@ function App() {
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
 
   const [filter, setFilter] = useState<"all" | "status" | "priority">("all");
   const [filterValue, setFilterValue] = useState("");
@@ -61,10 +62,21 @@ function App() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      loadAllTickets();
-    }
-  }, [isAuthenticated]);
+    if (!isAuthenticated) return;
+
+    const bootstrap = async () => {
+      const token = await getAccessTokenSilently();
+
+      // triggers UserContextService
+      const currentUser = await ticketService.getCurrentUser(token);
+      setCurrentUser(currentUser);
+
+      // Then load tickets
+      await loadAllTickets();
+    };
+
+    bootstrap();
+  }, [isAuthenticated, getAccessTokenSilently]);
 
   const tickets = useMemo(() => {
     const v = normalize(debouncedFilterValue);
@@ -230,7 +242,9 @@ function App() {
             </button>
 
             <div className="flex items-center gap-3 ml-4 pl-4 border-l border-gray-300">
-              <span className="text-sm text-gray-700">{user?.name}</span>
+              <span className="text-sm text-gray-700">
+                {currentUser?.displayName ?? user?.name}
+              </span>
               <button
                 onClick={() =>
                   logout({ logoutParams: { returnTo: window.location.origin } })
@@ -283,6 +297,7 @@ function App() {
           onClose={closeModal}
           onSave={handleSaveTicket}
           onDelete={requestDeleteTicket}
+          currentUser={currentUser}
         />
       )}
 

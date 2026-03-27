@@ -30,9 +30,13 @@ public class UserContextService(IUserRepository userRepository, IHttpContextAcce
                     principal.FindFirst(ClaimTypes.Email)?.Value ??
                     "unknown@email.com";
 
-        var displayName = principal.FindFirst("name")?.Value ??
+        var displayName = principal.FindFirst("https://cortex-api/display_name")?.Value ??
+                        principal.FindFirst("name")?.Value ??
+                        principal.FindFirst("nickname")?.Value ??
+                        principal.FindFirst("preferred_username")?.Value ??
+                        principal.FindFirst("username")?.Value ??
                         principal.FindFirst(ClaimTypes.Name)?.Value ??
-                        email;
+                        email.Split('@')[0]; // Fallback to email prefix if no name claim is found 
 
         var user = await _userRepo.GetByAuth0IdAsync(auth0Id);
 
@@ -64,8 +68,27 @@ public class UserContextService(IUserRepository userRepository, IHttpContextAcce
             changed = true;
         }
 
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            var shouldUpdateDisplayName =
+                string.IsNullOrWhiteSpace(user.DisplayName) ||
+                user.DisplayName != displayName ||
+                LooksLikeEmail(user.DisplayName);
+
+                if (shouldUpdateDisplayName)
+                {
+                    user.DisplayName = displayName;
+                    changed = true;
+                }
+        }
+
         if (changed)
             await _userRepo.SaveChangesAsync();
+
+        foreach (var claim in principal.Claims)
+        {
+            Console.WriteLine($"{claim.Type}: {claim.Value}");
+        }   
 
         return user;
     }
@@ -79,5 +102,10 @@ public class UserContextService(IUserRepository userRepository, IHttpContextAcce
         await _userRepo.SaveChangesAsync();
 
         return user;
+    }
+
+    public bool LooksLikeEmail(string value)
+    {
+        return !string.IsNullOrEmpty(value) && value.Contains("@");
     }
 }

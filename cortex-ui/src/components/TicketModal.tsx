@@ -18,6 +18,9 @@ interface TicketModalProps {
   onClose: () => void;
   onSave: (updatedTicket: Partial<Ticket>) => Promise<void>;
   onDelete: (ticket: Ticket) => void;
+  currentUser: {
+    displayName: string;
+  } | null;
 }
 
 export default function TicketModal({
@@ -26,6 +29,7 @@ export default function TicketModal({
   onClose,
   onSave,
   onDelete,
+  currentUser,
 }: TicketModalProps) {
   const [priority, setPriority] = useState(ticket.priority);
   const [status, setStatus] = useState(ticket.status);
@@ -282,7 +286,9 @@ export default function TicketModal({
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="font-medium">Created By:</span>{" "}
-                    {ticket.createdByUser?.displayName}
+                    {ticket.createdByDisplayName ??
+                      currentUser?.displayName ??
+                      "Pending"}
                   </div>
                   <div>
                     <span className="font-medium">Created Date:</span>{" "}

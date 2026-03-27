@@ -3,11 +3,7 @@ export interface Comment {
   ticketId: string;
   body: string;
   createdBy: number;
+  createdByDisplayName?: string;
   createdDate: string;
   lastModifiedDate: string;
-  createdByDisplayName?: string;
-  createdByUser?: {
-    id: string;
-    displayName: string;
-  };
 }

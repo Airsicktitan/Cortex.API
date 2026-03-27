@@ -1,8 +1,20 @@
 import type { Ticket } from "../types/ticket";
 
-const API_BASE_URL = "http://localhost:5214/api";
+const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 export const ticketService = {
+  // Get User
+  async getCurrentUser(token: string) {
+    const response = await fetch(`${API_BASE_URL}/users/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) throw new Error("Failed to fetch current user");
+    return response.json();
+  },
+
   // Get all tickets
   async getAll(): Promise<Ticket[]> {
     const response = await fetch(`${API_BASE_URL}/tickets`);
