@@ -83,12 +83,7 @@ public class UserContextService(IUserRepository userRepository, IHttpContextAcce
         }
 
         if (changed)
-            await _userRepo.SaveChangesAsync();
-
-        foreach (var claim in principal.Claims)
-        {
-            Console.WriteLine($"{claim.Type}: {claim.Value}");
-        }   
+            await _userRepo.SaveChangesAsync();  
 
         return user;
     }
