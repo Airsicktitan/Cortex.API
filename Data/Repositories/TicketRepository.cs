@@ -41,7 +41,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         await _context.SaveChangesAsync();
 
         return await _context.Tickets
-            .Include(t => t.CreatedBy)
+            .Include(t => t.CreatedByUser)
             .FirstAsync(t => t.Id == ticket.Id);
     }
 
