@@ -21,6 +21,7 @@ interface TicketModalProps {
   currentUser: {
     displayName: string;
   } | null;
+  createdByDisplayName: string;
 }
 
 export default function TicketModal({
@@ -164,6 +165,13 @@ export default function TicketModal({
     setComments((prev) => [...prev, created]);
   };
 
+  const createdByName =
+    ticket.createdByDisplayName ||
+    ticket.createdByUser?.displayName ||
+    currentUser?.displayName ||
+    ticket.createdBy ||
+    "Created By API";
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
@@ -286,9 +294,7 @@ export default function TicketModal({
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="font-medium">Created By:</span>{" "}
-                    {ticket.createdByDisplayName ??
-                      currentUser?.displayName ??
-                      "Pending"}
+                    {createdByName}
                   </div>
                   <div>
                     <span className="font-medium">Created Date:</span>{" "}

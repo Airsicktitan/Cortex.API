@@ -17,7 +17,7 @@ public static class UserResponseExtensions
             IsActive = user.IsActive,
             CreatedDate = user.CreatedDate,
             LastLoginDate = user.LastLoginDate,
-            LastModifiedDate = user.LastModifiedDate
+            LastModifiedDate = user.LastModifiedDate,
         };
     }
 }
@@ -35,6 +35,28 @@ public static class CommentMappings
             CreatedByDisplayName = comment.CreatedByUser?.DisplayName ?? "Unknown User",
             CreatedDate = comment.CreatedDate,
             LastModifiedDate = comment.LastModifiedDate
+        };
+    }
+}
+
+public static class TicketResponseExtensions
+{
+    public static TicketResponse ToResponse(this Ticket ticket)
+    {
+        return new TicketResponse
+        {
+            Id = ticket.Id,
+            Title = ticket.Title,
+            Description = ticket.Description,
+            Status = ticket.Status,
+            Priority = ticket.Priority,
+            SynitiOwner = ticket.SynitiOwner,
+            BusinessOwner = ticket.BusinessOwner,
+            CreatedBy = ticket.CreatedBy,
+            CreatedDate = ticket.CreatedDate,
+            LastModifiedBy = ticket.LastModifiedBy,
+            LastModifiedDate = ticket.LastModifiedDate,
+            CreatedByDisplayName = ticket.CreatedByUser?.DisplayName ?? "Unknown User"
         };
     }
 }

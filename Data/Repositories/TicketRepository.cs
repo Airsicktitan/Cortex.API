@@ -38,7 +38,11 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
     public async Task<Ticket> CreateTicketAsync(Ticket ticket)
     {
         await _context.Tickets.AddAsync(ticket);
-        return ticket;
+        await _context.SaveChangesAsync();
+
+        return await _context.Tickets
+            .Include(t => t.CreatedBy)
+            .FirstAsync(t => t.Id == ticket.Id);
     }
 
     public async Task<Ticket> UpdateTicketAsync(Ticket ticket)

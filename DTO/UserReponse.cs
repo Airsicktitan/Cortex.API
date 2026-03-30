@@ -13,4 +13,5 @@ public class UserResponse
     public DateTime CreatedDate { get; set; }
     public DateTime? LastLoginDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
+    public string? CreatedByDisplayName {get; set;}
 }

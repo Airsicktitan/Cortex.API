@@ -2,78 +2,88 @@ namespace Cortex.API.Handlers;
 
 using Cortex.API.Models;
 using Cortex.API.Data;
-using System.Security.Claims;
 using Cortex.API.DTO;
 using Cortex.API.Services;
 
 /// <summary>
 /// Defines all ticket-related API handlers for CORTEX.
-/// Implements RESTful CRUD operations with database persistence via Entity Framework Core.
-/// 
+/// Implements RESTful CRUD operations with database persistence via repository pattern.
+///
 /// Known Limitations:
-/// - POST endpoint uses client-side ID generation (see inline TODO)
-/// - Authentication/authorization not yet implemented (see inline TODOs)
-/// - Delete endpoint commented out pending auth implementation
-/// 
+/// - POST endpoint still uses sequential ticket ID generation
+/// - Sequential ID generation is vulnerable to concurrency collisions under heavy parallel creates
+/// - Delete assumes repository delete supports string ticket IDs
 /// </summary>
-
 public static class TicketHandlers
 {
     public static async Task<IResult> GetAllTickets(ITicketRepository repo)
     {
         var tickets = await repo.GetAllTicketsAsync();
-        return Results.Ok(tickets);
+        return Results.Ok(tickets.Select(t => t.ToResponse()));
     }
-    
+
     public static async Task<IResult> GetTicketById(string id, ITicketRepository repo)
     {
         var ticket = await repo.GetTicketByIdAsync(id);
-        return ticket is not null ? Results.Ok(ticket) : Results.NotFound();
+        return ticket is not null
+            ? Results.Ok(ticket.ToResponse())
+            : Results.NotFound();
     }
 
     public static async Task<IResult> GetTicketsByStatus(string status, ITicketRepository repo)
     {
         var filtered = await repo.GetTicketsByStatusAsync(status);
 
-        return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
+        return filtered.Any()
+            ? Results.Ok(filtered.Select(t => t.ToResponse()))
+            : Results.NotFound();
     }
+
     public static async Task<IResult> GetTicketsByPriority(string priority, ITicketRepository repo)
     {
         var filtered = await repo.GetTicketsByPriorityAsync(priority);
 
-        return filtered.Any() ? Results.Ok(filtered) : Results.NotFound();
+        return filtered.Any()
+            ? Results.Ok(filtered.Select(t => t.ToResponse()))
+            : Results.NotFound();
     }
-    public static async Task<IResult> GetTicketsByUser(IUserContextService userContext, ITicketRepository repo)
+
+    public static async Task<IResult> GetTicketsByUser(
+        IUserContextService userContext,
+        ITicketRepository repo)
     {
         var currentUser = await userContext.GetCurrentUserAsync();
         var tickets = await repo.GetTicketByUserAsync(currentUser.Id);
 
-        return Results.Ok(tickets);
+        return Results.Ok(tickets.Select(t => t.ToResponse()));
     }
-    public static async Task<IResult> CreateTicket(CreateTicketRequest request, ITicketRepository repo, IUserContextService userContext)
+
+    public static async Task<IResult> CreateTicket(
+        CreateTicketRequest request,
+        ITicketRepository repo,
+        IUserContextService userContext)
     {
-        // Generate next ticket number safely
         var tickets = await repo.GetAllTicketsAsync();
         var currentUser = await userContext.GetCurrentUserAsync();
 
         var maxNum = tickets
-            .Where(t => t.Id.StartsWith("TICKET-")) // filter to expected format
-            .Select(t => t.Id)
-            .Select(id => int.Parse(id.Substring(7))) // Current bug that needs to be addressed.  This will crash if the format is unexpected. IE: "TICKET-XYZ"
-            .DefaultIfEmpty(0) // handle empty case
-            .Max(); // get max number
+            .Where(t => !string.IsNullOrWhiteSpace(t.Id) && t.Id.StartsWith("TICKET-"))
+            .Select(t => t.Id.Substring(7))
+            .Select(idPart => int.TryParse(idPart, out var num) ? num : 0)
+            .DefaultIfEmpty(0)
+            .Max();
 
         var ticket = new Ticket
         {
-            Id = $"TICKET-{(maxNum + 1):D3}", // TODO: Replace with server-side ID generation (e.g., GUID) to avoid concurrency issues
+            Id = $"TICKET-{(maxNum + 1):D3}",
             Title = request.Title,
-            Description = request.Description ?? string.Empty, // default to empty string if not provided
-            Priority = request.Priority ?? "Medium", // default to "Medium" if not provided
+            Description = request.Description ?? string.Empty,
+            Priority = request.Priority ?? "Medium",
             SynitiOwner = request.SynitiOwner,
             BusinessOwner = request.BusinessOwner,
-            Status = request.Status ?? "New", // default to "New" if not provided
-            CreatedBy = currentUser.Id, // track creator's name or email
-            CreatedDate = DateTime.UtcNow // set creation date
+            Status = request.Status ?? "New",
+            CreatedBy = currentUser.Id,
+            CreatedDate = DateTime.UtcNow
         };
 
         await repo.CreateTicketAsync(ticket);
@@ -81,33 +91,44 @@ public static class TicketHandlers
 
         var createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
 
-        return Results.Created($"/api/tickets/{ticket.Id}", createdTicket);
+        if (createdTicket is null)
+            return Results.Problem("Ticket was created but could not be retrieved.");
+
+        return Results.Created(
+            $"/api/tickets/{createdTicket.Id}",
+            createdTicket.ToResponse());
     }
 
-    public static async Task<IResult> UpdateTicket(string id, UpdateTicketRequest request, ITicketRepository repo, IUserContextService userContext)
+    public static async Task<IResult> UpdateTicket(
+        string id,
+        UpdateTicketRequest request,
+        ITicketRepository repo,
+        IUserContextService userContext)
     {
         var existing = await repo.GetTicketByIdAsync(id);
         var currentUser = await userContext.GetCurrentUserAsync();
-            
+
         if (existing is null)
             return Results.NotFound();
 
-        // Update mutable fields
         existing.Title = request.Title ?? existing.Title;
         existing.Description = request.Description ?? existing.Description;
         existing.Status = request.Status ?? existing.Status;
         existing.Priority = request.Priority ?? existing.Priority;
         existing.SynitiOwner = request.SynitiOwner ?? existing.SynitiOwner;
         existing.BusinessOwner = request.BusinessOwner ?? existing.BusinessOwner;
-
-        // Track modification
-        existing.LastModifiedBy = currentUser.Id; // authenticated user
-        existing.LastModifiedDate = DateTime.UtcNow; // set modification date
+        existing.LastModifiedBy = currentUser.Id;
+        existing.LastModifiedDate = DateTime.UtcNow;
 
         await repo.UpdateTicketAsync(existing);
         await repo.SaveChangesAsync();
 
-        return Results.Ok(existing);
+        var updatedTicket = await repo.GetTicketByIdAsync(id);
+
+        if (updatedTicket is null)
+            return Results.Problem("Ticket was updated but could not be retrieved.");
+
+        return Results.Ok(updatedTicket.ToResponse());
     }
 
     public static async Task<IResult> DeleteTicket(string id, ITicketRepository repo)

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Cortex.API.Models;
 
 public class Ticket
@@ -17,5 +19,7 @@ public class Ticket
     public DateTime? LastModifiedDate { get; set; } // Nullable
 
     public List<Comment> Comments { get; set; } = []; // Initialize to empty list 
-    public User? CreatedByUser { get; set; } // Navigation property for creator
+    
+    [JsonIgnore]
+    public User? CreatedByUser { get; set; } = null; // Navigation property for creator
 }

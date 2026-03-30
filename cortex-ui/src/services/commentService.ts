@@ -1,10 +1,10 @@
 import type { Comment } from "../types/comment";
 
-const BASE = "http://localhost:5214/api";
+const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 export const commentService = {
   async getByTicket(ticketId: string, token: string): Promise<Comment[]> {
-    const res = await fetch(`${BASE}/tickets/${ticketId}/comments`, {
+    const res = await fetch(`${API_BASE_URL}/tickets/${ticketId}/comments`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -19,7 +19,7 @@ export const commentService = {
     body: string,
     token: string,
   ): Promise<Comment> {
-    const res = await fetch(`${BASE}/tickets/${ticketId}/comments`, {
+    const res = await fetch(`${API_BASE_URL}/tickets/${ticketId}/comments`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
