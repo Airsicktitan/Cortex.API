@@ -44,6 +44,7 @@ export default function TicketModal({
 
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
 
   const { getAccessTokenSilently } = useAuth0();
 
@@ -148,6 +149,28 @@ export default function TicketModal({
     load();
   }, [getAccessTokenSilently, isOpen, ticket.id]);
 
+  useEffect(() => {
+    const loadPermissions = async () => {
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: {
+            audience: "https://cortex-api",
+          },
+        });
+
+        const payload = JSON.parse(atob(token.split(".")[1]));
+
+        const normalize = (v: unknown) => (Array.isArray(v) ? v : v ? [v] : []);
+
+        setPermissions(normalize(payload.permissions));
+      } catch (err) {
+        console.error("Failed to load permissions", err);
+      }
+    };
+
+    loadPermissions();
+  }, [getAccessTokenSilently]);
+
   if (!isOpen) return null;
 
   const handleDelete = () => {
@@ -163,6 +186,12 @@ export default function TicketModal({
 
     const created = await commentService.create(ticket.id, body, token);
     setComments((prev) => [...prev, created]);
+  };
+
+  const hasPermission = (permission: string) => {
+    return (
+      permissions.includes(permission) || permissions.includes("admin:system")
+    );
   };
 
   const createdByName =
@@ -305,7 +334,7 @@ export default function TicketModal({
 
               {/* Actions */}
               <div className="flex justify-between items-center">
-                {ticket.id && (
+                {ticket.id && hasPermission("tickets:delete") && (
                   <button
                     onClick={handleDelete}
                     disabled={saving}
@@ -322,13 +351,15 @@ export default function TicketModal({
                   >
                     Cancel
                   </button>
-                  <button
-                    onClick={handleSave}
-                    disabled={saving || !title.trim()}
-                    className="px-4 py-2 bg-cortex-blue text-white rounded-md"
-                  >
-                    {saving ? "Saving..." : "Save Changes"}
-                  </button>
+                  {hasPermission("tickets:update") && (
+                    <button
+                      onClick={handleSave}
+                      disabled={saving || !title.trim()}
+                      className="px-4 py-2 bg-cortex-blue text-white rounded-md"
+                    >
+                      {saving ? "Saving..." : "Save Changes"}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

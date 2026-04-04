@@ -99,7 +99,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
         {
             ValidateAudience = true,
-            ValidAudiences = new[] { builder.Configuration["Auth0:Audience"] },
+            ValidAudiences = [builder.Configuration["Auth0:Audience"]],
             ValidateIssuer = true,
             ValidIssuer = $"https://{builder.Configuration["Auth0:Domain"]}/",  // <-- Trailing slash added here
             ValidateLifetime = true,
@@ -110,7 +110,43 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.MapInboundClaims = false; // Prevents default claim type mapping
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Broad admin/system policy
+    options.AddPolicy("AdminSystem", policy =>
+        policy.RequireClaim("permissions", "admin:system"));
+
+    // Role-based policies if needed
+    options.AddPolicy("DeveloperRole", policy =>
+        policy.RequireClaim("https://cortex-api/roles", "Developer"));
+
+    // Ticket permissions
+    options.AddPolicy("TicketsRead", policy =>
+        policy.RequireClaim("permissions", "tickets:read", "admin:system"));
+
+    options.AddPolicy("TicketsCreate", policy =>
+        policy.RequireClaim("permissions", "tickets:create", "admin:system"));
+
+    options.AddPolicy("TicketsUpdate", policy =>
+        policy.RequireClaim("permissions", "tickets:update", "admin:system"));
+
+    options.AddPolicy("TicketsDelete", policy =>
+        policy.RequireClaim("permissions", "tickets:delete", "admin:system"));
+
+    // Comment permissions
+    options.AddPolicy("CommentsRead", policy =>
+        policy.RequireClaim("permissions", "comments:read", "admin:system"));
+
+    options.AddPolicy("CommentsCreate", policy =>
+        policy.RequireClaim("permissions", "comments:create", "admin:system"));
+
+    // User permissions
+    options.AddPolicy("UsersRead", policy =>
+        policy.RequireClaim("permissions", "users:read", "admin:system"));
+
+    options.AddPolicy("UsersUpdate", policy =>
+        policy.RequireClaim("permissions", "users:update", "admin:system"));
+});
 
 // Build app
 var app = builder.Build();
@@ -141,6 +177,7 @@ app.MapRootEndpoint();
 app.MapTicketEndpoints();
 app.MapUserEndpoints();
 app.MapCommentEndpoints();
+app.MapClaimEndpoint();
 
 if (app.Environment.IsDevelopment())
 {

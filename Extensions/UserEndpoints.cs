@@ -10,15 +10,17 @@ using Cortex.API.DTO;
 /// <summary>
 /// Defines all user-related API endpoints for CORTEX.
 /// Implements RESTful CRUD operations with database persistence via Entity Framework Core.
-/// 
+
+/// - JWT authentication
+/// - Role-based authorization (admin vs regular user)
+
 /// Known Limitations:
 /// - POST endpoint uses client-side ID generation (see inline TODO)
 /// - Authentication/authorization not yet implemented (see inline TODOs)
 /// - Delete endpoint commented out pending auth implementation
 /// 
 /// Future Enhancements:
-/// - JWT authentication
-/// - Role-based authorization (admin vs regular user)
+
 /// - Audit logging for all operations
 /// - Input validation middleware
 /// </summary>
@@ -33,13 +35,16 @@ public static class UserEndpoints
             .WithTags("Users");
 
         users.MapGet("/", UserHandlers.GetUsers)
+            .RequireAuthorization("UsersRead")
             .WithName("GetUsers")
             .Produces<List<UserResponse>>(StatusCodes.Status200OK);
 
         users.MapGet("/me", UserHandlers.GetCurrentUser)
+            .RequireAuthorization("UsersRead")
             .WithName("GetCurrentUser");
         
         users.MapPut("/profile", UserHandlers.UpdateUserProfile)
+            .RequireAuthorization("UsersUpdate")
             .WithName("UpdateUserProfile")
             .Accepts<UpdateUserProfileRequest>("application/json")
             .Produces<UserResponse>(StatusCodes.Status200OK);
