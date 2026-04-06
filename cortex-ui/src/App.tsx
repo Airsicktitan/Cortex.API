@@ -24,7 +24,15 @@ function normalize(v: string) {
 }
 
 function App() {
-  const { isAuthenticated, isLoading: authLoading, user, logout } = useAuth0();
+  const {
+    isAuthenticated,
+    isLoading,
+    user,
+    logout,
+    getAccessTokenSilently,
+    getAccessTokenWithPopup,
+    loginWithRedirect,
+  } = useAuth0();
 
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,80 +45,176 @@ function App() {
 
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
   const [permissions, setPermissions] = useState<string[]>([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [needsConsent, setNeedsConsent] = useState(false);
 
   const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const { getAccessTokenSilently, loginWithRedirect } = useAuth0();
+
+  const parsePermissionsFromToken = (token: string | undefined): string[] => {
+    if (!token) return [];
+
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const value = payload.permissions;
+
+      if (Array.isArray(value)) {
+        return value.filter((x): x is string => typeof x === "string");
+      }
+
+      if (typeof value === "string" && value.trim()) {
+        return [value];
+      }
+
+      return [];
+    } catch (err) {
+      console.error("Failed to parse permissions from token", err);
+      return [];
+    }
+  };
+
+  const getApiToken = async () => {
+    return await getAccessTokenSilently({
+      authorizationParams: {
+        audience: "https://cortex-api",
+      },
+    });
+  };
 
   const loadAllTickets = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const data = await ticketService.getAll();
+      const token = await getApiToken();
+      const data = await ticketService.getAll(token);
       setAllTickets(data);
-    } catch {
-      setError("Failed to load tickets. Make sure the API is running.");
+    } catch (err: any) {
+      console.error("Failed to load tickets", err);
+
+      if (
+        err?.error === "consent_required" ||
+        err?.message?.toLowerCase().includes("consent required")
+      ) {
+        setNeedsConsent(true);
+        setError("CORTEX API consent is required before tickets can load.");
+      } else {
+        setError("Failed to load tickets. Make sure the API is running.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (isLoading || !isAuthenticated) return;
+
+    let cancelled = false;
 
     const bootstrap = async () => {
-      const token = await getAccessTokenSilently();
+      try {
+        const token = await getApiToken();
+        const fetchedCurrentUser = await ticketService.getCurrentUser(token);
 
-      // triggers UserContextService
-      const currentUser = await ticketService.getCurrentUser(token);
-      setCurrentUser(currentUser);
+        if (!cancelled) {
+          setCurrentUser(fetchedCurrentUser);
+        }
 
-      // Then load tickets
-      await loadAllTickets();
+        await loadAllTickets();
+      } catch (err: any) {
+        console.error("Bootstrap failed", err);
+
+        if (!cancelled) {
+          if (
+            err?.error === "consent_required" ||
+            err?.message?.toLowerCase().includes("consent required")
+          ) {
+            setNeedsConsent(true);
+            setError("CORTEX API consent is required before the app can load.");
+          } else {
+            setError("Failed to initialize the application.");
+          }
+
+          setLoading(false);
+        }
+      }
     };
 
     bootstrap();
-  }, [isAuthenticated, getAccessTokenSilently]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoading, isAuthenticated, getAccessTokenSilently]);
 
   useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+
+    let cancelled = false;
+
     const loadPermissions = async () => {
       try {
-        const token = await getAccessTokenSilently({
-          authorizationParams: {
-            audience: "https://cortex-api",
-          },
-        });
+        const token = await getApiToken();
+        const parsedPermissions = parsePermissionsFromToken(token);
 
-        const payload = JSON.parse(atob(token.split(".")[1]));
+        console.log("User:", user?.name);
+        console.log("Permissions:", parsedPermissions);
 
-        const normalize = (v: unknown): string[] => {
-          if (Array.isArray(v)) return v as string[];
-          if (typeof v === "string" && v.trim()) return [v];
-          return [];
-        };
-
-        setPermissions(normalize(payload.permissions));
-        setNeedsConsent(false);
+        if (!cancelled) {
+          setPermissions(parsedPermissions);
+          setNeedsConsent(false);
+        }
       } catch (err: any) {
         console.error("Failed to load permissions", err);
 
-        if (
-          err?.error === "consent_required" ||
-          err?.message?.toLowerCase().includes("consent required")
-        ) {
-          setNeedsConsent(true);
+        if (!cancelled) {
+          if (
+            err?.error === "consent_required" ||
+            err?.message?.toLowerCase().includes("consent required")
+          ) {
+            setNeedsConsent(true);
+            setPermissions([]);
+          } else {
+            setNeedsConsent(false);
+            setPermissions([]);
+          }
         }
       } finally {
-        setPermissionsLoaded(true);
+        if (!cancelled) {
+          setPermissionsLoaded(true);
+        }
       }
     };
 
     loadPermissions();
-  }, [getAccessTokenSilently]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoading, isAuthenticated, getAccessTokenSilently]);
+
+  const grantConsent = async () => {
+    try {
+      const token = await getAccessTokenWithPopup({
+        authorizationParams: {
+          audience: "https://cortex-api",
+        },
+      });
+
+      const parsedPermissions = parsePermissionsFromToken(token);
+
+      setPermissions(parsedPermissions);
+      setNeedsConsent(false);
+      setPermissionsLoaded(true);
+
+      await loadAllTickets();
+    } catch (err) {
+      console.error("Consent failed", err);
+      toast.error("Failed to grant CORTEX API access");
+    }
+  };
 
   const tickets = useMemo(() => {
     const v = normalize(debouncedFilterValue);
@@ -129,9 +233,10 @@ function App() {
 
   const handleSaveTicket = async (updatedTicket: Partial<Ticket>) => {
     if (!selectedTicket) return;
-    const token = await getAccessTokenSilently();
 
     try {
+      const token = await getApiToken();
+
       if (!selectedTicket.id) {
         const created = await ticketService.create(
           updatedTicket as Omit<Ticket, "id" | "createdDate" | "createdBy">,
@@ -167,11 +272,9 @@ function App() {
 
     try {
       setDeleting(true);
-
-      await ticketService.delete(ticketToDelete.id);
-
+      const token = await getApiToken();
+      await ticketService.delete(ticketToDelete.id, token);
       setAllTickets((prev) => prev.filter((t) => t.id !== ticketToDelete.id));
-
       toast.success("Ticket deleted");
     } catch {
       toast.error("Failed to delete ticket");
@@ -199,7 +302,7 @@ function App() {
     );
   };
 
-  if (authLoading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
         <div className="text-center">
@@ -273,29 +376,40 @@ function App() {
             </button>
 
             {permissionsLoaded && needsConsent && (
-              <span className="text-sm text-yellow-700">
-                Cortex API consent is required before permission-based UI can
-                load.
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-yellow-700">
+                  CORTEX API consent is required before permission-based UI can
+                  load.
+                </span>
+                <button
+                  onClick={grantConsent}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Grant Access
+                </button>
+              </div>
             )}
 
-            {permissionsLoaded && hasPermission("tickets:create") && (
-              <button
-                onClick={() =>
-                  openTicket({
-                    id: "",
-                    title: "",
-                    description: "",
-                    priority: "Medium",
-                    status: "New",
-                    createdDate: new Date().toISOString(),
-                  } as Ticket)
-                }
-                className="px-4 py-2 bg-green-600 text-white rounded-md"
-              >
-                + New Ticket
-              </button>
-            )}
+            {permissionsLoaded &&
+              !needsConsent &&
+              hasPermission("tickets:create") && (
+                <button
+                  onClick={() =>
+                    openTicket({
+                      id: "",
+                      title: "",
+                      description: "",
+                      priority: "Medium",
+                      status: "New",
+                      createdDate: new Date().toISOString(),
+                    } as Ticket)
+                  }
+                  className="px-4 py-2 bg-green-600 text-white rounded-md"
+                >
+                  + New Ticket
+                </button>
+              )}
+
             <div className="flex items-center gap-3 ml-4 pl-4 border-l border-gray-300">
               <span className="text-sm text-gray-700">
                 {currentUser?.displayName ?? user?.name}
@@ -331,17 +445,20 @@ function App() {
           <p className="text-gray-600 text-center">No tickets found</p>
         )}
 
-        {!loading && !error && tickets.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tickets.map((ticket) => (
-              <TicketCard
-                key={ticket.id}
-                ticket={ticket}
-                onClick={() => openTicket(ticket)}
-              />
-            ))}
-          </div>
-        )}
+        {!loading &&
+          !error &&
+          tickets.length > 0 &&
+          (hasPermission("tickets:read") || hasPermission("admin:system")) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {tickets.map((ticket) => (
+                <TicketCard
+                  key={ticket.id}
+                  ticket={ticket}
+                  onClick={() => openTicket(ticket)}
+                />
+              ))}
+            </div>
+          )}
       </main>
 
       {selectedTicket && isModalOpen && (
