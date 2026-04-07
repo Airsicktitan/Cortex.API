@@ -4,6 +4,9 @@ import App from "./App";
 import { Toaster } from "react-hot-toast";
 import { Auth0Provider } from "@auth0/auth0-react";
 import "./index.css";
+import { applyTheme, getPreferredTheme } from "./theme";
+
+applyTheme(getPreferredTheme());
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

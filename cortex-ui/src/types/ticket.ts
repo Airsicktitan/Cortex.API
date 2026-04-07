@@ -17,4 +17,9 @@ export interface Ticket {
   lastModifiedBy?: string;
   lastModifiedDate?: string;
   createdByDisplayName?: string;
+  slaTargetDate: string;
+  slaCompletedDate?: string;
+  slaStatus: string;
+  slaRemainingMinutes: number;
+  isSlaBreached: boolean;
 }

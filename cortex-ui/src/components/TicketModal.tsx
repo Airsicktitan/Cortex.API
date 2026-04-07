@@ -11,6 +11,48 @@ import type { Comment } from "../types/comment";
 import CommentList from "./CommentList";
 import AddComment from "./AddComment";
 import { useAuth0 } from "@auth0/auth0-react";
+import {
+  buildSlaTooltip,
+  formatSlaSummary,
+  getSlaBadgeClass,
+} from "../utils/ticketSla";
+
+const API_AUDIENCE = "https://cortex-api";
+const ADMIN_PERMISSION = "admin:system";
+const TICKETS_CREATE_PERMISSION = "tickets:create";
+const TICKETS_UPDATE_PERMISSION = "tickets:update";
+const TICKETS_DELETE_PERMISSION = "tickets:delete";
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    return JSON.parse(atob(padded)) as Record<string, unknown>;
+  } catch (error) {
+    console.error("Failed to decode token payload", error);
+    return null;
+  }
+}
+
+function parsePermissionsFromToken(token: string): string[] {
+  const payload = decodeJwtPayload(token);
+  const value = payload?.permissions;
+
+  if (Array.isArray(value)) {
+    return value.filter(
+      (permission): permission is string => typeof permission === "string",
+    );
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    return [value];
+  }
+
+  return [];
+}
 
 interface TicketModalProps {
   ticket: Ticket;
@@ -50,6 +92,16 @@ export default function TicketModal({
 
   // Used to prevent older comment fetches from overwriting newer ones
   const commentsLoadVersion = useRef(0);
+  const hasPermission = (permission: string) => {
+    return (
+      permissions.includes(permission) || permissions.includes(ADMIN_PERMISSION)
+    );
+  };
+  const canCreateTicket =
+    !ticket.id && hasPermission(TICKETS_CREATE_PERMISSION);
+  const canUpdateTicket =
+    Boolean(ticket.id) && hasPermission(TICKETS_UPDATE_PERMISSION);
+  const canSaveTicket = canCreateTicket || canUpdateTicket;
 
   // ✅ CRITICAL: useLayoutEffect prevents the “1 frame of old ticket data”
   useLayoutEffect(() => {
@@ -102,7 +154,7 @@ export default function TicketModal({
       if (e.key === "Enter" && !e.shiftKey) {
         const active = document.activeElement;
         if (active?.tagName === "TEXTAREA") return;
-        if (saving || !title.trim()) return;
+        if (saving || !title.trim() || !canSaveTicket) return;
 
         e.preventDefault();
         handleSave();
@@ -111,7 +163,7 @@ export default function TicketModal({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, saving, title, onClose, handleSave]);
+  }, [canSaveTicket, isOpen, saving, title, onClose, handleSave]);
 
   // ✅ CRITICAL: clear comments + show loading BEFORE paint, and guard response ordering
   useLayoutEffect(() => {
@@ -154,15 +206,11 @@ export default function TicketModal({
       try {
         const token = await getAccessTokenSilently({
           authorizationParams: {
-            audience: "https://cortex-api",
+            audience: API_AUDIENCE,
           },
         });
 
-        const payload = JSON.parse(atob(token.split(".")[1]));
-
-        const normalize = (v: unknown) => (Array.isArray(v) ? v : v ? [v] : []);
-
-        setPermissions(normalize(payload.permissions));
+        setPermissions(parsePermissionsFromToken(token));
       } catch (err) {
         console.error("Failed to load permissions", err);
       }
@@ -188,18 +236,16 @@ export default function TicketModal({
     setComments((prev) => [...prev, created]);
   };
 
-  const hasPermission = (permission: string) => {
-    return (
-      permissions.includes(permission) || permissions.includes("admin:system")
-    );
-  };
-
   const createdByName =
     ticket.createdByDisplayName ||
     ticket.createdByUser?.displayName ||
     currentUser?.displayName ||
     ticket.createdBy ||
     "Created By API";
+  const hasPersistedSla = Boolean(ticket.id);
+  const canManageComments = Boolean(ticket.id);
+  const slaTooltip = buildSlaTooltip(ticket);
+  const slaBadgeClass = getSlaBadgeClass(ticket.slaStatus);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -212,10 +258,14 @@ export default function TicketModal({
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
         <div
-          className="relative bg-white rounded-lg shadow-xl max-w-5xl w-full p-6"
+          className="relative bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 rounded-lg shadow-xl border border-gray-200 dark:border-slate-800 max-w-5xl w-full p-6"
           tabIndex={-1}
         >
-          <div className="grid grid-cols-[1fr_380px] gap-6">
+          <div
+            className={`grid gap-6 ${
+              canManageComments ? "grid-cols-[1fr_380px]" : "grid-cols-1"
+            }`}
+          >
             {/* ================= LEFT PANEL ================= */}
             <div className="min-w-0">
               {/* Header */}
@@ -226,13 +276,15 @@ export default function TicketModal({
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Enter ticket title..."
-                    className="w-full text-2xl font-bold text-gray-900 mb-1 border-b border-gray-300 focus:border-cortex-blue focus:outline-none"
+                    className="w-full bg-transparent text-2xl font-bold text-gray-900 dark:text-slate-100 mb-1 border-b border-gray-300 dark:border-slate-700 focus:border-cortex-blue focus:outline-none"
                   />
-                  <p className="text-sm text-gray-500">{ticket.id}</p>
+                  <p className="text-sm text-gray-500 dark:text-slate-400">
+                    {ticket.id}
+                  </p>
                 </div>
                 <button
                   onClick={onClose}
-                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+                  className="text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300 text-2xl font-bold"
                 >
                   ×
                 </button>
@@ -240,7 +292,7 @@ export default function TicketModal({
 
               {/* Description */}
               <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                   Description
                 </label>
                 <textarea
@@ -248,7 +300,7 @@ export default function TicketModal({
                   onChange={(e) => setDescription(e.target.value)}
                   rows={4}
                   placeholder="Enter ticket description..."
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50"
+                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
               </div>
 
@@ -256,13 +308,13 @@ export default function TicketModal({
               <div className="grid grid-cols-2 gap-4 mb-6">
                 {/* Priority */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Priority
                   </label>
                   <select
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
-                    className="w-full rounded-md border-gray-300 shadow-sm"
+                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
                     <option value="Critical">Critical</option>
                     <option value="High">High</option>
@@ -273,13 +325,13 @@ export default function TicketModal({
 
                 {/* Status */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Status
                   </label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
-                    className="w-full rounded-md border-gray-300 shadow-sm"
+                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
                     <option value="New">New</option>
                     <option value="In Progress">In Progress</option>
@@ -293,33 +345,33 @@ export default function TicketModal({
 
                 {/* Syniti Owner */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Syniti Owner
                   </label>
                   <input
                     type="text"
                     value={synitiOwner}
                     onChange={(e) => setSynitiOwner(e.target.value)}
-                    className="w-full rounded-md border-gray-300 shadow-sm"
+                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   />
                 </div>
 
                 {/* Business Owner */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Business Owner
                   </label>
                   <input
                     type="text"
                     value={businessOwner}
                     onChange={(e) => setBusinessOwner(e.target.value)}
-                    className="w-full rounded-md border-gray-300 shadow-sm"
+                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   />
                 </div>
               </div>
 
               {/* Metadata */}
-              <div className="bg-gray-50 p-4 rounded-md mb-6">
+              <div className="bg-gray-50 dark:bg-slate-800/70 p-4 rounded-md mb-6">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="font-medium">Created By:</span>{" "}
@@ -329,12 +381,49 @@ export default function TicketModal({
                     <span className="font-medium">Created Date:</span>{" "}
                     {new Date(ticket.createdDate).toLocaleDateString()}
                   </div>
+                  {hasPersistedSla ? (
+                    <>
+                      <div>
+                        <span className="font-medium">SLA Status:</span>{" "}
+                        <span
+                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${slaBadgeClass}`}
+                          title={slaTooltip}
+                        >
+                          {ticket.slaStatus}
+                        </span>
+                      </div>
+                      <div title={slaTooltip}>
+                        <span className="font-medium">SLA Deadline:</span>{" "}
+                        {new Date(ticket.slaTargetDate).toLocaleString()}
+                      </div>
+                      <div title={slaTooltip}>
+                        <span className="font-medium">SLA Tracking:</span>{" "}
+                        {formatSlaSummary(ticket)}
+                      </div>
+                      {ticket.slaCompletedDate && (
+                        <div title={slaTooltip}>
+                          <span className="font-medium">SLA Completed:</span>{" "}
+                          {new Date(ticket.slaCompletedDate).toLocaleString()}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="col-span-2 text-gray-600 dark:text-slate-400">
+                      SLA timing will be calculated after the ticket is created
+                      using the selected priority settings.
+                    </div>
+                  )}
+                  {!canManageComments && (
+                    <div className="col-span-2 text-gray-600 dark:text-slate-400">
+                      Comments will be available after the ticket is created.
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Actions */}
               <div className="flex justify-between items-center">
-                {ticket.id && hasPermission("tickets:delete") && (
+                {ticket.id && hasPermission(TICKETS_DELETE_PERMISSION) && (
                   <button
                     onClick={handleDelete}
                     disabled={saving}
@@ -347,17 +436,23 @@ export default function TicketModal({
                 <div className="flex space-x-3">
                   <button
                     onClick={onClose}
-                    className="px-4 py-2 bg-gray-200 rounded-md"
+                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md dark:bg-slate-800 dark:text-slate-200"
                   >
                     Cancel
                   </button>
-                  {hasPermission("tickets:update") && (
+                  {canSaveTicket && (
                     <button
                       onClick={handleSave}
                       disabled={saving || !title.trim()}
                       className="px-4 py-2 bg-cortex-blue text-white rounded-md"
                     >
-                      {saving ? "Saving..." : "Save Changes"}
+                      {saving
+                        ? ticket.id
+                          ? "Saving..."
+                          : "Creating..."
+                        : ticket.id
+                          ? "Save Changes"
+                          : "Create Ticket"}
                     </button>
                   )}
                 </div>
@@ -365,23 +460,27 @@ export default function TicketModal({
             </div>
 
             {/* ================= RIGHT PANEL ================= */}
-            <div className="border-l pl-4 flex flex-col min-h-[500px]">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">
-                Comments
-              </h3>
+            {canManageComments && (
+              <div className="border-l border-gray-200 dark:border-slate-800 pl-4 flex flex-col min-h-[500px]">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
+                  Comments
+                </h3>
 
-              <div className="flex-1 overflow-y-auto pr-1">
-                {loadingComments ? (
-                  <p className="text-sm text-gray-500">Loading comments…</p>
-                ) : (
-                  <CommentList comments={comments} />
-                )}
-              </div>
+                <div className="flex-1 overflow-y-auto pr-1">
+                  {loadingComments ? (
+                    <p className="text-sm text-gray-500 dark:text-slate-400">
+                      Loading comments…
+                    </p>
+                  ) : (
+                    <CommentList comments={comments} />
+                  )}
+                </div>
 
-              <div className="mt-3">
-                <AddComment onAdd={addComment} />
+                <div className="mt-3">
+                  <AddComment onAdd={addComment} />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

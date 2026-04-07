@@ -17,4 +17,9 @@ public class TicketResponse
 
     public string CreatedByDisplayName { get; set; } = string.Empty;
     public DateTime CreatedDate { get; set; }
+    public DateTime SlaTargetDate { get; set; }
+    public DateTime? SlaCompletedDate { get; set; }
+    public string SlaStatus { get; set; } = string.Empty;
+    public int SlaRemainingMinutes { get; set; }
+    public bool IsSlaBreached { get; set; }
 }

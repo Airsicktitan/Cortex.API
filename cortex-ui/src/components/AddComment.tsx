@@ -27,7 +27,7 @@ export default function AddComment({ onAdd }: AddCommentProps) {
         onChange={(e) => setBody(e.target.value)}
         rows={3}
         placeholder="Write a comment…"
-        className="w-full rounded-md border-gray-300 shadow-sm text-sm"
+        className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm text-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();

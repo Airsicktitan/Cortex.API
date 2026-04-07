@@ -107,6 +107,23 @@ namespace Cortex.API.Migrations
                     b.ToTable("Tickets");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.SlaConfiguration", b =>
+                {
+                    b.Property<string>("Priority")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int>("TargetHours")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarningHours")
+                        .HasColumnType("int");
+
+                    b.HasKey("Priority");
+
+                    b.ToTable("SlaConfigurations");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.User", b =>
                 {
                     b.Property<int>("Id")
@@ -134,6 +151,10 @@ namespace Cortex.API.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("NickName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<DateTime?>("ExpiryDate")
                         .HasColumnType("datetime2");
 
@@ -145,6 +166,10 @@ namespace Cortex.API.Migrations
 
                     b.Property<DateTime?>("LastModifiedDate")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Role")
                         .IsRequired()

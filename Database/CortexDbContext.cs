@@ -13,6 +13,7 @@ public class CortexDbContext : DbContext
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Comment> Comments => Set<Comment>();
+    public DbSet<SlaConfiguration> SlaConfigurations => Set<SlaConfiguration>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,9 +47,15 @@ public class CortexDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(100);
 
+            entity.Property(u => u.NickName)
+                .HasMaxLength(100);
+
             entity.Property(u => u.Email)
                 .IsRequired()
                 .HasMaxLength(200);
+
+            entity.Property(u => u.PhoneNumber)
+                .HasMaxLength(50);
 
             entity.HasIndex(u => u.Email)
                 .IsUnique();
@@ -60,6 +67,20 @@ public class CortexDbContext : DbContext
                 .IsUnique()
                 .HasFilter("[Auth0Id] IS NOT NULL")
                 .IsUnique();
+        });
+
+        modelBuilder.Entity<SlaConfiguration>(entity =>
+        {
+            entity.HasKey(s => s.Priority);
+
+            entity.Property(s => s.Priority)
+                .HasMaxLength(50);
+
+            entity.Property(s => s.TargetHours)
+                .IsRequired();
+
+            entity.Property(s => s.WarningHours)
+                .IsRequired();
         });
 
         modelBuilder.Entity<Comment>()

@@ -1,4 +1,10 @@
 import type { Ticket } from "../types/ticket";
+import {
+  buildSlaTooltip,
+  formatSlaSummary,
+  getSlaAccentClass,
+  getSlaBadgeClass,
+} from "../utils/ticketSla";
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -27,19 +33,23 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
   const statusColor =
     statusColors[ticket.status as keyof typeof statusColors] ||
     "bg-gray-100 text-gray-800";
+  const slaAccentClass = getSlaAccentClass(ticket.slaStatus);
+  const slaBadgeClass = getSlaBadgeClass(ticket.slaStatus);
+  const slaTooltip = buildSlaTooltip(ticket);
 
   return (
     <div
       onClick={onClick}
-      className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer border-l-4 border-cortex-blue p-4"
+      title={slaTooltip}
+      className={`bg-white dark:bg-slate-900 rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer border-l-4 ${slaAccentClass} p-4 ring-1 ring-inset ring-gray-100 dark:ring-slate-800`}
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-1">
             {ticket.title}
           </h3>
-          <p className="text-sm text-gray-500">{ticket.id}</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">{ticket.id}</p>
         </div>
         <span
           className={`px-3 py-1 rounded-full text-xs font-medium ${priorityColor} border`}
@@ -49,19 +59,36 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
       </div>
 
       {/* Description */}
-      <p className="text-gray-600 text-sm mb-4 line-clamp-2">
+      <p className="text-gray-600 dark:text-slate-300 text-sm mb-4 line-clamp-2">
         {ticket.description}
       </p>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-4">
         <span
           className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}
         >
           {ticket.status}
         </span>
 
-        <div className="flex flex-col items-end text-xs text-gray-500">
+        <span
+          className={`px-3 py-1 rounded-full text-xs font-medium ${slaBadgeClass}`}
+          title={slaTooltip}
+        >
+          {ticket.slaStatus}
+        </span>
+      </div>
+
+      <p className="text-xs text-gray-500 dark:text-slate-400 mb-4" title={slaTooltip}>
+        {formatSlaSummary(ticket)}
+      </p>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-500 dark:text-slate-400">
+          Due {new Date(ticket.slaTargetDate).toLocaleString()}
+        </span>
+
+        <div className="flex flex-col items-end text-xs text-gray-500 dark:text-slate-400">
           {ticket.synitiOwner && <span>👤 {ticket.synitiOwner}</span>}
           {ticket.businessOwner && <span>🏢 {ticket.businessOwner}</span>}
         </div>

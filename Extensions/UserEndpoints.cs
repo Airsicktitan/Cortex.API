@@ -35,16 +35,21 @@ public static class UserEndpoints
             .WithTags("Users");
 
         users.MapGet("/", UserHandlers.GetUsers)
-            .RequireAuthorization("UsersRead")
+            .RequireAuthorization("UsersAdminRead")
             .WithName("GetUsers")
-            .Produces<List<UserResponse>>(StatusCodes.Status200OK);
+            .Produces<List<AdminUserResponse>>(StatusCodes.Status200OK);
+
+        users.MapPut("/{id:int}", UserHandlers.UpdateUser)
+            .RequireAuthorization("UsersAdminUpdate")
+            .WithName("UpdateUser")
+            .Accepts<AdminUpdateUserRequest>("application/json")
+            .Produces<AdminUserResponse>(StatusCodes.Status200OK);
 
         users.MapGet("/me", UserHandlers.GetCurrentUser)
-            .RequireAuthorization("UsersRead")
-            .WithName("GetCurrentUser");
+            .WithName("GetCurrentUser")
+            .Produces<UserResponse>(StatusCodes.Status200OK);
         
         users.MapPut("/profile", UserHandlers.UpdateUserProfile)
-            .RequireAuthorization("UsersUpdate")
             .WithName("UpdateUserProfile")
             .Accepts<UpdateUserProfileRequest>("application/json")
             .Produces<UserResponse>(StatusCodes.Status200OK);

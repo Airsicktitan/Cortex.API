@@ -4,7 +4,9 @@ public class User
 {
     public int Id { get; set; } = 0; // DB identifier
     public string? DisplayName { get; set; } // User identifier
+    public string? NickName { get; set; } // Nullable
     public required string Email { get; set; } = string.Empty; // Default to empty string
+    public string? PhoneNumber { get; set; } // Nullable
     public UserRole Role { get; set; } = UserRole.User; // Default to User role
     public string? Department { get; set; } // Nullable
 

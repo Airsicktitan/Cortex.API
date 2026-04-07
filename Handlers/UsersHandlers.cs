@@ -11,30 +11,26 @@ using Cortex.API.Services;
 /// </summary>
 public static class UserHandlers
 {
+    private static string? NormalizeOptionalValue(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
     public static async Task<IResult> GetUsers(IUserRepository repo)
     {
         var users = await repo.GetAllUsersAsync();
-        
-        if (!users.Any())
-            return Results.NotFound("No users found.");
-        
-        var response = users.Select(u => u.ToResponse());
+        var response = users
+            .OrderBy(user => user.DisplayName ?? user.Email)
+            .Select(user => user.ToAdminResponse())
+            .ToList();
 
-        return Results.Ok(response.ToList());
+        return Results.Ok(response);
     }
 
     public static async Task<IResult> GetCurrentUser(IUserContextService userContext)
     {
-        // Extract Auth0 user ID from JWT claims
         var user = await userContext.GetCurrentUserAsync();
-
-        if(string.IsNullOrWhiteSpace(user.DisplayName))
-            return Results.Ok(new
-            {
-                requiresProfileCompletion = true,
-                userId = user.Id
-            });
-
+        
         return Results.Ok(user.ToResponse());
     }
 
@@ -45,5 +41,38 @@ public static class UserHandlers
         await userContext.UpdateProfileAsync(user, request);
 
         return Results.Ok(user.ToResponse());
+    }
+
+    public static async Task<IResult> UpdateUser(
+        int id,
+        AdminUpdateUserRequest request,
+        IUserRepository repo)
+    {
+        var user = await repo.GetByIdAsync(id);
+        if (user is null)
+        {
+            return Results.NotFound($"User {id} was not found.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Role) ||
+            !Enum.TryParse<UserRole>(request.Role.Trim(), ignoreCase: true, out var role))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["role"] = ["A valid role is required."]
+            });
+        }
+
+        user.NickName = NormalizeOptionalValue(request.NickName);
+        user.PhoneNumber = NormalizeOptionalValue(request.PhoneNumber);
+        user.Department = NormalizeOptionalValue(request.Department);
+        user.Role = role;
+        user.IsActive = request.IsActive;
+        user.ExpiryDate = request.ExpiryDate;
+        user.LastModifiedDate = DateTime.UtcNow;
+
+        await repo.SaveChangesAsync();
+
+        return Results.Ok(user.ToAdminResponse());
     }
 }

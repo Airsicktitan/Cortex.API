@@ -16,52 +16,99 @@ using Cortex.API.Services;
 /// </summary>
 public static class TicketHandlers
 {
-    public static async Task<IResult> GetAllTickets(ITicketRepository repo)
+    public static async Task<IResult> GetAllTickets(
+        ITicketRepository repo,
+        ITicketVisibilityService ticketVisibilityService,
+        ISlaConfigurationService slaConfigurationService)
     {
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
         var tickets = await repo.GetAllTicketsAsync();
-        return Results.Ok(tickets.Select(t => t.ToResponse()));
+        var visibleTickets = tickets.Where(visibilityContext.CanView);
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+
+        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations)));
     }
 
-    public static async Task<IResult> GetTicketById(string id, ITicketRepository repo)
+    public static async Task<IResult> GetTicketById(
+        string id,
+        ITicketRepository repo,
+        ITicketVisibilityService ticketVisibilityService,
+        ISlaConfigurationService slaConfigurationService)
     {
         var ticket = await repo.GetTicketByIdAsync(id);
-        return ticket is not null
-            ? Results.Ok(ticket.ToResponse())
-            : Results.NotFound();
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+
+        return Results.Ok(ticket.ToResponse(slaConfigurations));
     }
 
-    public static async Task<IResult> GetTicketsByStatus(string status, ITicketRepository repo)
+    public static async Task<IResult> GetTicketsByStatus(
+        string status,
+        ITicketRepository repo,
+        ITicketVisibilityService ticketVisibilityService,
+        ISlaConfigurationService slaConfigurationService)
     {
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
         var filtered = await repo.GetTicketsByStatusAsync(status);
+        var visibleTickets = filtered.Where(visibilityContext.CanView).ToList();
 
-        return filtered.Any()
-            ? Results.Ok(filtered.Select(t => t.ToResponse()))
-            : Results.NotFound();
+        if (!visibleTickets.Any())
+        {
+            return Results.NotFound();
+        }
+
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+
+        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations)));
     }
 
-    public static async Task<IResult> GetTicketsByPriority(string priority, ITicketRepository repo)
+    public static async Task<IResult> GetTicketsByPriority(
+        string priority,
+        ITicketRepository repo,
+        ITicketVisibilityService ticketVisibilityService,
+        ISlaConfigurationService slaConfigurationService)
     {
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
         var filtered = await repo.GetTicketsByPriorityAsync(priority);
+        var visibleTickets = filtered.Where(visibilityContext.CanView).ToList();
 
-        return filtered.Any()
-            ? Results.Ok(filtered.Select(t => t.ToResponse()))
-            : Results.NotFound();
+        if (!visibleTickets.Any())
+        {
+            return Results.NotFound();
+        }
+
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+
+        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations)));
     }
 
     public static async Task<IResult> GetTicketsByUser(
         IUserContextService userContext,
-        ITicketRepository repo)
+        ITicketRepository repo,
+        ISlaConfigurationService slaConfigurationService)
     {
         var currentUser = await userContext.GetCurrentUserAsync();
         var tickets = await repo.GetTicketByUserAsync(currentUser.Id);
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
 
-        return Results.Ok(tickets.Select(t => t.ToResponse()));
+        return Results.Ok(tickets.Select(ticket => ticket.ToResponse(slaConfigurations)));
     }
 
     public static async Task<IResult> CreateTicket(
         CreateTicketRequest request,
         ITicketRepository repo,
-        IUserContextService userContext)
+        IUserContextService userContext,
+        ISlaConfigurationService slaConfigurationService)
     {
         var tickets = await repo.GetAllTicketsAsync();
         var currentUser = await userContext.GetCurrentUserAsync();
@@ -94,16 +141,19 @@ public static class TicketHandlers
         if (createdTicket is null)
             return Results.Problem("Ticket was created but could not be retrieved.");
 
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+
         return Results.Created(
             $"/api/tickets/{createdTicket.Id}",
-            createdTicket.ToResponse());
+            createdTicket.ToResponse(slaConfigurations));
     }
 
     public static async Task<IResult> UpdateTicket(
         string id,
         UpdateTicketRequest request,
         ITicketRepository repo,
-        IUserContextService userContext)
+        IUserContextService userContext,
+        ISlaConfigurationService slaConfigurationService)
     {
         var existing = await repo.GetTicketByIdAsync(id);
         var currentUser = await userContext.GetCurrentUserAsync();
@@ -128,7 +178,9 @@ public static class TicketHandlers
         if (updatedTicket is null)
             return Results.Problem("Ticket was updated but could not be retrieved.");
 
-        return Results.Ok(updatedTicket.ToResponse());
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+
+        return Results.Ok(updatedTicket.ToResponse(slaConfigurations));
     }
 
     public static async Task<IResult> DeleteTicket(string id, ITicketRepository repo)

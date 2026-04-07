@@ -1,4 +1,10 @@
 import type { Ticket } from "../types/ticket";
+import type {
+  AdminUpdateUserInput,
+  UpdateUserProfileInput,
+  UserProfile,
+  UserRecord,
+} from "../types/user";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
@@ -7,6 +13,49 @@ const authHeaders = (token: string, includeJson = false): HeadersInit => ({
   Authorization: `Bearer ${token}`,
 });
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+async function readErrorMessage(response: Response, fallbackMessage: string) {
+  try {
+    const data = (await response.json()) as unknown;
+
+    if (typeof data === "string" && data.trim()) {
+      return data;
+    }
+
+    if (typeof data === "object" && data !== null) {
+      const message = "message" in data ? data.message : undefined;
+      if (typeof message === "string" && message.trim()) {
+        return message;
+      }
+
+      const title = "title" in data ? data.title : undefined;
+      if (typeof title === "string" && title.trim()) {
+        return title;
+      }
+    }
+  } catch {
+    // Ignore unreadable response bodies and fall back to the provided message.
+  }
+
+  return fallbackMessage;
+}
+
+async function ensureSuccess(response: Response, fallbackMessage: string) {
+  if (response.ok) return;
+
+  const message = await readErrorMessage(response, fallbackMessage);
+  throw new ApiError(message, response.status);
+}
+
 export const ticketService = {
   // Get User
   async getCurrentUser(token: string) {
@@ -14,7 +63,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    if (!response.ok) throw new Error("Failed to fetch current user");
+    await ensureSuccess(response, "Failed to fetch current user");
     return response.json();
   },
 
@@ -24,7 +73,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    if (!response.ok) throw new Error("Failed to fetch tickets");
+    await ensureSuccess(response, "Failed to fetch tickets");
     return response.json();
   },
 
@@ -34,7 +83,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    if (!response.ok) throw new Error("Failed to fetch ticket");
+    await ensureSuccess(response, "Failed to fetch ticket");
     return response.json();
   },
 
@@ -44,7 +93,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    if (!response.ok) throw new Error("Failed to fetch tickets");
+    await ensureSuccess(response, "Failed to fetch tickets");
     return response.json();
   },
 
@@ -57,7 +106,7 @@ export const ticketService = {
       },
     );
 
-    if (!response.ok) throw new Error("Failed to fetch tickets");
+    await ensureSuccess(response, "Failed to fetch tickets");
     return response.json();
   },
 
@@ -72,7 +121,7 @@ export const ticketService = {
       body: JSON.stringify(ticket),
     });
 
-    if (!response.ok) throw new Error("Failed to create ticket");
+    await ensureSuccess(response, "Failed to create ticket");
     return response.json();
   },
 
@@ -88,7 +137,7 @@ export const ticketService = {
       body: JSON.stringify(ticket),
     });
 
-    if (!response.ok) throw new Error("Failed to update ticket");
+    await ensureSuccess(response, "Failed to update ticket");
     return response.json();
   },
 
@@ -99,6 +148,55 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    if (!response.ok) throw new Error("Failed to delete ticket");
+    await ensureSuccess(response, "Failed to delete ticket");
+  },
+};
+
+export const userService = {
+  async getCurrentUser(token: string): Promise<UserProfile> {
+    const response = await fetch(`${API_BASE_URL}/users/me`, {
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, "Failed to fetch current user");
+    return response.json();
+  },
+
+  async getAll(token: string): Promise<UserRecord[]> {
+    const response = await fetch(`${API_BASE_URL}/users`, {
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, "Failed to fetch users");
+    return response.json();
+  },
+
+  async updateProfile(
+    profile: UpdateUserProfileInput,
+    token: string,
+  ): Promise<UserProfile> {
+    const response = await fetch(`${API_BASE_URL}/users/profile`, {
+      method: "PUT",
+      headers: authHeaders(token, true),
+      body: JSON.stringify(profile),
+    });
+
+    await ensureSuccess(response, "Failed to update profile");
+    return response.json();
+  },
+
+  async updateUser(
+    id: number,
+    user: AdminUpdateUserInput,
+    token: string,
+  ): Promise<UserRecord> {
+    const response = await fetch(`${API_BASE_URL}/users/${id}`, {
+      method: "PUT",
+      headers: authHeaders(token, true),
+      body: JSON.stringify(user),
+    });
+
+    await ensureSuccess(response, "Failed to update user");
+    return response.json();
   },
 };
