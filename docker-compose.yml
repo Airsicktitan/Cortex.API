@@ -1,7 +1,7 @@
 services:
   cortex-api:
     build:
-      context: .
+      context: ./CortexBackend
       dockerfile: Dockerfile
     container_name: cortex-api
     ports:
