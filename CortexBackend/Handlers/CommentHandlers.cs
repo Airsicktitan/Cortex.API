@@ -1,0 +1,49 @@
+namespace Cortex.API.Handlers;
+
+using Cortex.API.Models;
+using Cortex.API.Data;
+using Cortex.API.Services;
+using Cortex.API.DTO;
+
+public static class CommentHandlers
+{
+    public static async Task<IResult> GetComment(string ticketId, ICommentRepository repo)
+    {
+        var results = await repo.GetCommentsByTicketIdAsync(ticketId);
+        return Results.Ok(results.Select(c => c.ToResponse()));
+    }
+
+    public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, ICommentRepository commentRepo, ITicketRepository ticketRepo, IUserContextService userContext)
+    {
+        var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
+        if (ticket is null)
+            return Results.NotFound();
+
+        var currentUser = await userContext.GetCurrentUserAsync();
+            
+        var comment = await commentRepo.CreateCommentAsync(new Comment
+            {
+                TicketId = ticketId,
+                Body = request.Body,
+                CreatedBy = currentUser.Id,
+                CreatedDate = DateTime.UtcNow
+            });
+
+            await commentRepo.SaveChangesAsync();
+
+            return Results.Created(
+                $"/api/tickets/{ticketId}/comments/{comment.Id}",
+                new CommentResponse
+                {
+                    Id = comment.Id,
+                    TicketId = comment.TicketId,
+                    Body = comment.Body,
+                    CreatedBy = comment.CreatedBy,
+                    CreatedByDisplayName = currentUser.DisplayName ?? "Unknown User",
+                    CreatedDate = comment.CreatedDate,
+                    LastModifiedDate = comment.LastModifiedDate
+                }
+            );
+    }
+    public record CreateCommentRequest(string Body);
+}
