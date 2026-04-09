@@ -11,7 +11,6 @@ public class TicketAuditService(CortexDbContext context) : ITicketAuditService
     public async Task<IReadOnlyList<TicketAuditEntry>> GetTicketHistoryAsync(string ticketId)
     {
         return await _context.TicketAuditEntries
-            .Include(entry => entry.ChangedByUser)
             .Include(entry => entry.FieldChanges)
             .Where(entry => entry.TicketId == ticketId)
             .OrderByDescending(entry => entry.ChangedDateUtc)

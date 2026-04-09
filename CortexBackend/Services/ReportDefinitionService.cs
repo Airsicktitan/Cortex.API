@@ -11,12 +11,14 @@ namespace Cortex.API.Services;
 
 public partial class ReportDefinitionService(
     IReportDefinitionRepository repository,
-    CortexDbContext context) : IReportDefinitionService
+    CortexDbContext context,
+    IDatabaseProgrammabilityService programmabilityService) : IReportDefinitionService
 {
     private const int MaxRows = 500;
 
     private readonly IReportDefinitionRepository _repository = repository;
     private readonly CortexDbContext _context = context;
+    private readonly IDatabaseProgrammabilityService _programmabilityService = programmabilityService;
 
     [GeneratedRegex("^\\s*(SELECT|WITH)\\b", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex ReadOnlyQueryPattern();
@@ -26,7 +28,24 @@ public partial class ReportDefinitionService(
 
     public async Task<IReadOnlyList<ReportDefinition>> GetAllAsync()
     {
-        return await _repository.GetAllAsync();
+        var definitions = (await _repository.GetAllAsync()).ToList();
+        await SyncDefinitionsFromDatabaseAsync(definitions);
+        return definitions;
+    }
+
+    public async Task<IReadOnlyList<DatabaseViewDefinition>> GetAvailableViewsAsync()
+    {
+        var definitions = await _repository.GetAllAsync();
+        var registeredViewNames = definitions
+            .Where(definition => !string.IsNullOrWhiteSpace(definition.ViewName))
+            .Select(definition => DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ViewName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var availableViews = await _programmabilityService.GetUserViewsAsync();
+        return availableViews
+            .Where(view => !registeredViewNames.Contains(
+                DatabaseProgrammabilityService.NormalizeQualifiedObjectName(view.ViewName)))
+            .ToList();
     }
 
     public async Task<ReportDefinition> CreateAsync(ReportDefinition definition)
@@ -34,8 +53,11 @@ public partial class ReportDefinitionService(
         var normalized = Normalize(definition);
         await ValidateAsync(normalized, null);
 
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
         await _repository.AddAsync(normalized);
         await _repository.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         return normalized;
     }
@@ -45,16 +67,29 @@ public partial class ReportDefinitionService(
         var existing = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException("Report definition was not found.");
 
+        var originalViewName = existing.ViewName;
         var normalized = Normalize(definition);
         await ValidateAsync(normalized, id);
 
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
+
         existing.Name = normalized.Name;
+        existing.ViewName = normalized.ViewName;
         existing.Description = normalized.Description;
         existing.SqlQuery = normalized.SqlQuery;
         existing.IsEnabled = normalized.IsEnabled;
         existing.LastModifiedDateUtc = DateTime.UtcNow;
 
         await _repository.SaveChangesAsync();
+
+        if (!string.IsNullOrWhiteSpace(originalViewName)
+            && !string.Equals(originalViewName, normalized.ViewName, StringComparison.OrdinalIgnoreCase))
+        {
+            await _programmabilityService.DropViewAsync(originalViewName);
+        }
+
+        await transaction.CommitAsync();
         return existing;
     }
 
@@ -63,14 +98,23 @@ public partial class ReportDefinitionService(
         var existing = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException("Report definition was not found.");
 
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        if (!string.IsNullOrWhiteSpace(existing.ViewName))
+        {
+            await _programmabilityService.DropViewAsync(existing.ViewName);
+        }
+
         _repository.Delete(existing);
         await _repository.SaveChangesAsync();
+        await transaction.CommitAsync();
     }
 
     public async Task<CustomReportResultResponse> ExecuteAsync(int id)
     {
         var definition = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException("Report definition was not found.");
+
+        await SyncDefinitionFromDatabaseAsync(definition);
 
         if (!definition.IsEnabled)
         {
@@ -130,11 +174,104 @@ public partial class ReportDefinitionService(
         };
     }
 
+    private async Task SyncDefinitionFromDatabaseAsync(ReportDefinition definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition.ViewName))
+        {
+            return;
+        }
+
+        var availableViews = await _programmabilityService.GetUserViewsAsync();
+        var databaseView = availableViews.FirstOrDefault(view =>
+            string.Equals(
+                DatabaseProgrammabilityService.NormalizeQualifiedObjectName(view.ViewName),
+                DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ViewName),
+                StringComparison.OrdinalIgnoreCase));
+
+        if (databaseView is null)
+        {
+            return;
+        }
+
+        if (!string.Equals(definition.SqlQuery, databaseView.DefinitionSql, StringComparison.Ordinal))
+        {
+            definition.SqlQuery = databaseView.DefinitionSql;
+            definition.LastModifiedDateUtc = DateTime.UtcNow;
+            await _repository.SaveChangesAsync();
+        }
+    }
+
+    private async Task SyncDefinitionsFromDatabaseAsync(List<ReportDefinition> definitions)
+    {
+        var availableViews = await _programmabilityService.GetUserViewsAsync();
+        var viewMap = availableViews.ToDictionary(
+            view => DatabaseProgrammabilityService.NormalizeQualifiedObjectName(view.ViewName),
+            StringComparer.OrdinalIgnoreCase);
+
+        var changed = false;
+        foreach (var definition in definitions)
+        {
+            if (string.IsNullOrWhiteSpace(definition.ViewName))
+            {
+                if (string.IsNullOrWhiteSpace(definition.SqlQuery))
+                {
+                    continue;
+                }
+
+                var generatedViewName = $"dbo.vw_CortexReport_{definition.Id}";
+                try
+                {
+                    await _programmabilityService.CreateOrAlterViewAsync(
+                        generatedViewName,
+                        definition.SqlQuery);
+                    definition.ViewName = generatedViewName;
+                    definition.LastModifiedDateUtc = DateTime.UtcNow;
+                    changed = true;
+                }
+                catch
+                {
+                    // Leave legacy records readable even if their SQL cannot be materialized as a view.
+                }
+
+                continue;
+            }
+
+            var normalizedViewName = DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ViewName);
+            if (!string.Equals(definition.ViewName, normalizedViewName, StringComparison.Ordinal))
+            {
+                definition.ViewName = normalizedViewName;
+                changed = true;
+            }
+
+            if (!viewMap.TryGetValue(normalizedViewName, out var databaseView))
+            {
+                continue;
+            }
+
+            if (!string.Equals(definition.SqlQuery, databaseView.DefinitionSql, StringComparison.Ordinal))
+            {
+                definition.SqlQuery = databaseView.DefinitionSql;
+                definition.LastModifiedDateUtc = DateTime.UtcNow;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            await _repository.SaveChangesAsync();
+        }
+    }
+
     private async Task ValidateAsync(ReportDefinition definition, int? existingId)
     {
         if (string.IsNullOrWhiteSpace(definition.Name))
         {
             throw new ArgumentException("Report name is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.ViewName))
+        {
+            throw new ArgumentException("View name is required.");
         }
 
         if (string.IsNullOrWhiteSpace(definition.SqlQuery))
@@ -149,6 +286,12 @@ public partial class ReportDefinitionService(
         {
             throw new ArgumentException("A report with this name already exists.");
         }
+
+        var duplicateViewName = await _repository.GetByViewNameAsync(definition.ViewName);
+        if (duplicateViewName is not null && duplicateViewName.Id != existingId)
+        {
+            throw new ArgumentException("A report with this view name already exists.");
+        }
     }
 
     private static Task ValidateSqlShapeAsync(string sqlQuery)
@@ -157,12 +300,12 @@ public partial class ReportDefinitionService(
 
         if (!ReadOnlyQueryPattern().IsMatch(normalized))
         {
-            throw new ArgumentException("Custom reports must start with a SELECT statement or CTE.");
+            throw new ArgumentException("Custom report views must start with a SELECT statement or CTE.");
         }
 
         if (normalized.Contains(';'))
         {
-            throw new ArgumentException("Custom reports must use a single SQL statement without semicolons.");
+            throw new ArgumentException("Custom report views must use a single SQL statement without semicolons.");
         }
 
         if (BlockedKeywordPattern().IsMatch(normalized))
@@ -201,6 +344,7 @@ public partial class ReportDefinitionService(
         return new ReportDefinition
         {
             Name = definition.Name.Trim(),
+            ViewName = DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ViewName),
             Description = string.IsNullOrWhiteSpace(definition.Description)
                 ? null
                 : definition.Description.Trim(),

@@ -1,11 +1,15 @@
 import type { UserRecord } from "../types/user";
+import { UsersSkeleton } from "./LoadingSkeletons";
 import { formatStoredPhoneNumber } from "../utils/phoneNumber";
 
 interface UsersPageProps {
   users: UserRecord[];
   loading: boolean;
   error: string | null;
+  canCreate: boolean;
+  canEdit: boolean;
   onRefresh: () => void;
+  onCreate: () => void;
   onEdit: (user: UserRecord) => void;
 }
 
@@ -25,9 +29,16 @@ export default function UsersPage({
   users,
   loading,
   error,
+  canCreate,
+  canEdit,
   onRefresh,
+  onCreate,
   onEdit,
 }: UsersPageProps) {
+  if (loading) {
+    return <UsersSkeleton />;
+  }
+
   return (
     <div className="space-y-6">
       <section className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6">
@@ -37,8 +48,8 @@ export default function UsersPage({
               Registered Users
             </h2>
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              Admin-only directory showing every field currently stored on the
-              user record.
+              View the user directory, provision new users, and manage local
+              CORTEX user settings.
             </p>
           </div>
 
@@ -46,6 +57,14 @@ export default function UsersPage({
             <span className="text-sm text-gray-500 dark:text-slate-400">
               {users.length} user{users.length === 1 ? "" : "s"}
             </span>
+            {canCreate && (
+              <button
+                onClick={onCreate}
+                className="px-4 py-2 rounded-md bg-cortex-blue text-white hover:bg-cortex-blue-dark transition-colors"
+              >
+                Add User
+              </button>
+            )}
             <button
               onClick={onRefresh}
               className="px-4 py-2 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors"
@@ -63,11 +82,7 @@ export default function UsersPage({
       )}
 
       <section className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 overflow-hidden">
-        {loading ? (
-          <div className="px-6 py-12 text-center text-gray-500 dark:text-slate-400">
-            Loading users...
-          </div>
-        ) : users.length === 0 ? (
+        {users.length === 0 ? (
           <div className="px-6 py-12 text-center text-gray-500 dark:text-slate-400">
             No users found.
           </div>
@@ -87,7 +102,9 @@ export default function UsersPage({
                   <th className="px-4 py-3 font-medium">Last Login</th>
                   <th className="px-4 py-3 font-medium">Expiry</th>
                   <th className="px-4 py-3 font-medium">Last Modified</th>
-                  <th className="px-4 py-3 font-medium">Actions</th>
+                  {canEdit && (
+                    <th className="px-4 py-3 font-medium">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -133,14 +150,16 @@ export default function UsersPage({
                     <td className="px-4 py-3 align-top whitespace-nowrap">
                       {formatDate(user.lastModifiedDate)}
                     </td>
-                    <td className="px-4 py-3 align-top">
-                      <button
-                        onClick={() => onEdit(user)}
-                        className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        Edit
-                      </button>
-                    </td>
+                    {canEdit && (
+                      <td className="px-4 py-3 align-top">
+                        <button
+                          onClick={() => onEdit(user)}
+                          className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

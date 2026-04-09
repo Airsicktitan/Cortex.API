@@ -173,9 +173,17 @@ namespace Cortex.API.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("ViewName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("ViewName")
                         .IsUnique();
 
                     b.ToTable("ReportDefinitions");
@@ -295,6 +303,10 @@ namespace Cortex.API.Migrations
 
                     b.Property<DateTime>("CreatedDateUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("DefinitionSql")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Description")
                         .HasMaxLength(500)

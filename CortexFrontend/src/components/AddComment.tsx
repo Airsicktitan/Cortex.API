@@ -40,7 +40,7 @@ export default function AddComment({ onAdd }: AddCommentProps) {
         <button
           onClick={submit}
           disabled={posting || !body.trim()}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm disabled:opacity-50"
+          className="rounded-md bg-cortex-blue px-3 py-1.5 text-sm text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-50"
         >
           {posting ? "Posting…" : "Post"}
         </button>

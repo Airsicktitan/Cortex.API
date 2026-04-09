@@ -1,5 +1,5 @@
 export interface ArchiveConfiguration {
+  id: number;
   archiveAfterDays: number;
-  archiveResolvedTickets: boolean;
-  archiveClosedTickets: boolean;
+  eligibleStatuses: string[];
 }

@@ -71,7 +71,7 @@ export default function SaveTicketFilterModal({
           <button
             type="submit"
             disabled={!name.trim()}
-            className="rounded-md bg-cortex-blue px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-cortex-blue px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
           >
             Save Filter
           </button>

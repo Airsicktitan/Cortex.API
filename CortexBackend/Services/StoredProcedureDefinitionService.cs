@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Cortex.API.Data.Repositories;
 using Cortex.API.Database;
 using Cortex.API.Models;
@@ -6,19 +5,35 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Services;
 
-public partial class StoredProcedureDefinitionService(
+public class StoredProcedureDefinitionService(
     IStoredProcedureDefinitionRepository repository,
-    CortexDbContext context) : IStoredProcedureDefinitionService
+    CortexDbContext context,
+    IDatabaseProgrammabilityService programmabilityService) : IStoredProcedureDefinitionService
 {
     private readonly IStoredProcedureDefinitionRepository _repository = repository;
     private readonly CortexDbContext _context = context;
-
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)?$")]
-    private static partial Regex ProcedureNamePattern();
+    private readonly IDatabaseProgrammabilityService _programmabilityService = programmabilityService;
 
     public async Task<IReadOnlyList<StoredProcedureDefinition>> GetAllAsync()
     {
-        return await _repository.GetAllAsync();
+        var definitions = await _repository.GetAllAsync();
+        await SyncDefinitionsFromDatabaseAsync(definitions);
+        return definitions;
+    }
+
+    public async Task<IReadOnlyList<DatabaseStoredProcedureDefinition>> GetAvailableStoredProceduresAsync()
+    {
+        var definitions = await _repository.GetAllAsync();
+        var registeredProcedureNames = definitions
+            .Where(definition => !string.IsNullOrWhiteSpace(definition.ProcedureName))
+            .Select(definition => DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ProcedureName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var availableStoredProcedures = await _programmabilityService.GetUserStoredProceduresAsync();
+        return availableStoredProcedures
+            .Where(definition => !registeredProcedureNames.Contains(
+                DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ProcedureName)))
+            .ToList();
     }
 
     public async Task<StoredProcedureDefinition> CreateAsync(StoredProcedureDefinition definition)
@@ -26,8 +41,13 @@ public partial class StoredProcedureDefinitionService(
         var normalized = Normalize(definition);
         await ValidateAsync(normalized, null);
 
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        await _programmabilityService.CreateOrAlterStoredProcedureAsync(
+            normalized.ProcedureName,
+            normalized.DefinitionSql);
         await _repository.AddAsync(normalized);
         await _repository.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         return normalized;
     }
@@ -37,16 +57,30 @@ public partial class StoredProcedureDefinitionService(
         var existing = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException("Stored procedure definition was not found.");
 
+        var originalProcedureName = existing.ProcedureName;
         var normalized = Normalize(definition);
         await ValidateAsync(normalized, id);
 
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        await _programmabilityService.CreateOrAlterStoredProcedureAsync(
+            normalized.ProcedureName,
+            normalized.DefinitionSql);
+
         existing.Name = normalized.Name;
         existing.ProcedureName = normalized.ProcedureName;
+        existing.DefinitionSql = normalized.DefinitionSql;
         existing.Description = normalized.Description;
         existing.IsEnabled = normalized.IsEnabled;
         existing.LastModifiedDateUtc = DateTime.UtcNow;
 
         await _repository.SaveChangesAsync();
+
+        if (!string.Equals(originalProcedureName, normalized.ProcedureName, StringComparison.OrdinalIgnoreCase))
+        {
+            await _programmabilityService.DropStoredProcedureAsync(originalProcedureName);
+        }
+
+        await transaction.CommitAsync();
         return existing;
     }
 
@@ -64,8 +98,56 @@ public partial class StoredProcedureDefinitionService(
                 "This stored procedure is assigned to one or more jobs. Remove it from those jobs or disable it instead.");
         }
 
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        if (!string.IsNullOrWhiteSpace(existing.ProcedureName))
+        {
+            await _programmabilityService.DropStoredProcedureAsync(existing.ProcedureName);
+        }
+
         _repository.Delete(existing);
         await _repository.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+
+    private async Task SyncDefinitionsFromDatabaseAsync(List<StoredProcedureDefinition> definitions)
+    {
+        var availableStoredProcedures = await _programmabilityService.GetUserStoredProceduresAsync();
+        var procedureMap = availableStoredProcedures.ToDictionary(
+            definition => DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ProcedureName),
+            StringComparer.OrdinalIgnoreCase);
+
+        var changed = false;
+        foreach (var definition in definitions)
+        {
+            if (string.IsNullOrWhiteSpace(definition.ProcedureName))
+            {
+                continue;
+            }
+
+            var normalizedProcedureName = DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ProcedureName);
+            if (!string.Equals(definition.ProcedureName, normalizedProcedureName, StringComparison.Ordinal))
+            {
+                definition.ProcedureName = normalizedProcedureName;
+                changed = true;
+            }
+
+            if (!procedureMap.TryGetValue(normalizedProcedureName, out var databaseProcedure))
+            {
+                continue;
+            }
+
+            if (!string.Equals(definition.DefinitionSql, databaseProcedure.DefinitionSql, StringComparison.Ordinal))
+            {
+                definition.DefinitionSql = databaseProcedure.DefinitionSql;
+                definition.LastModifiedDateUtc = DateTime.UtcNow;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            await _repository.SaveChangesAsync();
+        }
     }
 
     private async Task ValidateAsync(StoredProcedureDefinition definition, int? existingId)
@@ -80,9 +162,9 @@ public partial class StoredProcedureDefinitionService(
             throw new ArgumentException("Procedure name is required.");
         }
 
-        if (!ProcedureNamePattern().IsMatch(definition.ProcedureName))
+        if (string.IsNullOrWhiteSpace(definition.DefinitionSql))
         {
-            throw new ArgumentException("Procedure names must use letters, numbers, underscores, and an optional schema prefix.");
+            throw new ArgumentException("Procedure SQL definition is required.");
         }
 
         var duplicateName = await _repository.GetByNameAsync(definition.Name);
@@ -103,7 +185,8 @@ public partial class StoredProcedureDefinitionService(
         return new StoredProcedureDefinition
         {
             Name = definition.Name.Trim(),
-            ProcedureName = definition.ProcedureName.Trim(),
+            ProcedureName = DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ProcedureName),
+            DefinitionSql = definition.DefinitionSql.Trim(),
             Description = string.IsNullOrWhiteSpace(definition.Description)
                 ? null
                 : definition.Description.Trim(),

@@ -13,6 +13,13 @@ public static class ReportDefinitionHandlers
         return Results.Ok(definitions.Select(definition => definition.ToResponse()));
     }
 
+    public static async Task<IResult> GetAvailableDatabaseViews(
+        IReportDefinitionService service)
+    {
+        var definitions = await service.GetAvailableViewsAsync();
+        return Results.Ok(definitions.Select(definition => definition.ToResponse()));
+    }
+
     public static async Task<IResult> CreateReportDefinition(
         UpsertReportDefinitionRequest request,
         IReportDefinitionService service)
@@ -22,6 +29,7 @@ public static class ReportDefinitionHandlers
             var definition = new ReportDefinition
             {
                 Name = request.Name,
+                ViewName = request.ViewName,
                 Description = request.Description,
                 SqlQuery = request.SqlQuery,
                 IsEnabled = request.IsEnabled
@@ -46,6 +54,7 @@ public static class ReportDefinitionHandlers
             var definition = new ReportDefinition
             {
                 Name = request.Name,
+                ViewName = request.ViewName,
                 Description = request.Description,
                 SqlQuery = request.SqlQuery,
                 IsEnabled = request.IsEnabled

@@ -7,10 +7,15 @@ using Cortex.API.DTO;
 
 public static class CommentHandlers
 {
-    public static async Task<IResult> GetComment(string ticketId, ICommentRepository repo)
+    public static async Task<IResult> GetComment(
+        string ticketId,
+        ICommentRepository repo,
+        IResponseMappingContextFactory mappingContextFactory)
     {
-        var results = await repo.GetCommentsByTicketIdAsync(ticketId);
-        return Results.Ok(results.Select(c => c.ToResponse()));
+        var results = (await repo.GetCommentsByTicketIdAsync(ticketId)).ToList();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            results.Select(comment => comment.CreatedBy));
+        return Results.Ok(results.Select(comment => comment.ToResponse(mappingContext)));
     }
 
     public static async Task<IResult> CreateComment(
@@ -19,7 +24,8 @@ public static class CommentHandlers
         ICommentRepository commentRepo,
         ITicketRepository ticketRepo,
         IUserContextService userContext,
-        ITicketAuditService ticketAuditService)
+        ITicketAuditService ticketAuditService,
+        IRealtimeEventService realtimeEventService)
     {
         var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
         if (ticket is null)
@@ -37,6 +43,12 @@ public static class CommentHandlers
 
             await commentRepo.SaveChangesAsync();
             await ticketAuditService.RecordCommentAddedAsync(comment, currentUser);
+            await realtimeEventService.PublishAsync(new RealtimeEventMessage
+            {
+                EventType = "comment.created",
+                TicketId = ticketId,
+                EntityId = comment.Id.ToString()
+            });
 
             return Results.Created(
                 $"/api/tickets/{ticketId}/comments/{comment.Id}",

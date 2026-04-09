@@ -7,22 +7,33 @@ namespace Cortex.API.Handlers;
 public static class ScheduledJobHandlers
 {
     public static async Task<IResult> GetScheduledJobs(
-        IScheduledJobService service)
+        IScheduledJobService service,
+        IResponseMappingContextFactory mappingContextFactory)
     {
-        var jobs = await service.GetAllAsync();
-        return Results.Ok(jobs.Select(job => job.ToResponse()));
+        var jobs = (await service.GetAllAsync()).ToList();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            jobs.Select(job => job.RunAsUserId),
+            jobs.Where(job => job.StoredProcedureDefinitionId.HasValue)
+                .Select(job => job.StoredProcedureDefinitionId!.Value));
+        return Results.Ok(jobs.Select(job => job.ToResponse(mappingContext)));
     }
 
     public static async Task<IResult> CreateScheduledJob(
         UpsertScheduledJobRequest request,
         IScheduledJobService service,
-        IUserContextService userContextService)
+        IUserContextService userContextService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         try
         {
             var currentUser = await userContextService.GetCurrentUserAsync();
             var job = await service.CreateAsync(ToModel(request), currentUser.Id);
-            return Results.Created($"/api/jobs/{job.Id}", job.ToResponse());
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                [job.RunAsUserId],
+                job.StoredProcedureDefinitionId.HasValue
+                    ? [job.StoredProcedureDefinitionId.Value]
+                    : []);
+            return Results.Created($"/api/jobs/{job.Id}", job.ToResponse(mappingContext));
         }
         catch (ArgumentException exception)
         {
@@ -34,13 +45,19 @@ public static class ScheduledJobHandlers
         int id,
         UpsertScheduledJobRequest request,
         IScheduledJobService service,
-        IUserContextService userContextService)
+        IUserContextService userContextService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         try
         {
             var currentUser = await userContextService.GetCurrentUserAsync();
             var job = await service.UpdateAsync(id, ToModel(request), currentUser.Id);
-            return Results.Ok(job.ToResponse());
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                [job.RunAsUserId],
+                job.StoredProcedureDefinitionId.HasValue
+                    ? [job.StoredProcedureDefinitionId.Value]
+                    : []);
+            return Results.Ok(job.ToResponse(mappingContext));
         }
         catch (KeyNotFoundException)
         {
@@ -54,12 +71,18 @@ public static class ScheduledJobHandlers
 
     public static async Task<IResult> RunScheduledJobNow(
         int id,
-        IScheduledJobService service)
+        IScheduledJobService service,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         try
         {
             var job = await service.RunNowAsync(id);
-            return Results.Ok(job.ToResponse());
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                [job.RunAsUserId],
+                job.StoredProcedureDefinitionId.HasValue
+                    ? [job.StoredProcedureDefinitionId.Value]
+                    : []);
+            return Results.Ok(job.ToResponse(mappingContext));
         }
         catch (KeyNotFoundException)
         {

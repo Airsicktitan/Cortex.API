@@ -14,6 +14,10 @@ public static class ReportDefinitionEndpoints
             .WithName("GetReportDefinitions")
             .Produces(StatusCodes.Status200OK);
 
+        reportSettings.MapGet("/database-views", ReportDefinitionHandlers.GetAvailableDatabaseViews)
+            .WithName("GetAvailableDatabaseViews")
+            .Produces(StatusCodes.Status200OK);
+
         reportSettings.MapPost("/", ReportDefinitionHandlers.CreateReportDefinition)
             .WithName("CreateReportDefinition")
             .Produces(StatusCodes.Status201Created)

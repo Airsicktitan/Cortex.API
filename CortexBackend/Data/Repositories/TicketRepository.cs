@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Cortex.API.Database;
 using Cortex.API.Models;
 
@@ -11,14 +10,12 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 
     public async Task<IEnumerable<Ticket>> GetAllTicketsAsync()
     {
-        return await _context.Tickets.Include(t => t.CreatedByUser).ToListAsync();
+        return await _context.Tickets.ToListAsync();
     }
 
     public async Task<IEnumerable<ArchivedTicket>> GetArchivedTicketsAsync()
     {
         return await _context.ArchivedTickets
-            .Include(ticket => ticket.CreatedByUser)
-            .Include(ticket => ticket.ArchivedByUser)
             .OrderByDescending(ticket => ticket.ArchivedDate)
             .ToListAsync();
     }
@@ -33,7 +30,6 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         }
 
         return await _context.Tickets
-            .Include(ticket => ticket.CreatedByUser)
             .Where(ticket =>
                 statuses.Contains(ticket.Status) &&
                 (ticket.LastModifiedDate ?? ticket.CreatedDate) <= olderThanUtc)
@@ -43,20 +39,18 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 
     public async Task<Ticket?> GetTicketByIdAsync(string id)
     {
-        return await _context.Tickets.Include(t => t.CreatedByUser).FirstOrDefaultAsync(t => t.Id == id);
+        return await _context.Tickets.FirstOrDefaultAsync(t => t.Id == id);
     }
 
     public async Task<ArchivedTicket?> GetArchivedTicketByIdAsync(string id)
     {
         return await _context.ArchivedTickets
-            .Include(ticket => ticket.CreatedByUser)
-            .Include(ticket => ticket.ArchivedByUser)
             .FirstOrDefaultAsync(ticket => ticket.Id == id);
     }
 
     public async Task<IEnumerable<Ticket>> GetTicketByUserAsync(int user)
     {
-        return await _context.Tickets.Include(t => t.CreatedByUser).Where(t => t.CreatedBy == user).ToListAsync();
+        return await _context.Tickets.Where(t => t.CreatedBy == user).ToListAsync();
     }
 
 
@@ -74,10 +68,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
     {
         await _context.Tickets.AddAsync(ticket);
         await _context.SaveChangesAsync();
-
-        return await _context.Tickets
-            .Include(t => t.CreatedByUser)
-            .FirstAsync(t => t.Id == ticket.Id);
+        return ticket;
     }
 
     public async Task<Ticket> UpdateTicketAsync(Ticket ticket)

@@ -39,7 +39,7 @@ async function ensureSuccess(response: Response, fallbackMessage: string) {
 }
 
 export const archiveConfigurationService = {
-  async get(token: string): Promise<ArchiveConfiguration> {
+  async getAll(token: string): Promise<ArchiveConfiguration[]> {
     const response = await fetch(`${API_BASE_URL}/settings/archive`, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -50,11 +50,26 @@ export const archiveConfigurationService = {
     return response.json();
   },
 
-  async update(
+  async create(
     configuration: ArchiveConfiguration,
     token: string,
   ): Promise<ArchiveConfiguration> {
     const response = await fetch(`${API_BASE_URL}/settings/archive`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(configuration),
+    });
+
+    await ensureSuccess(response, "Failed to create archive configuration");
+    return response.json();
+  },
+
+  async update(
+    id: number,
+    configuration: ArchiveConfiguration,
+    token: string,
+  ): Promise<ArchiveConfiguration> {
+    const response = await fetch(`${API_BASE_URL}/settings/archive/${id}`, {
       method: "PUT",
       headers: authHeaders(token),
       body: JSON.stringify(configuration),
@@ -62,6 +77,17 @@ export const archiveConfigurationService = {
 
     await ensureSuccess(response, "Failed to save archive configuration");
     return response.json();
+  },
+
+  async delete(id: number, token: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/settings/archive/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    await ensureSuccess(response, "Failed to delete archive configuration");
   },
 
   async runNow(token: string): Promise<{ archivedTicketCount: number }> {

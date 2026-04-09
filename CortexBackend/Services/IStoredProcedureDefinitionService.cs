@@ -5,6 +5,7 @@ namespace Cortex.API.Services;
 public interface IStoredProcedureDefinitionService
 {
     Task<IReadOnlyList<StoredProcedureDefinition>> GetAllAsync();
+    Task<IReadOnlyList<DatabaseStoredProcedureDefinition>> GetAvailableStoredProceduresAsync();
     Task<StoredProcedureDefinition> CreateAsync(StoredProcedureDefinition definition);
     Task<StoredProcedureDefinition> UpdateAsync(int id, StoredProcedureDefinition definition);
     Task DeleteAsync(int id);

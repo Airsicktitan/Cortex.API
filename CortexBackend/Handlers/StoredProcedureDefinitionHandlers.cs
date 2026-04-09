@@ -13,6 +13,13 @@ public static class StoredProcedureDefinitionHandlers
         return Results.Ok(definitions.Select(definition => definition.ToResponse()));
     }
 
+    public static async Task<IResult> GetAvailableDatabaseStoredProcedures(
+        IStoredProcedureDefinitionService service)
+    {
+        var definitions = await service.GetAvailableStoredProceduresAsync();
+        return Results.Ok(definitions.Select(definition => definition.ToResponse()));
+    }
+
     public static async Task<IResult> CreateStoredProcedureDefinition(
         UpsertStoredProcedureDefinitionRequest request,
         IStoredProcedureDefinitionService service)
@@ -23,6 +30,7 @@ public static class StoredProcedureDefinitionHandlers
             {
                 Name = request.Name,
                 ProcedureName = request.ProcedureName,
+                DefinitionSql = request.DefinitionSql,
                 Description = request.Description,
                 IsEnabled = request.IsEnabled
             };
@@ -47,6 +55,7 @@ public static class StoredProcedureDefinitionHandlers
             {
                 Name = request.Name,
                 ProcedureName = request.ProcedureName,
+                DefinitionSql = request.DefinitionSql,
                 Description = request.Description,
                 IsEnabled = request.IsEnabled
             };

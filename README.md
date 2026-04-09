@@ -77,12 +77,20 @@ This keeps the repository organized while still making it easy to `cd` into eith
 - Swagger/OpenAPI documentation
 - DTO-based API contracts (no direct entity exposure)
 - Centralized mapping layer (`Mappers.cs`) for entity → response transformation
+- Response mapping context resolves display metadata without requiring EF eager loading
 - Auth0 integration for authentication
 - JWT validation middleware
 - Claims-based authorization policies
 - Automatic user provisioning from identity provider
+- Admin / developer user creation pushed into Auth0 (Management API-backed)
 - User context abstraction (`IUserContextService`) to decouple handlers from `HttpContext`
 - Stored procedure-backed ticket archiving
+- Scheduled jobs and stored procedure registry
+- Database-backed custom SQL report registry for admin / developer reporting
+- Ticket status registry for admin / developer workflow configuration
+- Ticket audit history capture and retrieval
+- Session security and online presence tracking
+- Multi-policy archive configuration with manual run-now execution
 
 ### Frontend (React + TypeScript)
 
@@ -93,7 +101,15 @@ This keeps the repository organized while still making it easy to `cd` into eith
 - Modal workflows minimize context switching
 - Comment side panel architecture
 - Dashboard, reports, and Excel export
+- Reports submenu with SLA, Online Users, and registered custom reports
 - Saved filters, search, and pagination
+- Persistent resizable left navigation
+- Jobs view with failed jobs queue
+- Header notification for failed jobs
+- Audit history modal from ticket workflow
+- Session timeout warning and re-auth flow
+- Admin / developer configuration for ticket statuses and archive-eligible states
+- Configuration support for DB-backed views and stored procedures with discovery from SQL Server
 - Real-time UI consistency with backend display name mapping
 
 This architecture intentionally mirrors:
@@ -120,6 +136,13 @@ CORTEX uses **Auth0 as an external identity provider**.
 - Backend-driven identity normalization (API owns final user representation)
 - Permission-aware UI and API authorization policies
 - Admin-only user management and configuration endpoints
+- Admin / developer-driven user creation into Auth0-backed login
+- Configurable inactivity timeout with re-auth prompt
+- Presence tracking for online-user reporting
+
+### Local Configuration Note
+
+- In-app user creation requires `Auth0:ManagementClientId` and `Auth0:ManagementClientSecret` to be configured locally before Auth0 provisioning will work.
 
 ### Why This Matters
 
@@ -149,15 +172,28 @@ This architecture reflects real SaaS platforms where:
 - SLA tracking with visual status indicators
 - Dashboard view for operational summaries
 - Reports view with SLA breakdowns
+- Online users reporting for admin / developer users
+- Custom SQL report registration and execution backed by SQL views
 - Excel export for reports
 - Archived tickets page
-- Archive policy configuration and manual archive execution
+- Archived ticket reactivation
+- Multi-policy archive configuration with add / edit / delete and manual archive execution
+- Ticket status registry with create, edit, enable / disable, and delete controls
 - SLA configuration page
+- Session security configuration
+- Jobs page for scheduled automation and stored procedure execution
+- Stored procedure registry with DB create / edit / enable / disable / delete controls
+- Discovery and registration of existing SQL Server views and stored procedures
+- Failed jobs queue with header notification
 - Admin users directory and edit flow
+- Admin / developer user creation flow
 - User profile editing
 - Expired / inactive account blocking in the UI
+- Ticket audit history modal with change reasons
+- Custom report create / delete flow
 - DTO-based API responses
 - Centralized mapping layer (`ToResponse()` pattern)
+- Response mapping independent of loaded navigation properties
 - Display name resolution for comments and users
 - Auth0 authentication
 - Automatic user provisioning
@@ -174,9 +210,9 @@ This architecture reflects real SaaS platforms where:
 
 - 🧠 Skill- and workload-based routing engine
 - 🔔 Notification workflows
-- 🗂 Archived ticket detail / restore experience
+- 🗂 Archived ticket detail retention for full comments / attachments
 - ⏱ Automatic archive scheduling
-- 🧾 Audit history timeline
+- 🔐 Auth0 role / permission sync for provisioned users
 - 🤖 ML-assisted categorization (ML.NET)
 - 🔄 Real-time updates (SignalR)
 - 🏢 Multi-tenant support
@@ -189,10 +225,11 @@ CORTEX is under active development. The following limitations are **known, docum
 
 - ❌ Routing / assignment logic is still manual
 - ❌ Archive policy is manual-triggered today (no scheduler yet)
-- ❌ Archived tickets currently preserve summary metadata, not full archived comment/attachment browsing
+- ❌ Archived tickets currently preserve summary metadata, not full archived comment/attachment browsing on restore
 - ❌ No notifications yet for assignment, SLA, or archive events
 - ❌ No real-time push (polling / refresh only)
-- ❌ Mapping layer dependent on eager loading (navigation properties must be included)
+- ❌ Auth0 Management API credentials must be configured locally before in-app user creation can provision Auth0 accounts
+- ❌ Stored procedure deletion is blocked while jobs still reference that procedure
 
 > These are staged deliberately to keep the core domain model stable before layering complexity.
 

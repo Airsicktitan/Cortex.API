@@ -1,4 +1,5 @@
 import type { Ticket } from "../types/ticket";
+import { DashboardSkeleton } from "./LoadingSkeletons";
 import { formatSlaSummary, getSlaBadgeClass } from "../utils/ticketSla";
 
 interface DashboardPageProps {
@@ -266,6 +267,10 @@ export default function DashboardPage({
   onRefresh,
   onOpenTicket,
 }: DashboardPageProps) {
+  if (loading) {
+    return <DashboardSkeleton />;
+  }
+
   const activeTickets = tickets.filter((ticket) => !isClosedTicket(ticket));
   const closedTickets = tickets.filter(isClosedTicket);
   const breachedTickets = activeTickets.filter((ticket) => ticket.slaStatus === "Breached");
@@ -303,21 +308,14 @@ export default function DashboardPage({
 
           <button
             onClick={onRefresh}
-            className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-blue-700"
+            className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark"
           >
             Refresh
           </button>
         </div>
       </section>
 
-      {loading ? (
-        <div className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center dark:border-slate-800 dark:bg-slate-900">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-b-2 border-cortex-blue" />
-          <p className="mt-4 text-gray-600 dark:text-slate-400">
-            Loading dashboard...
-          </p>
-        </div>
-      ) : error ? (
+      {error ? (
         <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
           <p className="text-red-700 dark:text-red-300">{error}</p>
         </div>
@@ -338,7 +336,7 @@ export default function DashboardPage({
               title="Active Queue"
               value={activeTickets.length}
               description="Tickets still being worked."
-              className="border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100"
+              className="border-cortex-blue/30 bg-cortex-blue-soft text-cortex-ink dark:border-cortex-blue/30 dark:bg-cortex-blue/20 dark:text-slate-100"
             />
             <SummaryCard
               title="Breached"

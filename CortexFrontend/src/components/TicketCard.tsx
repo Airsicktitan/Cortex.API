@@ -19,7 +19,7 @@ const priorityColors = {
 };
 
 const statusColors = {
-  New: "bg-blue-100 text-blue-800",
+  New: "bg-cortex-blue-soft text-cortex-ink",
   "In Progress": "bg-purple-100 text-purple-800",
   "Pending Business Review": "bg-amber-100 text-amber-800",
   Resolved: "bg-green-100 text-green-800",

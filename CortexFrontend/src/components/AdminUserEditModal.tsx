@@ -159,7 +159,7 @@ export default function AdminUserEditModal({
               <button
                 type="button"
                 onClick={() => onChange("expiryDate", "")}
-                className="mt-2 text-sm text-cortex-blue hover:text-blue-700"
+                className="mt-2 text-sm text-cortex-blue hover:text-cortex-blue-dark"
               >
                 Clear expiry
               </button>
@@ -192,7 +192,7 @@ export default function AdminUserEditModal({
             <button
               onClick={onSave}
               disabled={saving}
-              className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
+              className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
             >
               {saving ? "Saving..." : "Save User"}
             </button>

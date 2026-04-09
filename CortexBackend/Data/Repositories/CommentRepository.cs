@@ -13,7 +13,6 @@ public class CommentRepository(CortexDbContext context) : ICommentRepository
     {
         return await _context.Comments
             .Where(c => c.TicketId == ticketId)
-            .Include(c => c.CreatedByUser) // Include the User navigation property
             .OrderBy(c => c.CreatedDate)
             .ToListAsync();
     }

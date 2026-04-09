@@ -19,21 +19,25 @@ public static class TicketHandlers
     public static async Task<IResult> GetAllTickets(
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
-        ISlaConfigurationService slaConfigurationService)
+        ISlaConfigurationService slaConfigurationService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
         var tickets = await repo.GetAllTicketsAsync();
-        var visibleTickets = tickets.Where(visibilityContext.CanView);
+        var visibleTickets = tickets.Where(visibilityContext.CanView).ToList();
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            visibleTickets.Select(ticket => ticket.CreatedBy));
 
-        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations)));
+        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
     }
 
     public static async Task<IResult> GetTicketById(
         string id,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
-        ISlaConfigurationService slaConfigurationService)
+        ISlaConfigurationService slaConfigurationService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var ticket = await repo.GetTicketByIdAsync(id);
         if (ticket is null)
@@ -48,15 +52,17 @@ public static class TicketHandlers
         }
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync([ticket.CreatedBy]);
 
-        return Results.Ok(ticket.ToResponse(slaConfigurations));
+        return Results.Ok(ticket.ToResponse(slaConfigurations, mappingContext));
     }
 
     public static async Task<IResult> GetTicketHistory(
         string id,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
-        ITicketAuditService ticketAuditService)
+        ITicketAuditService ticketAuditService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var ticket = await repo.GetTicketByIdAsync(id);
         if (ticket is null)
@@ -85,27 +91,33 @@ public static class TicketHandlers
             }
         }
 
-        var history = await ticketAuditService.GetTicketHistoryAsync(id);
-        return Results.Ok(history.Select(entry => entry.ToResponse()));
+        var history = (await ticketAuditService.GetTicketHistoryAsync(id)).ToList();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            history.Select(entry => entry.ChangedBy));
+        return Results.Ok(history.Select(entry => entry.ToResponse(mappingContext)));
     }
 
     public static async Task<IResult> GetArchivedTickets(
         ITicketRepository repo,
-        ITicketVisibilityService ticketVisibilityService)
+        ITicketVisibilityService ticketVisibilityService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
         var archivedTickets = await repo.GetArchivedTicketsAsync();
         var visibleTickets = archivedTickets.Where(ticket =>
-            visibilityContext.CanView(ticket.CreatedBy, ticket.SynitiOwner, ticket.BusinessOwner));
+            visibilityContext.CanView(ticket.CreatedBy, ticket.SynitiOwner, ticket.BusinessOwner)).ToList();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            visibleTickets.SelectMany(ticket => new[] { ticket.CreatedBy, ticket.ArchivedBy }));
 
-        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse()));
+        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(mappingContext)));
     }
 
     public static async Task<IResult> GetTicketsByStatus(
         string status,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
-        ISlaConfigurationService slaConfigurationService)
+        ISlaConfigurationService slaConfigurationService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
         var filtered = await repo.GetTicketsByStatusAsync(status);
@@ -117,15 +129,18 @@ public static class TicketHandlers
         }
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            visibleTickets.Select(ticket => ticket.CreatedBy));
 
-        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations)));
+        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
     }
 
     public static async Task<IResult> GetTicketsByPriority(
         string priority,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
-        ISlaConfigurationService slaConfigurationService)
+        ISlaConfigurationService slaConfigurationService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
         var filtered = await repo.GetTicketsByPriorityAsync(priority);
@@ -137,20 +152,25 @@ public static class TicketHandlers
         }
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            visibleTickets.Select(ticket => ticket.CreatedBy));
 
-        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations)));
+        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
     }
 
     public static async Task<IResult> GetTicketsByUser(
         IUserContextService userContext,
         ITicketRepository repo,
-        ISlaConfigurationService slaConfigurationService)
+        ISlaConfigurationService slaConfigurationService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var currentUser = await userContext.GetCurrentUserAsync();
-        var tickets = await repo.GetTicketByUserAsync(currentUser.Id);
+        var tickets = (await repo.GetTicketByUserAsync(currentUser.Id)).ToList();
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            tickets.Select(ticket => ticket.CreatedBy));
 
-        return Results.Ok(tickets.Select(ticket => ticket.ToResponse(slaConfigurations)));
+        return Results.Ok(tickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
     }
 
     public static async Task<IResult> CreateTicket(
@@ -159,7 +179,9 @@ public static class TicketHandlers
         IUserContextService userContext,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
-        ITicketAuditService ticketAuditService)
+        ITicketAuditService ticketAuditService,
+        IRealtimeEventService realtimeEventService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var tickets = await repo.GetAllTicketsAsync();
         var currentUser = await userContext.GetCurrentUserAsync();
@@ -201,12 +223,19 @@ public static class TicketHandlers
             createdTicket,
             currentUser,
             request.ChangeReason);
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "ticket.created",
+            TicketId = createdTicket.Id,
+            EntityId = createdTicket.Id
+        });
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync([createdTicket.CreatedBy]);
 
         return Results.Created(
             $"/api/tickets/{createdTicket.Id}",
-            createdTicket.ToResponse(slaConfigurations));
+            createdTicket.ToResponse(slaConfigurations, mappingContext));
     }
 
     public static async Task<IResult> UpdateTicket(
@@ -216,7 +245,9 @@ public static class TicketHandlers
         IUserContextService userContext,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
-        ITicketAuditService ticketAuditService)
+        ITicketAuditService ticketAuditService,
+        IRealtimeEventService realtimeEventService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var existing = await repo.GetTicketByIdAsync(id);
         var currentUser = await userContext.GetCurrentUserAsync();
@@ -254,10 +285,17 @@ public static class TicketHandlers
             updatedTicket,
             currentUser,
             request.ChangeReason);
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "ticket.updated",
+            TicketId = updatedTicket.Id,
+            EntityId = updatedTicket.Id
+        });
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync([updatedTicket.CreatedBy]);
 
-        return Results.Ok(updatedTicket.ToResponse(slaConfigurations));
+        return Results.Ok(updatedTicket.ToResponse(slaConfigurations, mappingContext));
     }
 
     public static async Task<IResult> ArchiveTicket(
@@ -266,7 +304,9 @@ public static class TicketHandlers
         ITicketRepository repo,
         IUserContextService userContext,
         ITicketVisibilityService ticketVisibilityService,
-        ITicketAuditService ticketAuditService)
+        ITicketAuditService ticketAuditService,
+        IRealtimeEventService realtimeEventService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var existing = await repo.GetTicketByIdAsync(id);
         if (existing is null)
@@ -291,6 +331,12 @@ public static class TicketHandlers
             existing,
             currentUser,
             request?.ChangeReason);
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "ticket.archived",
+            TicketId = existing.Id,
+            EntityId = existing.Id
+        });
 
         var archivedTicket = await repo.GetArchivedTicketByIdAsync(id);
         if (archivedTicket is null)
@@ -298,7 +344,10 @@ public static class TicketHandlers
             return Results.Problem("Ticket was archived but could not be retrieved.");
         }
 
-        return Results.Ok(archivedTicket.ToResponse());
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            [archivedTicket.CreatedBy, archivedTicket.ArchivedBy]);
+
+        return Results.Ok(archivedTicket.ToResponse(mappingContext));
     }
 
     public static async Task<IResult> ReactivateArchivedTicket(
@@ -308,7 +357,9 @@ public static class TicketHandlers
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
-        ITicketAuditService ticketAuditService)
+        ITicketAuditService ticketAuditService,
+        IRealtimeEventService realtimeEventService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var archivedTicket = await repo.GetArchivedTicketByIdAsync(id);
         if (archivedTicket is null)
@@ -350,10 +401,17 @@ public static class TicketHandlers
             restoredTicket,
             currentUser,
             null);
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "ticket.reactivated",
+            TicketId = restoredTicket.Id,
+            EntityId = restoredTicket.Id
+        });
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync([restoredTicket.CreatedBy]);
 
-        return Results.Ok(restoredTicket.ToResponse(slaConfigurations));
+        return Results.Ok(restoredTicket.ToResponse(slaConfigurations, mappingContext));
     }
 
     public static async Task<IResult> DeleteTicket(string id, ITicketRepository repo)

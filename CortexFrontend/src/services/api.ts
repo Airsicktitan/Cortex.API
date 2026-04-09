@@ -1,8 +1,11 @@
-import type { Ticket } from "../types/ticket";
+import type { CreateTicketInput, Ticket, TicketMutationInput } from "../types/ticket";
 import type { ArchivedTicket } from "../types/archivedTicket";
 import type { TicketAttachment } from "../types/attachment";
+import type { TicketAuditEntry } from "../types/ticketAudit";
 import type {
   AdminUpdateUserInput,
+  CreateUserInput,
+  OnlineUser,
   UpdateUserProfileInput,
   UserProfile,
   UserRecord,
@@ -121,9 +124,18 @@ export const ticketService = {
     return response.json();
   },
 
+  async getHistory(id: string, token: string): Promise<TicketAuditEntry[]> {
+    const response = await fetch(`${API_BASE_URL}/tickets/${id}/history`, {
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, "Failed to fetch ticket history");
+    return response.json();
+  },
+
   // Create ticket
   async create(
-    ticket: Omit<Ticket, "id" | "createdDate" | "createdBy">,
+    ticket: CreateTicketInput,
     token: string,
   ): Promise<Ticket> {
     const response = await fetch(`${API_BASE_URL}/tickets`, {
@@ -139,7 +151,7 @@ export const ticketService = {
   // Update ticket
   async update(
     id: string,
-    ticket: Partial<Ticket>,
+    ticket: TicketMutationInput,
     token: string,
   ): Promise<Ticket> {
     const response = await fetch(`${API_BASE_URL}/tickets/${id}`, {
@@ -155,10 +167,41 @@ export const ticketService = {
   async archive(id: string, token: string): Promise<ArchivedTicket> {
     const response = await fetch(`${API_BASE_URL}/tickets/${id}/archive`, {
       method: "POST",
-      headers: authHeaders(token),
+      headers: authHeaders(token, true),
+      body: JSON.stringify({}),
     });
 
     await ensureSuccess(response, "Failed to archive ticket");
+    return response.json();
+  },
+
+  async archiveWithReason(
+    id: string,
+    changeReason: string | undefined,
+    token: string,
+  ): Promise<ArchivedTicket> {
+    const response = await fetch(`${API_BASE_URL}/tickets/${id}/archive`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({
+        changeReason: changeReason?.trim() || undefined,
+      }),
+    });
+
+    await ensureSuccess(response, "Failed to archive ticket");
+    return response.json();
+  },
+
+  async reactivateArchived(id: string, token: string): Promise<Ticket> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/archived/${id}/reactivate`,
+      {
+        method: "POST",
+        headers: authHeaders(token),
+      },
+    );
+
+    await ensureSuccess(response, "Failed to reactivate archived ticket");
     return response.json();
   },
 
@@ -233,6 +276,15 @@ export const userService = {
     return response.json();
   },
 
+  async getOnlineUsers(token: string): Promise<OnlineUser[]> {
+    const response = await fetch(`${API_BASE_URL}/users/online`, {
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, "Failed to fetch online users");
+    return response.json();
+  },
+
   async updateProfile(
     profile: UpdateUserProfileInput,
     token: string,
@@ -247,6 +299,15 @@ export const userService = {
     return response.json();
   },
 
+  async updatePresence(token: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/users/me/presence`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, "Failed to update presence");
+  },
+
   async updateUser(
     id: number,
     user: AdminUpdateUserInput,
@@ -259,6 +320,17 @@ export const userService = {
     });
 
     await ensureSuccess(response, "Failed to update user");
+    return response.json();
+  },
+
+  async createUser(user: CreateUserInput, token: string): Promise<UserRecord> {
+    const response = await fetch(`${API_BASE_URL}/users`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify(user),
+    });
+
+    await ensureSuccess(response, "Failed to create user");
     return response.json();
   },
 };

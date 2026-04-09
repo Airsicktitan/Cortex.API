@@ -14,6 +14,10 @@ public static class StoredProcedureDefinitionEndpoints
             .WithName("GetStoredProcedureDefinitions")
             .Produces(StatusCodes.Status200OK);
 
+        storedProcedures.MapGet("/database-procedures", StoredProcedureDefinitionHandlers.GetAvailableDatabaseStoredProcedures)
+            .WithName("GetAvailableDatabaseStoredProcedures")
+            .Produces(StatusCodes.Status200OK);
+
         storedProcedures.MapPost("/", StoredProcedureDefinitionHandlers.CreateStoredProcedureDefinition)
             .WithName("CreateStoredProcedureDefinition")
             .Produces(StatusCodes.Status201Created)

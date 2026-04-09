@@ -12,7 +12,6 @@ public class TicketAttachmentRepository(CortexDbContext context)
     public async Task<IEnumerable<TicketAttachment>> GetByTicketIdAsync(string ticketId)
     {
         return await _context.TicketAttachments
-            .Include(attachment => attachment.UploadedByUser)
             .Where(attachment => attachment.TicketId == ticketId)
             .OrderByDescending(attachment => attachment.UploadedDate)
             .ThenByDescending(attachment => attachment.Id)
@@ -22,7 +21,6 @@ public class TicketAttachmentRepository(CortexDbContext context)
     public async Task<TicketAttachment?> GetByIdAsync(int id)
     {
         return await _context.TicketAttachments
-            .Include(attachment => attachment.UploadedByUser)
             .FirstOrDefaultAsync(attachment => attachment.Id == id);
     }
 

@@ -41,6 +41,9 @@ builder.Services.AddScoped<IScheduledJobService, ScheduledJobService>();
 builder.Services.AddScoped<ITicketArchivalService, TicketArchivalService>();
 builder.Services.AddScoped<ITicketVisibilityService, TicketVisibilityService>();
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
+builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabilityService>();
+builder.Services.AddScoped<IResponseMappingContextFactory, ResponseMappingContextFactory>();
+builder.Services.AddSingleton<IRealtimeEventService, RealtimeEventService>();
 builder.Services.AddHostedService<ScheduledJobHostedService>();
 builder.Services.AddHttpContextAccessor(); // Register the built-in IHttpContextAccessor
 
@@ -129,6 +132,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
 
         options.MapInboundClaims = false; // Prevents default claim type mapping
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrWhiteSpace(accessToken)
+                    && path.StartsWithSegments("/api/realtime"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 var permissions = new Dictionary<string, string>
@@ -217,6 +236,7 @@ app.MapReportDefinitionEndpoints();
 app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();
 app.MapScheduledJobEndpoints();
+app.MapRealtimeEndpoints();
 
 if (app.Environment.IsDevelopment())
 {

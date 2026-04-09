@@ -1,5 +1,24 @@
 import type { ArchiveConfiguration } from "../types/archiveConfiguration";
+import type {
+  CustomReportDefinition,
+  DatabaseViewDefinition,
+  UpsertCustomReportDefinitionInput,
+} from "../types/customReport";
+import type { SessionConfiguration } from "../types/sessionConfiguration";
 import type { SlaConfiguration } from "../types/sla";
+import type {
+  DatabaseStoredProcedureDefinition,
+  StoredProcedureDefinition,
+  UpsertStoredProcedureDefinitionInput,
+} from "../types/storedProcedure";
+import type {
+  TicketStatusDefinition,
+  UpsertTicketStatusDefinitionInput,
+} from "../types/ticketStatus";
+import ArchivePolicySection from "./ArchivePolicySection";
+import CustomReportRegistrySection from "./CustomReportRegistrySection";
+import StoredProcedureRegistrySection from "./StoredProcedureRegistrySection";
+import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
 
 interface ConfigurationPageProps {
   slaConfigurations: SlaConfiguration[];
@@ -13,18 +32,79 @@ interface ConfigurationPageProps {
   ) => void;
   onRefreshSla: () => void;
   onSaveSla: () => void;
+  sessionConfiguration: SessionConfiguration | null;
+  sessionError: string | null;
+  sessionLoading: boolean;
+  sessionSaving: boolean;
+  onSessionChange: <K extends keyof SessionConfiguration>(
+    field: K,
+    value: SessionConfiguration[K],
+  ) => void;
+  onRefreshSession: () => void;
+  onSaveSession: () => void;
+  ticketStatuses: TicketStatusDefinition[];
+  ticketStatusError: string | null;
+  ticketStatusLoading: boolean;
+  ticketStatusSaving: boolean;
+  ticketStatusDeletingId: number | null;
+  onRefreshTicketStatuses: () => void;
+  onCreateTicketStatus: (
+    definition: UpsertTicketStatusDefinitionInput,
+  ) => Promise<void>;
+  onUpdateTicketStatus: (
+    id: number,
+    definition: UpsertTicketStatusDefinitionInput,
+  ) => Promise<void>;
+  onDeleteTicketStatus: (id: number) => Promise<void>;
+  archiveConfigurations: ArchiveConfiguration[];
   archiveConfiguration: ArchiveConfiguration | null;
   archiveError: string | null;
   archiveLoading: boolean;
   archiveSaving: boolean;
+  archiveDeletingId: number | null;
   archiveRunning: boolean;
+  onCreateArchivePolicy: () => void;
+  onSelectArchivePolicy: (id: number) => void;
   onArchiveChange: <K extends keyof ArchiveConfiguration>(
     field: K,
     value: ArchiveConfiguration[K],
   ) => void;
   onRefreshArchive: () => void;
   onSaveArchive: () => void;
+  onDeleteArchive: () => void;
   onRunArchiveNow: () => void;
+  customReports: CustomReportDefinition[];
+  databaseViews: DatabaseViewDefinition[];
+  databaseViewsLoading: boolean;
+  customReportError: string | null;
+  customReportLoading: boolean;
+  customReportSaving: boolean;
+  customReportDeletingId: number | null;
+  onRefreshCustomReports: () => void;
+  onCreateCustomReport: (
+    definition: UpsertCustomReportDefinitionInput,
+  ) => Promise<void>;
+  onUpdateCustomReport: (
+    id: number,
+    definition: UpsertCustomReportDefinitionInput,
+  ) => Promise<void>;
+  onDeleteCustomReport: (id: number) => Promise<void>;
+  storedProcedures: StoredProcedureDefinition[];
+  databaseStoredProcedures: DatabaseStoredProcedureDefinition[];
+  databaseStoredProceduresLoading: boolean;
+  storedProcedureError: string | null;
+  storedProcedureLoading: boolean;
+  storedProcedureSaving: boolean;
+  storedProcedureDeletingId: number | null;
+  onRefreshStoredProcedures: () => void;
+  onCreateStoredProcedure: (
+    definition: UpsertStoredProcedureDefinitionInput,
+  ) => Promise<void>;
+  onUpdateStoredProcedure: (
+    id: number,
+    definition: UpsertStoredProcedureDefinitionInput,
+  ) => Promise<void>;
+  onDeleteStoredProcedure: (id: number) => Promise<void>;
 }
 
 export default function ConfigurationPage({
@@ -35,15 +115,58 @@ export default function ConfigurationPage({
   onSlaChange,
   onRefreshSla,
   onSaveSla,
+  sessionConfiguration,
+  sessionError,
+  sessionLoading,
+  sessionSaving,
+  onSessionChange,
+  onRefreshSession,
+  onSaveSession,
+  ticketStatuses,
+  ticketStatusError,
+  ticketStatusLoading,
+  ticketStatusSaving,
+  ticketStatusDeletingId,
+  onRefreshTicketStatuses,
+  onCreateTicketStatus,
+  onUpdateTicketStatus,
+  onDeleteTicketStatus,
+  archiveConfigurations,
   archiveConfiguration,
   archiveError,
   archiveLoading,
   archiveSaving,
+  archiveDeletingId,
   archiveRunning,
+  onCreateArchivePolicy,
+  onSelectArchivePolicy,
   onArchiveChange,
   onRefreshArchive,
   onSaveArchive,
+  onDeleteArchive,
   onRunArchiveNow,
+  customReports,
+  databaseViews,
+  databaseViewsLoading,
+  customReportError,
+  customReportLoading,
+  customReportSaving,
+  customReportDeletingId,
+  onRefreshCustomReports,
+  onCreateCustomReport,
+  onUpdateCustomReport,
+  onDeleteCustomReport,
+  storedProcedures,
+  databaseStoredProcedures,
+  databaseStoredProceduresLoading,
+  storedProcedureError,
+  storedProcedureLoading,
+  storedProcedureSaving,
+  storedProcedureDeletingId,
+  onRefreshStoredProcedures,
+  onCreateStoredProcedure,
+  onUpdateStoredProcedure,
+  onDeleteStoredProcedure,
 }: ConfigurationPageProps) {
   return (
     <div className="space-y-6">
@@ -53,7 +176,7 @@ export default function ConfigurationPage({
             Configuration
           </h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-            Manage the operational rules for SLA tracking and archive policy.
+            Manage the operational rules for SLA tracking, session security, and archive policy.
           </p>
         </div>
       </section>
@@ -80,7 +203,7 @@ export default function ConfigurationPage({
               <button
                 onClick={onSaveSla}
                 disabled={slaSaving || slaLoading}
-                className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
+                className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
               >
                 {slaSaving ? "Saving..." : "Save SLA"}
               </button>
@@ -158,70 +281,59 @@ export default function ConfigurationPage({
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-                Archive Policy
+                Session Security
               </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Define when resolved or closed tickets become eligible for archive.
-              </p>
-              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Ticket age is measured from the last updated date, or created date if it
-                has never been updated.
+                Require users to re-authenticate after a period of inactivity.
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex gap-3">
               <button
-                onClick={onRefreshArchive}
+                onClick={onRefreshSession}
                 className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 Refresh
               </button>
               <button
-                onClick={onSaveArchive}
-                disabled={archiveSaving || archiveLoading || !archiveConfiguration}
-                className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
+                onClick={onSaveSession}
+                disabled={sessionSaving || sessionLoading || !sessionConfiguration}
+                className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
               >
-                {archiveSaving ? "Saving..." : "Save Archive Policy"}
-              </button>
-              <button
-                onClick={onRunArchiveNow}
-                disabled={archiveRunning || archiveLoading || !archiveConfiguration}
-                className="rounded-md bg-emerald-600 px-4 py-2 text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
-              >
-                {archiveRunning ? "Archiving..." : "Archive Eligible Now"}
+                {sessionSaving ? "Saving..." : "Save Session Policy"}
               </button>
             </div>
           </div>
         </div>
 
-        {archiveError && (
+        {sessionError && (
           <div className="border-b border-red-200 bg-red-50 px-6 py-4 dark:border-red-900/40 dark:bg-red-950/40">
-            <p className="text-red-700 dark:text-red-300">{archiveError}</p>
+            <p className="text-red-700 dark:text-red-300">{sessionError}</p>
           </div>
         )}
 
-        {archiveLoading || !archiveConfiguration ? (
+        {sessionLoading || !sessionConfiguration ? (
           <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">
-            Loading archive policy...
+            Loading session policy...
           </div>
         ) : (
           <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.2fr_1fr]">
             <div className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Archive after (days)
+                  Inactivity timeout (minutes)
                 </label>
                 <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                  Resolved or closed tickets older than this window become eligible.
+                  Users must re-authenticate after this many idle minutes.
                 </p>
                 <input
                   type="number"
                   min={1}
                   step={1}
-                  value={archiveConfiguration.archiveAfterDays}
+                  value={sessionConfiguration.inactivityTimeoutMinutes}
                   onChange={(event) =>
-                    onArchiveChange(
-                      "archiveAfterDays",
+                    onSessionChange(
+                      "inactivityTimeoutMinutes",
                       Number(event.target.value),
                     )
                   }
@@ -230,54 +342,22 @@ export default function ConfigurationPage({
               </div>
 
               <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Eligible statuses
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                  Warning window (minutes)
+                </label>
+                <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                  Show a countdown prompt before the session locks.
                 </p>
-                <div className="mt-3 space-y-3">
-                  <label className="flex items-start gap-3 rounded-md border border-gray-200 px-4 py-3 dark:border-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={archiveConfiguration.archiveResolvedTickets}
-                      onChange={(event) =>
-                        onArchiveChange(
-                          "archiveResolvedTickets",
-                          event.target.checked,
-                        )
-                      }
-                      className="mt-1 h-4 w-4"
-                    />
-                    <span>
-                      <span className="block font-medium text-gray-900 dark:text-slate-100">
-                        Resolved
-                      </span>
-                      <span className="text-sm text-gray-500 dark:text-slate-400">
-                        Include resolved tickets that are older than the archive window.
-                      </span>
-                    </span>
-                  </label>
-
-                  <label className="flex items-start gap-3 rounded-md border border-gray-200 px-4 py-3 dark:border-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={archiveConfiguration.archiveClosedTickets}
-                      onChange={(event) =>
-                        onArchiveChange(
-                          "archiveClosedTickets",
-                          event.target.checked,
-                        )
-                      }
-                      className="mt-1 h-4 w-4"
-                    />
-                    <span>
-                      <span className="block font-medium text-gray-900 dark:text-slate-100">
-                        Closed
-                      </span>
-                      <span className="text-sm text-gray-500 dark:text-slate-400">
-                        Include closed tickets that are older than the archive window.
-                      </span>
-                    </span>
-                  </label>
-                </div>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={sessionConfiguration.warningMinutes}
+                  onChange={(event) =>
+                    onSessionChange("warningMinutes", Number(event.target.value))
+                  }
+                  className="mt-3 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
               </div>
             </div>
 
@@ -286,41 +366,83 @@ export default function ConfigurationPage({
                 Current Policy
               </h4>
               <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-                Tickets will be eligible after{" "}
+                Users can stay idle for{" "}
                 <span className="font-medium text-gray-900 dark:text-slate-100">
-                  {archiveConfiguration.archiveAfterDays} day
-                  {archiveConfiguration.archiveAfterDays === 1 ? "" : "s"}
+                  {sessionConfiguration.inactivityTimeoutMinutes} minute
+                  {sessionConfiguration.inactivityTimeoutMinutes === 1 ? "" : "s"}
                 </span>{" "}
-                if they are in the selected final statuses below.
+                before the app requires Auth0 sign-in again.
               </p>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                {archiveConfiguration.archiveResolvedTickets && (
-                  <span className="inline-flex rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
-                    Resolved
-                  </span>
-                )}
-                {archiveConfiguration.archiveClosedTickets && (
-                  <span className="inline-flex rounded-full bg-slate-200 px-3 py-1 text-sm text-slate-800 dark:bg-slate-800 dark:text-slate-200">
-                    Closed
-                  </span>
-                )}
-                {!archiveConfiguration.archiveResolvedTickets &&
-                  !archiveConfiguration.archiveClosedTickets && (
-                    <span className="text-sm text-red-600 dark:text-red-300">
-                      No statuses selected.
-                    </span>
-                  )}
-              </div>
-
-              <p className="mt-5 text-sm text-gray-500 dark:text-slate-400">
-                Use <span className="font-medium">Archive Eligible Now</span> to move all
-                currently eligible tickets into the Archived Tickets view in one pass.
+              <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
+                A warning appears{" "}
+                <span className="font-medium text-gray-900 dark:text-slate-100">
+                  {sessionConfiguration.warningMinutes} minute
+                  {sessionConfiguration.warningMinutes === 1 ? "" : "s"}
+                </span>{" "}
+                before lockout.
               </p>
             </div>
           </div>
         )}
       </section>
+
+      <TicketStatusRegistrySection
+        statuses={ticketStatuses}
+        loading={ticketStatusLoading}
+        error={ticketStatusError}
+        saving={ticketStatusSaving}
+        deletingId={ticketStatusDeletingId}
+        onRefresh={onRefreshTicketStatuses}
+        onCreate={onCreateTicketStatus}
+        onUpdate={onUpdateTicketStatus}
+        onDelete={onDeleteTicketStatus}
+      />
+
+      <ArchivePolicySection
+        policies={archiveConfigurations}
+        selectedPolicy={archiveConfiguration}
+        availableStatuses={ticketStatuses}
+        loading={archiveLoading}
+        saving={archiveSaving}
+        deletingId={archiveDeletingId}
+        running={archiveRunning}
+        error={archiveError}
+        onRefresh={onRefreshArchive}
+        onNew={onCreateArchivePolicy}
+        onSelect={onSelectArchivePolicy}
+        onChange={onArchiveChange}
+        onSave={onSaveArchive}
+        onDelete={onDeleteArchive}
+        onRunNow={onRunArchiveNow}
+      />
+
+      <CustomReportRegistrySection
+        reports={customReports}
+        databaseViews={databaseViews}
+        databaseViewsLoading={databaseViewsLoading}
+        loading={customReportLoading}
+        error={customReportError}
+        saving={customReportSaving}
+        deletingId={customReportDeletingId}
+        onRefresh={onRefreshCustomReports}
+        onCreate={onCreateCustomReport}
+        onUpdate={onUpdateCustomReport}
+        onDelete={onDeleteCustomReport}
+      />
+
+      <StoredProcedureRegistrySection
+        storedProcedures={storedProcedures}
+        databaseStoredProcedures={databaseStoredProcedures}
+        databaseStoredProceduresLoading={databaseStoredProceduresLoading}
+        loading={storedProcedureLoading}
+        error={storedProcedureError}
+        saving={storedProcedureSaving}
+        deletingId={storedProcedureDeletingId}
+        onRefresh={onRefreshStoredProcedures}
+        onCreate={onCreateStoredProcedure}
+        onUpdate={onUpdateStoredProcedure}
+        onDelete={onDeleteStoredProcedure}
+      />
     </div>
   );
 }

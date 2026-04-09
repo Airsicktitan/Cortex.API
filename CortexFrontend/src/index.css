@@ -10,12 +10,12 @@ body,
 
 html {
   color-scheme: light;
-  background-color: #f8fafc;
+  background-color: #f4f8f6;
 }
 
 html.dark {
   color-scheme: dark;
-  background-color: #020617;
+  background-color: #0f2429;
 }
 
 body {
@@ -26,7 +26,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(135deg, #f8fafc 0%, #e5e7eb 100%);
+  background: linear-gradient(135deg, #f4f8f6 0%, #deebe7 100%);
   color: #111827;
   transition:
     background-color 200ms ease,
@@ -50,6 +50,6 @@ textarea {
 }
 
 html.dark body {
-  background: linear-gradient(135deg, #020617 0%, #0f172a 100%);
+  background: linear-gradient(135deg, #0f2429 0%, #17343a 100%);
   color: #e5e7eb;
 }

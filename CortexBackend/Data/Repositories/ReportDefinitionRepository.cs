@@ -26,6 +26,12 @@ public class ReportDefinitionRepository(CortexDbContext context) : IReportDefini
         return await _context.ReportDefinitions.FirstOrDefaultAsync(definition => definition.Name == normalizedName);
     }
 
+    public async Task<ReportDefinition?> GetByViewNameAsync(string viewName)
+    {
+        var normalizedViewName = viewName.Trim();
+        return await _context.ReportDefinitions.FirstOrDefaultAsync(definition => definition.ViewName == normalizedViewName);
+    }
+
     public async Task AddAsync(ReportDefinition definition)
     {
         await _context.ReportDefinitions.AddAsync(definition);

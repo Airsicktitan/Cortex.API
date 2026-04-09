@@ -23,3 +23,17 @@ export interface Ticket {
   slaRemainingMinutes: number;
   isSlaBreached: boolean;
 }
+
+export interface TicketMutationInput {
+  title?: string;
+  description?: string;
+  status?: string;
+  priority?: string;
+  synitiOwner?: string;
+  businessOwner?: string;
+  changeReason?: string;
+}
+
+export interface CreateTicketInput extends TicketMutationInput {
+  title: string;
+}

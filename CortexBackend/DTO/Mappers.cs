@@ -65,15 +65,21 @@ public static class UserResponseExtensions
 
 public static class CommentMappings
 {
-    public static CommentResponse ToResponse(this Comment comment)
+    public static CommentResponse ToResponse(
+        this Comment comment,
+        ResponseMappingContext? mappingContext = null)
     {
+        var context = mappingContext ?? ResponseMappingContext.Empty;
+
         return new CommentResponse
         {
             Id = comment.Id,
             TicketId = comment.TicketId,
             Body = comment.Body,
             CreatedBy = comment.CreatedBy,
-            CreatedByDisplayName = comment.CreatedByUser?.DisplayName ?? "Unknown User",
+            CreatedByDisplayName = context.ResolveUserDisplayName(
+                comment.CreatedBy,
+                comment.CreatedByUser),
             CreatedDate = comment.CreatedDate,
             LastModifiedDate = comment.LastModifiedDate
         };
@@ -84,8 +90,10 @@ public static class TicketResponseExtensions
 {
     public static TicketResponse ToResponse(
         this Ticket ticket,
-        IReadOnlyDictionary<string, SlaConfiguration> slaConfigurations)
+        IReadOnlyDictionary<string, SlaConfiguration> slaConfigurations,
+        ResponseMappingContext? mappingContext = null)
     {
+        var context = mappingContext ?? ResponseMappingContext.Empty;
         slaConfigurations.TryGetValue(ticket.Priority, out var configuration);
         var slaSnapshot = TicketSlaCalculator.Calculate(ticket, configuration);
 
@@ -102,7 +110,9 @@ public static class TicketResponseExtensions
             CreatedDate = ticket.CreatedDate,
             LastModifiedBy = ticket.LastModifiedBy,
             LastModifiedDate = ticket.LastModifiedDate,
-            CreatedByDisplayName = ticket.CreatedByUser?.DisplayName ?? "Unknown User",
+            CreatedByDisplayName = context.ResolveUserDisplayName(
+                ticket.CreatedBy,
+                ticket.CreatedByUser),
             SlaTargetDate = slaSnapshot.TargetDateUtc,
             SlaCompletedDate = slaSnapshot.CompletedDateUtc,
             SlaStatus = slaSnapshot.Status,
@@ -114,8 +124,12 @@ public static class TicketResponseExtensions
 
 public static class TicketAuditMappings
 {
-    public static TicketAuditEntryResponse ToResponse(this TicketAuditEntry entry)
+    public static TicketAuditEntryResponse ToResponse(
+        this TicketAuditEntry entry,
+        ResponseMappingContext? mappingContext = null)
     {
+        var context = mappingContext ?? ResponseMappingContext.Empty;
+
         return new TicketAuditEntryResponse
         {
             Id = entry.Id,
@@ -124,7 +138,9 @@ public static class TicketAuditMappings
             Summary = entry.Summary,
             Reason = entry.Reason,
             ChangedBy = entry.ChangedBy,
-            ChangedByDisplayName = entry.ChangedByUser?.DisplayName ?? "Unknown User",
+            ChangedByDisplayName = context.ResolveUserDisplayName(
+                entry.ChangedBy,
+                entry.ChangedByUser),
             ChangedDateUtc = entry.ChangedDateUtc,
             FieldChanges = entry.FieldChanges
                 .OrderBy(change => change.Id)
@@ -141,8 +157,12 @@ public static class TicketAuditMappings
 
 public static class ArchivedTicketMappings
 {
-    public static ArchivedTicketResponse ToResponse(this ArchivedTicket ticket)
+    public static ArchivedTicketResponse ToResponse(
+        this ArchivedTicket ticket,
+        ResponseMappingContext? mappingContext = null)
     {
+        var context = mappingContext ?? ResponseMappingContext.Empty;
+
         return new ArchivedTicketResponse
         {
             Id = ticket.Id,
@@ -153,12 +173,16 @@ public static class ArchivedTicketMappings
             SynitiOwner = ticket.SynitiOwner,
             BusinessOwner = ticket.BusinessOwner,
             CreatedBy = ticket.CreatedBy,
-            CreatedByDisplayName = ticket.CreatedByUser?.DisplayName ?? "Unknown User",
+            CreatedByDisplayName = context.ResolveUserDisplayName(
+                ticket.CreatedBy,
+                ticket.CreatedByUser),
             CreatedDate = ticket.CreatedDate,
             LastModifiedBy = ticket.LastModifiedBy,
             LastModifiedDate = ticket.LastModifiedDate,
             ArchivedBy = ticket.ArchivedBy,
-            ArchivedByDisplayName = ticket.ArchivedByUser?.DisplayName ?? "Unknown User",
+            ArchivedByDisplayName = context.ResolveUserDisplayName(
+                ticket.ArchivedBy,
+                ticket.ArchivedByUser),
             ArchivedDate = ticket.ArchivedDate,
             CommentCount = ticket.CommentCount,
             AttachmentCount = ticket.AttachmentCount
@@ -168,8 +192,12 @@ public static class ArchivedTicketMappings
 
 public static class TicketAttachmentMappings
 {
-    public static TicketAttachmentResponse ToResponse(this TicketAttachment attachment)
+    public static TicketAttachmentResponse ToResponse(
+        this TicketAttachment attachment,
+        ResponseMappingContext? mappingContext = null)
     {
+        var context = mappingContext ?? ResponseMappingContext.Empty;
+
         return new TicketAttachmentResponse
         {
             Id = attachment.Id,
@@ -178,7 +206,9 @@ public static class TicketAttachmentMappings
             ContentType = attachment.ContentType,
             FileSize = attachment.FileSize,
             UploadedBy = attachment.UploadedBy,
-            UploadedByDisplayName = attachment.UploadedByUser?.DisplayName ?? "Unknown User",
+            UploadedByDisplayName = context.ResolveUserDisplayName(
+                attachment.UploadedBy,
+                attachment.UploadedByUser),
             UploadedDate = attachment.UploadedDate
         };
     }
@@ -246,6 +276,7 @@ public static class ReportDefinitionMappings
         {
             Id = definition.Id,
             Name = definition.Name,
+            ViewName = definition.ViewName,
             Description = definition.Description,
             SqlQuery = definition.SqlQuery,
             IsEnabled = definition.IsEnabled,
@@ -264,6 +295,7 @@ public static class StoredProcedureDefinitionMappings
             Id = definition.Id,
             Name = definition.Name,
             ProcedureName = definition.ProcedureName,
+            DefinitionSql = definition.DefinitionSql,
             Description = definition.Description,
             IsEnabled = definition.IsEnabled,
             CreatedDateUtc = definition.CreatedDateUtc,
@@ -272,10 +304,38 @@ public static class StoredProcedureDefinitionMappings
     }
 }
 
+public static class DatabaseViewDefinitionMappings
+{
+    public static DatabaseViewDefinitionResponse ToResponse(this DatabaseViewDefinition definition)
+    {
+        return new DatabaseViewDefinitionResponse
+        {
+            ViewName = definition.ViewName,
+            DefinitionSql = definition.DefinitionSql
+        };
+    }
+}
+
+public static class DatabaseStoredProcedureDefinitionMappings
+{
+    public static DatabaseStoredProcedureDefinitionResponse ToResponse(this DatabaseStoredProcedureDefinition definition)
+    {
+        return new DatabaseStoredProcedureDefinitionResponse
+        {
+            ProcedureName = definition.ProcedureName,
+            DefinitionSql = definition.DefinitionSql
+        };
+    }
+}
+
 public static class ScheduledJobMappings
 {
-    public static ScheduledJobResponse ToResponse(this ScheduledJob job)
+    public static ScheduledJobResponse ToResponse(
+        this ScheduledJob job,
+        ResponseMappingContext? mappingContext = null)
     {
+        var context = mappingContext ?? ResponseMappingContext.Empty;
+
         return new ScheduledJobResponse
         {
             Id = job.Id,
@@ -285,9 +345,13 @@ public static class ScheduledJobMappings
             IntervalMinutes = job.IntervalMinutes,
             IsEnabled = job.IsEnabled,
             StoredProcedureDefinitionId = job.StoredProcedureDefinitionId,
-            StoredProcedureName = job.StoredProcedureDefinition?.Name,
+            StoredProcedureName = context.ResolveStoredProcedureLabel(
+                job.StoredProcedureDefinitionId,
+                job.StoredProcedureDefinition),
             RunAsUserId = job.RunAsUserId,
-            RunAsDisplayName = job.RunAsUser?.DisplayName ?? "Unknown User",
+            RunAsDisplayName = context.ResolveUserDisplayName(
+                job.RunAsUserId,
+                job.RunAsUser),
             CreatedDateUtc = job.CreatedDateUtc,
             LastModifiedDateUtc = job.LastModifiedDateUtc,
             LastRunDateUtc = job.LastRunDateUtc,

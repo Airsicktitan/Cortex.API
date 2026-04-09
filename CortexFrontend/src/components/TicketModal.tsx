@@ -2,18 +2,22 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import type { Ticket } from "../types/ticket";
+import type { Ticket, TicketMutationInput } from "../types/ticket";
 import type { TicketAttachment } from "../types/attachment";
+import type { RealtimeEvent } from "../types/realtime";
+import type { TicketStatusDefinition } from "../types/ticketStatus";
 import { commentService } from "../services/commentService";
 import { attachmentService } from "../services/api";
 import type { Comment } from "../types/comment";
 import CommentList from "./CommentList";
 import AddComment from "./AddComment";
+import TicketHistoryModal from "./TicketHistoryModal";
 import { useAuth0 } from "@auth0/auth0-react";
 import {
   buildSlaTooltip,
@@ -77,10 +81,12 @@ function getQueuedAttachmentKey(file: File) {
 
 interface TicketModalProps {
   ticket: Ticket;
+  latestRealtimeEvent?: RealtimeEvent | null;
+  ticketStatuses: TicketStatusDefinition[];
   isOpen: boolean;
   onClose: () => void;
-  onSave: (updatedTicket: Partial<Ticket>, attachments: File[]) => Promise<void>;
-  onArchive: (ticket: Ticket) => Promise<void>;
+  onSave: (updatedTicket: TicketMutationInput, attachments: File[]) => Promise<void>;
+  onArchive: (ticket: Ticket, changeReason?: string) => Promise<void>;
   onDelete: (ticket: Ticket) => void;
   currentUser: {
     displayName: string;
@@ -90,6 +96,8 @@ interface TicketModalProps {
 
 export default function TicketModal({
   ticket,
+  latestRealtimeEvent,
+  ticketStatuses,
   isOpen,
   onClose,
   onSave,
@@ -107,6 +115,8 @@ export default function TicketModal({
   const [archiving, setArchiving] = useState(false);
   const [description, setDescription] = useState(ticket.description || "");
   const [title, setTitle] = useState(ticket.title || "");
+  const [changeReason, setChangeReason] = useState("");
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
@@ -135,6 +145,28 @@ export default function TicketModal({
     Boolean(ticket.id) && hasPermission(TICKETS_UPDATE_PERMISSION);
   const canSaveTicket = canCreateTicket || canUpdateTicket;
   const canArchiveTicket = Boolean(ticket.id) && canUpdateTicket;
+  const availableStatusOptions = useMemo(() => {
+    const enabledStatuses = ticketStatuses.filter((statusDefinition) => statusDefinition.isEnabled);
+    const hasCurrentStatus = enabledStatuses.some(
+      (statusDefinition) => statusDefinition.name === status,
+    );
+
+    if (!hasCurrentStatus && status) {
+      return [
+        ...enabledStatuses,
+        {
+          id: 0,
+          name: status,
+          description: "Current ticket status",
+          isEnabled: false,
+          createdDateUtc: "",
+          lastModifiedDateUtc: undefined,
+        },
+      ];
+    }
+
+    return enabledStatuses;
+  }, [status, ticketStatuses]);
   const getApiToken = useCallback(async () => {
     return getAccessTokenSilently({
       authorizationParams: {
@@ -153,8 +185,10 @@ export default function TicketModal({
     setStatus(ticket.status);
     setSynitiOwner(ticket.synitiOwner || "");
     setBusinessOwner(ticket.businessOwner || "");
+    setChangeReason("");
     setQueuedAttachments([]);
     setIsAttachmentDropActive(false);
+    setIsHistoryModalOpen(false);
   }, [ticket, isOpen]);
 
   const handleSave = useCallback(async () => {
@@ -167,6 +201,7 @@ export default function TicketModal({
         status,
         synitiOwner: synitiOwner || undefined,
         businessOwner: businessOwner || undefined,
+        changeReason: changeReason.trim() || undefined,
       }, queuedAttachments);
       onClose();
     } catch {
@@ -183,6 +218,7 @@ export default function TicketModal({
     status,
     synitiOwner,
     businessOwner,
+    changeReason,
     queuedAttachments,
   ]);
 
@@ -190,6 +226,10 @@ export default function TicketModal({
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isHistoryModalOpen) {
+        return;
+      }
+
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
@@ -208,7 +248,7 @@ export default function TicketModal({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canSaveTicket, isOpen, saving, title, onClose, handleSave]);
+  }, [canSaveTicket, handleSave, isHistoryModalOpen, isOpen, onClose, saving, title]);
 
   // ✅ CRITICAL: clear comments + show loading BEFORE paint, and guard response ordering
   useLayoutEffect(() => {
@@ -230,58 +270,80 @@ export default function TicketModal({
     attachmentsLoadVersion.current += 1;
   }, [isOpen, ticket.id]);
 
+  const reloadComments = useCallback(async () => {
+    if (!ticket.id) return;
+
+    const myVersion = ++commentsLoadVersion.current;
+    setLoadingComments(true);
+
+    try {
+      const token = await getAccessTokenSilently();
+      const data = await commentService.getByTicket(ticket.id, token);
+
+      if (commentsLoadVersion.current !== myVersion) return;
+
+      setComments(data);
+    } finally {
+      if (commentsLoadVersion.current === myVersion) {
+        setLoadingComments(false);
+      }
+    }
+  }, [getAccessTokenSilently, ticket.id]);
+
+  const reloadAttachments = useCallback(async () => {
+    if (!ticket.id) return;
+
+    const myVersion = ++attachmentsLoadVersion.current;
+    setLoadingAttachments(true);
+
+    try {
+      const token = await getApiToken();
+      const data = await attachmentService.getByTicket(ticket.id, token);
+
+      if (attachmentsLoadVersion.current !== myVersion) return;
+
+      setAttachments(data);
+    } catch (error) {
+      console.error("Failed to load attachments", error);
+
+      if (attachmentsLoadVersion.current === myVersion) {
+        toast.error("Failed to load attachments");
+      }
+    } finally {
+      if (attachmentsLoadVersion.current === myVersion) {
+        setLoadingAttachments(false);
+      }
+    }
+  }, [getApiToken, ticket.id]);
+
   useEffect(() => {
     if (!isOpen || !ticket.id) return;
-
-    const myVersion = commentsLoadVersion.current;
-
-    const load = async () => {
-      try {
-        const token = await getAccessTokenSilently();
-        const data = await commentService.getByTicket(ticket.id, token);
-
-        // If something newer started, ignore this result
-        if (commentsLoadVersion.current !== myVersion) return;
-
-        setComments(data);
-      } finally {
-        if (commentsLoadVersion.current === myVersion) {
-          setLoadingComments(false);
-        }
-      }
-    };
-
-    load();
-  }, [getAccessTokenSilently, isOpen, ticket.id]);
+    void reloadComments();
+  }, [isOpen, reloadComments, ticket.id]);
 
   useEffect(() => {
     if (!isOpen || !ticket.id) return;
+    void reloadAttachments();
+  }, [isOpen, reloadAttachments, ticket.id]);
 
-    const myVersion = attachmentsLoadVersion.current;
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !ticket.id ||
+      !latestRealtimeEvent ||
+      latestRealtimeEvent.ticketId !== ticket.id
+    ) {
+      return;
+    }
 
-    const loadAttachments = async () => {
-      try {
-        const token = await getApiToken();
-        const data = await attachmentService.getByTicket(ticket.id, token);
+    if (latestRealtimeEvent.eventType === "comment.created") {
+      void reloadComments();
+    }
 
-        if (attachmentsLoadVersion.current !== myVersion) return;
-
-        setAttachments(data);
-      } catch (error) {
-        console.error("Failed to load attachments", error);
-
-        if (attachmentsLoadVersion.current === myVersion) {
-          toast.error("Failed to load attachments");
-        }
-      } finally {
-        if (attachmentsLoadVersion.current === myVersion) {
-          setLoadingAttachments(false);
-        }
-      }
-    };
-
-    void loadAttachments();
-  }, [getApiToken, isOpen, ticket.id]);
+    if (latestRealtimeEvent.eventType === "attachment.created") {
+      void reloadAttachments();
+    }
+  }, [isOpen, latestRealtimeEvent, reloadAttachments, reloadComments, ticket.id]);
 
   useEffect(() => {
     const loadPermissions = async () => {
@@ -330,7 +392,7 @@ export default function TicketModal({
   const handleArchive = async () => {
     setArchiving(true);
     try {
-      await onArchive(ticket);
+      await onArchive(ticket, changeReason.trim() || undefined);
       onClose();
     } catch {
       // The parent archive handler already surfaces the error to the user.
@@ -538,13 +600,15 @@ export default function TicketModal({
                     onChange={(e) => setStatus(e.target.value)}
                     className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
-                    <option value="New">New</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Pending Business Review">
-                      Pending Business Review
-                    </option>
-                    <option value="Resolved">Resolved</option>
-                    <option value="Closed">Closed</option>
+                    {availableStatusOptions.map((statusDefinition) => (
+                      <option
+                        key={`${statusDefinition.id}-${statusDefinition.name}`}
+                        value={statusDefinition.name}
+                      >
+                        {statusDefinition.name}
+                        {statusDefinition.isEnabled ? "" : " (Disabled)"}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -573,6 +637,23 @@ export default function TicketModal({
                     className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   />
                 </div>
+              </div>
+
+              <div className="mb-6">
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                  {ticket.id ? "Change Reason" : "Context"}
+                </label>
+                <input
+                  type="text"
+                  value={changeReason}
+                  onChange={(e) => setChangeReason(e.target.value)}
+                  placeholder={
+                    ticket.id
+                      ? "Optional: explain why you're updating or archiving this ticket"
+                      : "Optional: capture the request context for history"
+                  }
+                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                />
               </div>
 
               <div className="mb-6 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/60">
@@ -766,6 +847,16 @@ export default function TicketModal({
               {/* Actions */}
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-3">
+                  {ticket.id && (
+                    <button
+                      onClick={() => setIsHistoryModalOpen(true)}
+                      disabled={saving || archiving}
+                      className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      History
+                    </button>
+                  )}
+
                   {canArchiveTicket && (
                     <button
                       onClick={() => void handleArchive()}
@@ -791,7 +882,7 @@ export default function TicketModal({
                   <button
                     onClick={onClose}
                     disabled={archiving}
-                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200"
+                    className="rounded-md bg-gray-200 px-4 py-2 text-gray-800 transition-colors hover:bg-gray-300 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                   >
                     Cancel
                   </button>
@@ -799,7 +890,7 @@ export default function TicketModal({
                     <button
                       onClick={handleSave}
                       disabled={saving || archiving || !title.trim()}
-                      className="px-4 py-2 bg-cortex-blue text-white rounded-md"
+                      className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {saving
                         ? ticket.id
@@ -839,6 +930,14 @@ export default function TicketModal({
           </div>
         </div>
       </div>
+
+      {ticket.id && (
+        <TicketHistoryModal
+          ticketId={ticket.id}
+          isOpen={isHistoryModalOpen}
+          onClose={() => setIsHistoryModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

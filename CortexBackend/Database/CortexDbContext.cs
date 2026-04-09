@@ -210,6 +210,10 @@ public class CortexDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(120);
 
+            entity.Property(definition => definition.ViewName)
+                .IsRequired()
+                .HasMaxLength(256);
+
             entity.Property(definition => definition.Description)
                 .HasMaxLength(500);
 
@@ -220,6 +224,9 @@ public class CortexDbContext : DbContext
                 .IsRequired();
 
             entity.HasIndex(definition => definition.Name)
+                .IsUnique();
+
+            entity.HasIndex(definition => definition.ViewName)
                 .IsUnique();
         });
 
@@ -234,6 +241,9 @@ public class CortexDbContext : DbContext
             entity.Property(definition => definition.ProcedureName)
                 .IsRequired()
                 .HasMaxLength(256);
+
+            entity.Property(definition => definition.DefinitionSql)
+                .IsRequired();
 
             entity.Property(definition => definition.Description)
                 .HasMaxLength(500);

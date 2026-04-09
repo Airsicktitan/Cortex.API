@@ -14,7 +14,8 @@ public static class TicketAttachmentHandlers
         string ticketId,
         ITicketRepository ticketRepository,
         ITicketAttachmentRepository attachmentRepository,
-        ITicketVisibilityService ticketVisibilityService)
+        ITicketVisibilityService ticketVisibilityService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var ticket = await ticketRepository.GetTicketByIdAsync(ticketId);
         if (ticket is null)
@@ -28,8 +29,10 @@ public static class TicketAttachmentHandlers
             return Results.NotFound();
         }
 
-        var attachments = await attachmentRepository.GetByTicketIdAsync(ticketId);
-        return Results.Ok(attachments.Select(attachment => attachment.ToResponse()));
+        var attachments = (await attachmentRepository.GetByTicketIdAsync(ticketId)).ToList();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            attachments.Select(attachment => attachment.UploadedBy));
+        return Results.Ok(attachments.Select(attachment => attachment.ToResponse(mappingContext)));
     }
 
     public static async Task<IResult> UploadAttachments(
@@ -39,7 +42,9 @@ public static class TicketAttachmentHandlers
         ITicketAttachmentRepository attachmentRepository,
         ITicketVisibilityService ticketVisibilityService,
         IUserContextService userContext,
-        ITicketAuditService ticketAuditService)
+        ITicketAuditService ticketAuditService,
+        IRealtimeEventService realtimeEventService,
+        IResponseMappingContextFactory mappingContextFactory)
     {
         var ticket = await ticketRepository.GetTicketByIdAsync(ticketId);
         if (ticket is null)
@@ -109,10 +114,19 @@ public static class TicketAttachmentHandlers
             ticketId,
             attachments,
             currentUser);
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "attachment.created",
+            TicketId = ticketId,
+            EntityId = string.Join(",", attachments.Select(attachment => attachment.Id))
+        });
+
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            attachments.Select(attachment => attachment.UploadedBy));
 
         return Results.Created(
             $"/api/tickets/{ticketId}/attachments",
-            attachments.Select(attachment => attachment.ToResponse()));
+            attachments.Select(attachment => attachment.ToResponse(mappingContext)));
     }
 
     public static async Task<IResult> DownloadAttachment(

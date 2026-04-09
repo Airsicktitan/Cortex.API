@@ -134,7 +134,7 @@ export default function UserProfileModal({
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 rounded-md bg-cortex-blue text-white hover:bg-blue-700 transition-colors disabled:opacity-60"
+              className="px-4 py-2 rounded-md bg-cortex-blue text-white hover:bg-cortex-blue-dark transition-colors disabled:opacity-60"
             >
               {saving ? "Saving..." : "Save Profile"}
             </button>
