@@ -33,11 +33,9 @@ namespace Cortex.API.Migrations
                     b.Property<int>("ArchiveAfterDays")
                         .HasColumnType("int");
 
-                    b.Property<bool>("ArchiveClosedTickets")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("ArchiveResolvedTickets")
-                        .HasColumnType("bit");
+                    b.Property<string>("EligibleStatusesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
@@ -145,6 +143,131 @@ namespace Cortex.API.Migrations
                     b.ToTable("Comments");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.ReportDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastModifiedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("SqlQuery")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("ReportDefinitions");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.ScheduledJob", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("IntervalMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("JobType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("LastModifiedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastRunDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastRunMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("LastRunStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("NextRunDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("RunAsUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("StoredProcedureDefinitionId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("NextRunDateUtc");
+
+                    b.HasIndex("RunAsUserId");
+
+                    b.HasIndex("StoredProcedureDefinitionId");
+
+                    b.ToTable("ScheduledJobs");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SessionConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("InactivityTimeoutMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WarningMinutes")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SessionConfigurations");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.SlaConfiguration", b =>
                 {
                     b.Property<string>("Priority")
@@ -160,6 +283,48 @@ namespace Cortex.API.Migrations
                     b.HasKey("Priority");
 
                     b.ToTable("SlaConfigurations");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.StoredProcedureDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastModifiedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ProcedureName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("ProcedureName")
+                        .IsUnique();
+
+                    b.ToTable("StoredProcedureDefinitions");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.Ticket", b =>
@@ -257,6 +422,110 @@ namespace Cortex.API.Migrations
                     b.ToTable("TicketAttachments");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.TicketAuditEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int>("ChangedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("ChangedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangedBy");
+
+                    b.HasIndex("TicketId", "ChangedDateUtc");
+
+                    b.ToTable("TicketAuditEntries");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.TicketAuditFieldChange", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("FieldName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("NewValue")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OldValue")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("TicketAuditEntryId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketAuditEntryId");
+
+                    b.ToTable("TicketAuditFieldChanges");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.TicketStatusDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastModifiedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("TicketStatusDefinitions");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.User", b =>
                 {
                     b.Property<int>("Id")
@@ -294,6 +563,9 @@ namespace Cortex.API.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("LastModifiedDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastSeenDateUtc")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("NickName")
@@ -358,6 +630,24 @@ namespace Cortex.API.Migrations
                     b.Navigation("Ticket");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.ScheduledJob", b =>
+                {
+                    b.HasOne("Cortex.API.Models.User", "RunAsUser")
+                        .WithMany()
+                        .HasForeignKey("RunAsUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Cortex.API.Models.StoredProcedureDefinition", "StoredProcedureDefinition")
+                        .WithMany()
+                        .HasForeignKey("StoredProcedureDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("RunAsUser");
+
+                    b.Navigation("StoredProcedureDefinition");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.Ticket", b =>
                 {
                     b.HasOne("Cortex.API.Models.User", "CreatedByUser")
@@ -388,11 +678,38 @@ namespace Cortex.API.Migrations
                     b.Navigation("UploadedByUser");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.TicketAuditEntry", b =>
+                {
+                    b.HasOne("Cortex.API.Models.User", "ChangedByUser")
+                        .WithMany()
+                        .HasForeignKey("ChangedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ChangedByUser");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.TicketAuditFieldChange", b =>
+                {
+                    b.HasOne("Cortex.API.Models.TicketAuditEntry", "TicketAuditEntry")
+                        .WithMany("FieldChanges")
+                        .HasForeignKey("TicketAuditEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TicketAuditEntry");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.Ticket", b =>
                 {
                     b.Navigation("Attachments");
 
                     b.Navigation("Comments");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.TicketAuditEntry", b =>
+                {
+                    b.Navigation("FieldChanges");
                 });
 #pragma warning restore 612, 618
         }

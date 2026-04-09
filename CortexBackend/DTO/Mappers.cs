@@ -20,6 +20,7 @@ public static class UserResponseExtensions
             IsActive = user.IsActive,
             CreatedDate = user.CreatedDate,
             LastLoginDate = user.LastLoginDate,
+            LastSeenDateUtc = user.LastSeenDateUtc,
             ExpiryDate = user.ExpiryDate,
             LastModifiedDate = user.LastModifiedDate,
         };
@@ -38,10 +39,26 @@ public static class UserResponseExtensions
             Role = user.Role.ToString(),
             CreatedDate = user.CreatedDate,
             LastLoginDate = user.LastLoginDate,
+            LastSeenDateUtc = user.LastSeenDateUtc,
             ExpiryDate = user.ExpiryDate,
             IsActive = user.IsActive,
             Auth0Id = user.Auth0Id,
             LastModifiedDate = user.LastModifiedDate
+        };
+    }
+
+    public static OnlineUserResponse ToOnlineResponse(this User user)
+    {
+        return new OnlineUserResponse
+        {
+            Id = user.Id,
+            DisplayName = user.DisplayName ?? string.Empty,
+            NickName = user.NickName,
+            Email = user.Email ?? string.Empty,
+            Department = user.Department ?? string.Empty,
+            Role = user.Role.ToString(),
+            LastSeenDateUtc = user.LastSeenDateUtc,
+            LastLoginDate = user.LastLoginDate
         };
     }
 }
@@ -91,6 +108,33 @@ public static class TicketResponseExtensions
             SlaStatus = slaSnapshot.Status,
             SlaRemainingMinutes = slaSnapshot.RemainingMinutes,
             IsSlaBreached = slaSnapshot.IsBreached
+        };
+    }
+}
+
+public static class TicketAuditMappings
+{
+    public static TicketAuditEntryResponse ToResponse(this TicketAuditEntry entry)
+    {
+        return new TicketAuditEntryResponse
+        {
+            Id = entry.Id,
+            TicketId = entry.TicketId,
+            Action = entry.Action,
+            Summary = entry.Summary,
+            Reason = entry.Reason,
+            ChangedBy = entry.ChangedBy,
+            ChangedByDisplayName = entry.ChangedByUser?.DisplayName ?? "Unknown User",
+            ChangedDateUtc = entry.ChangedDateUtc,
+            FieldChanges = entry.FieldChanges
+                .OrderBy(change => change.Id)
+                .Select(change => new TicketAuditFieldChangeResponse
+                {
+                    FieldName = change.FieldName,
+                    OldValue = change.OldValue,
+                    NewValue = change.NewValue
+                })
+                .ToList()
         };
     }
 }
@@ -159,9 +203,97 @@ public static class ArchiveConfigurationMappings
     {
         return new ArchiveConfigurationResponse
         {
+            Id = configuration.Id,
             ArchiveAfterDays = configuration.ArchiveAfterDays,
-            ArchiveResolvedTickets = configuration.ArchiveResolvedTickets,
-            ArchiveClosedTickets = configuration.ArchiveClosedTickets
+            EligibleStatuses = [.. configuration.EligibleStatuses]
+        };
+    }
+}
+
+public static class TicketStatusDefinitionMappings
+{
+    public static TicketStatusDefinitionResponse ToResponse(this TicketStatusDefinition definition)
+    {
+        return new TicketStatusDefinitionResponse
+        {
+            Id = definition.Id,
+            Name = definition.Name,
+            Description = definition.Description,
+            IsEnabled = definition.IsEnabled,
+            CreatedDateUtc = definition.CreatedDateUtc.ToString("O"),
+            LastModifiedDateUtc = definition.LastModifiedDateUtc?.ToString("O")
+        };
+    }
+}
+
+public static class SessionConfigurationMappings
+{
+    public static SessionConfigurationResponse ToResponse(this SessionConfiguration configuration)
+    {
+        return new SessionConfigurationResponse
+        {
+            InactivityTimeoutMinutes = configuration.InactivityTimeoutMinutes,
+            WarningMinutes = configuration.WarningMinutes
+        };
+    }
+}
+
+public static class ReportDefinitionMappings
+{
+    public static ReportDefinitionResponse ToResponse(this ReportDefinition definition)
+    {
+        return new ReportDefinitionResponse
+        {
+            Id = definition.Id,
+            Name = definition.Name,
+            Description = definition.Description,
+            SqlQuery = definition.SqlQuery,
+            IsEnabled = definition.IsEnabled,
+            CreatedDateUtc = definition.CreatedDateUtc,
+            LastModifiedDateUtc = definition.LastModifiedDateUtc
+        };
+    }
+}
+
+public static class StoredProcedureDefinitionMappings
+{
+    public static StoredProcedureDefinitionResponse ToResponse(this StoredProcedureDefinition definition)
+    {
+        return new StoredProcedureDefinitionResponse
+        {
+            Id = definition.Id,
+            Name = definition.Name,
+            ProcedureName = definition.ProcedureName,
+            Description = definition.Description,
+            IsEnabled = definition.IsEnabled,
+            CreatedDateUtc = definition.CreatedDateUtc,
+            LastModifiedDateUtc = definition.LastModifiedDateUtc
+        };
+    }
+}
+
+public static class ScheduledJobMappings
+{
+    public static ScheduledJobResponse ToResponse(this ScheduledJob job)
+    {
+        return new ScheduledJobResponse
+        {
+            Id = job.Id,
+            Name = job.Name,
+            Description = job.Description,
+            JobType = job.JobType.ToString(),
+            IntervalMinutes = job.IntervalMinutes,
+            IsEnabled = job.IsEnabled,
+            StoredProcedureDefinitionId = job.StoredProcedureDefinitionId,
+            StoredProcedureName = job.StoredProcedureDefinition?.Name,
+            RunAsUserId = job.RunAsUserId,
+            RunAsDisplayName = job.RunAsUser?.DisplayName ?? "Unknown User",
+            CreatedDateUtc = job.CreatedDateUtc,
+            LastModifiedDateUtc = job.LastModifiedDateUtc,
+            LastRunDateUtc = job.LastRunDateUtc,
+            NextRunDateUtc = job.NextRunDateUtc,
+            LastRunStatus = job.LastRunStatus,
+            LastRunMessage = job.LastRunMessage
         };
     }
 }

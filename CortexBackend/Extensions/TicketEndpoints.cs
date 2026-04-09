@@ -3,6 +3,7 @@ namespace Cortex.API.Extensions;
 using Cortex.API.Models;
 using Cortex.API.Database;
 using Cortex.API.Handlers;
+using Cortex.API.DTO;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -49,6 +50,12 @@ public static class TicketEndpoints
             .Produces<Ticket>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        tickets.MapGet("/{id}/history", TicketHandlers.GetTicketHistory)
+            .RequireAuthorization("TicketsRead")
+            .WithName("GetTicketHistory")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         // Get tickets by status
         tickets.MapGet("/status/{status}", TicketHandlers.GetTicketsByStatus)
             .RequireAuthorization("TicketsRead")
@@ -79,8 +86,16 @@ public static class TicketEndpoints
         tickets.MapPost("/{id}/archive", TicketHandlers.ArchiveTicket)
             .RequireAuthorization("TicketsUpdate")
             .WithName("ArchiveTicket")
+            .Accepts<TicketActionReasonRequest>("application/json")
             .Produces<ArchivedTicket>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
+
+        tickets.MapPost("/archived/{id}/reactivate", TicketHandlers.ReactivateArchivedTicket)
+            .RequireAuthorization("TicketsUpdate")
+            .WithName("ReactivateArchivedTicket")
+            .Produces<Ticket>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
 
         tickets.MapDelete("/{id}", TicketHandlers.DeleteTicket)
             .RequireAuthorization("TicketsDelete")

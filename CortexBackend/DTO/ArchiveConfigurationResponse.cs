@@ -2,7 +2,7 @@ namespace Cortex.API.DTO;
 
 public class ArchiveConfigurationResponse
 {
+    public int Id { get; set; }
     public int ArchiveAfterDays { get; set; }
-    public bool ArchiveResolvedTickets { get; set; }
-    public bool ArchiveClosedTickets { get; set; }
+    public List<string> EligibleStatuses { get; set; } = [];
 }

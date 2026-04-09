@@ -11,20 +11,36 @@ public class TicketArchivalService(
 
     public async Task<int> ArchiveEligibleTicketsAsync(int archivedBy)
     {
-        var configuration = await _archiveConfigurationService.GetAsync();
-        var eligibleStatuses = _archiveConfigurationService.GetEligibleStatuses(configuration);
-        if (eligibleStatuses.Count == 0)
+        var configurations = await _archiveConfigurationService.GetAllAsync();
+        if (configurations.Count == 0)
         {
             return 0;
         }
 
-        var archiveCutoffUtc = _archiveConfigurationService.GetArchiveCutoffUtc(configuration, DateTime.UtcNow);
-        var tickets = await _ticketRepository.GetArchiveCandidatesAsync(eligibleStatuses, archiveCutoffUtc);
+        var candidateTicketIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var utcNow = DateTime.UtcNow;
+
+        foreach (var configuration in configurations)
+        {
+            var eligibleStatuses = _archiveConfigurationService.GetEligibleStatuses(configuration);
+            if (eligibleStatuses.Count == 0)
+            {
+                continue;
+            }
+
+            var archiveCutoffUtc = _archiveConfigurationService.GetArchiveCutoffUtc(configuration, utcNow);
+            var tickets = await _ticketRepository.GetArchiveCandidatesAsync(eligibleStatuses, archiveCutoffUtc);
+
+            foreach (var ticket in tickets)
+            {
+                candidateTicketIds.Add(ticket.Id);
+            }
+        }
 
         var archivedCount = 0;
-        foreach (var ticket in tickets)
+        foreach (var ticketId in candidateTicketIds)
         {
-            var archived = await _ticketRepository.ArchiveTicketAsync(ticket.Id, archivedBy);
+            var archived = await _ticketRepository.ArchiveTicketAsync(ticketId, archivedBy);
             if (archived)
             {
                 archivedCount += 1;

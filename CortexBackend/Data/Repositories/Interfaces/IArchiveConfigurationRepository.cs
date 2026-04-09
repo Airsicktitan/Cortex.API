@@ -4,7 +4,9 @@ namespace Cortex.API.Data.Repositories;
 
 public interface IArchiveConfigurationRepository
 {
-    Task<ArchiveConfiguration?> GetAsync();
-    Task UpsertAsync(ArchiveConfiguration configuration);
+    Task<IReadOnlyList<ArchiveConfiguration>> GetAllAsync();
+    Task<ArchiveConfiguration?> GetByIdAsync(int id);
+    Task AddAsync(ArchiveConfiguration configuration);
+    void Delete(ArchiveConfiguration configuration);
     Task SaveChangesAsync();
 }

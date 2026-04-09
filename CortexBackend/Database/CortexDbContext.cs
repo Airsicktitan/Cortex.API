@@ -15,8 +15,15 @@ public class CortexDbContext : DbContext
     public DbSet<TicketAttachment> TicketAttachments => Set<TicketAttachment>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Comment> Comments => Set<Comment>();
+    public DbSet<TicketAuditEntry> TicketAuditEntries => Set<TicketAuditEntry>();
+    public DbSet<TicketAuditFieldChange> TicketAuditFieldChanges => Set<TicketAuditFieldChange>();
     public DbSet<SlaConfiguration> SlaConfigurations => Set<SlaConfiguration>();
     public DbSet<ArchiveConfiguration> ArchiveConfigurations => Set<ArchiveConfiguration>();
+    public DbSet<SessionConfiguration> SessionConfigurations => Set<SessionConfiguration>();
+    public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
+    public DbSet<StoredProcedureDefinition> StoredProcedureDefinitions => Set<StoredProcedureDefinition>();
+    public DbSet<TicketStatusDefinition> TicketStatusDefinitions => Set<TicketStatusDefinition>();
+    public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -162,11 +169,126 @@ public class CortexDbContext : DbContext
             entity.Property(configuration => configuration.ArchiveAfterDays)
                 .IsRequired();
 
-            entity.Property(configuration => configuration.ArchiveResolvedTickets)
+            entity.Property(configuration => configuration.EligibleStatusesJson)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity<TicketStatusDefinition>(entity =>
+        {
+            entity.HasKey(definition => definition.Id);
+
+            entity.Property(definition => definition.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(definition => definition.Description)
+                .HasMaxLength(500);
+
+            entity.Property(definition => definition.IsEnabled)
                 .IsRequired();
 
-            entity.Property(configuration => configuration.ArchiveClosedTickets)
+            entity.HasIndex(definition => definition.Name)
+                .IsUnique();
+        });
+
+        modelBuilder.Entity<SessionConfiguration>(entity =>
+        {
+            entity.HasKey(configuration => configuration.Id);
+
+            entity.Property(configuration => configuration.InactivityTimeoutMinutes)
                 .IsRequired();
+
+            entity.Property(configuration => configuration.WarningMinutes)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity<ReportDefinition>(entity =>
+        {
+            entity.HasKey(definition => definition.Id);
+
+            entity.Property(definition => definition.Name)
+                .IsRequired()
+                .HasMaxLength(120);
+
+            entity.Property(definition => definition.Description)
+                .HasMaxLength(500);
+
+            entity.Property(definition => definition.SqlQuery)
+                .IsRequired();
+
+            entity.Property(definition => definition.IsEnabled)
+                .IsRequired();
+
+            entity.HasIndex(definition => definition.Name)
+                .IsUnique();
+        });
+
+        modelBuilder.Entity<StoredProcedureDefinition>(entity =>
+        {
+            entity.HasKey(definition => definition.Id);
+
+            entity.Property(definition => definition.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(definition => definition.ProcedureName)
+                .IsRequired()
+                .HasMaxLength(256);
+
+            entity.Property(definition => definition.Description)
+                .HasMaxLength(500);
+
+            entity.Property(definition => definition.IsEnabled)
+                .IsRequired();
+
+            entity.HasIndex(definition => definition.Name)
+                .IsUnique();
+
+            entity.HasIndex(definition => definition.ProcedureName)
+                .IsUnique();
+        });
+
+        modelBuilder.Entity<ScheduledJob>(entity =>
+        {
+            entity.HasKey(job => job.Id);
+
+            entity.Property(job => job.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(job => job.Description)
+                .HasMaxLength(500);
+
+            entity.Property(job => job.JobType)
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.Property(job => job.IntervalMinutes)
+                .IsRequired();
+
+            entity.Property(job => job.IsEnabled)
+                .IsRequired();
+
+            entity.Property(job => job.LastRunStatus)
+                .HasMaxLength(50);
+
+            entity.Property(job => job.LastRunMessage)
+                .HasMaxLength(1000);
+
+            entity.HasIndex(job => job.Name)
+                .IsUnique();
+
+            entity.HasIndex(job => job.NextRunDateUtc);
+
+            entity.HasOne(job => job.StoredProcedureDefinition)
+                .WithMany()
+                .HasForeignKey(job => job.StoredProcedureDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(job => job.RunAsUser)
+                .WithMany()
+                .HasForeignKey(job => job.RunAsUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Comment>()
@@ -174,5 +296,45 @@ public class CortexDbContext : DbContext
             .WithMany()
             .HasForeignKey(c => c.CreatedBy)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<TicketAuditEntry>(entity =>
+        {
+            entity.HasKey(entry => entry.Id);
+
+            entity.Property(entry => entry.Action)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(entry => entry.Summary)
+                .IsRequired()
+                .HasMaxLength(250);
+
+            entity.Property(entry => entry.Reason)
+                .HasMaxLength(1000);
+
+            entity.Property(entry => entry.ChangedDateUtc)
+                .IsRequired();
+
+            entity.HasIndex(entry => new { entry.TicketId, entry.ChangedDateUtc });
+
+            entity.HasOne(entry => entry.ChangedByUser)
+                .WithMany()
+                .HasForeignKey(entry => entry.ChangedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(entry => entry.FieldChanges)
+                .WithOne(change => change.TicketAuditEntry)
+                .HasForeignKey(change => change.TicketAuditEntryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TicketAuditFieldChange>(entity =>
+        {
+            entity.HasKey(change => change.Id);
+
+            entity.Property(change => change.FieldName)
+                .IsRequired()
+                .HasMaxLength(100);
+        });
     }
 }

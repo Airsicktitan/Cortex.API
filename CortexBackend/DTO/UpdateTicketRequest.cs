@@ -9,4 +9,5 @@ public class UpdateTicketRequest
     public string? SynitiOwner { get; set; }
     public string? BusinessOwner { get; set; }
     public string? Status { get; set; } // e.g., "Open", "In Progress", "Closed"
+    public string? ChangeReason { get; set; }
 }

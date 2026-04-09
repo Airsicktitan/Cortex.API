@@ -94,6 +94,46 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         return await _context.ArchivedTickets.AnyAsync(ticket => ticket.Id == id);
     }
 
+    public async Task<bool> ReactivateArchivedTicketAsync(string id, int reactivatedBy, string restoredStatus)
+    {
+        var archivedTicket = await _context.ArchivedTickets
+            .FirstOrDefaultAsync(ticket => ticket.Id == id);
+
+        if (archivedTicket is null)
+        {
+            return false;
+        }
+
+        if (await _context.Tickets.AnyAsync(ticket => ticket.Id == id))
+        {
+            return false;
+        }
+
+        var restoredTicket = new Ticket
+        {
+            Id = archivedTicket.Id,
+            Title = archivedTicket.Title,
+            Description = archivedTicket.Description,
+            Status = restoredStatus,
+            Priority = archivedTicket.Priority,
+            SynitiOwner = archivedTicket.SynitiOwner,
+            BusinessOwner = archivedTicket.BusinessOwner,
+            CreatedBy = archivedTicket.CreatedBy,
+            CreatedDate = archivedTicket.CreatedDate,
+            LastModifiedBy = reactivatedBy,
+            LastModifiedDate = DateTime.UtcNow
+        };
+
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        await _context.Tickets.AddAsync(restoredTicket);
+        _context.ArchivedTickets.Remove(archivedTicket);
+        await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        return true;
+    }
+
     public async Task<bool> DeleteTicketAsync(int id)
     {
         var ticket = await _context.Tickets.FindAsync(id);

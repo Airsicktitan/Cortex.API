@@ -13,21 +13,35 @@ builder.Services.AddDbContext<CortexDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("AzureCortexDB")
     ));
+builder.Services.Configure<Auth0ManagementOptions>(builder.Configuration.GetSection("Auth0"));
 
 
 // Add services
 builder.Services.AddEndpointsApiExplorer(); // for minimal APIs, needed for Swagger
+builder.Services.AddHttpClient<IAuth0ManagementService, Auth0ManagementService>();
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<ICommentRepository, CommentRepository>();
 builder.Services.AddScoped<ISlaConfigurationRepository, SlaConfigurationRepository>();
 builder.Services.AddScoped<IArchiveConfigurationRepository, ArchiveConfigurationRepository>();
+builder.Services.AddScoped<ISessionConfigurationRepository, SessionConfigurationRepository>();
+builder.Services.AddScoped<IReportDefinitionRepository, ReportDefinitionRepository>();
+builder.Services.AddScoped<IStoredProcedureDefinitionRepository, StoredProcedureDefinitionRepository>();
+builder.Services.AddScoped<ITicketStatusDefinitionRepository, TicketStatusDefinitionRepository>();
+builder.Services.AddScoped<IScheduledJobRepository, ScheduledJobRepository>();
 builder.Services.AddScoped<IUserContextService, UserContextService>();
 builder.Services.AddScoped<ISlaConfigurationService, SlaConfigurationService>();
 builder.Services.AddScoped<IArchiveConfigurationService, ArchiveConfigurationService>();
+builder.Services.AddScoped<ISessionConfigurationService, SessionConfigurationService>();
+builder.Services.AddScoped<IReportDefinitionService, ReportDefinitionService>();
+builder.Services.AddScoped<IStoredProcedureDefinitionService, StoredProcedureDefinitionService>();
+builder.Services.AddScoped<ITicketStatusService, TicketStatusService>();
+builder.Services.AddScoped<IScheduledJobService, ScheduledJobService>();
 builder.Services.AddScoped<ITicketArchivalService, TicketArchivalService>();
 builder.Services.AddScoped<ITicketVisibilityService, TicketVisibilityService>();
+builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
+builder.Services.AddHostedService<ScheduledJobHostedService>();
 builder.Services.AddHttpContextAccessor(); // Register the built-in IHttpContextAccessor
 
 
@@ -139,10 +153,16 @@ builder.Services.AddAuthorization(options =>
         policy.RequireClaim("permissions", "developer"));
 
     options.AddPolicy("SlaManage", policy =>
-        policy.RequireClaim("permissions", "admin:system"));
+        policy.RequireClaim("permissions", "admin:system", "developer"));
+
+    options.AddPolicy("ReportsAdvanced", policy =>
+        policy.RequireClaim("permissions", "admin:system", "developer"));
 
     options.AddPolicy("UsersAdminRead", policy =>
-        policy.RequireClaim("permissions", "admin:system"));
+        policy.RequireClaim("permissions", "admin:system", "developer"));
+
+    options.AddPolicy("UsersCreate", policy =>
+        policy.RequireClaim("permissions", "admin:system", "developer"));
 
     options.AddPolicy("UsersAdminUpdate", policy =>
         policy.RequireClaim("permissions", "admin:system"));
@@ -192,6 +212,11 @@ app.MapCommentEndpoints();
 app.MapClaimEndpoint();
 app.MapSlaConfigurationEndpoints();
 app.MapArchiveConfigurationEndpoints();
+app.MapSessionConfigurationEndpoints();
+app.MapReportDefinitionEndpoints();
+app.MapStoredProcedureDefinitionEndpoints();
+app.MapTicketStatusEndpoints();
+app.MapScheduledJobEndpoints();
 
 if (app.Environment.IsDevelopment())
 {

@@ -12,6 +12,7 @@ public class User
 
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow; // Default to now
     public DateTime? LastLoginDate { get; set; } // Nullable
+    public DateTime? LastSeenDateUtc { get; set; } // Nullable
     public DateTime? ExpiryDate { get; set; } // Nullable
     public bool IsActive { get; set; } = true; // Default to active
 

@@ -8,26 +8,29 @@ public class ArchiveConfigurationRepository(CortexDbContext context) : IArchiveC
 {
     private readonly CortexDbContext _context = context;
 
-    public async Task<ArchiveConfiguration?> GetAsync()
+    public async Task<IReadOnlyList<ArchiveConfiguration>> GetAllAsync()
+    {
+        return await _context.ArchiveConfigurations
+            .OrderBy(configuration => configuration.ArchiveAfterDays)
+            .ThenBy(configuration => configuration.Id)
+            .ToListAsync();
+    }
+
+    public async Task<ArchiveConfiguration?> GetByIdAsync(int id)
     {
         return await _context.ArchiveConfigurations
             .OrderBy(configuration => configuration.Id)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(configuration => configuration.Id == id);
     }
 
-    public async Task UpsertAsync(ArchiveConfiguration configuration)
+    public async Task AddAsync(ArchiveConfiguration configuration)
     {
-        var existingConfiguration = await GetAsync();
-        if (existingConfiguration is null)
-        {
-            configuration.Id = 0;
-            await _context.ArchiveConfigurations.AddAsync(configuration);
-            return;
-        }
+        await _context.ArchiveConfigurations.AddAsync(configuration);
+    }
 
-        existingConfiguration.ArchiveAfterDays = configuration.ArchiveAfterDays;
-        existingConfiguration.ArchiveResolvedTickets = configuration.ArchiveResolvedTickets;
-        existingConfiguration.ArchiveClosedTickets = configuration.ArchiveClosedTickets;
+    public void Delete(ArchiveConfiguration configuration)
+    {
+        _context.ArchiveConfigurations.Remove(configuration);
     }
 
     public async Task SaveChangesAsync()

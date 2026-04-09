@@ -13,7 +13,13 @@ public static class CommentHandlers
         return Results.Ok(results.Select(c => c.ToResponse()));
     }
 
-    public static async Task<IResult> CreateComment(string ticketId, CreateCommentRequest request, ICommentRepository commentRepo, ITicketRepository ticketRepo, IUserContextService userContext)
+    public static async Task<IResult> CreateComment(
+        string ticketId,
+        CreateCommentRequest request,
+        ICommentRepository commentRepo,
+        ITicketRepository ticketRepo,
+        IUserContextService userContext,
+        ITicketAuditService ticketAuditService)
     {
         var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
         if (ticket is null)
@@ -30,6 +36,7 @@ public static class CommentHandlers
             });
 
             await commentRepo.SaveChangesAsync();
+            await ticketAuditService.RecordCommentAddedAsync(comment, currentUser);
 
             return Results.Created(
                 $"/api/tickets/{ticketId}/comments/{comment.Id}",

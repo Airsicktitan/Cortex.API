@@ -11,6 +11,7 @@ public class AdminUserResponse
     public required string Role { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastLoginDate { get; set; }
+    public DateTime? LastSeenDateUtc { get; set; }
     public DateTime? ExpiryDate { get; set; }
     public bool IsActive { get; set; }
     public string? Auth0Id { get; set; }

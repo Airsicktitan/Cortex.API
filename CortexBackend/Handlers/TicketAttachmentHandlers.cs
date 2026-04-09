@@ -38,7 +38,8 @@ public static class TicketAttachmentHandlers
         ITicketRepository ticketRepository,
         ITicketAttachmentRepository attachmentRepository,
         ITicketVisibilityService ticketVisibilityService,
-        IUserContextService userContext)
+        IUserContextService userContext,
+        ITicketAuditService ticketAuditService)
     {
         var ticket = await ticketRepository.GetTicketByIdAsync(ticketId);
         if (ticket is null)
@@ -104,6 +105,10 @@ public static class TicketAttachmentHandlers
 
         await attachmentRepository.AddRangeAsync(attachments);
         await attachmentRepository.SaveChangesAsync();
+        await ticketAuditService.RecordAttachmentsAddedAsync(
+            ticketId,
+            attachments,
+            currentUser);
 
         return Results.Created(
             $"/api/tickets/{ticketId}/attachments",

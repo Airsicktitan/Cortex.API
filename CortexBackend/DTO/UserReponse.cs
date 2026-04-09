@@ -14,6 +14,7 @@ public class UserResponse
     public bool IsActive { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastLoginDate { get; set; }
+    public DateTime? LastSeenDateUtc { get; set; }
     public DateTime? ExpiryDate { get; set; }
     public DateTime? LastModifiedDate { get; set; }
     public string? CreatedByDisplayName {get; set;}

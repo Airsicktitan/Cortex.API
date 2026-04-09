@@ -10,14 +10,25 @@ public static class ArchiveConfigurationEndpoints
             .RequireAuthorization("SlaManage")
             .WithTags("Archive");
 
-        archive.MapGet("/", ArchiveConfigurationHandlers.GetArchiveConfiguration)
-            .WithName("GetArchiveConfiguration")
+        archive.MapGet("/", ArchiveConfigurationHandlers.GetArchiveConfigurations)
+            .WithName("GetArchiveConfigurations")
             .Produces(StatusCodes.Status200OK);
 
-        archive.MapPut("/", ArchiveConfigurationHandlers.UpdateArchiveConfiguration)
+        archive.MapPost("/", ArchiveConfigurationHandlers.CreateArchiveConfiguration)
+            .WithName("CreateArchiveConfiguration")
+            .Produces(StatusCodes.Status201Created)
+            .Produces(StatusCodes.Status400BadRequest);
+
+        archive.MapPut("/{id:int}", ArchiveConfigurationHandlers.UpdateArchiveConfiguration)
             .WithName("UpdateArchiveConfiguration")
             .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status400BadRequest);
+
+        archive.MapDelete("/{id:int}", ArchiveConfigurationHandlers.DeleteArchiveConfiguration)
+            .WithName("DeleteArchiveConfiguration")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status404NotFound);
 
         archive.MapPost("/run", ArchiveConfigurationHandlers.RunArchiveNow)
             .WithName("RunArchiveNow")

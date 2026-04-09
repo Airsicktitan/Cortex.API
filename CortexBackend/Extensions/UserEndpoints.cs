@@ -39,6 +39,17 @@ public static class UserEndpoints
             .WithName("GetUsers")
             .Produces<List<AdminUserResponse>>(StatusCodes.Status200OK);
 
+        users.MapGet("/online", UserHandlers.GetOnlineUsers)
+            .RequireAuthorization("UsersAdminRead")
+            .WithName("GetOnlineUsers")
+            .Produces<List<OnlineUserResponse>>(StatusCodes.Status200OK);
+
+        users.MapPost("/", UserHandlers.CreateUser)
+            .RequireAuthorization("UsersCreate")
+            .WithName("CreateUser")
+            .Accepts<CreateUserRequest>("application/json")
+            .Produces<AdminUserResponse>(StatusCodes.Status201Created);
+
         users.MapPut("/{id:int}", UserHandlers.UpdateUser)
             .RequireAuthorization("UsersAdminUpdate")
             .WithName("UpdateUser")
@@ -48,6 +59,10 @@ public static class UserEndpoints
         users.MapGet("/me", UserHandlers.GetCurrentUser)
             .WithName("GetCurrentUser")
             .Produces<UserResponse>(StatusCodes.Status200OK);
+
+        users.MapPost("/me/presence", UserHandlers.UpdateCurrentUserPresence)
+            .WithName("UpdateCurrentUserPresence")
+            .Produces(StatusCodes.Status204NoContent);
         
         users.MapPut("/profile", UserHandlers.UpdateUserProfile)
             .WithName("UpdateUserProfile")
