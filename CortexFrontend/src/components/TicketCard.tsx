@@ -49,7 +49,11 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
           <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-1">
             {ticket.title}
           </h3>
-          <p className="text-sm text-gray-500 dark:text-slate-400">{ticket.id}</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            {typeof ticket.id === "string" && ticket.id.startsWith("TICKET-")
+              ? ticket.id
+              : `TICKET-${String(ticket.id).padStart(3, "0")}`}
+          </p>
         </div>
         <span
           className={`px-3 py-1 rounded-full text-xs font-medium ${priorityColor} border`}
@@ -78,7 +82,10 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
         </span>
       </div>
 
-      <p className="text-xs text-gray-500 dark:text-slate-400 mb-4" title={slaTooltip}>
+      <p
+        className="text-xs text-gray-500 dark:text-slate-400 mb-4"
+        title={slaTooltip}
+      >
         {formatSlaSummary(ticket)}
       </p>
 
