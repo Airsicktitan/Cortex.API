@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.RegularExpressions;
 using Cortex.API.Database;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Cortex.API.Services;
 
@@ -103,21 +104,33 @@ public partial class DatabaseProgrammabilityService(CortexDbContext context)
     {
         var definitions = new List<T>();
 
-        await using var connection = _context.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
+        var connection = _context.Database.GetDbConnection();
+        var shouldClose = connection.State != ConnectionState.Open;
+        if (shouldClose)
         {
             await connection.OpenAsync();
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.CommandType = CommandType.Text;
-        command.CommandTimeout = 30;
-
-        await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        try
         {
-            definitions.Add(projector(reader));
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            command.CommandType = CommandType.Text;
+            command.CommandTimeout = 30;
+            AttachCurrentTransaction(command);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                definitions.Add(projector(reader));
+            }
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                await connection.CloseAsync();
+            }
         }
 
         return definitions;
@@ -125,18 +138,41 @@ public partial class DatabaseProgrammabilityService(CortexDbContext context)
 
     private async Task ExecuteNonQueryAsync(string sql)
     {
-        await using var connection = _context.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
+        var connection = _context.Database.GetDbConnection();
+        var shouldClose = connection.State != ConnectionState.Open;
+        if (shouldClose)
         {
             await connection.OpenAsync();
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.CommandType = CommandType.Text;
-        command.CommandTimeout = 30;
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            command.CommandType = CommandType.Text;
+            command.CommandTimeout = 30;
+            AttachCurrentTransaction(command);
 
-        await command.ExecuteNonQueryAsync();
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                await connection.CloseAsync();
+            }
+        }
+    }
+
+    private void AttachCurrentTransaction(IDbCommand command)
+    {
+        var currentTransaction = _context.Database.CurrentTransaction;
+        if (currentTransaction is null)
+        {
+            return;
+        }
+
+        command.Transaction = currentTransaction.GetDbTransaction();
     }
 
     public static string NormalizeQualifiedObjectName(string objectName)

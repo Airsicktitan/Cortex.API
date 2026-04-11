@@ -1,13 +1,22 @@
 using Cortex.API.Data;
+using Cortex.API.DTO;
 
 namespace Cortex.API.Services;
 
 public class TicketArchivalService(
     ITicketRepository ticketRepository,
-    IArchiveConfigurationService archiveConfigurationService) : ITicketArchivalService
+    IArchiveConfigurationService archiveConfigurationService,
+    IUserRepository userRepository,
+    ITicketAuditService ticketAuditService,
+    INotificationService notificationService,
+    IRealtimeEventService realtimeEventService) : ITicketArchivalService
 {
     private readonly ITicketRepository _ticketRepository = ticketRepository;
     private readonly IArchiveConfigurationService _archiveConfigurationService = archiveConfigurationService;
+    private readonly IUserRepository _userRepository = userRepository;
+    private readonly ITicketAuditService _ticketAuditService = ticketAuditService;
+    private readonly INotificationService _notificationService = notificationService;
+    private readonly IRealtimeEventService _realtimeEventService = realtimeEventService;
 
     public async Task<int> ArchiveEligibleTicketsAsync(int archivedBy)
     {
@@ -38,12 +47,38 @@ public class TicketArchivalService(
         }
 
         var archivedCount = 0;
+        var archivedByUser = await _userRepository.GetByIdAsync(archivedBy);
         foreach (var ticketId in candidateTicketIds)
         {
+            var ticket = await _ticketRepository.GetTicketByIdAsync(ticketId);
+            if (ticket is null)
+            {
+                continue;
+            }
+
             var archived = await _ticketRepository.ArchiveTicketAsync(ticketId, archivedBy);
             if (archived)
             {
                 archivedCount += 1;
+
+                if (archivedByUser is not null)
+                {
+                    await _ticketAuditService.RecordTicketArchivedAsync(
+                        ticket,
+                        archivedByUser,
+                        "Archived automatically by archive policy.");
+                    await _notificationService.CreateArchiveNotificationsAsync(
+                        ticket,
+                        archivedByUser,
+                        ticketIsArchived: true);
+                }
+
+                await _realtimeEventService.PublishAsync(new RealtimeEventMessage
+                {
+                    EventType = "ticket.archived",
+                    TicketId = ticket.Id,
+                    EntityId = ticket.Id
+                });
             }
         }
 

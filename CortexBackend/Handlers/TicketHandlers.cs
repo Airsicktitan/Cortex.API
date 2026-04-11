@@ -12,7 +12,6 @@ using Cortex.API.Services;
 /// Known Limitations:
 /// - POST endpoint still uses sequential ticket ID generation
 /// - Sequential ID generation is vulnerable to concurrency collisions under heavy parallel creates
-/// - Delete assumes repository delete supports string ticket IDs
 /// </summary>
 public static class TicketHandlers
 {
@@ -180,10 +179,11 @@ public static class TicketHandlers
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketAuditService ticketAuditService,
+        INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IResponseMappingContextFactory mappingContextFactory)
     {
-        var tickets = await repo.GetAllTicketsAsync();
+        var nextTicketId = await repo.GetNextTicketIdAsync();
         var currentUser = await userContext.GetCurrentUserAsync();
         var requestedStatus = string.IsNullOrWhiteSpace(request.Status)
             ? await ticketStatusService.GetDefaultCreateStatusAsync()
@@ -191,16 +191,9 @@ public static class TicketHandlers
 
         await ticketStatusService.EnsureSelectableStatusAsync(requestedStatus);
 
-        var maxNum = tickets
-            .Where(t => !string.IsNullOrWhiteSpace(t.Id) && t.Id.StartsWith("TICKET-"))
-            .Select(t => t.Id.Substring(7))
-            .Select(idPart => int.TryParse(idPart, out var num) ? num : 0)
-            .DefaultIfEmpty(0)
-            .Max();
-
         var ticket = new Ticket
         {
-            Id = $"TICKET-{(maxNum + 1):D3}",
+            Id = nextTicketId,
             Title = request.Title,
             Description = request.Description ?? string.Empty,
             Priority = request.Priority ?? "Medium",
@@ -223,6 +216,9 @@ public static class TicketHandlers
             createdTicket,
             currentUser,
             request.ChangeReason);
+        await notificationService.CreateAssignmentNotificationsForNewTicketAsync(
+            createdTicket,
+            currentUser);
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
         {
             EventType = "ticket.created",
@@ -246,6 +242,7 @@ public static class TicketHandlers
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketAuditService ticketAuditService,
+        INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IResponseMappingContextFactory mappingContextFactory)
     {
@@ -285,6 +282,10 @@ public static class TicketHandlers
             updatedTicket,
             currentUser,
             request.ChangeReason);
+        await notificationService.CreateAssignmentNotificationsAsync(
+            originalTicket,
+            updatedTicket,
+            currentUser);
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
         {
             EventType = "ticket.updated",
@@ -305,6 +306,7 @@ public static class TicketHandlers
         IUserContextService userContext,
         ITicketVisibilityService ticketVisibilityService,
         ITicketAuditService ticketAuditService,
+        INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IResponseMappingContextFactory mappingContextFactory)
     {
@@ -331,6 +333,10 @@ public static class TicketHandlers
             existing,
             currentUser,
             request?.ChangeReason);
+        await notificationService.CreateArchiveNotificationsAsync(
+            existing,
+            currentUser,
+            ticketIsArchived: true);
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
         {
             EventType = "ticket.archived",
@@ -358,6 +364,7 @@ public static class TicketHandlers
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketAuditService ticketAuditService,
+        INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IResponseMappingContextFactory mappingContextFactory)
     {
@@ -401,6 +408,11 @@ public static class TicketHandlers
             restoredTicket,
             currentUser,
             null);
+        await notificationService.CreateArchiveNotificationsAsync(
+            restoredTicket,
+            currentUser,
+            ticketIsArchived: false,
+            isReactivated: true);
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
         {
             EventType = "ticket.reactivated",
@@ -416,17 +428,20 @@ public static class TicketHandlers
 
     public static async Task<IResult> DeleteTicket(string id, ITicketRepository repo)
     {
-        if (!int.TryParse(id, out var ticketId))
+        var normalizedId = id.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedId))
+        {
             return Results.BadRequest("Invalid ticket id.");
+        }
 
-        var deleted = await repo.DeleteTicketAsync(ticketId);
+        var deleted = await repo.DeleteTicketAsync(normalizedId);
 
         if (!deleted)
             return Results.NotFound();
 
         await repo.SaveChangesAsync();
 
-        return Results.Ok(new { message = "Ticket deleted successfully" });
+        return Results.NoContent();
     }
 
     private static Ticket CloneTicket(Ticket ticket)

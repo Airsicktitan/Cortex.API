@@ -1,6 +1,7 @@
 using Cortex.API.Data.Repositories;
 using Cortex.API.Database;
 using Cortex.API.Models;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Services;
@@ -42,9 +43,20 @@ public class StoredProcedureDefinitionService(
         await ValidateAsync(normalized, null);
 
         await using var transaction = await _context.Database.BeginTransactionAsync();
-        await _programmabilityService.CreateOrAlterStoredProcedureAsync(
-            normalized.ProcedureName,
-            normalized.DefinitionSql);
+        try
+        {
+            await _programmabilityService.CreateOrAlterStoredProcedureAsync(
+                normalized.ProcedureName,
+                normalized.DefinitionSql);
+        }
+        catch (SqlException exception)
+        {
+            throw new ArgumentException(
+                $"SQL Server could not create the stored procedure '{normalized.ProcedureName}'. {exception.Message}",
+                nameof(definition),
+                exception);
+        }
+
         await _repository.AddAsync(normalized);
         await _repository.SaveChangesAsync();
         await transaction.CommitAsync();
@@ -62,9 +74,19 @@ public class StoredProcedureDefinitionService(
         await ValidateAsync(normalized, id);
 
         await using var transaction = await _context.Database.BeginTransactionAsync();
-        await _programmabilityService.CreateOrAlterStoredProcedureAsync(
-            normalized.ProcedureName,
-            normalized.DefinitionSql);
+        try
+        {
+            await _programmabilityService.CreateOrAlterStoredProcedureAsync(
+                normalized.ProcedureName,
+                normalized.DefinitionSql);
+        }
+        catch (SqlException exception)
+        {
+            throw new ArgumentException(
+                $"SQL Server could not update the stored procedure '{normalized.ProcedureName}'. {exception.Message}",
+                nameof(definition),
+                exception);
+        }
 
         existing.Name = normalized.Name;
         existing.ProcedureName = normalized.ProcedureName;

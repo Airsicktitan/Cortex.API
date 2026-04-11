@@ -11,7 +11,7 @@ public static class SampleData
         {
             new()
             {
-                Id = "TICKET-001",
+                Id = "1",
                 Title = "BAPI Failure in Production",
                 Description = "Customer creation BAPI is throwing null reference errors",
                 Status = "In Progress",
@@ -22,7 +22,7 @@ public static class SampleData
             },
             new()
             {
-                Id = "TICKET-002",
+                Id = "2",
                 Title = "Interface Mapping Issue",
                 Description = "Data not flowing correctly from SAP to Salesforce",
                 Status = "New",
@@ -32,7 +32,7 @@ public static class SampleData
             },
             new()
             {
-                Id = "TICKET-003",
+                Id = "3",
                 Title = "Report Performance Optimization",
                 Description = "Monthly report taking 45 minutes to generate",
                 Status = "Pending Business Review",
@@ -43,7 +43,7 @@ public static class SampleData
             },
             new()
             {
-                Id = "TICKET-004",
+                Id = "4",
                 Title = "Fix React Filtering",
                 Description = "React Filtering is not working for Status or Priority in the search bar",
                 Status = "New",

@@ -12,6 +12,8 @@ public class CortexDbContext : DbContext
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<ArchivedTicket> ArchivedTickets => Set<ArchivedTicket>();
+    public DbSet<ArchivedComment> ArchivedComments => Set<ArchivedComment>();
+    public DbSet<ArchivedTicketAttachment> ArchivedTicketAttachments => Set<ArchivedTicketAttachment>();
     public DbSet<TicketAttachment> TicketAttachments => Set<TicketAttachment>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Comment> Comments => Set<Comment>();
@@ -24,6 +26,7 @@ public class CortexDbContext : DbContext
     public DbSet<StoredProcedureDefinition> StoredProcedureDefinitions => Set<StoredProcedureDefinition>();
     public DbSet<TicketStatusDefinition> TicketStatusDefinitions => Set<TicketStatusDefinition>();
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
+    public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -84,6 +87,57 @@ public class CortexDbContext : DbContext
             entity.HasOne(t => t.ArchivedByUser)
                 .WithMany()
                 .HasForeignKey(t => t.ArchivedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ArchivedComment>(entity =>
+        {
+            entity.HasKey(comment => comment.Id);
+
+            entity.Property(comment => comment.Body)
+                .IsRequired();
+
+            entity.HasIndex(comment => comment.TicketId);
+
+            entity.HasOne(comment => comment.ArchivedTicket)
+                .WithMany()
+                .HasForeignKey(comment => comment.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(comment => comment.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(comment => comment.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ArchivedTicketAttachment>(entity =>
+        {
+            entity.HasKey(attachment => attachment.Id);
+
+            entity.Property(attachment => attachment.FileName)
+                .IsRequired()
+                .HasMaxLength(260);
+
+            entity.Property(attachment => attachment.ContentType)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(attachment => attachment.Content)
+                .IsRequired();
+
+            entity.Property(attachment => attachment.FileSize)
+                .IsRequired();
+
+            entity.HasIndex(attachment => attachment.TicketId);
+
+            entity.HasOne(attachment => attachment.ArchivedTicket)
+                .WithMany()
+                .HasForeignKey(attachment => attachment.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(attachment => attachment.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(attachment => attachment.UploadedBy)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -299,6 +353,53 @@ public class CortexDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(job => job.RunAsUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<UserNotification>(entity =>
+        {
+            entity.HasKey(notification => notification.Id);
+
+            entity.Property(notification => notification.Category)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(notification => notification.EventType)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(notification => notification.Severity)
+                .IsRequired()
+                .HasMaxLength(20);
+
+            entity.Property(notification => notification.Title)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(notification => notification.Message)
+                .IsRequired()
+                .HasMaxLength(1000);
+
+            entity.Property(notification => notification.TicketId)
+                .HasMaxLength(50);
+
+            entity.Property(notification => notification.DeduplicationKey)
+                .HasMaxLength(200);
+
+            entity.HasIndex(notification => new
+                { notification.UserId, notification.CreatedDateUtc });
+
+            entity.HasIndex(notification => new
+                { notification.UserId, notification.IsRead, notification.CreatedDateUtc });
+
+            entity.HasIndex(notification => new
+                { notification.UserId, notification.DeduplicationKey })
+                .IsUnique()
+                .HasFilter("[DeduplicationKey] IS NOT NULL");
+
+            entity.HasOne(notification => notification.User)
+                .WithMany()
+                .HasForeignKey(notification => notification.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Comment>()

@@ -1,6 +1,8 @@
 using Cortex.API.Database;
 using Cortex.API.Models;
 
+using System.Globalization;
+
 using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Data.Repositories;
@@ -77,6 +79,22 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         return await Task.FromResult(ticket);
     }
 
+    public async Task<string> GetNextTicketIdAsync()
+    {
+        var activeIds = _context.Tickets.Select(ticket => ticket.Id);
+        var archivedIds = _context.ArchivedTickets.Select(ticket => ticket.Id);
+        var knownIds = await activeIds.Concat(archivedIds).ToListAsync();
+
+        var nextNumber = knownIds
+            .Select(ParseTicketNumber)
+            .Where(number => number.HasValue)
+            .Select(number => number!.Value)
+            .DefaultIfEmpty(0)
+            .Max() + 1;
+
+        return nextNumber.ToString(CultureInfo.InvariantCulture);
+    }
+
     public async Task<bool> ArchiveTicketAsync(string id, int archivedBy)
     {
         await _context.Database.ExecuteSqlInterpolatedAsync(
@@ -100,6 +118,18 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
             return false;
         }
 
+        var archivedComments = await _context.ArchivedComments
+            .Where(comment => comment.TicketId == id)
+            .OrderBy(comment => comment.CreatedDate)
+            .ThenBy(comment => comment.Id)
+            .ToListAsync();
+
+        var archivedAttachments = await _context.ArchivedTicketAttachments
+            .Where(attachment => attachment.TicketId == id)
+            .OrderBy(attachment => attachment.UploadedDate)
+            .ThenBy(attachment => attachment.Id)
+            .ToListAsync();
+
         var restoredTicket = new Ticket
         {
             Id = archivedTicket.Id,
@@ -115,9 +145,33 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
             LastModifiedDate = DateTime.UtcNow
         };
 
+        var restoredComments = archivedComments.Select(comment => new Comment
+        {
+            TicketId = id,
+            Body = comment.Body,
+            CreatedBy = comment.CreatedBy,
+            CreatedDate = comment.CreatedDate,
+            LastModifiedDate = comment.LastModifiedDate
+        });
+
+        var restoredAttachments = archivedAttachments.Select(attachment => new TicketAttachment
+        {
+            TicketId = id,
+            FileName = attachment.FileName,
+            ContentType = attachment.ContentType,
+            FileSize = attachment.FileSize,
+            Content = attachment.Content,
+            UploadedBy = attachment.UploadedBy,
+            UploadedDate = attachment.UploadedDate
+        });
+
         await using var transaction = await _context.Database.BeginTransactionAsync();
 
         await _context.Tickets.AddAsync(restoredTicket);
+        await _context.Comments.AddRangeAsync(restoredComments);
+        await _context.TicketAttachments.AddRangeAsync(restoredAttachments);
+        _context.ArchivedComments.RemoveRange(archivedComments);
+        _context.ArchivedTicketAttachments.RemoveRange(archivedAttachments);
         _context.ArchivedTickets.Remove(archivedTicket);
         await _context.SaveChangesAsync();
         await transaction.CommitAsync();
@@ -125,13 +179,14 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         return true;
     }
 
-    public async Task<bool> DeleteTicketAsync(int id)
+    public async Task<bool> DeleteTicketAsync(string id)
     {
-        var ticket = await _context.Tickets.FindAsync(id);
+        var ticket = await _context.Tickets.FirstOrDefaultAsync(ticket => ticket.Id == id);
         if (ticket == null)
         {
             return false;
         }
+
         _context.Tickets.Remove(ticket);
         return true;
     }
@@ -139,5 +194,32 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
     public async Task SaveChangesAsync()
     {
         await _context.SaveChangesAsync();
+    }
+
+    private static int? ParseTicketNumber(string? rawId)
+    {
+        if (string.IsNullOrWhiteSpace(rawId))
+        {
+            return null;
+        }
+
+        var trimmed = rawId.Trim();
+        if (int.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out var numericId))
+        {
+            return numericId;
+        }
+
+        const string legacyPrefix = "TICKET-";
+        if (trimmed.StartsWith(legacyPrefix, StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(
+                trimmed[legacyPrefix.Length..],
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out numericId))
+        {
+            return numericId;
+        }
+
+        return null;
     }
 }

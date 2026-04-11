@@ -12,9 +12,10 @@ public interface ITicketRepository
     public Task<IEnumerable<Ticket>> GetTicketsByPriorityAsync(string priority); 
     public Task<Ticket> CreateTicketAsync(Ticket ticket); 
     public Task<Ticket> UpdateTicketAsync(Ticket ticket); 
+    public Task<string> GetNextTicketIdAsync();
     public Task<bool> ArchiveTicketAsync(string id, int archivedBy);
     public Task<bool> ReactivateArchivedTicketAsync(string id, int reactivatedBy, string restoredStatus);
-    public Task<bool> DeleteTicketAsync(int id); 
+    public Task<bool> DeleteTicketAsync(string id); 
     public Task<IEnumerable<Ticket>> GetTicketByUserAsync (int id); 
 
     Task SaveChangesAsync();

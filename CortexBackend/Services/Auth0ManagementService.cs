@@ -21,9 +21,10 @@ public class Auth0ManagementService(
         EnsureConfigured();
 
         var accessToken = await GetManagementTokenAsync(cancellationToken);
+
         using var httpRequest = new HttpRequestMessage(
             HttpMethod.Post,
-            BuildUri("/api/v2/users"))
+            BuildPath("/api/v2/users"))
         {
             Content = new StringContent(
                 JsonSerializer.Serialize(
@@ -83,9 +84,10 @@ public class Auth0ManagementService(
         EnsureConfigured();
 
         var accessToken = await GetManagementTokenAsync(cancellationToken);
+
         using var httpRequest = new HttpRequestMessage(
             HttpMethod.Delete,
-            BuildUri($"/api/v2/users/{Uri.EscapeDataString(auth0UserId)}"));
+            BuildPath($"/api/v2/users/{Uri.EscapeDataString(auth0UserId)}"));
 
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
@@ -98,7 +100,18 @@ public class Auth0ManagementService(
 
     private async Task<string> GetManagementTokenAsync(CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri("/oauth/token"))
+        // Temp logs
+        Console.WriteLine($"[Auth0 Token] Domain = '{_options.Domain}'");
+        Console.WriteLine($"[Auth0 Token] ClientId = '{_options.ManagementClientId}'");
+        Console.WriteLine($"[Auth0 Token] Secret length = {_options.ManagementClientSecret?.Length ?? 0}");
+        Console.WriteLine($"[Auth0 Token] Secret suffix = '{(_options.ManagementClientSecret?.Length >= 6 ? _options.ManagementClientSecret[^6..] : _options.ManagementClientSecret)}'");
+        Console.WriteLine($"[Auth0 Token] Audience = 'https://{_options.Domain}/api/v2/'");
+
+        using var httpClient = new HttpClient(); // 👈 CLEAN CLIENT
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"https://{_options.Domain}/oauth/token")
         {
             Content = new StringContent(
                 JsonSerializer.Serialize(
@@ -114,28 +127,25 @@ public class Auth0ManagementService(
                 "application/json")
         };
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        Console.WriteLine($"[Auth0 Token] Status: {response.StatusCode}");
+        Console.WriteLine($"[Auth0 Token] Body: {body}");
+
         if (!response.IsSuccessStatusCode)
         {
-            throw await CreateExceptionAsync(response, "Failed to obtain Auth0 management token.");
+            throw new Exception($"Auth0 token failed: {response.StatusCode} - {body}");
         }
 
-        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        using var document = JsonDocument.Parse(body);
 
-        if (!document.RootElement.TryGetProperty("access_token", out var tokenElement) ||
-            tokenElement.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(tokenElement.GetString()))
-        {
-            throw new Auth0ManagementException("Auth0 did not return a management access token.", 502);
-        }
-
-        return tokenElement.GetString()!;
+        return document.RootElement.GetProperty("access_token").GetString()!;
     }
 
-    private Uri BuildUri(string path)
+    private static string BuildPath(string path)
     {
-        return new($"https://{_options.Domain.Trim().TrimEnd('/')}{path}");
+        return path.StartsWith('/') ? path : $"/{path}";
     }
 
     private void EnsureConfigured()

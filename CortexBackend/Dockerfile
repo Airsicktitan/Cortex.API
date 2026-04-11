@@ -1,17 +1,15 @@
 # ---------- Build Stage ----------
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
-WORKDIR /app
+WORKDIR /src
 
-# Copy csproj and restore
-COPY *.csproj ./
-RUN dotnet restore
+COPY ["Cortex.API.csproj", "./"]
+RUN dotnet restore "Cortex.API.csproj"
 
-# Copy everything else and build
-COPY . ./
-RUN dotnet publish -c Release -o /app/publish
+COPY . .
+RUN dotnet publish "Cortex.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # ---------- Runtime Stage ----------
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
 COPY --from=build /app/publish .

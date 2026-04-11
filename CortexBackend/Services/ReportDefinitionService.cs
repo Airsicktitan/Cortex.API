@@ -1,6 +1,7 @@
 using System.Data;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Microsoft.Data.SqlClient;
 using Cortex.API.Data.Repositories;
 using Cortex.API.Database;
 using Cortex.API.DTO;
@@ -22,6 +23,9 @@ public partial class ReportDefinitionService(
 
     [GeneratedRegex("^\\s*(SELECT|WITH)\\b", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex ReadOnlyQueryPattern();
+
+    [GeneratedRegex("^\\s*CREATE(?:\\s+OR\\s+ALTER)?\\s+VIEW\\s+(?<viewName>(?:\\[[^\\]]+\\]|[A-Za-z_][A-Za-z0-9_]*)(?:\\.(?:\\[[^\\]]+\\]|[A-Za-z_][A-Za-z0-9_]*))?)\\s+AS\\s+(?<body>.+)$", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex CreateViewPattern();
 
     [GeneratedRegex("\\b(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE|GRANT|REVOKE|DENY|DBCC|BACKUP|RESTORE)\\b", RegexOptions.IgnoreCase)]
     private static partial Regex BlockedKeywordPattern();
@@ -54,7 +58,18 @@ public partial class ReportDefinitionService(
         await ValidateAsync(normalized, null);
 
         await using var transaction = await _context.Database.BeginTransactionAsync();
-        await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
+        try
+        {
+            await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
+        }
+        catch (SqlException exception)
+        {
+            throw new ArgumentException(
+                $"SQL Server could not create the view '{normalized.ViewName}'. {exception.Message}",
+                nameof(definition),
+                exception);
+        }
+
         await _repository.AddAsync(normalized);
         await _repository.SaveChangesAsync();
         await transaction.CommitAsync();
@@ -72,7 +87,17 @@ public partial class ReportDefinitionService(
         await ValidateAsync(normalized, id);
 
         await using var transaction = await _context.Database.BeginTransactionAsync();
-        await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
+        try
+        {
+            await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
+        }
+        catch (SqlException exception)
+        {
+            throw new ArgumentException(
+                $"SQL Server could not update the view '{normalized.ViewName}'. {exception.Message}",
+                nameof(definition),
+                exception);
+        }
 
         existing.Name = normalized.Name;
         existing.ViewName = normalized.ViewName;
@@ -126,52 +151,63 @@ public partial class ReportDefinitionService(
         var rows = new List<Dictionary<string, object?>>();
         var columns = new List<string>();
 
-        await using var connection = _context.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
+        var connection = _context.Database.GetDbConnection();
+        var shouldClose = connection.State != ConnectionState.Open;
+        if (shouldClose)
         {
             await connection.OpenAsync();
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText = definition.SqlQuery;
-        command.CommandType = CommandType.Text;
-        command.CommandTimeout = 30;
-
-        await using var reader = await command.ExecuteReaderAsync();
-
-        for (var index = 0; index < reader.FieldCount; index++)
+        try
         {
-            columns.Add(reader.GetName(index));
-        }
+            await using var command = connection.CreateCommand();
+            command.CommandText = definition.SqlQuery;
+            command.CommandType = CommandType.Text;
+            command.CommandTimeout = 30;
 
-        var isTruncated = false;
-        while (await reader.ReadAsync())
-        {
-            if (rows.Count >= MaxRows)
-            {
-                isTruncated = true;
-                break;
-            }
+            await using var reader = await command.ExecuteReaderAsync();
 
-            var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
             for (var index = 0; index < reader.FieldCount; index++)
             {
-                row[columns[index]] = reader.IsDBNull(index)
-                    ? null
-                    : NormalizeCellValue(reader.GetValue(index));
+                columns.Add(reader.GetName(index));
             }
 
-            rows.Add(row);
-        }
+            var isTruncated = false;
+            while (await reader.ReadAsync())
+            {
+                if (rows.Count >= MaxRows)
+                {
+                    isTruncated = true;
+                    break;
+                }
 
-        return new CustomReportResultResponse
+                var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                for (var index = 0; index < reader.FieldCount; index++)
+                {
+                    row[columns[index]] = reader.IsDBNull(index)
+                        ? null
+                        : NormalizeCellValue(reader.GetValue(index));
+                }
+
+                rows.Add(row);
+            }
+
+            return new CustomReportResultResponse
+            {
+                ReportName = definition.Name,
+                Columns = columns,
+                Rows = rows,
+                GeneratedDateUtc = DateTime.UtcNow,
+                IsTruncated = isTruncated
+            };
+        }
+        finally
         {
-            ReportName = definition.Name,
-            Columns = columns,
-            Rows = rows,
-            GeneratedDateUtc = DateTime.UtcNow,
-            IsTruncated = isTruncated
-        };
+            if (shouldClose)
+            {
+                await connection.CloseAsync();
+            }
+        }
     }
 
     private async Task SyncDefinitionFromDatabaseAsync(ReportDefinition definition)
@@ -341,19 +377,81 @@ public partial class ReportDefinitionService(
 
     private static ReportDefinition Normalize(ReportDefinition definition)
     {
+        var normalizedName = definition.Name.Trim();
+        var normalizedSqlQuery = NormalizeSqlQuery(definition.SqlQuery);
+        var viewNameFromSql = TryExtractViewNameFromSql(definition.SqlQuery);
+        var rawViewName = string.IsNullOrWhiteSpace(definition.ViewName)
+            ? viewNameFromSql ?? GenerateDefaultViewName(normalizedName)
+            : definition.ViewName;
+
         return new ReportDefinition
         {
-            Name = definition.Name.Trim(),
-            ViewName = DatabaseProgrammabilityService.NormalizeQualifiedObjectName(definition.ViewName),
+            Name = normalizedName,
+            ViewName = DatabaseProgrammabilityService.NormalizeQualifiedObjectName(rawViewName),
             Description = string.IsNullOrWhiteSpace(definition.Description)
                 ? null
                 : definition.Description.Trim(),
-            SqlQuery = definition.SqlQuery.Trim(),
+            SqlQuery = normalizedSqlQuery,
             IsEnabled = definition.IsEnabled,
             CreatedDateUtc = definition.CreatedDateUtc == default
                 ? DateTime.UtcNow
                 : definition.CreatedDateUtc,
             LastModifiedDateUtc = definition.LastModifiedDateUtc
         };
+    }
+
+    private static string NormalizeSqlQuery(string sqlQuery)
+    {
+        var normalized = sqlQuery.Trim();
+        var createViewMatch = CreateViewPattern().Match(normalized);
+        if (createViewMatch.Success)
+        {
+            normalized = createViewMatch.Groups["body"].Value.Trim();
+        }
+
+        if (normalized.StartsWith(";WITH", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[1..].TrimStart();
+        }
+
+        normalized = normalized.TrimEnd();
+        while (normalized.EndsWith(';'))
+        {
+            normalized = normalized[..^1].TrimEnd();
+        }
+
+        return normalized;
+    }
+
+    private static string? TryExtractViewNameFromSql(string sqlQuery)
+    {
+        var match = CreateViewPattern().Match(sqlQuery.Trim());
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var rawViewName = match.Groups["viewName"].Value;
+        return rawViewName
+            .Replace("[", string.Empty, StringComparison.Ordinal)
+            .Replace("]", string.Empty, StringComparison.Ordinal);
+    }
+
+    private static string GenerateDefaultViewName(string reportName)
+    {
+        var slug = Regex.Replace(reportName.Trim(), "[^A-Za-z0-9_]+", "_");
+        slug = Regex.Replace(slug, "_{2,}", "_").Trim('_');
+
+        if (string.IsNullOrWhiteSpace(slug))
+        {
+            slug = "CustomReport";
+        }
+
+        if (char.IsDigit(slug[0]))
+        {
+            slug = $"Report_{slug}";
+        }
+
+        return $"dbo.vw_CortexReport_{slug}";
     }
 }

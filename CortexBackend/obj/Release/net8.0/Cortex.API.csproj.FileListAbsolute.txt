@@ -139,3 +139,10 @@ C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Release\net8.0\refint\Cort
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Release\net8.0\Cortex.API.pdb
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Release\net8.0\Cortex.API.genruntimeconfig.cache
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Release\net8.0\ref\Cortex.API.dll
+C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\appsettings.Development.json
+C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\appsettings.json
+C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.staticwebassets.endpoints.json
+C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.deps.json
+C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.runtimeconfig.json
+C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.dll
+C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.pdb

@@ -4,6 +4,7 @@ using Cortex.API.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Cortex.API.Migrations
 {
     [DbContext(typeof(CortexDbContext))]
-    partial class CortexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260410175953_AddArchivedTicketChildrenAndArchiveAutomation")]
+    partial class AddArchivedTicketChildrenAndArchiveAutomation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -688,75 +691,6 @@ namespace Cortex.API.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("Cortex.API.Models.UserNotification", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<DateTime>("CreatedDateUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("DeduplicationKey")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("EventType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<bool>("IsRead")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Message")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTime?>("ReadDateUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Severity")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("TicketId")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<bool>("TicketIsArchived")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId", "CreatedDateUtc");
-
-                    b.HasIndex("UserId", "DeduplicationKey")
-                        .IsUnique()
-                        .HasFilter("[DeduplicationKey] IS NOT NULL");
-
-                    b.HasIndex("UserId", "IsRead", "CreatedDateUtc");
-
-                    b.ToTable("UserNotifications");
-                });
-
             modelBuilder.Entity("Cortex.API.Models.ArchivedComment", b =>
                 {
                     b.HasOne("Cortex.API.Models.User", "CreatedByUser")
@@ -901,17 +835,6 @@ namespace Cortex.API.Migrations
                         .IsRequired();
 
                     b.Navigation("TicketAuditEntry");
-                });
-
-            modelBuilder.Entity("Cortex.API.Models.UserNotification", b =>
-                {
-                    b.HasOne("Cortex.API.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.Ticket", b =>

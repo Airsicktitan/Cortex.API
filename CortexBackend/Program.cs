@@ -9,16 +9,30 @@ using Cortex.API.Services;
 
 
 var builder = WebApplication.CreateBuilder(args);
+var connectionString = builder.Configuration.GetConnectionString("AzureCortexDb")
+    ?? builder.Configuration.GetConnectionString("AzureCortexDB")
+    ?? builder.Configuration.GetConnectionString("CortexDB")
+    ?? throw new InvalidOperationException(
+        "Connection string 'AzureCortexDb' is not configured. Set ConnectionStrings:AzureCortexDb or use CortexDB as a fallback.");
+
 builder.Services.AddDbContext<CortexDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("AzureCortexDB")
-    ));
+    options.UseSqlServer(connectionString));
 builder.Services.Configure<Auth0ManagementOptions>(builder.Configuration.GetSection("Auth0"));
 
 
 // Add services
 builder.Services.AddEndpointsApiExplorer(); // for minimal APIs, needed for Swagger
-builder.Services.AddHttpClient<IAuth0ManagementService, Auth0ManagementService>();
+builder.Services.AddHttpClient<IAuth0ManagementService, Auth0ManagementService>(
+    (serviceProvider, client) =>
+    {
+        var options = serviceProvider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Auth0ManagementOptions>>()
+            .Value;
+
+        client.BaseAddress = new Uri($"https://{options.Domain.Trim().TrimEnd('/')}");
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Clear();
+    });
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -30,14 +44,17 @@ builder.Services.AddScoped<IReportDefinitionRepository, ReportDefinitionReposito
 builder.Services.AddScoped<IStoredProcedureDefinitionRepository, StoredProcedureDefinitionRepository>();
 builder.Services.AddScoped<ITicketStatusDefinitionRepository, TicketStatusDefinitionRepository>();
 builder.Services.AddScoped<IScheduledJobRepository, ScheduledJobRepository>();
+builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IUserContextService, UserContextService>();
 builder.Services.AddScoped<ISlaConfigurationService, SlaConfigurationService>();
 builder.Services.AddScoped<IArchiveConfigurationService, ArchiveConfigurationService>();
+builder.Services.AddScoped<IArchiveAutomationService, ArchiveAutomationService>();
 builder.Services.AddScoped<ISessionConfigurationService, SessionConfigurationService>();
 builder.Services.AddScoped<IReportDefinitionService, ReportDefinitionService>();
 builder.Services.AddScoped<IStoredProcedureDefinitionService, StoredProcedureDefinitionService>();
 builder.Services.AddScoped<ITicketStatusService, TicketStatusService>();
 builder.Services.AddScoped<IScheduledJobService, ScheduledJobService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ITicketArchivalService, TicketArchivalService>();
 builder.Services.AddScoped<ITicketVisibilityService, TicketVisibilityService>();
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
@@ -45,6 +62,7 @@ builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabil
 builder.Services.AddScoped<IResponseMappingContextFactory, ResponseMappingContextFactory>();
 builder.Services.AddSingleton<IRealtimeEventService, RealtimeEventService>();
 builder.Services.AddHostedService<ScheduledJobHostedService>();
+builder.Services.AddHostedService<SlaNotificationHostedService>();
 builder.Services.AddHttpContextAccessor(); // Register the built-in IHttpContextAccessor
 
 
@@ -236,6 +254,7 @@ app.MapReportDefinitionEndpoints();
 app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();
 app.MapScheduledJobEndpoints();
+app.MapNotificationEndpoints();
 app.MapRealtimeEndpoints();
 
 if (app.Environment.IsDevelopment())
