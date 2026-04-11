@@ -30,6 +30,21 @@ const EMPTY_DRAFT: UpsertCustomReportDefinitionInput = {
   isEnabled: true,
 };
 
+function buildDefaultViewName(reportName: string) {
+  const slug = reportName
+    .trim()
+    .replace(/[^A-Za-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (!slug) {
+    return "dbo.vw_CortexReport_CustomReport";
+  }
+
+  const normalizedSlug = /^\d/.test(slug) ? `Report_${slug}` : slug;
+  return `dbo.vw_CortexReport_${normalizedSlug}`;
+}
+
 function formatDate(value?: string) {
   return value ? new Date(value).toLocaleString() : "—";
 }
@@ -76,14 +91,14 @@ export default function CustomReportRegistrySection({
   };
 
   const saveDefinition = async () => {
-    if (!draft.name.trim() || !draft.viewName.trim() || !draft.sqlQuery.trim()) {
+    if (!draft.name.trim() || !draft.sqlQuery.trim()) {
       return;
     }
 
     const payload = {
       ...draft,
       name: draft.name.trim(),
-      viewName: draft.viewName.trim(),
+      viewName: draft.viewName.trim() || buildDefaultViewName(draft.name),
       description: draft.description?.trim() || undefined,
       sqlQuery: draft.sqlQuery.trim(),
     };
@@ -273,8 +288,13 @@ export default function CustomReportRegistrySection({
                 placeholder="dbo.vw_OpenTicketsByOwner"
               />
               <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                This SQL Server view will be created, updated, or deleted with the report.
+                Optional. Leave blank to auto-generate a SQL Server view name from the report name.
               </p>
+              {!draft.viewName.trim() && draft.name.trim() && (
+                <p className="mt-1 text-xs text-cortex-blue dark:text-cortex-cyan">
+                  Generated view name: {buildDefaultViewName(draft.name)}
+                </p>
+              )}
             </div>
 
             <div>
@@ -312,7 +332,7 @@ export default function CustomReportRegistrySection({
                 placeholder={"SELECT TOP 100 Id, Title, Status\nFROM Tickets\nORDER BY CreatedDate DESC"}
               />
               <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                Only single-statement read-only SQL is allowed. Use the body of the view with a SELECT query or CTE.
+                Only single-statement read-only SQL is allowed. You can paste either the SELECT/CTE body or a full CREATE VIEW statement.
               </p>
             </div>
 
@@ -344,7 +364,6 @@ export default function CustomReportRegistrySection({
                 disabled={
                   isBusy ||
                   !draft.name.trim() ||
-                  !draft.viewName.trim() ||
                   !draft.sqlQuery.trim()
                 }
                 className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"

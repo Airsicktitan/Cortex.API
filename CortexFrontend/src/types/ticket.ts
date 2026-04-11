@@ -4,6 +4,7 @@ export interface Ticket {
   description: string;
   status: string;
   priority: string;
+  department?: string;
   synitiOwner?: string;
   businessOwner?: string;
   createdBy: string;
@@ -29,6 +30,7 @@ export interface TicketMutationInput {
   description?: string;
   status?: string;
   priority?: string;
+  department?: string;
   synitiOwner?: string;
   businessOwner?: string;
   changeReason?: string;

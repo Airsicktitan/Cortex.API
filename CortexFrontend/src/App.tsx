@@ -16,6 +16,7 @@ import type {
   DatabaseViewDefinition,
   UpsertCustomReportDefinitionInput,
 } from "./types/customReport";
+import type { UserNotification } from "./types/notification";
 import type { RealtimeEvent } from "./types/realtime";
 import type { ScheduledJob, UpsertScheduledJobInput } from "./types/scheduledJob";
 import type { SessionConfiguration } from "./types/sessionConfiguration";
@@ -29,6 +30,10 @@ import type {
   TicketStatusDefinition,
   UpsertTicketStatusDefinitionInput,
 } from "./types/ticketStatus";
+import type {
+  TicketRoutingRule,
+  UpsertTicketRoutingRuleInput,
+} from "./types/ticketRouting";
 import type {
   AdminUpdateUserInput,
   CreateUserInput,
@@ -45,11 +50,13 @@ import {
 } from "./services/api";
 import { archiveConfigurationService } from "./services/archiveConfigurationService";
 import { customReportService } from "./services/customReportService";
+import { notificationService } from "./services/notificationService";
 import { realtimeService } from "./services/realtimeService";
 import { scheduledJobService } from "./services/scheduledJobService";
 import { sessionConfigurationService } from "./services/sessionConfigurationService";
 import { slaService } from "./services/slaService";
 import { storedProcedureService } from "./services/storedProcedureService";
+import { ticketRoutingService } from "./services/ticketRoutingService";
 import { ticketStatusService } from "./services/ticketStatusService";
 import TicketCard from "./components/TicketCard";
 import TicketModal from "./components/TicketModal";
@@ -65,6 +72,7 @@ import UserProfileModal from "./components/UserProfileModal";
 import AdminUserEditModal from "./components/AdminUserEditModal";
 import AdminUserCreateModal from "./components/AdminUserCreateModal";
 import SaveTicketFilterModal from "./components/SaveTicketFilterModal";
+import NotificationPanel from "./components/NotificationPanel";
 import {
   ConfigurationSkeleton,
   TicketGridSkeleton,
@@ -419,6 +427,27 @@ function sortTicketStatuses(statuses: TicketStatusDefinition[]) {
   return [...statuses].sort((left, right) => left.id - right.id);
 }
 
+function sortTicketRoutingRules(rules: TicketRoutingRule[]) {
+  return [...rules].sort((left, right) => {
+    const departmentComparison = left.department.localeCompare(right.department);
+    if (departmentComparison !== 0) {
+      return departmentComparison;
+    }
+
+    return left.id - right.id;
+  });
+}
+
+function createDraftTicketRoutingRule(): TicketRoutingRule {
+  return {
+    id: 0,
+    department: "",
+    synitiOwner: "",
+    isEnabled: true,
+    createdDateUtc: "",
+  };
+}
+
 async function loadBootstrapData(token: string) {
   const [fetchedTickets, fetchedCurrentUser] = await Promise.all([
     ticketService.getAll(token),
@@ -433,7 +462,11 @@ async function loadBootstrapData(token: string) {
   return { fetchedCurrentUser, fetchedTickets };
 }
 
-function createDraftTicket(statuses: TicketStatusDefinition[]): Ticket {
+function createDraftTicket(
+  statuses: TicketStatusDefinition[],
+  createdByDisplayName = "",
+  department = "",
+): Ticket {
   const createdDate = new Date().toISOString();
   const targetDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -443,11 +476,13 @@ function createDraftTicket(statuses: TicketStatusDefinition[]): Ticket {
     description: "",
     priority: "Medium",
     status: getDefaultTicketStatusName(statuses),
+    department,
     createdDate,
     slaTargetDate: targetDate,
     slaStatus: "On Track",
     slaRemainingMinutes: 24 * 60,
     isSlaBreached: false,
+    createdByDisplayName,
   } as Ticket;
 }
 
@@ -514,6 +549,8 @@ function App() {
   const [archivedTickets, setArchivedTickets] = useState<ArchivedTicket[]>([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archivedError, setArchivedError] = useState<string | null>(null);
+  const [highlightedArchivedTicketId, setHighlightedArchivedTicketId] =
+    useState<string | null>(null);
   const [reactivatingArchivedTicketId, setReactivatingArchivedTicketId] =
     useState<string | null>(null);
 
@@ -550,6 +587,19 @@ function App() {
     number | null
   >(null);
   const [ticketStatusError, setTicketStatusError] = useState<string | null>(
+    null,
+  );
+  const [ticketRoutingRules, setTicketRoutingRules] = useState<TicketRoutingRule[]>(
+    [],
+  );
+  const [selectedTicketRoutingRule, setSelectedTicketRoutingRule] =
+    useState<TicketRoutingRule | null>(null);
+  const [ticketRoutingLoadedOnce, setTicketRoutingLoadedOnce] = useState(false);
+  const [ticketRoutingLoading, setTicketRoutingLoading] = useState(false);
+  const [ticketRoutingSaving, setTicketRoutingSaving] = useState(false);
+  const [deletingTicketRoutingRuleId, setDeletingTicketRoutingRuleId] =
+    useState<number | null>(null);
+  const [ticketRoutingError, setTicketRoutingError] = useState<string | null>(
     null,
   );
   const [archiveConfigurations, setArchiveConfigurations] = useState<
@@ -602,6 +652,17 @@ function App() {
   const [jobsSaving, setJobsSaving] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [runningJobId, setRunningJobId] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [markingNotificationId, setMarkingNotificationId] = useState<number | null>(
+    null,
+  );
+  const [markingAllNotificationsRead, setMarkingAllNotificationsRead] =
+    useState(false);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -626,6 +687,7 @@ function App() {
   );
   const [adminUserDraft, setAdminUserDraft] = useState<AdminUpdateUserInput>({});
   const [adminUserSaving, setAdminUserSaving] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
@@ -638,6 +700,7 @@ function App() {
   const sidebarResizeStartXRef = useRef(0);
   const sidebarResizeStartWidthRef = useRef(sidebarWidth);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const notificationPanelRef = useRef<HTMLDivElement | null>(null);
   const sessionPromptStateRef = useRef<SessionPromptState>(null);
   const sessionLastActivityAtRef = useRef(Date.now());
   const lastPresenceSyncAtRef = useRef(0);
@@ -717,6 +780,7 @@ function App() {
     permissionsLoaded && !needsConsent && (isAdmin || isDeveloper);
   const canCreateUsers = canViewUsers;
   const canEditUsers = permissionsLoaded && !needsConsent && isAdmin;
+  const canDeleteUsers = permissionsLoaded && !needsConsent && isAdmin;
   const failedJobsCount = useMemo(
     () => jobs.filter((job) => job.lastRunStatus === "Failed").length,
     [jobs],
@@ -1047,6 +1111,50 @@ function App() {
     [getApiToken],
   );
 
+  const loadTicketRoutingRules = useCallback(
+    async (providedToken?: string) => {
+      setTicketRoutingLoading(true);
+      setTicketRoutingError(null);
+
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const data = sortTicketRoutingRules(
+          await ticketRoutingService.getAll(token),
+        );
+
+        setTicketRoutingRules(data);
+        setSelectedTicketRoutingRule((currentRule) => {
+          if (currentRule?.id === 0) {
+            return currentRule;
+          }
+
+          if (currentRule) {
+            const matchingRule = data.find((rule) => rule.id === currentRule.id);
+            if (matchingRule) {
+              return matchingRule;
+            }
+          }
+
+          return data[0] ?? null;
+        });
+        setTicketRoutingLoadedOnce(true);
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to load ticket routing rules", error);
+
+        if (isApiUnavailableError(error)) {
+          setApiUnavailable(true);
+        } else {
+          setApiUnavailable(false);
+          setTicketRoutingError("Failed to load ticket routing rules.");
+        }
+      } finally {
+        setTicketRoutingLoading(false);
+      }
+    },
+    [getApiToken],
+  );
+
   const loadArchiveConfigurations = useCallback(
     async (providedToken?: string) => {
       setArchiveLoading(true);
@@ -1178,6 +1286,44 @@ function App() {
       } finally {
         setJobsLoaded(true);
         setJobsLoading(false);
+      }
+    },
+    [getApiToken],
+  );
+
+  const loadNotifications = useCallback(
+    async (providedToken?: string, options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false;
+
+      if (!silent) {
+        setNotificationsLoading(true);
+      }
+
+      setNotificationsError(null);
+
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const feed = await notificationService.getFeed(token, 20);
+        setNotifications(feed.items);
+        setNotificationUnreadCount(feed.unreadCount);
+        setNotificationsLoaded(true);
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to load notifications", error);
+
+        if (isApiUnavailableError(error)) {
+          setApiUnavailable(true);
+        } else if (isForbiddenError(error)) {
+          setApiUnavailable(false);
+          setNotificationsError("You do not have permission to view notifications.");
+        } else {
+          setApiUnavailable(false);
+          setNotificationsError("Failed to load notifications.");
+        }
+      } finally {
+        if (!silent) {
+          setNotificationsLoading(false);
+        }
       }
     },
     [getApiToken],
@@ -1447,6 +1593,18 @@ function App() {
       getToken: getApiToken,
       onEvent: (event) => {
         setLatestRealtimeEvent(event);
+
+        if (event.eventType === "notification.created") {
+          const recipients = event.recipientUserIds ?? [];
+          if (
+            currentUser &&
+            (recipients.length === 0 || recipients.includes(currentUser.id))
+          ) {
+            void loadNotifications(undefined, { silent: true });
+          }
+          return;
+        }
+
         scheduleRealtimeTicketRefresh(event);
       },
       onError: (error) => {
@@ -1459,15 +1617,17 @@ function App() {
     };
   }, [
     canViewTicketSections,
+    currentUser,
     getApiToken,
     isAuthenticated,
+    loadNotifications,
     needsConsent,
     permissionsLoaded,
     scheduleRealtimeTicketRefresh,
   ]);
 
   useEffect(() => {
-    if (!isUserMenuOpen && !isAppMenuOpen) return;
+    if (!isUserMenuOpen && !isAppMenuOpen && !isNotificationPanelOpen) return;
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -1479,11 +1639,18 @@ function App() {
       if (isAppMenuOpen && !appMenuRef.current?.contains(target)) {
         setIsAppMenuOpen(false);
       }
+
+      if (
+        isNotificationPanelOpen &&
+        !notificationPanelRef.current?.contains(target)
+      ) {
+        setIsNotificationPanelOpen(false);
+      }
     };
 
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [isAppMenuOpen, isUserMenuOpen]);
+  }, [isAppMenuOpen, isNotificationPanelOpen, isUserMenuOpen]);
 
   useEffect(() => {
     if (!isAuthenticated || isLoading || isAccountExpired || isAccountInactive) {
@@ -1665,6 +1832,7 @@ function App() {
         setNeedsConsent(false);
         setApiUnavailable(false);
         void loadSessionConfiguration(token);
+        void loadNotifications(token, { silent: true });
       } catch (error) {
         console.error("Bootstrap failed", error);
 
@@ -1702,7 +1870,13 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [isLoading, isAuthenticated, getAccessTokenSilently, loadSessionConfiguration]);
+  }, [
+    getAccessTokenSilently,
+    isAuthenticated,
+    isLoading,
+    loadNotifications,
+    loadSessionConfiguration,
+  ]);
 
   useEffect(() => {
     if (!isAuthenticated || ticketStatuses.length > 0 || ticketStatusLoading) {
@@ -1723,6 +1897,7 @@ function App() {
       !canManageConfiguration ||
       (slaConfigurations.length > 0 &&
         ticketStatuses.length > 0 &&
+        ticketRoutingLoadedOnce &&
         sessionLoadedOnce &&
         archiveLoadedOnce &&
         customReportsLoadedOnce &&
@@ -1739,6 +1914,10 @@ function App() {
 
     if (ticketStatuses.length === 0) {
       void loadTicketStatuses();
+    }
+
+    if (!ticketRoutingLoadedOnce) {
+      void loadTicketRoutingRules();
     }
 
     if (!sessionLoadedOnce) {
@@ -1777,11 +1956,13 @@ function App() {
     loadDatabaseViews,
     loadSessionConfiguration,
     loadStoredProcedures,
+    loadTicketRoutingRules,
     loadTicketStatuses,
     loadSlaConfigurations,
     sessionLoadedOnce,
     slaConfigurations.length,
     storedProcedures.length,
+    ticketRoutingLoadedOnce,
     ticketStatuses.length,
   ]);
 
@@ -1815,6 +1996,27 @@ function App() {
   }, [canManageJobs, jobsLoaded, jobsLoading, loadJobs]);
 
   useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !permissionsLoaded ||
+      needsConsent ||
+      notificationsLoaded ||
+      notificationsLoading
+    ) {
+      return;
+    }
+
+    void loadNotifications();
+  }, [
+    isAuthenticated,
+    loadNotifications,
+    needsConsent,
+    notificationsLoaded,
+    notificationsLoading,
+    permissionsLoaded,
+  ]);
+
+  useEffect(() => {
     if (activeView !== "users" || !canViewUsers || users.length > 0) {
       return;
     }
@@ -1833,6 +2035,12 @@ function App() {
 
     void loadArchivedTickets();
   }, [activeView, archivedTickets.length, canViewArchived, loadArchivedTickets]);
+
+  useEffect(() => {
+    if (activeView !== "archived" && highlightedArchivedTicketId) {
+      setHighlightedArchivedTicketId(null);
+    }
+  }, [activeView, highlightedArchivedTicketId]);
 
   useEffect(() => {
     if (canViewOnlineUsersReport || activeReportSection !== "online-users") {
@@ -1965,6 +2173,7 @@ function App() {
       setNeedsConsent(false);
       setPermissionsLoaded(true);
       setApiUnavailable(false);
+      void loadNotifications(token, { silent: true });
     } catch (error) {
       console.error("Consent failed", error);
       setPermissions(parsedPermissions);
@@ -2325,6 +2534,136 @@ function App() {
       throw error;
     } finally {
       setDeletingTicketStatusId(null);
+    }
+  };
+
+  const handleTicketRoutingRuleChange = <
+    K extends keyof TicketRoutingRule,
+  >(
+    field: K,
+    value: TicketRoutingRule[K],
+  ) => {
+    setSelectedTicketRoutingRule((currentRule) =>
+      currentRule
+        ? {
+            ...currentRule,
+            [field]: value,
+          }
+        : currentRule,
+    );
+  };
+
+  const createTicketRoutingRule = () => {
+    setTicketRoutingError(null);
+    setSelectedTicketRoutingRule(createDraftTicketRoutingRule());
+  };
+
+  const selectTicketRoutingRule = (id: number) => {
+    const selectedRule = ticketRoutingRules.find((rule) => rule.id === id);
+    if (!selectedRule) {
+      return;
+    }
+
+    setTicketRoutingError(null);
+    setSelectedTicketRoutingRule(selectedRule);
+  };
+
+  const saveTicketRoutingRule = async () => {
+    if (!selectedTicketRoutingRule) {
+      return;
+    }
+
+    try {
+      setTicketRoutingSaving(true);
+      setTicketRoutingError(null);
+
+      const payload: UpsertTicketRoutingRuleInput = {
+        department: selectedTicketRoutingRule.department.trim(),
+        synitiOwner: selectedTicketRoutingRule.synitiOwner.trim(),
+        isEnabled: selectedTicketRoutingRule.isEnabled,
+      };
+
+      const token = await getApiToken();
+      const isNewRule = selectedTicketRoutingRule.id === 0;
+      const savedRule = isNewRule
+        ? await ticketRoutingService.create(payload, token)
+        : await ticketRoutingService.update(selectedTicketRoutingRule.id, payload, token);
+
+      setTicketRoutingRules((currentRules) =>
+        sortTicketRoutingRules(
+          isNewRule
+            ? [...currentRules, savedRule]
+            : currentRules.map((rule) =>
+                rule.id === savedRule.id ? savedRule : rule,
+              ),
+        ),
+      );
+      setSelectedTicketRoutingRule(savedRule);
+      setTicketRoutingLoadedOnce(true);
+      toast.success(isNewRule ? "Ticket routing rule created" : "Ticket routing rule saved");
+    } catch (error) {
+      console.error("Failed to save ticket routing rule", error);
+
+      if (error instanceof ApiError) {
+        setTicketRoutingError(error.message);
+      } else {
+        setTicketRoutingError("Failed to save ticket routing rule.");
+      }
+
+      toast.error("Failed to save ticket routing rule");
+      throw error;
+    } finally {
+      setTicketRoutingSaving(false);
+    }
+  };
+
+  const deleteTicketRoutingRule = async () => {
+    if (!selectedTicketRoutingRule || selectedTicketRoutingRule.id === 0) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete the routing rule for ${selectedTicketRoutingRule.department}?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingTicketRoutingRuleId(selectedTicketRoutingRule.id);
+      setTicketRoutingError(null);
+
+      const token = await getApiToken();
+      await ticketRoutingService.delete(selectedTicketRoutingRule.id, token);
+
+      setTicketRoutingRules((currentRules) =>
+        currentRules.filter((rule) => rule.id !== selectedTicketRoutingRule.id),
+      );
+      setSelectedTicketRoutingRule((currentRule) => {
+        if (currentRule?.id !== selectedTicketRoutingRule.id) {
+          return currentRule;
+        }
+
+        const remainingRules = ticketRoutingRules.filter(
+          (rule) => rule.id !== selectedTicketRoutingRule.id,
+        );
+        return remainingRules[0] ?? null;
+      });
+      toast.success("Ticket routing rule deleted");
+    } catch (error) {
+      console.error("Failed to delete ticket routing rule", error);
+
+      if (error instanceof ApiError) {
+        setTicketRoutingError(error.message);
+      } else {
+        setTicketRoutingError("Failed to delete ticket routing rule.");
+      }
+
+      toast.error("Failed to delete ticket routing rule");
+      throw error;
+    } finally {
+      setDeletingTicketRoutingRuleId(null);
     }
   };
 
@@ -2719,17 +3058,25 @@ function App() {
       setStoredProcedures((currentDefinitions) =>
         currentDefinitions.filter((currentDefinition) => currentDefinition.id !== id),
       );
+
       setJobs((currentJobs) =>
         currentJobs.map((currentJob) =>
           currentJob.storedProcedureDefinitionId === id
             ? {
                 ...currentJob,
+                storedProcedureDefinitionId: undefined,
                 storedProcedureName: undefined,
+                isEnabled: false,
+                nextRunDateUtc: undefined,
+                lastRunStatus: "Failed",
+                lastRunMessage:
+                  "Stored procedure was deleted. Select a replacement procedure before re-enabling this job.",
               }
             : currentJob,
         ),
       );
 
+      void loadJobs(token);
       await loadDatabaseStoredProcedures(token);
 
       toast.success("Stored procedure deleted");
@@ -2956,12 +3303,14 @@ function App() {
   const handleViewChange = (view: AppView) => {
     setActiveView(view);
     setIsAppMenuOpen(false);
+    setIsNotificationPanelOpen(false);
   };
 
   const openFailedJobsQueue = () => {
     setActiveView("jobs");
     setIsAppMenuOpen(false);
     setIsUserMenuOpen(false);
+    setIsNotificationPanelOpen(false);
 
     window.setTimeout(() => {
       document.getElementById("failed-jobs-queue")?.scrollIntoView({
@@ -2969,6 +3318,126 @@ function App() {
         block: "start",
       });
     }, 50);
+  };
+
+  const openTicketById = async (ticketId: string, providedToken?: string) => {
+    const existingTicket = allTickets.find((ticket) => ticket.id === ticketId);
+    if (existingTicket) {
+      openTicket(existingTicket);
+      return;
+    }
+
+    const token = providedToken ?? (await getApiToken());
+    const fetchedTicket = await ticketService.getById(ticketId, token);
+
+    setAllTickets((currentTickets) => {
+      if (currentTickets.some((ticket) => ticket.id === fetchedTicket.id)) {
+        return currentTickets;
+      }
+
+      return [fetchedTicket, ...currentTickets];
+    });
+
+    openTicket(fetchedTicket);
+  };
+
+  const markNotificationAsRead = async (
+    notification: UserNotification,
+    providedToken?: string,
+  ) => {
+    if (notification.isRead) {
+      return;
+    }
+
+    const token = providedToken ?? (await getApiToken());
+    const updatedNotification = await notificationService.markRead(
+      notification.id,
+      token,
+    );
+
+    setNotifications((currentNotifications) =>
+      currentNotifications.map((currentNotification) =>
+        currentNotification.id === updatedNotification.id
+          ? updatedNotification
+          : currentNotification,
+      ),
+    );
+    setNotificationUnreadCount((currentCount) =>
+      Math.max(0, currentCount - 1),
+    );
+  };
+
+  const markAllNotificationsRead = async () => {
+    try {
+      setMarkingAllNotificationsRead(true);
+      setNotificationsError(null);
+
+      const token = await getApiToken();
+      await notificationService.markAllRead(token);
+
+      setNotifications((currentNotifications) =>
+        currentNotifications.map((notification) =>
+          notification.isRead
+            ? notification
+            : {
+                ...notification,
+                isRead: true,
+                readDateUtc: new Date().toISOString(),
+              },
+        ),
+      );
+      setNotificationUnreadCount(0);
+    } catch (error) {
+      console.error("Failed to mark notifications as read", error);
+      setNotificationsError(
+        getErrorMessage(error, "Failed to mark notifications as read."),
+      );
+      toast.error("Failed to mark notifications as read");
+    } finally {
+      setMarkingAllNotificationsRead(false);
+    }
+  };
+
+  const openNotification = async (notification: UserNotification) => {
+    try {
+      setMarkingNotificationId(notification.id);
+      setNotificationsError(null);
+      setIsNotificationPanelOpen(false);
+      setIsUserMenuOpen(false);
+
+      const token = await getApiToken();
+      await markNotificationAsRead(notification, token);
+
+      if (!notification.ticketId) {
+        return;
+      }
+
+      if (notification.ticketIsArchived) {
+        setHighlightedArchivedTicketId(notification.ticketId);
+        setActiveView("archived");
+        await loadArchivedTickets(token);
+
+        window.setTimeout(() => {
+          document
+            .getElementById(`archived-ticket-${notification.ticketId}`)
+            ?.scrollIntoView({
+              behavior: "smooth",
+              block: "center",
+            });
+        }, 75);
+        return;
+      }
+
+      setHighlightedArchivedTicketId(null);
+      setActiveView("tickets");
+      await openTicketById(notification.ticketId, token);
+    } catch (error) {
+      console.error("Failed to open notification", error);
+      setNotificationsError(getErrorMessage(error, "Failed to open notification."));
+      toast.error("Failed to open notification");
+    } finally {
+      setMarkingNotificationId(null);
+    }
   };
 
   const beginSidebarResize = (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -3116,6 +3585,7 @@ function App() {
       const next = !current;
       if (next) {
         setIsUserMenuOpen(false);
+        setIsNotificationPanelOpen(false);
       }
       return next;
     });
@@ -3126,6 +3596,21 @@ function App() {
       const next = !current;
       if (next) {
         setIsAppMenuOpen(false);
+        setIsNotificationPanelOpen(false);
+      }
+      return next;
+    });
+  };
+
+  const toggleNotificationPanel = () => {
+    setIsNotificationPanelOpen((current) => {
+      const next = !current;
+      if (next) {
+        setIsAppMenuOpen(false);
+        setIsUserMenuOpen(false);
+        if (!notificationsLoaded && !notificationsLoading) {
+          void loadNotifications();
+        }
       }
       return next;
     });
@@ -3133,6 +3618,7 @@ function App() {
 
   const openProfileModal = async () => {
     setIsUserMenuOpen(false);
+    setIsNotificationPanelOpen(false);
     setProfileLoading(true);
 
     try {
@@ -3327,6 +3813,45 @@ function App() {
     }
   };
 
+  const deleteUserRecord = async (selectedUser: UserRecord) => {
+    const userLabel = selectedUser.displayName || selectedUser.email;
+    const confirmed = window.confirm(
+      `Delete "${userLabel}"? This removes the local user record, deletes the linked Auth0 account when configured, reassigns historical references to the legacy fallback user, and disables any jobs that ran as this user.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingUserId(selectedUser.id);
+      const token = await getApiToken();
+      await userService.deleteUser(selectedUser.id, token);
+
+      setUsers((currentUsers) =>
+        currentUsers.filter((userRecord) => userRecord.id !== selectedUser.id),
+      );
+      setOnlineUsers((currentUsers) =>
+        currentUsers.filter((userRecord) => userRecord.id !== selectedUser.id),
+      );
+
+      if (editingAdminUser?.id === selectedUser.id) {
+        closeAdminUserModal();
+      }
+
+      if (canManageJobs) {
+        void loadJobs(token);
+      }
+
+      toast.success("User deleted");
+    } catch (error) {
+      console.error("Failed to delete user", error);
+      toast.error(getErrorMessage(error, "Failed to delete user"));
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center text-gray-900 dark:text-slate-100">
@@ -3344,7 +3869,7 @@ function App() {
         <div className="text-center bg-white/85 dark:bg-cortex-ink/85 border border-white/60 dark:border-slate-800 rounded-2xl shadow-xl px-8 py-10 backdrop-blur">
           <h1 className="text-4xl font-bold mb-4">🧠 CORTEX</h1>
           <p className="text-gray-600 dark:text-slate-400 mb-6">
-            Support Ticket System
+            Central Operations & Routing Technology EXpert
           </p>
           <div className="flex flex-col items-center gap-3">
             <button
@@ -3427,7 +3952,7 @@ function App() {
             <div className="flex flex-col gap-2 md:flex-row md:items-baseline md:gap-4">
               <h1 className="text-3xl font-bold">🧠 CORTEX</h1>
               <h2 className="text-lg text-gray-600 dark:text-slate-400">
-                Support Ticket System
+                Central Operations & Routing Technology Expert
               </h2>
             </div>
 
@@ -3525,7 +4050,15 @@ function App() {
 
                 {canCreateTickets && (
                   <button
-                    onClick={() => openTicket(createDraftTicket(ticketStatuses))}
+                    onClick={() =>
+                      openTicket(
+                        createDraftTicket(
+                          ticketStatuses,
+                          currentUser?.displayName ?? user?.name ?? "",
+                          currentUser?.department ?? "",
+                        ),
+                      )
+                    }
                     className="inline-flex items-center rounded-md bg-cortex-cyan px-3.5 py-2 text-sm font-semibold text-cortex-ink shadow-sm ring-1 ring-cortex-cyan/70 transition-colors hover:bg-cortex-blue hover:text-white dark:bg-cortex-cyan dark:text-cortex-ink dark:ring-cortex-cyan/60 dark:hover:bg-cortex-blue dark:hover:text-white"
                   >
                     + New Ticket
@@ -3553,6 +4086,56 @@ function App() {
               ref={userMenuRef}
               className="relative flex items-center gap-3 border-l border-gray-300 pl-4 dark:border-slate-700"
             >
+              <div ref={notificationPanelRef} className="relative">
+                <button
+                  onClick={toggleNotificationPanel}
+                  className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-cortex-blue-soft hover:text-cortex-blue dark:text-slate-300 dark:hover:bg-cortex-blue/20 dark:hover:text-cortex-cyan"
+                  title={
+                    notificationUnreadCount === 0
+                      ? "Notifications"
+                      : `${notificationUnreadCount} unread notification${notificationUnreadCount === 1 ? "" : "s"}`
+                  }
+                  aria-label={
+                    notificationUnreadCount === 0
+                      ? "Open notifications"
+                      : `Open notifications with ${notificationUnreadCount} unread`
+                  }
+                >
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 20 20"
+                    className="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M10 3.5a5 5 0 0 0-5 5v2.1c0 .7-.2 1.3-.6 1.9l-.8 1.2c-.4.6 0 1.3.7 1.3h11.4c.7 0 1.1-.7.7-1.3l-.8-1.2c-.4-.6-.6-1.2-.6-1.9V8.5a5 5 0 0 0-5-5Z" />
+                    <path d="M8.5 16.5a1.5 1.5 0 0 0 3 0" />
+                  </svg>
+                  {notificationUnreadCount > 0 && (
+                    <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-cortex-cyan px-1 text-[11px] font-semibold leading-none text-cortex-ink">
+                      {notificationUnreadCount > 9 ? "9+" : notificationUnreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {isNotificationPanelOpen && (
+                  <NotificationPanel
+                    notifications={notifications}
+                    unreadCount={notificationUnreadCount}
+                    loading={notificationsLoading}
+                    error={notificationsError}
+                    markingAllRead={markingAllNotificationsRead}
+                    markingNotificationId={markingNotificationId}
+                    onRefresh={() => void loadNotifications()}
+                    onMarkAllRead={markAllNotificationsRead}
+                    onOpenNotification={openNotification}
+                  />
+                )}
+              </div>
+
               {canManageJobs && failedJobsCount > 0 && (
                 <button
                   onClick={openFailedJobsQueue}
@@ -3905,6 +4488,7 @@ function App() {
             tickets={archivedTickets}
             loading={archivedLoading || apiUnavailable}
             error={apiUnavailable ? null : archivedError}
+            highlightedTicketId={highlightedArchivedTicketId}
             onRefresh={() => void loadArchivedTickets()}
             canReactivate={canUpdateTickets}
             reactivatingTicketId={reactivatingArchivedTicketId}
@@ -3982,6 +4566,18 @@ function App() {
               onCreateTicketStatus={createTicketStatusDefinition}
               onUpdateTicketStatus={updateTicketStatusDefinition}
               onDeleteTicketStatus={deleteTicketStatusDefinition}
+              ticketRoutingRules={ticketRoutingRules}
+              selectedTicketRoutingRule={selectedTicketRoutingRule}
+              ticketRoutingError={ticketRoutingError}
+              ticketRoutingLoading={ticketRoutingLoading}
+              ticketRoutingSaving={ticketRoutingSaving}
+              ticketRoutingDeletingId={deletingTicketRoutingRuleId}
+              onRefreshTicketRouting={() => void loadTicketRoutingRules()}
+              onCreateTicketRoutingRule={createTicketRoutingRule}
+              onSelectTicketRoutingRule={selectTicketRoutingRule}
+              onTicketRoutingChange={handleTicketRoutingRuleChange}
+              onSaveTicketRoutingRule={saveTicketRoutingRule}
+              onDeleteTicketRoutingRule={deleteTicketRoutingRule}
               archiveConfigurations={archiveConfigurations}
               archiveConfiguration={archiveConfiguration}
               archiveError={archiveError}
@@ -4027,9 +4623,13 @@ function App() {
             error={apiUnavailable ? null : usersError}
             canCreate={canCreateUsers}
             canEdit={canEditUsers}
+            canDelete={canDeleteUsers}
+            currentUserId={currentUser?.id}
+            deletingUserId={deletingUserId}
             onRefresh={() => void loadUsers()}
             onCreate={openCreateUserModal}
             onEdit={openAdminUserModal}
+            onDelete={(userRecord) => void deleteUserRecord(userRecord)}
           />
         ) : (
           <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6">
@@ -4063,10 +4663,16 @@ function App() {
           onDelete={requestDeleteTicket}
           currentUser={
             currentUser
-              ? { displayName: currentUser.displayName ?? "" }
+              ? {
+                  displayName: currentUser.displayName ?? "",
+                  department: currentUser.department ?? "",
+                }
               : null
           }
-          createdByDisplayName=""
+          createdByDisplayName={
+            selectedTicket.createdByDisplayName ??
+            (!selectedTicket.id ? currentUser?.displayName ?? user?.name ?? "" : "")
+          }
         />
       )}
 

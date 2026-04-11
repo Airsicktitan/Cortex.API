@@ -112,7 +112,7 @@ export default function StoredProcedureRegistrySection({
 
   const deleteDefinition = async (definition: StoredProcedureDefinition) => {
     const confirmed = window.confirm(
-      `Delete "${definition.name}"? Jobs using it must be updated first.`,
+      `Delete "${definition.name}"? Any jobs using it will be disabled and will need a replacement procedure before they can run again.`,
     );
 
     if (!confirmed) {

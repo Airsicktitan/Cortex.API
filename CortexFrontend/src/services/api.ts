@@ -333,4 +333,13 @@ export const userService = {
     await ensureSuccess(response, "Failed to create user");
     return response.json();
   },
+
+  async deleteUser(id: number, token: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/users/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, "Failed to delete user");
+  },
 };

@@ -68,6 +68,9 @@ export default function ArchivePolicySection({
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
               Ticket age is measured from the last updated date, or created date if it has never been updated.
             </p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+              Saving a policy also keeps the background archive automation scheduled. You can fine-tune its interval from Jobs.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-3">

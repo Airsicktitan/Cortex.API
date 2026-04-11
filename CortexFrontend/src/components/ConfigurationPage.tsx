@@ -15,9 +15,11 @@ import type {
   TicketStatusDefinition,
   UpsertTicketStatusDefinitionInput,
 } from "../types/ticketStatus";
+import type { TicketRoutingRule } from "../types/ticketRouting";
 import ArchivePolicySection from "./ArchivePolicySection";
 import CustomReportRegistrySection from "./CustomReportRegistrySection";
 import StoredProcedureRegistrySection from "./StoredProcedureRegistrySection";
+import TicketRoutingSection from "./TicketRoutingSection";
 import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
 
 interface ConfigurationPageProps {
@@ -56,6 +58,21 @@ interface ConfigurationPageProps {
     definition: UpsertTicketStatusDefinitionInput,
   ) => Promise<void>;
   onDeleteTicketStatus: (id: number) => Promise<void>;
+  ticketRoutingRules: TicketRoutingRule[];
+  selectedTicketRoutingRule: TicketRoutingRule | null;
+  ticketRoutingError: string | null;
+  ticketRoutingLoading: boolean;
+  ticketRoutingSaving: boolean;
+  ticketRoutingDeletingId: number | null;
+  onRefreshTicketRouting: () => void;
+  onCreateTicketRoutingRule: () => void;
+  onSelectTicketRoutingRule: (id: number) => void;
+  onTicketRoutingChange: <K extends keyof TicketRoutingRule>(
+    field: K,
+    value: TicketRoutingRule[K],
+  ) => void;
+  onSaveTicketRoutingRule: () => Promise<void>;
+  onDeleteTicketRoutingRule: () => Promise<void>;
   archiveConfigurations: ArchiveConfiguration[];
   archiveConfiguration: ArchiveConfiguration | null;
   archiveError: string | null;
@@ -131,6 +148,18 @@ export default function ConfigurationPage({
   onCreateTicketStatus,
   onUpdateTicketStatus,
   onDeleteTicketStatus,
+  ticketRoutingRules,
+  selectedTicketRoutingRule,
+  ticketRoutingError,
+  ticketRoutingLoading,
+  ticketRoutingSaving,
+  ticketRoutingDeletingId,
+  onRefreshTicketRouting,
+  onCreateTicketRoutingRule,
+  onSelectTicketRoutingRule,
+  onTicketRoutingChange,
+  onSaveTicketRoutingRule,
+  onDeleteTicketRoutingRule,
   archiveConfigurations,
   archiveConfiguration,
   archiveError,
@@ -396,6 +425,21 @@ export default function ConfigurationPage({
         onCreate={onCreateTicketStatus}
         onUpdate={onUpdateTicketStatus}
         onDelete={onDeleteTicketStatus}
+      />
+
+      <TicketRoutingSection
+        rules={ticketRoutingRules}
+        selectedRule={selectedTicketRoutingRule}
+        loading={ticketRoutingLoading}
+        saving={ticketRoutingSaving}
+        deletingId={ticketRoutingDeletingId}
+        error={ticketRoutingError}
+        onRefresh={onRefreshTicketRouting}
+        onNew={onCreateTicketRoutingRule}
+        onSelect={onSelectTicketRoutingRule}
+        onChange={onTicketRoutingChange}
+        onSave={() => void onSaveTicketRoutingRule()}
+        onDelete={() => void onDeleteTicketRoutingRule()}
       />
 
       <ArchivePolicySection

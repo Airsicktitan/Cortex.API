@@ -5,6 +5,7 @@ interface ArchivedTicketsPageProps {
   tickets: ArchivedTicket[];
   loading: boolean;
   error: string | null;
+  highlightedTicketId?: string | null;
   onRefresh: () => void;
   canReactivate: boolean;
   reactivatingTicketId: string | null;
@@ -23,6 +24,7 @@ export default function ArchivedTicketsPage({
   tickets,
   loading,
   error,
+  highlightedTicketId,
   onRefresh,
   canReactivate,
   reactivatingTicketId,
@@ -45,8 +47,10 @@ export default function ArchivedTicketsPage({
             </p>
             {canReactivate && (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                Reactivating restores the ticket to the active queue. Archived
-                comment and attachment counts are preserved as history only.
+                Reactivating restores the ticket to the active queue along with
+                its archived comments and attachments. Older legacy archives may
+                include recovered placeholder files when the original attachment
+                binary was never stored.
               </p>
             )}
           </div>
@@ -100,7 +104,12 @@ export default function ArchivedTicketsPage({
                 {tickets.map((ticket) => (
                   <tr
                     key={ticket.id}
-                    className="border-t border-gray-100 text-gray-700 dark:border-slate-800 dark:text-slate-200"
+                    id={`archived-ticket-${ticket.id}`}
+                    className={`border-t text-gray-700 dark:text-slate-200 ${
+                      highlightedTicketId === ticket.id
+                        ? "border-cortex-cyan bg-cortex-blue-soft/50 dark:border-cortex-cyan dark:bg-cortex-blue/10"
+                        : "border-gray-100 dark:border-slate-800"
+                    }`}
                   >
                     <td className="px-4 py-3 align-top">
                       <div>

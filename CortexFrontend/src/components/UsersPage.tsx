@@ -8,9 +8,13 @@ interface UsersPageProps {
   error: string | null;
   canCreate: boolean;
   canEdit: boolean;
+  canDelete: boolean;
+  currentUserId?: number;
+  deletingUserId: number | null;
   onRefresh: () => void;
   onCreate: () => void;
   onEdit: (user: UserRecord) => void;
+  onDelete: (user: UserRecord) => void;
 }
 
 function formatDate(value?: string) {
@@ -31,9 +35,13 @@ export default function UsersPage({
   error,
   canCreate,
   canEdit,
+  canDelete,
+  currentUserId,
+  deletingUserId,
   onRefresh,
   onCreate,
   onEdit,
+  onDelete,
 }: UsersPageProps) {
   if (loading) {
     return <UsersSkeleton />;
@@ -102,7 +110,7 @@ export default function UsersPage({
                   <th className="px-4 py-3 font-medium">Last Login</th>
                   <th className="px-4 py-3 font-medium">Expiry</th>
                   <th className="px-4 py-3 font-medium">Last Modified</th>
-                  {canEdit && (
+                  {(canEdit || canDelete) && (
                     <th className="px-4 py-3 font-medium">Actions</th>
                   )}
                 </tr>
@@ -150,14 +158,29 @@ export default function UsersPage({
                     <td className="px-4 py-3 align-top whitespace-nowrap">
                       {formatDate(user.lastModifiedDate)}
                     </td>
-                    {canEdit && (
+                    {(canEdit || canDelete) && (
                       <td className="px-4 py-3 align-top">
                         <button
                           onClick={() => onEdit(user)}
+                          disabled={!canEdit}
                           className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                         >
                           Edit
                         </button>
+                        {canDelete && user.id !== currentUserId && (
+                          <button
+                            onClick={() => onDelete(user)}
+                            disabled={deletingUserId === user.id}
+                            className="ml-2 rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-950/30"
+                          >
+                            {deletingUserId === user.id ? "Deleting..." : "Delete"}
+                          </button>
+                        )}
+                        {canDelete && user.id === currentUserId && (
+                          <span className="ml-2 inline-flex px-2 py-2 text-xs text-gray-500 dark:text-slate-400">
+                            Current User
+                          </span>
+                        )}
                       </td>
                     )}
                   </tr>

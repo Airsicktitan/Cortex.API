@@ -90,6 +90,7 @@ interface TicketModalProps {
   onDelete: (ticket: Ticket) => void;
   currentUser: {
     displayName: string;
+    department?: string;
   } | null;
   createdByDisplayName: string;
 }
@@ -104,9 +105,13 @@ export default function TicketModal({
   onArchive,
   onDelete,
   currentUser,
+  createdByDisplayName,
 }: TicketModalProps) {
   const [priority, setPriority] = useState(ticket.priority);
   const [status, setStatus] = useState(ticket.status);
+  const [department, setDepartment] = useState(
+    ticket.department || currentUser?.department || "",
+  );
   const [synitiOwner, setSynitiOwner] = useState(ticket.synitiOwner || "");
   const [businessOwner, setBusinessOwner] = useState(
     ticket.businessOwner || "",
@@ -183,13 +188,14 @@ export default function TicketModal({
     setDescription(ticket.description || "");
     setPriority(ticket.priority);
     setStatus(ticket.status);
+    setDepartment(ticket.department || currentUser?.department || "");
     setSynitiOwner(ticket.synitiOwner || "");
     setBusinessOwner(ticket.businessOwner || "");
     setChangeReason("");
     setQueuedAttachments([]);
     setIsAttachmentDropActive(false);
     setIsHistoryModalOpen(false);
-  }, [ticket, isOpen]);
+  }, [currentUser?.department, ticket, isOpen]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -199,6 +205,7 @@ export default function TicketModal({
         description,
         priority,
         status,
+        department: !ticket.id ? department.trim() || undefined : undefined,
         synitiOwner: synitiOwner || undefined,
         businessOwner: businessOwner || undefined,
         changeReason: changeReason.trim() || undefined,
@@ -216,6 +223,8 @@ export default function TicketModal({
     description,
     priority,
     status,
+    ticket.id,
+    department,
     synitiOwner,
     businessOwner,
     changeReason,
@@ -504,11 +513,16 @@ export default function TicketModal({
   };
 
   const createdByName =
-    ticket.createdByDisplayName ||
-    ticket.createdByUser?.displayName ||
-    currentUser?.displayName ||
-    ticket.createdBy ||
-    "Created By API";
+    ticket.createdByDisplayName?.trim() ||
+    createdByDisplayName.trim() ||
+    ticket.createdByUser?.displayName?.trim() ||
+    (!ticket.id ? currentUser?.displayName?.trim() : undefined) ||
+    (typeof ticket.createdBy === "string"
+      ? ticket.createdBy.trim()
+      : typeof ticket.createdBy === "number" && ticket.createdBy > 0
+        ? `User #${ticket.createdBy}`
+        : "") ||
+    "Unknown User";
   const hasPersistedSla = Boolean(ticket.id);
   const canManageComments = Boolean(ticket.id);
   const slaTooltip = buildSlaTooltip(ticket);
@@ -612,6 +626,24 @@ export default function TicketModal({
                   </select>
                 </div>
 
+                {!ticket.id && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                      Routing Department
+                    </label>
+                    <input
+                      type="text"
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      placeholder="Defaults from your profile"
+                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Used to auto-assign the Syniti owner if you leave that field blank.
+                    </p>
+                  </div>
+                )}
+
                 {/* Syniti Owner */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
@@ -623,6 +655,11 @@ export default function TicketModal({
                     onChange={(e) => setSynitiOwner(e.target.value)}
                     className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   />
+                  {!ticket.id && (
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Leave blank to use the department routing rule.
+                    </p>
+                  )}
                 </div>
 
                 {/* Business Owner */}
@@ -636,6 +673,11 @@ export default function TicketModal({
                     onChange={(e) => setBusinessOwner(e.target.value)}
                     className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   />
+                  {!ticket.id && (
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Leave blank to default this ticket to you as the requester.
+                    </p>
+                  )}
                 </div>
               </div>
 
