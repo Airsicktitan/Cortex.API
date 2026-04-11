@@ -25,6 +25,7 @@ public class CortexDbContext : DbContext
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<StoredProcedureDefinition> StoredProcedureDefinitions => Set<StoredProcedureDefinition>();
     public DbSet<TicketStatusDefinition> TicketStatusDefinitions => Set<TicketStatusDefinition>();
+    public DbSet<TicketRoutingRule> TicketRoutingRules => Set<TicketRoutingRule>();
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
 
@@ -242,6 +243,25 @@ public class CortexDbContext : DbContext
                 .IsRequired();
 
             entity.HasIndex(definition => definition.Name)
+                .IsUnique();
+        });
+
+        modelBuilder.Entity<TicketRoutingRule>(entity =>
+        {
+            entity.HasKey(rule => rule.Id);
+
+            entity.Property(rule => rule.Department)
+                .IsRequired()
+                .HasMaxLength(120);
+
+            entity.Property(rule => rule.SynitiOwner)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(rule => rule.IsEnabled)
+                .IsRequired();
+
+            entity.HasIndex(rule => rule.Department)
                 .IsUnique();
         });
 

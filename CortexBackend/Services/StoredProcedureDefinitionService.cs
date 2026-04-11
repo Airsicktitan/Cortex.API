@@ -110,17 +110,31 @@ public class StoredProcedureDefinitionService(
     {
         var existing = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException("Stored procedure definition was not found.");
-
-        var isReferencedByJobs = await _context.ScheduledJobs
-            .AnyAsync(job => job.StoredProcedureDefinitionId == id);
-
-        if (isReferencedByJobs)
-        {
-            throw new InvalidOperationException(
-                "This stored procedure is assigned to one or more jobs. Remove it from those jobs or disable it instead.");
-        }
+        var referencingJobs = await _context.ScheduledJobs
+            .Where(job => job.StoredProcedureDefinitionId == id)
+            .ToListAsync();
 
         await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        if (referencingJobs.Count > 0)
+        {
+            var utcNow = DateTime.UtcNow;
+            var definitionLabel = string.IsNullOrWhiteSpace(existing.Name)
+                ? existing.ProcedureName
+                : existing.Name;
+
+            foreach (var job in referencingJobs)
+            {
+                job.StoredProcedureDefinitionId = null;
+                job.IsEnabled = false;
+                job.LastModifiedDateUtc = utcNow;
+                job.NextRunDateUtc = null;
+                job.LastRunStatus = "Failed";
+                job.LastRunMessage =
+                    $"Stored procedure \"{definitionLabel}\" was deleted. Select a replacement procedure before re-enabling this job.";
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(existing.ProcedureName))
         {
             await _programmabilityService.DropStoredProcedureAsync(existing.ProcedureName);

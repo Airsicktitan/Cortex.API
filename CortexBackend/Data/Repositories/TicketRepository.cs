@@ -2,6 +2,7 @@ using Cortex.API.Database;
 using Cortex.API.Models;
 
 using System.Globalization;
+using System.Text;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -130,6 +131,13 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
             .ThenBy(attachment => attachment.Id)
             .ToListAsync();
 
+        var legacyPlaceholderAttachments = archivedAttachments
+            .Where(IsLegacyPlaceholderAttachment)
+            .ToList();
+        var restorableArchivedAttachments = archivedAttachments
+            .Where(attachment => !IsLegacyPlaceholderAttachment(attachment))
+            .ToList();
+
         var restoredTicket = new Ticket
         {
             Id = archivedTicket.Id,
@@ -152,9 +160,22 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
             CreatedBy = comment.CreatedBy,
             CreatedDate = comment.CreatedDate,
             LastModifiedDate = comment.LastModifiedDate
-        });
+        }).ToList();
 
-        var restoredAttachments = archivedAttachments.Select(attachment => new TicketAttachment
+        var legacyAttachmentRestoreNote = BuildLegacyAttachmentRestoreNote(legacyPlaceholderAttachments);
+        if (!string.IsNullOrWhiteSpace(legacyAttachmentRestoreNote))
+        {
+            restoredComments.Add(new Comment
+            {
+                TicketId = id,
+                Body = legacyAttachmentRestoreNote,
+                CreatedBy = reactivatedBy,
+                CreatedDate = DateTime.UtcNow,
+                LastModifiedDate = DateTime.UtcNow
+            });
+        }
+
+        var restoredAttachments = restorableArchivedAttachments.Select(attachment => new TicketAttachment
         {
             TicketId = id,
             FileName = attachment.FileName,
@@ -221,5 +242,56 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         }
 
         return null;
+    }
+
+    private static bool IsLegacyPlaceholderAttachment(ArchivedTicketAttachment attachment)
+    {
+        if (attachment.OriginalAttachmentId.HasValue ||
+            !string.Equals(attachment.ContentType, "text/plain", StringComparison.OrdinalIgnoreCase) ||
+            attachment.Content.Length == 0)
+        {
+            return false;
+        }
+
+        var contentText = Encoding.UTF8.GetString(attachment.Content);
+        return contentText.Contains(
+            "binary attachment preservation was enabled",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? BuildLegacyAttachmentRestoreNote(
+        IReadOnlyList<ArchivedTicketAttachment> placeholderAttachments)
+    {
+        if (placeholderAttachments.Count == 0)
+        {
+            return null;
+        }
+
+        var fileLabels = placeholderAttachments
+            .Select(GetLegacyAttachmentLabel)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToList();
+
+        var listedFiles = string.Join(", ", fileLabels);
+        var additionalCount = placeholderAttachments.Count - fileLabels.Count;
+        var moreSuffix = additionalCount > 0
+            ? $" and {additionalCount} more"
+            : string.Empty;
+
+        return
+            $"System restore note: {placeholderAttachments.Count} legacy archived attachment(s) could not be restored as files because the original binary content was not preserved when this ticket was first archived. Missing attachment(s): {listedFiles}{moreSuffix}.";
+    }
+
+    private static string GetLegacyAttachmentLabel(ArchivedTicketAttachment attachment)
+    {
+        const string LegacySuffix = ".legacy.txt";
+
+        if (attachment.FileName.EndsWith(LegacySuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return attachment.FileName[..^LegacySuffix.Length];
+        }
+
+        return attachment.FileName;
     }
 }

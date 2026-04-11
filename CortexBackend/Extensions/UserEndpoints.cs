@@ -56,6 +56,13 @@ public static class UserEndpoints
             .Accepts<AdminUpdateUserRequest>("application/json")
             .Produces<AdminUserResponse>(StatusCodes.Status200OK);
 
+        users.MapDelete("/{id:int}", UserHandlers.DeleteUser)
+            .RequireAuthorization("UsersAdminDelete")
+            .WithName("DeleteUser")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound);
+
         users.MapGet("/me", UserHandlers.GetCurrentUser)
             .WithName("GetCurrentUser")
             .Produces<UserResponse>(StatusCodes.Status200OK);

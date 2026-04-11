@@ -240,6 +240,22 @@ public static class ArchiveConfigurationMappings
     }
 }
 
+public static class TicketRoutingRuleMappings
+{
+    public static TicketRoutingRuleResponse ToResponse(this TicketRoutingRule rule)
+    {
+        return new TicketRoutingRuleResponse
+        {
+            Id = rule.Id,
+            Department = rule.Department,
+            SynitiOwner = rule.SynitiOwner,
+            IsEnabled = rule.IsEnabled,
+            CreatedDateUtc = rule.CreatedDateUtc,
+            LastModifiedDateUtc = rule.LastModifiedDateUtc
+        };
+    }
+}
+
 public static class TicketStatusDefinitionMappings
 {
     public static TicketStatusDefinitionResponse ToResponse(this TicketStatusDefinition definition)

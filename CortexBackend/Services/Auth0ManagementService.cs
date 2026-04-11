@@ -100,18 +100,9 @@ public class Auth0ManagementService(
 
     private async Task<string> GetManagementTokenAsync(CancellationToken cancellationToken)
     {
-        // Temp logs
-        Console.WriteLine($"[Auth0 Token] Domain = '{_options.Domain}'");
-        Console.WriteLine($"[Auth0 Token] ClientId = '{_options.ManagementClientId}'");
-        Console.WriteLine($"[Auth0 Token] Secret length = {_options.ManagementClientSecret?.Length ?? 0}");
-        Console.WriteLine($"[Auth0 Token] Secret suffix = '{(_options.ManagementClientSecret?.Length >= 6 ? _options.ManagementClientSecret[^6..] : _options.ManagementClientSecret)}'");
-        Console.WriteLine($"[Auth0 Token] Audience = 'https://{_options.Domain}/api/v2/'");
-
-        using var httpClient = new HttpClient(); // 👈 CLEAN CLIENT
-
         var request = new HttpRequestMessage(
             HttpMethod.Post,
-            $"https://{_options.Domain}/oauth/token")
+            BuildPath("/oauth/token"))
         {
             Content = new StringContent(
                 JsonSerializer.Serialize(
@@ -127,20 +118,28 @@ public class Auth0ManagementService(
                 "application/json")
         };
 
-        var response = await httpClient.SendAsync(request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        Console.WriteLine($"[Auth0 Token] Status: {response.StatusCode}");
-        Console.WriteLine($"[Auth0 Token] Body: {body}");
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new Exception($"Auth0 token failed: {response.StatusCode} - {body}");
+            throw await CreateExceptionAsync(
+                response,
+                "Failed to request an Auth0 management access token.");
         }
 
-        using var document = JsonDocument.Parse(body);
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
 
-        return document.RootElement.GetProperty("access_token").GetString()!;
+        if (document.RootElement.TryGetProperty("access_token", out var tokenElement) &&
+            tokenElement.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(tokenElement.GetString()))
+        {
+            return tokenElement.GetString()!;
+        }
+
+        throw new Auth0ManagementException(
+            "Auth0 returned an invalid management token response.",
+            502);
     }
 
     private static string BuildPath(string path)

@@ -178,6 +178,7 @@ public static class TicketHandlers
         IUserContextService userContext,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
+        ITicketRoutingRuleService ticketRoutingRuleService,
         ITicketAuditService ticketAuditService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
@@ -188,6 +189,12 @@ public static class TicketHandlers
         var requestedStatus = string.IsNullOrWhiteSpace(request.Status)
             ? await ticketStatusService.GetDefaultCreateStatusAsync()
             : request.Status.Trim();
+        var routingDepartment = NormalizeOptionalValue(request.Department)
+            ?? NormalizeOptionalValue(currentUser.Department);
+        var resolvedSynitiOwner = NormalizeOptionalValue(request.SynitiOwner)
+            ?? await ticketRoutingRuleService.ResolveSynitiOwnerAsync(routingDepartment);
+        var resolvedBusinessOwner = NormalizeOptionalValue(request.BusinessOwner)
+            ?? GetDefaultBusinessOwner(currentUser);
 
         await ticketStatusService.EnsureSelectableStatusAsync(requestedStatus);
 
@@ -197,8 +204,8 @@ public static class TicketHandlers
             Title = request.Title,
             Description = request.Description ?? string.Empty,
             Priority = request.Priority ?? "Medium",
-            SynitiOwner = request.SynitiOwner,
-            BusinessOwner = request.BusinessOwner,
+            SynitiOwner = resolvedSynitiOwner,
+            BusinessOwner = resolvedBusinessOwner,
             Status = requestedStatus,
             CreatedBy = currentUser.Id,
             CreatedDate = DateTime.UtcNow
@@ -460,5 +467,20 @@ public static class TicketHandlers
             LastModifiedBy = ticket.LastModifiedBy,
             LastModifiedDate = ticket.LastModifiedDate
         };
+    }
+
+    private static string? NormalizeOptionalValue(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? GetDefaultBusinessOwner(User user)
+    {
+        if (!string.IsNullOrWhiteSpace(user.DisplayName))
+        {
+            return user.DisplayName.Trim();
+        }
+
+        return NormalizeOptionalValue(user.Email);
     }
 }

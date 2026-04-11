@@ -28,10 +28,15 @@ builder.Services.AddHttpClient<IAuth0ManagementService, Auth0ManagementService>(
         var options = serviceProvider
             .GetRequiredService<Microsoft.Extensions.Options.IOptions<Auth0ManagementOptions>>()
             .Value;
-
-        client.BaseAddress = new Uri($"https://{options.Domain.Trim().TrimEnd('/')}");
         client.Timeout = TimeSpan.FromSeconds(30);
         client.DefaultRequestHeaders.Clear();
+
+        var normalizedDomain = options.Domain?.Trim().TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(normalizedDomain) &&
+            Uri.TryCreate($"https://{normalizedDomain}", UriKind.Absolute, out var baseAddress))
+        {
+            client.BaseAddress = baseAddress;
+        }
     });
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
@@ -43,6 +48,7 @@ builder.Services.AddScoped<ISessionConfigurationRepository, SessionConfiguration
 builder.Services.AddScoped<IReportDefinitionRepository, ReportDefinitionRepository>();
 builder.Services.AddScoped<IStoredProcedureDefinitionRepository, StoredProcedureDefinitionRepository>();
 builder.Services.AddScoped<ITicketStatusDefinitionRepository, TicketStatusDefinitionRepository>();
+builder.Services.AddScoped<ITicketRoutingRuleRepository, TicketRoutingRuleRepository>();
 builder.Services.AddScoped<IScheduledJobRepository, ScheduledJobRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IUserContextService, UserContextService>();
@@ -53,6 +59,7 @@ builder.Services.AddScoped<ISessionConfigurationService, SessionConfigurationSer
 builder.Services.AddScoped<IReportDefinitionService, ReportDefinitionService>();
 builder.Services.AddScoped<IStoredProcedureDefinitionService, StoredProcedureDefinitionService>();
 builder.Services.AddScoped<ITicketStatusService, TicketStatusService>();
+builder.Services.AddScoped<ITicketRoutingRuleService, TicketRoutingRuleService>();
 builder.Services.AddScoped<IScheduledJobService, ScheduledJobService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ITicketArchivalService, TicketArchivalService>();
@@ -204,6 +211,9 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("UsersAdminUpdate", policy =>
         policy.RequireClaim("permissions", "admin:system"));
 
+    options.AddPolicy("UsersAdminDelete", policy =>
+        policy.RequireClaim("permissions", "admin:system"));
+
     options.AddPolicy("TicketsWrite", policy =>
         policy.RequireClaim("permissions", "tickets:create", "tickets:update", "admin:system"));
 
@@ -253,6 +263,7 @@ app.MapSessionConfigurationEndpoints();
 app.MapReportDefinitionEndpoints();
 app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();
+app.MapTicketRoutingRuleEndpoints();
 app.MapScheduledJobEndpoints();
 app.MapNotificationEndpoints();
 app.MapRealtimeEndpoints();
