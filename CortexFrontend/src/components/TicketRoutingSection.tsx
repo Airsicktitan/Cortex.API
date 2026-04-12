@@ -19,7 +19,26 @@ interface TicketRoutingSectionProps {
 }
 
 function describeRule(rule: TicketRoutingRule) {
-  return `${rule.department} -> ${rule.synitiOwner}`;
+  const criteria: string[] = [];
+  const assignments: string[] = [];
+
+  if (rule.titleContains.trim()) {
+    criteria.push(`Title contains "${rule.titleContains}"`);
+  }
+
+  if (rule.department.trim()) {
+    criteria.push(`Department: ${rule.department}`);
+  }
+
+  if (rule.synitiOwner.trim()) {
+    assignments.push(`Syniti: ${rule.synitiOwner}`);
+  }
+
+  if (rule.businessOwner.trim()) {
+    assignments.push(`Business: ${rule.businessOwner}`);
+  }
+
+  return `${criteria.join(" + ") || "No match criteria"} -> ${assignments.join(" | ") || "No assignments"}`;
 }
 
 export default function TicketRoutingSection({
@@ -48,10 +67,10 @@ export default function TicketRoutingSection({
               Ticket Routing
             </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-              Auto-assign Syniti owners by department while still allowing manual ticket overrides.
+              Match on ticket title phrases, routing department, or both while still allowing manual ticket overrides.
             </p>
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-              New tickets default the business owner to the requester and only route the Syniti owner when that field is left blank.
+              New tickets default the business owner to the requester and only use auto-routing when the owner fields are left blank.
             </p>
           </div>
 
@@ -141,7 +160,23 @@ export default function TicketRoutingSection({
                 <div className="mt-4 space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                      Department
+                      Title contains
+                    </label>
+                    <input
+                      type="text"
+                      value={selectedRule.titleContains}
+                      onChange={(event) => onChange("titleContains", event.target.value)}
+                      className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      placeholder="User locked out"
+                    />
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Match a phrase in the ticket title. Matching is case-insensitive.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                      Routing department
                     </label>
                     <input
                       type="text"
@@ -150,6 +185,9 @@ export default function TicketRoutingSection({
                       className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                       placeholder="Finance"
                     />
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Optional exact department match. Leave blank for title-only routing.
+                    </p>
                   </div>
 
                   <div>
@@ -163,6 +201,25 @@ export default function TicketRoutingSection({
                       className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                       placeholder="Syniti Team Member"
                     />
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Optional. Leave blank if this rule should only set the business owner.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                      Business owner
+                    </label>
+                    <input
+                      type="text"
+                      value={selectedRule.businessOwner}
+                      onChange={(event) => onChange("businessOwner", event.target.value)}
+                      className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      placeholder="Business Lead"
+                    />
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Optional. Leave blank to keep the requester as the business owner.
+                    </p>
                   </div>
 
                   <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900/60">
@@ -184,9 +241,10 @@ export default function TicketRoutingSection({
 
                   <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70">
                     <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
-                      {selectedRule.department.trim() && selectedRule.synitiOwner.trim()
+                      {(selectedRule.department.trim() || selectedRule.titleContains.trim()) &&
+                      (selectedRule.synitiOwner.trim() || selectedRule.businessOwner.trim())
                         ? describeRule(selectedRule)
-                        : "Complete the department and Syniti owner to save this rule."}
+                        : "Add at least one match condition and one owner assignment to save this rule."}
                     </p>
                   </div>
 
@@ -195,8 +253,10 @@ export default function TicketRoutingSection({
                       onClick={onSave}
                       disabled={
                         isBusy ||
-                        !selectedRule.department.trim() ||
-                        !selectedRule.synitiOwner.trim()
+                        (!selectedRule.department.trim() &&
+                          !selectedRule.titleContains.trim()) ||
+                        (!selectedRule.synitiOwner.trim() &&
+                          !selectedRule.businessOwner.trim())
                       }
                       className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
                     >

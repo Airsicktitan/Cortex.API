@@ -15,6 +15,8 @@ export default function AddComment({ onAdd }: AddCommentProps) {
       setPosting(true);
       await onAdd(body.trim());
       setBody("");
+    } catch {
+      // The parent surfaces the error and we intentionally keep the draft text.
     } finally {
       setPosting(false);
     }

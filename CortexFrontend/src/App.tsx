@@ -16,6 +16,7 @@ import type {
   DatabaseViewDefinition,
   UpsertCustomReportDefinitionInput,
 } from "./types/customReport";
+import type { NotificationChannelConfiguration } from "./types/notificationChannelConfiguration";
 import type { UserNotification } from "./types/notification";
 import type { RealtimeEvent } from "./types/realtime";
 import type { ScheduledJob, UpsertScheduledJobInput } from "./types/scheduledJob";
@@ -50,6 +51,7 @@ import {
 } from "./services/api";
 import { archiveConfigurationService } from "./services/archiveConfigurationService";
 import { customReportService } from "./services/customReportService";
+import { notificationChannelConfigurationService } from "./services/notificationChannelConfigurationService";
 import { notificationService } from "./services/notificationService";
 import { realtimeService } from "./services/realtimeService";
 import { scheduledJobService } from "./services/scheduledJobService";
@@ -429,9 +431,13 @@ function sortTicketStatuses(statuses: TicketStatusDefinition[]) {
 
 function sortTicketRoutingRules(rules: TicketRoutingRule[]) {
   return [...rules].sort((left, right) => {
-    const departmentComparison = left.department.localeCompare(right.department);
-    if (departmentComparison !== 0) {
-      return departmentComparison;
+    const leftKey =
+      `${left.titleContains}|${left.department}|${left.synitiOwner}|${left.businessOwner}`.toLowerCase();
+    const rightKey =
+      `${right.titleContains}|${right.department}|${right.synitiOwner}|${right.businessOwner}`.toLowerCase();
+    const keyComparison = leftKey.localeCompare(rightKey);
+    if (keyComparison !== 0) {
+      return keyComparison;
     }
 
     return left.id - right.id;
@@ -442,7 +448,9 @@ function createDraftTicketRoutingRule(): TicketRoutingRule {
   return {
     id: 0,
     department: "",
+    titleContains: "",
     synitiOwner: "",
+    businessOwner: "",
     isEnabled: true,
     createdDateUtc: "",
   };
@@ -573,6 +581,16 @@ function App() {
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionSaving, setSessionSaving] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [notificationChannelConfiguration, setNotificationChannelConfiguration] =
+    useState<NotificationChannelConfiguration | null>(null);
+  const [notificationChannelsLoadedOnce, setNotificationChannelsLoadedOnce] =
+    useState(false);
+  const [notificationChannelLoading, setNotificationChannelLoading] =
+    useState(false);
+  const [notificationChannelSaving, setNotificationChannelSaving] =
+    useState(false);
+  const [notificationChannelError, setNotificationChannelError] =
+    useState<string | null>(null);
   const [sessionPromptState, setSessionPromptState] =
     useState<SessionPromptState>(null);
   const [sessionRemainingSeconds, setSessionRemainingSeconds] = useState(
@@ -1027,6 +1045,40 @@ function App() {
       } finally {
         setSessionLoadedOnce(true);
         setSessionLoading(false);
+      }
+    },
+    [getApiToken],
+  );
+
+  const loadNotificationChannelConfiguration = useCallback(
+    async (providedToken?: string) => {
+      setNotificationChannelLoading(true);
+      setNotificationChannelError(null);
+
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const data = await notificationChannelConfigurationService.get(token);
+        setNotificationChannelConfiguration(data);
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to load notification channel configuration", error);
+
+        if (isApiUnavailableError(error)) {
+          setApiUnavailable(true);
+        } else if (isForbiddenError(error)) {
+          setApiUnavailable(false);
+          setNotificationChannelError(
+            "You do not have permission to view notification channel settings.",
+          );
+        } else {
+          setApiUnavailable(false);
+          setNotificationChannelError(
+            "Failed to load notification channel settings.",
+          );
+        }
+      } finally {
+        setNotificationChannelsLoadedOnce(true);
+        setNotificationChannelLoading(false);
       }
     },
     [getApiToken],
@@ -1516,6 +1568,10 @@ function App() {
 
   const scheduleRealtimeTicketRefresh = useCallback(
     (event: RealtimeEvent, providedToken?: string) => {
+      if (!event?.eventType || typeof event.eventType !== "string") {
+        return;
+      }
+
       if (
         !event.eventType.startsWith("ticket.") &&
         !event.eventType.startsWith("comment.") &&
@@ -1592,6 +1648,10 @@ function App() {
     const connection = realtimeService.connect({
       getToken: getApiToken,
       onEvent: (event) => {
+        if (!event?.eventType || typeof event.eventType !== "string") {
+          return;
+        }
+
         setLatestRealtimeEvent(event);
 
         if (event.eventType === "notification.created") {
@@ -1899,6 +1959,7 @@ function App() {
         ticketStatuses.length > 0 &&
         ticketRoutingLoadedOnce &&
         sessionLoadedOnce &&
+        notificationChannelsLoadedOnce &&
         archiveLoadedOnce &&
         customReportsLoadedOnce &&
         databaseViews.length > 0 &&
@@ -1922,6 +1983,10 @@ function App() {
 
     if (!sessionLoadedOnce) {
       void loadSessionConfiguration();
+    }
+
+    if (!notificationChannelsLoadedOnce) {
+      void loadNotificationChannelConfiguration();
     }
 
     if (!archiveLoadedOnce) {
@@ -1950,6 +2015,7 @@ function App() {
     customReportsLoadedOnce,
     databaseStoredProcedures.length,
     databaseViews.length,
+    loadNotificationChannelConfiguration,
     loadCustomReports,
     loadArchiveConfigurations,
     loadDatabaseStoredProcedures,
@@ -1959,6 +2025,7 @@ function App() {
     loadTicketRoutingRules,
     loadTicketStatuses,
     loadSlaConfigurations,
+    notificationChannelsLoadedOnce,
     sessionLoadedOnce,
     slaConfigurations.length,
     storedProcedures.length,
@@ -2369,6 +2436,22 @@ function App() {
     );
   };
 
+  const handleNotificationChannelConfigurationChange = <
+    K extends keyof NotificationChannelConfiguration,
+  >(
+    field: K,
+    value: NotificationChannelConfiguration[K],
+  ) => {
+    setNotificationChannelConfiguration((currentConfiguration) =>
+      currentConfiguration
+        ? {
+            ...currentConfiguration,
+            [field]: value,
+          }
+        : currentConfiguration,
+    );
+  };
+
   const saveSessionConfiguration = async () => {
     if (!sessionConfiguration) {
       return;
@@ -2398,6 +2481,41 @@ function App() {
       toast.error("Failed to save session policy");
     } finally {
       setSessionSaving(false);
+    }
+  };
+
+  const saveNotificationChannelConfiguration = async () => {
+    if (!notificationChannelConfiguration) {
+      return;
+    }
+
+    try {
+      setNotificationChannelSaving(true);
+      setNotificationChannelError(null);
+
+      const token = await getApiToken();
+      const savedConfiguration =
+        await notificationChannelConfigurationService.update(
+          notificationChannelConfiguration,
+          token,
+        );
+
+      setNotificationChannelConfiguration(savedConfiguration);
+      toast.success("Notification channels saved");
+    } catch (error) {
+      console.error("Failed to save notification channel configuration", error);
+
+      if (error instanceof ApiError) {
+        setNotificationChannelError(error.message);
+      } else {
+        setNotificationChannelError(
+          "Failed to save notification channel settings.",
+        );
+      }
+
+      toast.error("Failed to save notification channel settings");
+    } finally {
+      setNotificationChannelSaving(false);
     }
   };
 
@@ -2578,8 +2696,11 @@ function App() {
       setTicketRoutingError(null);
 
       const payload: UpsertTicketRoutingRuleInput = {
-        department: selectedTicketRoutingRule.department.trim(),
-        synitiOwner: selectedTicketRoutingRule.synitiOwner.trim(),
+        department: selectedTicketRoutingRule.department.trim() || undefined,
+        titleContains: selectedTicketRoutingRule.titleContains.trim() || undefined,
+        synitiOwner: selectedTicketRoutingRule.synitiOwner.trim() || undefined,
+        businessOwner:
+          selectedTicketRoutingRule.businessOwner.trim() || undefined,
         isEnabled: selectedTicketRoutingRule.isEnabled,
       };
 
@@ -3634,6 +3755,9 @@ function App() {
         nickName: profile.nickName ?? "",
         phoneNumber: profile.phoneNumber ?? "",
         department: profile.department ?? "",
+        assignmentNotificationChannel:
+          profile.assignmentNotificationChannel ?? "",
+        slaRiskNotificationChannel: profile.slaRiskNotificationChannel ?? "",
       });
       setIsProfileModalOpen(true);
     } catch (error) {
@@ -3673,6 +3797,9 @@ function App() {
       nickName: selectedUser.nickName ?? "",
       phoneNumber: selectedUser.phoneNumber ?? "",
       department: selectedUser.department ?? "",
+      assignmentNotificationChannel:
+        selectedUser.assignmentNotificationChannel ?? "",
+      slaRiskNotificationChannel: selectedUser.slaRiskNotificationChannel ?? "",
       role: selectedUser.role,
       isActive: selectedUser.isActive,
       expiryDate: selectedUser.expiryDate ?? "",
@@ -4231,7 +4358,7 @@ function App() {
           className="relative hidden shrink-0 lg:block"
           style={{ width: `${sidebarWidth}px` }}
         >
-          <div className="sticky top-8 flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
+          <div className="relative sticky top-8 flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
             <div className="border-b border-gray-100 px-5 py-5 dark:border-slate-800">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-slate-400">
                 Navigation
@@ -4281,22 +4408,22 @@ function App() {
                 Drag the right edge to resize the menu.
               </p>
             </div>
-          </div>
 
-          <button
-            type="button"
-            aria-label="Resize sidebar"
-            onMouseDown={beginSidebarResize}
-            className="absolute inset-y-0 -right-2 hidden w-4 cursor-col-resize items-center justify-center lg:flex"
-          >
-            <span
-              className={`block h-20 w-1 rounded-full transition-colors ${
-                isSidebarResizing
-                  ? "bg-cortex-blue"
-                  : "bg-gray-300 dark:bg-slate-700"
-              }`}
-            />
-          </button>
+            <button
+              type="button"
+              aria-label="Resize sidebar"
+              onMouseDown={beginSidebarResize}
+              className="absolute inset-y-0 -right-2 hidden w-4 cursor-col-resize items-center justify-center lg:flex"
+            >
+              <span
+                className={`block h-20 w-1 rounded-full transition-colors ${
+                  isSidebarResizing
+                    ? "bg-cortex-blue"
+                    : "bg-gray-300 dark:bg-slate-700"
+                }`}
+              />
+            </button>
+          </div>
         </aside>
 
         <main className="min-w-0 flex-1">
@@ -4364,7 +4491,8 @@ function App() {
                   <select
                     value={pageSize}
                     onChange={(event) => handlePageSizeChange(event.target.value)}
-                    className="min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-gray-900 shadow-none focus:ring-0 dark:text-slate-100"
+                    style={{ colorScheme: theme === "dark" ? "dark" : "light" }}
+                    className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-900 shadow-none focus:border-cortex-blue focus:ring-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   >
                     {PAGE_SIZE_OPTIONS.map((option) => (
                       <option key={option} value={option}>
@@ -4557,6 +4685,19 @@ function App() {
               onSessionChange={handleSessionConfigurationChange}
               onRefreshSession={() => void loadSessionConfiguration()}
               onSaveSession={() => void saveSessionConfiguration()}
+              notificationChannelConfiguration={notificationChannelConfiguration}
+              notificationChannelError={notificationChannelError}
+              notificationChannelLoading={notificationChannelLoading}
+              notificationChannelSaving={notificationChannelSaving}
+              onNotificationChannelChange={
+                handleNotificationChannelConfigurationChange
+              }
+              onRefreshNotificationChannels={() =>
+                void loadNotificationChannelConfiguration()
+              }
+              onSaveNotificationChannels={() =>
+                void saveNotificationChannelConfiguration()
+              }
               ticketStatuses={ticketStatuses}
               ticketStatusError={ticketStatusError}
               ticketStatusLoading={ticketStatusLoading}

@@ -13,6 +13,19 @@ interface RealtimeConnection {
   close: () => void;
 }
 
+function isRealtimeEvent(value: unknown): value is RealtimeEvent {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<RealtimeEvent>;
+  return (
+    typeof candidate.eventType === "string" &&
+    candidate.eventType.trim().length > 0 &&
+    typeof candidate.occurredDateUtc === "string"
+  );
+}
+
 export const realtimeService = {
   connect(options: RealtimeConnectionOptions): RealtimeConnection {
     let currentSource: EventSource | null = null;
@@ -64,7 +77,11 @@ export const realtimeService = {
           reconnectAttempt = 0;
 
           try {
-            const parsed = JSON.parse((message as MessageEvent<string>).data) as RealtimeEvent;
+            const parsed = JSON.parse((message as MessageEvent<string>).data) as unknown;
+            if (!isRealtimeEvent(parsed)) {
+              return;
+            }
+
             options.onEvent(parsed);
           } catch (error) {
             options.onError?.(error);

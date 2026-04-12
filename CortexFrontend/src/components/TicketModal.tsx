@@ -85,7 +85,10 @@ interface TicketModalProps {
   ticketStatuses: TicketStatusDefinition[];
   isOpen: boolean;
   onClose: () => void;
-  onSave: (updatedTicket: TicketMutationInput, attachments: File[]) => Promise<void>;
+  onSave: (
+    updatedTicket: TicketMutationInput,
+    attachments: File[],
+  ) => Promise<void>;
   onArchive: (ticket: Ticket, changeReason?: string) => Promise<void>;
   onDelete: (ticket: Ticket) => void;
   currentUser: {
@@ -151,7 +154,9 @@ export default function TicketModal({
   const canSaveTicket = canCreateTicket || canUpdateTicket;
   const canArchiveTicket = Boolean(ticket.id) && canUpdateTicket;
   const availableStatusOptions = useMemo(() => {
-    const enabledStatuses = ticketStatuses.filter((statusDefinition) => statusDefinition.isEnabled);
+    const enabledStatuses = ticketStatuses.filter(
+      (statusDefinition) => statusDefinition.isEnabled,
+    );
     const hasCurrentStatus = enabledStatuses.some(
       (statusDefinition) => statusDefinition.name === status,
     );
@@ -200,16 +205,19 @@ export default function TicketModal({
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await onSave({
-        title,
-        description,
-        priority,
-        status,
-        department: !ticket.id ? department.trim() || undefined : undefined,
-        synitiOwner: synitiOwner || undefined,
-        businessOwner: businessOwner || undefined,
-        changeReason: changeReason.trim() || undefined,
-      }, queuedAttachments);
+      await onSave(
+        {
+          title,
+          description,
+          priority,
+          status,
+          department: !ticket.id ? department.trim() || undefined : undefined,
+          synitiOwner: synitiOwner || undefined,
+          businessOwner: businessOwner || undefined,
+          changeReason: ticket.id ? changeReason.trim() || undefined : undefined,
+        },
+        queuedAttachments,
+      );
       onClose();
     } catch {
       // The parent save handler already surfaces the error to the user.
@@ -257,7 +265,15 @@ export default function TicketModal({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canSaveTicket, handleSave, isHistoryModalOpen, isOpen, onClose, saving, title]);
+  }, [
+    canSaveTicket,
+    handleSave,
+    isHistoryModalOpen,
+    isOpen,
+    onClose,
+    saving,
+    title,
+  ]);
 
   // ✅ CRITICAL: clear comments + show loading BEFORE paint, and guard response ordering
   useLayoutEffect(() => {
@@ -286,7 +302,7 @@ export default function TicketModal({
     setLoadingComments(true);
 
     try {
-      const token = await getAccessTokenSilently();
+      const token = await getApiToken();
       const data = await commentService.getByTicket(ticket.id, token);
 
       if (commentsLoadVersion.current !== myVersion) return;
@@ -297,7 +313,7 @@ export default function TicketModal({
         setLoadingComments(false);
       }
     }
-  }, [getAccessTokenSilently, ticket.id]);
+  }, [getApiToken, ticket.id]);
 
   const reloadAttachments = useCallback(async () => {
     if (!ticket.id) return;
@@ -352,7 +368,13 @@ export default function TicketModal({
     if (latestRealtimeEvent.eventType === "attachment.created") {
       void reloadAttachments();
     }
-  }, [isOpen, latestRealtimeEvent, reloadAttachments, reloadComments, ticket.id]);
+  }, [
+    isOpen,
+    latestRealtimeEvent,
+    reloadAttachments,
+    reloadComments,
+    ticket.id,
+  ]);
 
   useEffect(() => {
     const loadPermissions = async () => {
@@ -413,10 +435,19 @@ export default function TicketModal({
   const addComment = async (body: string) => {
     if (!ticket.id) return;
 
-    const token = await getAccessTokenSilently();
-
-    const created = await commentService.create(ticket.id, body, token);
-    setComments((prev) => [...prev, created]);
+    try {
+      const token = await getApiToken();
+      await commentService.create(ticket.id, body, token);
+      await reloadComments();
+    } catch (error) {
+      console.error("Failed to add comment", error);
+      toast.error(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Failed to add comment",
+      );
+      throw error;
+    }
   };
 
   const addQueuedAttachments = (event: ChangeEvent<HTMLInputElement>) => {
@@ -454,9 +485,7 @@ export default function TicketModal({
   const removeQueuedAttachment = (fileToRemove: File) => {
     const targetKey = getQueuedAttachmentKey(fileToRemove);
     setQueuedAttachments((currentFiles) =>
-      currentFiles.filter(
-        (file) => getQueuedAttachmentKey(file) !== targetKey,
-      ),
+      currentFiles.filter((file) => getQueuedAttachmentKey(file) !== targetKey),
     );
   };
 
@@ -474,7 +503,11 @@ export default function TicketModal({
     try {
       setAttachmentActionId(attachment.id);
       const token = await getApiToken();
-      const blob = await attachmentService.download(ticket.id, attachment.id, token);
+      const blob = await attachmentService.download(
+        ticket.id,
+        attachment.id,
+        token,
+      );
       const objectUrl = URL.createObjectURL(blob);
       previewWindow.location.href = objectUrl;
       setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
@@ -495,7 +528,11 @@ export default function TicketModal({
     try {
       setAttachmentActionId(attachment.id);
       const token = await getApiToken();
-      const blob = await attachmentService.download(ticket.id, attachment.id, token);
+      const blob = await attachmentService.download(
+        ticket.id,
+        attachment.id,
+        token,
+      );
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = objectUrl;
@@ -552,12 +589,15 @@ export default function TicketModal({
               {/* Header */}
               <div className="flex items-start justify-between mb-6">
                 <div className="flex-1">
+                  <label className="block text-lg font-medium text-gray-700 dark:text-slate-300 mb-2">
+                    Title
+                  </label>
                   <input
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Enter ticket title..."
-                    className="w-full bg-transparent text-2xl font-bold text-gray-900 dark:text-slate-100 mb-1 border-b border-gray-300 dark:border-slate-700 focus:border-cortex-blue focus:outline-none"
+                    className="w-full bg-transparent text-xl font-bold text-gray-900 dark:text-slate-100 mb-1 border-b border-gray-300 dark:border-slate-700 focus:border-cortex-blue focus:outline-none"
                   />
                   <p className="text-sm text-gray-500 dark:text-slate-400">
                     {ticket.id}
@@ -584,6 +624,25 @@ export default function TicketModal({
                   className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
               </div>
+
+              {!ticket.id && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                    Routing Department
+                  </label>
+                  <input
+                    type="text"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    placeholder="Defaults from your profile"
+                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  />
+                  <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                    Used with title and department routing rules when you leave
+                    the owner fields blank.
+                  </p>
+                </div>
+              )}
 
               {/* Editable Fields */}
               <div className="grid grid-cols-2 gap-4 mb-6">
@@ -626,24 +685,6 @@ export default function TicketModal({
                   </select>
                 </div>
 
-                {!ticket.id && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                      Routing Department
-                    </label>
-                    <input
-                      type="text"
-                      value={department}
-                      onChange={(e) => setDepartment(e.target.value)}
-                      placeholder="Defaults from your profile"
-                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
-                    />
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Used to auto-assign the Syniti owner if you leave that field blank.
-                    </p>
-                  </div>
-                )}
-
                 {/* Syniti Owner */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
@@ -657,7 +698,7 @@ export default function TicketModal({
                   />
                   {!ticket.id && (
                     <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Leave blank to use the department routing rule.
+                      Leave blank to use the matching routing rule.
                     </p>
                   )}
                 </div>
@@ -675,28 +716,27 @@ export default function TicketModal({
                   />
                   {!ticket.id && (
                     <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Leave blank to default this ticket to you as the requester.
+                      Leave blank to use routing first, then default this ticket
+                      to you as the requester.
                     </p>
                   )}
                 </div>
               </div>
 
-              <div className="mb-6">
+              {ticket.id && (
+                <div className="mb-6">
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  {ticket.id ? "Change Reason" : "Context"}
+                  Change Reason
                 </label>
                 <input
                   type="text"
                   value={changeReason}
                   onChange={(e) => setChangeReason(e.target.value)}
-                  placeholder={
-                    ticket.id
-                      ? "Optional: explain why you're updating or archiving this ticket"
-                      : "Optional: capture the request context for history"
-                  }
+                  placeholder="Optional: explain why you're updating or archiving this ticket"
                   className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
-              </div>
+                </div>
+              )}
 
               <div className="mb-6 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/60">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -745,7 +785,8 @@ export default function TicketModal({
                       or click to browse screenshots and supporting files
                     </span>
                     <span className="mt-2 text-xs text-gray-400 dark:text-slate-500">
-                      Images, PDFs, Office documents, text, and CSV files are supported.
+                      Images, PDFs, Office documents, text, and CSV files are
+                      supported.
                     </span>
                   </label>
 
@@ -768,7 +809,9 @@ export default function TicketModal({
                               {formatFileSize(attachment.fileSize)} ·{" "}
                               {attachment.contentType} ·{" "}
                               {attachment.uploadedByDisplayName} ·{" "}
-                              {new Date(attachment.uploadedDate).toLocaleString()}
+                              {new Date(
+                                attachment.uploadedDate,
+                              ).toLocaleString()}
                             </p>
                           </div>
 
@@ -781,7 +824,9 @@ export default function TicketModal({
                               Open
                             </button>
                             <button
-                              onClick={() => void downloadAttachment(attachment)}
+                              onClick={() =>
+                                void downloadAttachment(attachment)
+                              }
                               disabled={attachmentActionId === attachment.id}
                               className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                             >
@@ -797,7 +842,8 @@ export default function TicketModal({
                     )
                   ) : (
                     <p className="text-sm text-gray-500 dark:text-slate-400">
-                      Selected attachments will upload after the ticket is created.
+                      Selected attachments will upload after the ticket is
+                      created.
                     </p>
                   )}
 

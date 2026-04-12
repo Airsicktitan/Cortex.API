@@ -1,6 +1,14 @@
 import type { UpdateUserProfileInput, UserProfile } from "../types/user";
 import PhoneNumberInput from "./PhoneNumberInput";
 
+const NOTIFICATION_CHANNEL_OPTIONS = [
+  { value: "", label: "Use system default" },
+  { value: "Neither", label: "Neither" },
+  { value: "Email", label: "Email" },
+  { value: "Teams", label: "Teams" },
+  { value: "Both", label: "Both" },
+] as const;
+
 interface UserProfileModalProps {
   isOpen: boolean;
   user: UserProfile | null;
@@ -120,6 +128,50 @@ export default function UserProfileModal({
                 placeholder="Department"
                 className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                Assignment Notifications
+              </label>
+              <select
+                value={draft.assignmentNotificationChannel ?? ""}
+                onChange={(event) =>
+                  onChange("assignmentNotificationChannel", event.target.value)
+                }
+                className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              >
+                {NOTIFICATION_CHANNEL_OPTIONS.map((option) => (
+                  <option key={option.value || "default"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                Choose how you want to receive ticket assignment alerts.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                SLA Risk Notifications
+              </label>
+              <select
+                value={draft.slaRiskNotificationChannel ?? ""}
+                onChange={(event) =>
+                  onChange("slaRiskNotificationChannel", event.target.value)
+                }
+                className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              >
+                {NOTIFICATION_CHANNEL_OPTIONS.map((option) => (
+                  <option key={option.value || "default"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                Choose how you want to receive at-risk and breached SLA alerts.
+              </p>
             </div>
           </div>
 

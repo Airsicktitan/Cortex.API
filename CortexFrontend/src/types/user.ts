@@ -1,3 +1,5 @@
+import type { NotificationChannelMode } from "./notificationChannelConfiguration";
+
 export interface UserProfile {
   id: number;
   displayName: string;
@@ -5,6 +7,8 @@ export interface UserProfile {
   email: string;
   phoneNumber?: string;
   department?: string;
+  assignmentNotificationChannel?: NotificationChannelMode | null;
+  slaRiskNotificationChannel?: NotificationChannelMode | null;
   role: string;
   createdDate: string;
   isActive: boolean;
@@ -33,6 +37,8 @@ export interface AdminUpdateUserInput {
   nickName?: string;
   phoneNumber?: string;
   department?: string;
+  assignmentNotificationChannel?: NotificationChannelMode | "";
+  slaRiskNotificationChannel?: NotificationChannelMode | "";
   role?: string;
   isActive?: boolean;
   expiryDate?: string | null;
@@ -55,4 +61,6 @@ export interface UpdateUserProfileInput {
   nickName?: string;
   phoneNumber?: string;
   department?: string;
+  assignmentNotificationChannel?: NotificationChannelMode | "";
+  slaRiskNotificationChannel?: NotificationChannelMode | "";
 }

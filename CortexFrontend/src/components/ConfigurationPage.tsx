@@ -4,6 +4,7 @@ import type {
   DatabaseViewDefinition,
   UpsertCustomReportDefinitionInput,
 } from "../types/customReport";
+import type { NotificationChannelConfiguration } from "../types/notificationChannelConfiguration";
 import type { SessionConfiguration } from "../types/sessionConfiguration";
 import type { SlaConfiguration } from "../types/sla";
 import type {
@@ -18,6 +19,7 @@ import type {
 import type { TicketRoutingRule } from "../types/ticketRouting";
 import ArchivePolicySection from "./ArchivePolicySection";
 import CustomReportRegistrySection from "./CustomReportRegistrySection";
+import NotificationChannelSection from "./NotificationChannelSection";
 import StoredProcedureRegistrySection from "./StoredProcedureRegistrySection";
 import TicketRoutingSection from "./TicketRoutingSection";
 import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
@@ -44,6 +46,16 @@ interface ConfigurationPageProps {
   ) => void;
   onRefreshSession: () => void;
   onSaveSession: () => void;
+  notificationChannelConfiguration: NotificationChannelConfiguration | null;
+  notificationChannelError: string | null;
+  notificationChannelLoading: boolean;
+  notificationChannelSaving: boolean;
+  onNotificationChannelChange: <K extends keyof NotificationChannelConfiguration>(
+    field: K,
+    value: NotificationChannelConfiguration[K],
+  ) => void;
+  onRefreshNotificationChannels: () => void;
+  onSaveNotificationChannels: () => void;
   ticketStatuses: TicketStatusDefinition[];
   ticketStatusError: string | null;
   ticketStatusLoading: boolean;
@@ -139,6 +151,13 @@ export default function ConfigurationPage({
   onSessionChange,
   onRefreshSession,
   onSaveSession,
+  notificationChannelConfiguration,
+  notificationChannelError,
+  notificationChannelLoading,
+  notificationChannelSaving,
+  onNotificationChannelChange,
+  onRefreshNotificationChannels,
+  onSaveNotificationChannels,
   ticketStatuses,
   ticketStatusError,
   ticketStatusLoading,
@@ -205,10 +224,20 @@ export default function ConfigurationPage({
             Configuration
           </h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-            Manage the operational rules for SLA tracking, session security, and archive policy.
+            Manage the operational rules for notifications, SLA tracking, session security, and archive policy.
           </p>
         </div>
       </section>
+
+      <NotificationChannelSection
+        configuration={notificationChannelConfiguration}
+        loading={notificationChannelLoading}
+        saving={notificationChannelSaving}
+        error={notificationChannelError}
+        onChange={onNotificationChannelChange}
+        onRefresh={onRefreshNotificationChannels}
+        onSave={onSaveNotificationChannels}
+      />
 
       <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">

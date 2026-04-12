@@ -40,14 +40,14 @@ In real enterprise operations, this leads to:
 ## 💡 Demo Flow
 
 1. Log in and create a ticket with an attachment
-2. Show department-based routing auto-assigning the **Syniti Owner** while still allowing manual override
-3. Show **Business Owner** defaulting to the requester for validation ownership
-4. Progress the ticket with comments, attachments, and status updates
+2. Show ticket title and routing department rules auto-assigning the **Syniti Owner** and optional **Business Owner** while still allowing manual override
+3. Show unmatched tickets defaulting the **Business Owner** back to the requester for validation ownership
+4. Progress the ticket with comments, attachments, and status updates, showing the comment panel refreshing immediately with the right author
 5. Open the ticket history modal to show who changed what and why
 6. Observe SLA state on the board and dashboard
 7. Show the notification bell surfacing assignment, SLA, and archive events in real time
 8. Open reports, show the SLA and Online Users report views, registered custom reports, and export to Excel
-9. Show Configuration for SLA, Ticket Statuses, Ticket Routing, Archive Policies, Session Security, stored procedure registration, and report registration from SQL-backed views
+9. Show Configuration for notification channels, SLA, Ticket Statuses, Ticket Routing, Archive Policies, Session Security, stored procedure registration, and report registration from SQL-backed views
 10. Review Jobs, the failed-jobs queue, the header notification experience, and the automatic archive scheduler
 11. Move eligible tickets into Archived Tickets and reactivate one back into the queue with its comments and attachments restored
 
@@ -58,10 +58,12 @@ In real enterprise operations, this leads to:
 - Dual ownership as a **first-class concept**, not a workaround
 - API-level enforcement of system invariants
 - Frontend designed to surface responsibility and triage first
+- Dark-mode filter controls stay readable during live demo use
 - Ticket details keep creator labels human-readable instead of falling back to generic system wording
 - Configuration-driven SLA, archive, and session behavior
 - Ticket statuses are configurable instead of being hard-coded into the workflow
-- Department-based ticket routing is configurable instead of hard-coded into the create flow
+- Title-phrase and department-based ticket routing is configurable instead of hard-coded into the create flow
+- Change reasons are captured when they matter on edits and archive actions instead of cluttering new-ticket intake
 - New tickets now use a clean numeric sequence, while older legacy ticket IDs still remain valid
 - Configurable jobs, stored procedures, and custom reports for operator control
 - Custom reports can be registered from a raw SELECT/CTE query or a full SQL view definition
@@ -75,10 +77,14 @@ In real enterprise operations, this leads to:
 - Stored procedure deletion now safely disables dependent jobs instead of blocking operators in configuration
 - Response mapping is resilient even when EF navigation properties are not preloaded
 - Assignment, SLA, and archive activity now flow into a persisted in-app notification center
+- Assignment and SLA-risk events can also fan out through backend-managed Email and Teams channels when those transports are configured
+- Each user can keep the system default or override assignment and SLA-risk notifications to `Email`, `Teams`, `Both`, or `Neither`
+- Self-assignment now still surfaces the assignment notification instead of being silently skipped
 - Admins can remove users from the platform while preserving historical references through the fallback legacy user
 - Legacy archived attachments with missing pre-upgrade binary content now come back as a clear restore note instead of fake attachment files
 - Auth0-backed user provisioning is deployment-ready as long as management credentials are supplied through environment-specific app settings or secret storage
 - Reporting and automation built into the platform, not bolted on
+- Realtime updates are resilient to malformed stream messages during demo usage
 - Architecture aligned with future SaaS scaling
 
 ---
@@ -99,7 +105,7 @@ In real enterprise operations, this leads to:
 
 - ML-based routing
 - Multi-tenant separation
-- External notification delivery (email / Teams / Slack)
+- External Slack delivery
 - Auth0 role / permission sync for newly provisioned users
 
 > These are intentionally out of scope to keep the demo focused on **core workflow modeling**.
