@@ -3,7 +3,6 @@ using Cortex.API.Services;
 
 namespace Cortex.API.DTO;
 
-
 public static class UserResponseExtensions
 {
     public static UserResponse ToResponse(this User user)
@@ -108,6 +107,11 @@ public static class TicketResponseExtensions
             Description = ticket.Description,
             Status = ticket.Status,
             Priority = ticket.Priority,
+            BoardId = ticket.BoardId,
+            BoardName = (ticket.BoardId.HasValue && ticket.BoardDefinition is not null)
+                ? context.ResolveBoardName(ticket.BoardId.Value, ticket.BoardDefinition) ?? string.Empty
+                : string.Empty,
+            StoryPoints = ticket.StoryPoints,
             SynitiOwner = ticket.SynitiOwner,
             BusinessOwner = ticket.BusinessOwner,
             CreatedBy = ticket.CreatedBy,
@@ -174,6 +178,11 @@ public static class ArchivedTicketMappings
             Description = ticket.Description,
             Status = ticket.Status,
             Priority = ticket.Priority,
+            BoardId = ticket.BoardId,
+            BoardName = ticket.BoardDefinition is not null
+                ? context.ResolveBoardName(ticket.BoardId, ticket.BoardDefinition) ?? string.Empty
+                : string.Empty,
+            StoryPoints = ticket.StoryPoints,
             SynitiOwner = ticket.SynitiOwner,
             BusinessOwner = ticket.BusinessOwner,
             CreatedBy = ticket.CreatedBy,
@@ -190,6 +199,23 @@ public static class ArchivedTicketMappings
             ArchivedDate = ticket.ArchivedDate,
             CommentCount = ticket.CommentCount,
             AttachmentCount = ticket.AttachmentCount
+        };
+    }
+}
+
+public static class TicketBoardDefinitionMappings
+{
+    public static TicketBoardDefinitionResponse ToResponse(this TicketBoardDefinition definition)
+    {
+        return new TicketBoardDefinitionResponse
+        {
+            Id = definition.Id,
+            Name = definition.Name,
+            Description = definition.Description,
+            RequiresStoryPoints = definition.RequiresStoryPoints,
+            IsEnabled = definition.IsEnabled,
+            CreatedDateUtc = definition.CreatedDateUtc,
+            LastModifiedDateUtc = definition.LastModifiedDateUtc
         };
     }
 }

@@ -27,6 +27,7 @@ public class CortexDbContext : DbContext
     public DbSet<StoredProcedureDefinition> StoredProcedureDefinitions => Set<StoredProcedureDefinition>();
     public DbSet<TicketStatusDefinition> TicketStatusDefinitions => Set<TicketStatusDefinition>();
     public DbSet<TicketRoutingRule> TicketRoutingRules => Set<TicketRoutingRule>();
+    public DbSet<TicketBoardDefinition> TicketBoardDefinitions => Set<TicketBoardDefinition>();
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
 
@@ -46,11 +47,20 @@ public class CortexDbContext : DbContext
             entity.Property(t => t.Priority)
                 .IsRequired();
 
+            entity.Property(t => t.BoardId)
+                .IsRequired();
+
             entity.HasIndex(t => t.Status);
             entity.HasIndex(t => t.Priority);
+            entity.HasIndex(t => t.BoardId);
             entity.HasOne(t => t.CreatedByUser)
                 .WithMany()
                 .HasForeignKey(t => t.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(t => t.BoardDefinition)
+                .WithMany()
+                .HasForeignKey(t => t.BoardId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -68,6 +78,9 @@ public class CortexDbContext : DbContext
             entity.Property(t => t.Priority)
                 .IsRequired();
 
+            entity.Property(t => t.BoardId)
+                .IsRequired();
+
             entity.Property(t => t.ArchivedDate)
                 .IsRequired();
 
@@ -79,6 +92,7 @@ public class CortexDbContext : DbContext
 
             entity.HasIndex(t => t.Status);
             entity.HasIndex(t => t.Priority);
+            entity.HasIndex(t => t.BoardId);
             entity.HasIndex(t => t.ArchivedDate);
 
             entity.HasOne(t => t.CreatedByUser)
@@ -89,6 +103,11 @@ public class CortexDbContext : DbContext
             entity.HasOne(t => t.ArchivedByUser)
                 .WithMany()
                 .HasForeignKey(t => t.ArchivedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(t => t.BoardDefinition)
+                .WithMany()
+                .HasForeignKey(t => t.BoardId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -277,6 +296,27 @@ public class CortexDbContext : DbContext
             entity.HasIndex(rule => rule.Department);
             entity.HasIndex(rule => rule.TitleContains);
             entity.HasIndex(rule => new { rule.Department, rule.TitleContains });
+        });
+
+        modelBuilder.Entity<TicketBoardDefinition>(entity =>
+        {
+            entity.HasKey(definition => definition.Id);
+
+            entity.Property(definition => definition.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(definition => definition.Description)
+                .HasMaxLength(500);
+
+            entity.Property(definition => definition.RequiresStoryPoints)
+                .IsRequired();
+
+            entity.Property(definition => definition.IsEnabled)
+                .IsRequired();
+
+            entity.HasIndex(definition => definition.Name)
+                .IsUnique();
         });
 
         modelBuilder.Entity<SessionConfiguration>(entity =>

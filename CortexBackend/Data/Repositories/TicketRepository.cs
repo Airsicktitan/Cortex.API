@@ -13,7 +13,9 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 
     public async Task<IEnumerable<Ticket>> GetAllTicketsAsync()
     {
-        return await _context.Tickets.ToListAsync();
+        return await _context.Tickets
+        .Include(t => t.BoardDefinition)
+        .ToListAsync();
     }
 
     public async Task<IEnumerable<ArchivedTicket>> GetArchivedTicketsAsync()
@@ -145,6 +147,8 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
             Description = archivedTicket.Description,
             Status = restoredStatus,
             Priority = archivedTicket.Priority,
+            BoardId = archivedTicket.BoardId,
+            StoryPoints = archivedTicket.StoryPoints,
             SynitiOwner = archivedTicket.SynitiOwner,
             BusinessOwner = archivedTicket.BusinessOwner,
             CreatedBy = archivedTicket.CreatedBy,

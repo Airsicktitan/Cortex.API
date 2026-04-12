@@ -9,6 +9,8 @@ public class Ticket
     public string Description { get; set; } = string.Empty; // Default to empty string
     public string Status { get; set; } = "New"; // Default status
     public string Priority { get; set; } = "Medium"; // Default priority
+    public int? BoardId { get; set; }
+    public int? StoryPoints { get; set; }
 
     public string? SynitiOwner { get; set; } // Nullable
     public string? BusinessOwner { get; set; } // Nullable
@@ -23,4 +25,7 @@ public class Ticket
     
     [JsonIgnore]
     public User? CreatedByUser { get; set; } = null; // Navigation property for creator
+
+    [JsonIgnore]
+    public TicketBoardDefinition? BoardDefinition { get; set; }
 }

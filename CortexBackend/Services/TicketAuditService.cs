@@ -25,6 +25,8 @@ public class TicketAuditService(CortexDbContext context) : ITicketAuditService
         AddFieldChange(fieldChanges, "Description", null, ticket.Description);
         AddFieldChange(fieldChanges, "Status", null, ticket.Status);
         AddFieldChange(fieldChanges, "Priority", null, ticket.Priority);
+        AddFieldChange(fieldChanges, "Board", null, ticket.BoardId.ToString());
+        AddFieldChange(fieldChanges, "Story Points", null, ticket.StoryPoints?.ToString());
         AddFieldChange(fieldChanges, "Syniti Owner", null, ticket.SynitiOwner);
         AddFieldChange(fieldChanges, "Business Owner", null, ticket.BusinessOwner);
 
@@ -48,6 +50,8 @@ public class TicketAuditService(CortexDbContext context) : ITicketAuditService
         AddFieldChange(fieldChanges, "Description", originalTicket.Description, updatedTicket.Description);
         AddFieldChange(fieldChanges, "Status", originalTicket.Status, updatedTicket.Status);
         AddFieldChange(fieldChanges, "Priority", originalTicket.Priority, updatedTicket.Priority);
+        AddFieldChange(fieldChanges, "Board", originalTicket.BoardId.ToString(), updatedTicket.BoardId.ToString());
+        AddFieldChange(fieldChanges, "Story Points", originalTicket.StoryPoints?.ToString(), updatedTicket.StoryPoints?.ToString());
         AddFieldChange(fieldChanges, "Syniti Owner", originalTicket.SynitiOwner, updatedTicket.SynitiOwner);
         AddFieldChange(fieldChanges, "Business Owner", originalTicket.BusinessOwner, updatedTicket.BusinessOwner);
 

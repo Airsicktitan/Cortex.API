@@ -9,6 +9,8 @@ public class ArchivedTicket
     public string Description { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string Priority { get; set; } = string.Empty;
+    public int BoardId { get; set; }
+    public int? StoryPoints { get; set; }
     public string? SynitiOwner { get; set; }
     public string? BusinessOwner { get; set; }
     public int CreatedBy { get; set; }
@@ -25,4 +27,7 @@ public class ArchivedTicket
 
     [JsonIgnore]
     public User? ArchivedByUser { get; set; }
+
+    [JsonIgnore]
+    public TicketBoardDefinition? BoardDefinition { get; set; }
 }

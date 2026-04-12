@@ -7,6 +7,9 @@ public class ArchivedTicketResponse
     public string Description { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string Priority { get; set; } = string.Empty;
+    public int BoardId { get; set; }
+    public string BoardName { get; set; } = string.Empty;
+    public int? StoryPoints { get; set; }
     public string? SynitiOwner { get; set; }
     public string? BusinessOwner { get; set; }
     public int CreatedBy { get; set; }

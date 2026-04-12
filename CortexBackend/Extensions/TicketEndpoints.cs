@@ -84,7 +84,7 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapPost("/{id}/archive", TicketHandlers.ArchiveTicket)
-            .RequireAuthorization("TicketsUpdate")
+            .RequireAuthorization("TicketsArchiveManage")
             .WithName("ArchiveTicket")
             .Accepts<TicketActionReasonRequest>("application/json")
             .Produces<ArchivedTicket>(StatusCodes.Status200OK)

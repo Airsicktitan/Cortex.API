@@ -5,6 +5,8 @@ public class CreateTicketRequest
     public required string Title { get; set; }
     public string? Description { get; set; }
     public string? Department { get; set; }
+    public int? BoardId { get; set; }
+    public int? StoryPoints { get; set; }
     public string? Priority { get; set; } // e.g., "Low", "Medium", "High"
     public string? SynitiOwner { get; set; }
     public string? BusinessOwner { get; set; }

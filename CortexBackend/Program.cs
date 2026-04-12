@@ -50,6 +50,7 @@ builder.Services.AddScoped<IReportDefinitionRepository, ReportDefinitionReposito
 builder.Services.AddScoped<IStoredProcedureDefinitionRepository, StoredProcedureDefinitionRepository>();
 builder.Services.AddScoped<ITicketStatusDefinitionRepository, TicketStatusDefinitionRepository>();
 builder.Services.AddScoped<ITicketRoutingRuleRepository, TicketRoutingRuleRepository>();
+builder.Services.AddScoped<ITicketBoardDefinitionRepository, TicketBoardDefinitionRepository>();
 builder.Services.AddScoped<IScheduledJobRepository, ScheduledJobRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IUserContextService, UserContextService>();
@@ -62,6 +63,7 @@ builder.Services.AddScoped<IReportDefinitionService, ReportDefinitionService>();
 builder.Services.AddScoped<IStoredProcedureDefinitionService, StoredProcedureDefinitionService>();
 builder.Services.AddScoped<ITicketStatusService, TicketStatusService>();
 builder.Services.AddScoped<ITicketRoutingRuleService, TicketRoutingRuleService>();
+builder.Services.AddScoped<ITicketBoardService, TicketBoardService>();
 builder.Services.AddScoped<IScheduledJobService, ScheduledJobService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ITicketArchivalService, TicketArchivalService>();
@@ -219,6 +221,9 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("UsersAdminDelete", policy =>
         policy.RequireClaim("permissions", "admin:system"));
 
+    options.AddPolicy("TicketsArchiveManage", policy =>
+        policy.RequireClaim("permissions", "admin:system", "developer"));
+
     options.AddPolicy("TicketsWrite", policy =>
         policy.RequireClaim("permissions", "tickets:create", "tickets:update", "admin:system"));
 
@@ -270,6 +275,7 @@ app.MapReportDefinitionEndpoints();
 app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();
 app.MapTicketRoutingRuleEndpoints();
+app.MapTicketBoardEndpoints();
 app.MapScheduledJobEndpoints();
 app.MapNotificationEndpoints();
 app.MapRealtimeEndpoints();

@@ -4,9 +4,11 @@ namespace Cortex.API.DTO;
 
 public sealed class ResponseMappingContext(
     IReadOnlyDictionary<int, string> userDisplayNames,
-    IReadOnlyDictionary<int, string> storedProcedureLabels)
+    IReadOnlyDictionary<int, string> storedProcedureLabels,
+    IReadOnlyDictionary<int, string> boardNames)
 {
     public static ResponseMappingContext Empty { get; } = new(
+        new Dictionary<int, string>(),
         new Dictionary<int, string>(),
         new Dictionary<int, string>());
 
@@ -42,6 +44,21 @@ public sealed class ResponseMappingContext(
         }
 
         return null;
+    }
+
+    public string ResolveBoardName(
+        int boardId,
+        TicketBoardDefinition? loadedDefinition = null)
+    {
+        var loadedName = NormalizeDisplayName(loadedDefinition?.Name);
+        if (loadedName is not null)
+        {
+            return loadedName;
+        }
+
+        return boardNames.TryGetValue(boardId, out var boardName)
+            ? boardName
+            : "Regular";
     }
 
     private static string? NormalizeDisplayName(string? value)

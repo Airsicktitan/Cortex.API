@@ -7,5 +7,6 @@ public interface IResponseMappingContextFactory
     Task<ResponseMappingContext> CreateAsync(
         IEnumerable<int> userIds,
         IEnumerable<int>? storedProcedureDefinitionIds = null,
+        IEnumerable<int>? boardIds = null,
         CancellationToken cancellationToken = default);
 }

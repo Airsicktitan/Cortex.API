@@ -12,6 +12,7 @@ public class ResponseMappingContextFactory(CortexDbContext context)
     public async Task<ResponseMappingContext> CreateAsync(
         IEnumerable<int> userIds,
         IEnumerable<int>? storedProcedureDefinitionIds = null,
+        IEnumerable<int>? boardIds = null,
         CancellationToken cancellationToken = default)
     {
         var distinctUserIds = userIds
@@ -20,6 +21,11 @@ public class ResponseMappingContextFactory(CortexDbContext context)
             .ToArray();
 
         var distinctStoredProcedureIds = (storedProcedureDefinitionIds ?? [])
+            .Where(id => id > 0)
+            .Distinct()
+            .ToArray();
+
+        var distinctBoardIds = (boardIds ?? [])
             .Where(id => id > 0)
             .Distinct()
             .ToArray();
@@ -56,6 +62,21 @@ public class ResponseMappingContextFactory(CortexDbContext context)
                     definition => definition.Name,
                     cancellationToken);
 
-        return new ResponseMappingContext(userDisplayNames, storedProcedureLabels);
+        var boardNames = distinctBoardIds.Length == 0
+            ? new Dictionary<int, string>()
+            : await _context.TicketBoardDefinitions
+                .AsNoTracking()
+                .Where(definition => distinctBoardIds.Contains(definition.Id))
+                .Select(definition => new
+                {
+                    definition.Id,
+                    definition.Name
+                })
+                .ToDictionaryAsync(
+                    definition => definition.Id,
+                    definition => definition.Name,
+                    cancellationToken);
+
+        return new ResponseMappingContext(userDisplayNames, storedProcedureLabels, boardNames);
     }
 }
