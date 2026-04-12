@@ -19,6 +19,27 @@ public static class UserHandlers
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
+    private static NotificationChannelMode? ParseNotificationChannelOrNull(
+        string? rawValue,
+        string fieldName)
+    {
+        var normalized = NormalizeOptionalValue(rawValue);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        if (Enum.TryParse<NotificationChannelMode>(normalized, true, out var mode) &&
+            Enum.IsDefined(mode))
+        {
+            return mode;
+        }
+
+        throw new ArgumentException(
+            $"{fieldName} must be one of Neither, Email, Teams, Both, or left blank to use the system default.",
+            fieldName);
+    }
+
     private static bool HasPermission(ClaimsPrincipal? principal, string permission)
     {
         if (principal is null)
@@ -75,11 +96,18 @@ public static class UserHandlers
 
     public static async Task<IResult> UpdateUserProfile(IUserContextService userContext, UpdateUserProfileRequest request)
     {
-        var user = await userContext.GetCurrentUserAsync();
+        try
+        {
+            var user = await userContext.GetCurrentUserAsync();
 
-        await userContext.UpdateProfileAsync(user, request);
+            await userContext.UpdateProfileAsync(user, request);
 
-        return Results.Ok(user.ToResponse());
+            return Results.Ok(user.ToResponse());
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { message = exception.Message });
+        }
     }
 
     public static async Task<IResult> UpdateUser(
@@ -102,17 +130,30 @@ public static class UserHandlers
             });
         }
 
-        user.NickName = NormalizeOptionalValue(request.NickName);
-        user.PhoneNumber = NormalizeOptionalValue(request.PhoneNumber);
-        user.Department = NormalizeOptionalValue(request.Department);
-        user.Role = role;
-        user.IsActive = request.IsActive;
-        user.ExpiryDate = request.ExpiryDate;
-        user.LastModifiedDate = DateTime.UtcNow;
+        try
+        {
+            user.NickName = NormalizeOptionalValue(request.NickName);
+            user.PhoneNumber = NormalizeOptionalValue(request.PhoneNumber);
+            user.Department = NormalizeOptionalValue(request.Department);
+            user.AssignmentNotificationChannel = ParseNotificationChannelOrNull(
+                request.AssignmentNotificationChannel,
+                nameof(request.AssignmentNotificationChannel));
+            user.SlaRiskNotificationChannel = ParseNotificationChannelOrNull(
+                request.SlaRiskNotificationChannel,
+                nameof(request.SlaRiskNotificationChannel));
+            user.Role = role;
+            user.IsActive = request.IsActive;
+            user.ExpiryDate = request.ExpiryDate;
+            user.LastModifiedDate = DateTime.UtcNow;
 
-        await repo.SaveChangesAsync();
+            await repo.SaveChangesAsync();
 
-        return Results.Ok(user.ToAdminResponse());
+            return Results.Ok(user.ToAdminResponse());
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { message = exception.Message });
+        }
     }
 
     public static async Task<IResult> CreateUser(

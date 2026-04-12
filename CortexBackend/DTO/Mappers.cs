@@ -16,6 +16,8 @@ public static class UserResponseExtensions
             Email = user.Email ?? string.Empty,
             PhoneNumber = user.PhoneNumber,
             Department = user.Department ?? string.Empty,
+            AssignmentNotificationChannel = user.AssignmentNotificationChannel?.ToString(),
+            SlaRiskNotificationChannel = user.SlaRiskNotificationChannel?.ToString(),
             Role = user.Role.ToString(),
             IsActive = user.IsActive,
             CreatedDate = user.CreatedDate,
@@ -36,6 +38,8 @@ public static class UserResponseExtensions
             Email = user.Email ?? string.Empty,
             PhoneNumber = user.PhoneNumber,
             Department = user.Department ?? string.Empty,
+            AssignmentNotificationChannel = user.AssignmentNotificationChannel?.ToString(),
+            SlaRiskNotificationChannel = user.SlaRiskNotificationChannel?.ToString(),
             Role = user.Role.ToString(),
             CreatedDate = user.CreatedDate,
             LastLoginDate = user.LastLoginDate,
@@ -247,8 +251,10 @@ public static class TicketRoutingRuleMappings
         return new TicketRoutingRuleResponse
         {
             Id = rule.Id,
-            Department = rule.Department,
-            SynitiOwner = rule.SynitiOwner,
+            Department = rule.Department ?? string.Empty,
+            TitleContains = rule.TitleContains ?? string.Empty,
+            SynitiOwner = rule.SynitiOwner ?? string.Empty,
+            BusinessOwner = rule.BusinessOwner ?? string.Empty,
             IsEnabled = rule.IsEnabled,
             CreatedDateUtc = rule.CreatedDateUtc,
             LastModifiedDateUtc = rule.LastModifiedDateUtc
@@ -280,6 +286,19 @@ public static class SessionConfigurationMappings
         {
             InactivityTimeoutMinutes = configuration.InactivityTimeoutMinutes,
             WarningMinutes = configuration.WarningMinutes
+        };
+    }
+}
+
+public static class NotificationChannelConfigurationMappings
+{
+    public static NotificationChannelConfigurationResponse ToResponse(
+        this NotificationChannelConfiguration configuration)
+    {
+        return new NotificationChannelConfigurationResponse
+        {
+            AssignmentChannel = configuration.AssignmentChannel.ToString(),
+            SlaRiskChannel = configuration.SlaRiskChannel.ToString()
         };
     }
 }

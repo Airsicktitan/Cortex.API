@@ -119,6 +119,13 @@ public class UserContextService(IUserRepository userRepository, IHttpContextAcce
 
     public async Task<User> UpdateProfileAsync(User user, UpdateUserProfileRequest request)
     {
+        var assignmentNotificationChannel = ParseNotificationChannelOrNull(
+            request.AssignmentNotificationChannel,
+            nameof(request.AssignmentNotificationChannel));
+        var slaRiskNotificationChannel = ParseNotificationChannelOrNull(
+            request.SlaRiskNotificationChannel,
+            nameof(request.SlaRiskNotificationChannel));
+
         // Update only allowed fields
         if (!string.IsNullOrWhiteSpace(request.DisplayName))
         {
@@ -128,6 +135,8 @@ public class UserContextService(IUserRepository userRepository, IHttpContextAcce
         user.NickName = NormalizeOptionalValue(request.NickName);
         user.PhoneNumber = NormalizeOptionalValue(request.PhoneNumber);
         user.Department = NormalizeOptionalValue(request.Department);
+        user.AssignmentNotificationChannel = assignmentNotificationChannel;
+        user.SlaRiskNotificationChannel = slaRiskNotificationChannel;
         user.LastModifiedDate = DateTime.UtcNow;
 
         await _userRepo.SaveChangesAsync();
@@ -143,6 +152,27 @@ public class UserContextService(IUserRepository userRepository, IHttpContextAcce
     private static string? NormalizeOptionalValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static NotificationChannelMode? ParseNotificationChannelOrNull(
+        string? rawValue,
+        string fieldName)
+    {
+        var normalized = NormalizeOptionalValue(rawValue);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        if (Enum.TryParse<NotificationChannelMode>(normalized, true, out var mode) &&
+            Enum.IsDefined(mode))
+        {
+            return mode;
+        }
+
+        throw new ArgumentException(
+            $"{fieldName} must be one of Neither, Email, Teams, Both, or left blank to use the system default.",
+            fieldName);
     }
 
     private static string BuildFallbackEmail(string auth0Id)

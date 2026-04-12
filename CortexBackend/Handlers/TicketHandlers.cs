@@ -191,9 +191,13 @@ public static class TicketHandlers
             : request.Status.Trim();
         var routingDepartment = NormalizeOptionalValue(request.Department)
             ?? NormalizeOptionalValue(currentUser.Department);
+        var routingResolution = await ticketRoutingRuleService.ResolveOwnersAsync(
+            routingDepartment,
+            request.Title);
         var resolvedSynitiOwner = NormalizeOptionalValue(request.SynitiOwner)
-            ?? await ticketRoutingRuleService.ResolveSynitiOwnerAsync(routingDepartment);
+            ?? routingResolution.SynitiOwner;
         var resolvedBusinessOwner = NormalizeOptionalValue(request.BusinessOwner)
+            ?? routingResolution.BusinessOwner
             ?? GetDefaultBusinessOwner(currentUser);
 
         await ticketStatusService.EnsureSelectableStatusAsync(requestedStatus);

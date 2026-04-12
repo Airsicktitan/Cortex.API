@@ -10,12 +10,18 @@ public class NotificationService(
     IUserRepository userRepository,
     ITicketRepository ticketRepository,
     ISlaConfigurationService slaConfigurationService,
+    INotificationChannelConfigurationService notificationChannelConfigurationService,
+    INotificationDeliveryService notificationDeliveryService,
     IRealtimeEventService realtimeEventService) : INotificationService
 {
     private readonly INotificationRepository _notificationRepository = notificationRepository;
     private readonly IUserRepository _userRepository = userRepository;
     private readonly ITicketRepository _ticketRepository = ticketRepository;
     private readonly ISlaConfigurationService _slaConfigurationService = slaConfigurationService;
+    private readonly INotificationChannelConfigurationService _notificationChannelConfigurationService =
+        notificationChannelConfigurationService;
+    private readonly INotificationDeliveryService _notificationDeliveryService =
+        notificationDeliveryService;
     private readonly IRealtimeEventService _realtimeEventService = realtimeEventService;
 
     public async Task<NotificationFeedResponse> GetFeedAsync(int userId, int take = 20)
@@ -97,6 +103,9 @@ public class NotificationService(
         var notifications = assignments.Values.Select(assignment =>
         {
             var joinedRoles = JoinWithAnd(assignment.Roles);
+            var message = assignment.User.Id == actor.Id
+                ? $"You are assigned as {joinedRoles} on ticket {updatedTicket.Id} ({updatedTicket.Title})."
+                : $"{actorName} assigned you as {joinedRoles} on ticket {updatedTicket.Id} ({updatedTicket.Title}).";
             return new UserNotification
             {
                 UserId = assignment.User.Id,
@@ -106,11 +115,22 @@ public class NotificationService(
                 EventType = "ticket.assignment",
                 Severity = "info",
                 Title = $"Ticket {updatedTicket.Id} assigned to you",
-                Message = $"{actorName} assigned you as {joinedRoles} on ticket {updatedTicket.Id} ({updatedTicket.Title})."
+                Message = message
             };
         }).ToList();
 
-        return await CreateAndPublishAsync(notifications);
+        var createdCount = await CreateAndPublishAsync(notifications);
+        if (createdCount > 0)
+        {
+            var recipientsById = assignments.Values.ToDictionary(
+                assignment => assignment.User.Id,
+                assignment => assignment.User);
+            await DeliverExternalNotificationsAsync(
+                notifications,
+                recipientsById);
+        }
+
+        return createdCount;
     }
 
     public async Task<int> CreateArchiveNotificationsAsync(
@@ -221,7 +241,21 @@ public class NotificationService(
             }
         }
 
-        return await CreateAndPublishAsync(notifications);
+        var createdCount = await CreateAndPublishAsync(notifications);
+        if (createdCount > 0)
+        {
+            var recipientsById = notifications
+                .Select(notification => notification.UserId)
+                .Distinct()
+                .Where(usersById.ContainsKey)
+                .ToDictionary(userId => userId, userId => usersById[userId]);
+            await DeliverExternalNotificationsAsync(
+                notifications,
+                recipientsById,
+                cancellationToken);
+        }
+
+        return createdCount;
     }
 
     private async Task<int> CreateAndPublishAsync(IReadOnlyList<UserNotification> notifications)
@@ -243,6 +277,51 @@ public class NotificationService(
         });
 
         return notifications.Count;
+    }
+
+    private async Task DeliverExternalNotificationsAsync(
+        IReadOnlyList<UserNotification> notifications,
+        IReadOnlyDictionary<int, User> recipientsById,
+        CancellationToken cancellationToken = default)
+    {
+        if (notifications.Count == 0 || recipientsById.Count == 0)
+        {
+            return;
+        }
+
+        var defaultConfiguration = await _notificationChannelConfigurationService.GetAsync();
+        var notificationsByUser = notifications
+            .GroupBy(notification => notification.UserId)
+            .ToList();
+
+        foreach (var group in notificationsByUser)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!recipientsById.TryGetValue(group.Key, out var recipient))
+            {
+                continue;
+            }
+
+            var channelMode = ResolveChannelMode(
+                recipient,
+                group.First().Category,
+                defaultConfiguration);
+            if (channelMode == NotificationChannelMode.Neither)
+            {
+                continue;
+            }
+
+            var notificationBatch = group.ToList();
+            await _notificationDeliveryService.DeliverAsync(
+                channelMode,
+                notificationBatch,
+                new Dictionary<int, User>
+                {
+                    [recipient.Id] = recipient
+                },
+                cancellationToken);
+        }
     }
 
     private async Task<List<User>> GetNotifiableUsersAsync(DateTime? utcNow = null)
@@ -287,7 +366,7 @@ public class NotificationService(
         }
 
         var resolvedUser = ResolveOwnerUser(nextOwner, aliases);
-        if (resolvedUser is null || resolvedUser.Id == actor.Id)
+        if (resolvedUser is null)
         {
             return;
         }
@@ -418,6 +497,16 @@ public class NotificationService(
             2 => $"{values[0]} and {values[1]}",
             _ => $"{string.Join(", ", values.Take(values.Count - 1))}, and {values[^1]}"
         };
+    }
+
+    private static NotificationChannelMode ResolveChannelMode(
+        User user,
+        string category,
+        NotificationChannelConfiguration defaultConfiguration)
+    {
+        return string.Equals(category, "SLA", StringComparison.OrdinalIgnoreCase)
+            ? user.SlaRiskNotificationChannel ?? defaultConfiguration.SlaRiskChannel
+            : user.AssignmentNotificationChannel ?? defaultConfiguration.AssignmentChannel;
     }
 
     private static NotificationResponse ToResponse(UserNotification notification)

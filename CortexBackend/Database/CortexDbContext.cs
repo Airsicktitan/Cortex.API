@@ -22,6 +22,7 @@ public class CortexDbContext : DbContext
     public DbSet<SlaConfiguration> SlaConfigurations => Set<SlaConfiguration>();
     public DbSet<ArchiveConfiguration> ArchiveConfigurations => Set<ArchiveConfiguration>();
     public DbSet<SessionConfiguration> SessionConfigurations => Set<SessionConfiguration>();
+    public DbSet<NotificationChannelConfiguration> NotificationChannelConfigurations => Set<NotificationChannelConfiguration>();
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<StoredProcedureDefinition> StoredProcedureDefinitions => Set<StoredProcedureDefinition>();
     public DbSet<TicketStatusDefinition> TicketStatusDefinitions => Set<TicketStatusDefinition>();
@@ -191,6 +192,14 @@ public class CortexDbContext : DbContext
             entity.Property(u => u.PhoneNumber)
                 .HasMaxLength(50);
 
+            entity.Property(u => u.AssignmentNotificationChannel)
+                .HasConversion<string>()
+                .HasMaxLength(20);
+
+            entity.Property(u => u.SlaRiskNotificationChannel)
+                .HasConversion<string>()
+                .HasMaxLength(20);
+
             entity.HasIndex(u => u.Email)
                 .IsUnique();
 
@@ -251,18 +260,23 @@ public class CortexDbContext : DbContext
             entity.HasKey(rule => rule.Id);
 
             entity.Property(rule => rule.Department)
-                .IsRequired()
                 .HasMaxLength(120);
 
+            entity.Property(rule => rule.TitleContains)
+                .HasMaxLength(200);
+
             entity.Property(rule => rule.SynitiOwner)
-                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(rule => rule.BusinessOwner)
                 .HasMaxLength(200);
 
             entity.Property(rule => rule.IsEnabled)
                 .IsRequired();
 
-            entity.HasIndex(rule => rule.Department)
-                .IsUnique();
+            entity.HasIndex(rule => rule.Department);
+            entity.HasIndex(rule => rule.TitleContains);
+            entity.HasIndex(rule => new { rule.Department, rule.TitleContains });
         });
 
         modelBuilder.Entity<SessionConfiguration>(entity =>
@@ -273,6 +287,21 @@ public class CortexDbContext : DbContext
                 .IsRequired();
 
             entity.Property(configuration => configuration.WarningMinutes)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity<NotificationChannelConfiguration>(entity =>
+        {
+            entity.HasKey(configuration => configuration.Id);
+
+            entity.Property(configuration => configuration.AssignmentChannel)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+
+            entity.Property(configuration => configuration.SlaRiskChannel)
+                .HasConversion<string>()
+                .HasMaxLength(20)
                 .IsRequired();
         });
 

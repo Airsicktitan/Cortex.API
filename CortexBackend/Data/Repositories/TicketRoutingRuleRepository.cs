@@ -21,14 +21,6 @@ public class TicketRoutingRuleRepository(CortexDbContext context) : ITicketRouti
         return _context.TicketRoutingRules.FirstOrDefaultAsync(rule => rule.Id == id);
     }
 
-    public Task<TicketRoutingRule?> GetByDepartmentAsync(string department)
-    {
-        var normalizedDepartment = department.Trim().ToLowerInvariant();
-
-        return _context.TicketRoutingRules.FirstOrDefaultAsync(
-            rule => rule.Department.ToLower() == normalizedDepartment);
-    }
-
     public async Task AddAsync(TicketRoutingRule rule)
     {
         await _context.TicketRoutingRules.AddAsync(rule);

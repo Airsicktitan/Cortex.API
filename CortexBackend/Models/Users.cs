@@ -9,6 +9,8 @@ public class User
     public string? PhoneNumber { get; set; } // Nullable
     public UserRole Role { get; set; } = UserRole.User; // Default to User role
     public string? Department { get; set; } // Nullable
+    public NotificationChannelMode? AssignmentNotificationChannel { get; set; }
+    public NotificationChannelMode? SlaRiskNotificationChannel { get; set; }
 
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow; // Default to now
     public DateTime? LastLoginDate { get; set; } // Nullable

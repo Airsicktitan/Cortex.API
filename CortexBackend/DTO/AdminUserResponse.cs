@@ -8,6 +8,8 @@ public class AdminUserResponse
     public required string Email { get; set; }
     public string? PhoneNumber { get; set; }
     public string? Department { get; set; }
+    public string? AssignmentNotificationChannel { get; set; }
+    public string? SlaRiskNotificationChannel { get; set; }
     public required string Role { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastLoginDate { get; set; }

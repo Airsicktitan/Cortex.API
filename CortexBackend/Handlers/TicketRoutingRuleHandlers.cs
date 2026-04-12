@@ -22,7 +22,9 @@ public static class TicketRoutingRuleHandlers
             var rule = new TicketRoutingRule
             {
                 Department = request.Department,
+                TitleContains = request.TitleContains,
                 SynitiOwner = request.SynitiOwner,
+                BusinessOwner = request.BusinessOwner,
                 IsEnabled = request.IsEnabled
             };
 
@@ -45,7 +47,9 @@ public static class TicketRoutingRuleHandlers
             var rule = new TicketRoutingRule
             {
                 Department = request.Department,
+                TitleContains = request.TitleContains,
                 SynitiOwner = request.SynitiOwner,
+                BusinessOwner = request.BusinessOwner,
                 IsEnabled = request.IsEnabled
             };
 

@@ -227,6 +227,29 @@ namespace Cortex.API.Migrations
                     b.ToTable("Comments");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.NotificationChannelConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AssignmentChannel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("SlaRiskChannel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NotificationChannelConfigurations");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.ReportDefinition", b =>
                 {
                     b.Property<int>("Id")
@@ -596,11 +619,14 @@ namespace Cortex.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("BusinessOwner")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<DateTime>("CreatedDateUtc")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("Department")
-                        .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
 
@@ -611,14 +637,20 @@ namespace Cortex.API.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<string>("SynitiOwner")
-                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TitleContains")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Department")
-                        .IsUnique();
+                    b.HasIndex("Department");
+
+                    b.HasIndex("TitleContains");
+
+                    b.HasIndex("Department", "TitleContains");
 
                     b.ToTable("TicketRoutingRules");
                 });
@@ -665,6 +697,10 @@ namespace Cortex.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AssignmentNotificationChannel")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<string>("Auth0Id")
                         .HasColumnType("nvarchar(450)");
 
@@ -710,6 +746,10 @@ namespace Cortex.API.Migrations
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SlaRiskNotificationChannel")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.HasKey("Id");
 
