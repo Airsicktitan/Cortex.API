@@ -28,7 +28,7 @@ public static class TicketBoardHandlers
 
             var savedDefinition = await service.CreateAsync(definition);
             return Results.Created(
-                $"/api/ticket-boards/{savedDefinition.Id}",
+                $"/api/boards/{savedDefinition.Id}",
                 savedDefinition.ToResponse());
         }
         catch (ArgumentException exception)

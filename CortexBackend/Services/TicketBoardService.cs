@@ -6,17 +6,48 @@ namespace Cortex.API.Services;
 public class TicketBoardService(
     ITicketBoardDefinitionRepository repository) : ITicketBoardService
 {
+    private const string DefaultBoardName = "Ticket";
+
+    private static readonly IReadOnlyList<TicketBoardDefinition> SeedBoards =
+    [
+        new()
+        {
+            Id = 1,
+            Name = DefaultBoardName,
+            Description = "Standard operational ticket board.",
+            RequiresStoryPoints = false,
+            IsEnabled = true
+        },
+        new()
+        {
+            Id = 2,
+            Name = "Hypercare",
+            Description = "High-touch stabilization and production support work.",
+            RequiresStoryPoints = false,
+            IsEnabled = true
+        },
+        new()
+        {
+            Id = 3,
+            Name = "Enhancement",
+            Description = "Planned improvements and backlog work.",
+            RequiresStoryPoints = true,
+            IsEnabled = true
+        }
+    ];
+
     private readonly ITicketBoardDefinitionRepository _repository = repository;
 
     public async Task<IReadOnlyList<TicketBoardDefinition>> GetAllAsync()
     {
+        await EnsureDefaultsAsync();
         var definitions = await _repository.GetAllAsync();
         return definitions.Select(Clone).ToList();
     }
 
     public async Task<IReadOnlyList<TicketBoardDefinition>> GetEnabledAsync()
     {
-        return (await _repository.GetAllAsync())
+        return (await GetAllAsync())
             .Where(definition => definition.IsEnabled)
             .Select(Clone)
             .ToList();
@@ -39,6 +70,7 @@ public class TicketBoardService(
             ?? throw new KeyNotFoundException("Ticket board was not found.");
 
         var normalizedDefinition = Normalize(definition);
+        ValidateProtectedBoardChanges(existingDefinition, normalizedDefinition);
         await ValidateAsync(normalizedDefinition, id);
 
         existingDefinition.Name = normalizedDefinition.Name;
@@ -55,6 +87,12 @@ public class TicketBoardService(
     {
         var existingDefinition = await _repository.GetByIdAsync(id)
             ?? throw new KeyNotFoundException("Ticket board was not found.");
+
+        if (IsDefaultBoard(existingDefinition.Name))
+        {
+            throw new InvalidOperationException(
+                $"The default \"{DefaultBoardName}\" board cannot be deleted.");
+        }
 
         if (await _repository.IsBoardInUseAsync(id))
         {
@@ -75,11 +113,58 @@ public class TicketBoardService(
         await _repository.SaveChangesAsync();
     }
 
+    public async Task EnsureDefaultsAsync()
+    {
+        var existingBoards = await _repository.GetAllAsync();
+        var existingBoardNames = existingBoards
+            .Select(definition => definition.Name.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missingBoards = SeedBoards
+            .Where(definition => !existingBoardNames.Contains(definition.Name))
+            .Select(definition => new TicketBoardDefinition
+            {
+                Name = definition.Name,
+                Description = definition.Description,
+                RequiresStoryPoints = definition.RequiresStoryPoints,
+                IsEnabled = definition.IsEnabled
+            })
+            .ToList();
+
+        if (missingBoards.Count == 0)
+        {
+            var currentDefaultBoard = existingBoards.FirstOrDefault(definition =>
+                IsDefaultBoard(definition.Name));
+            if (currentDefaultBoard is not null)
+            {
+                await _repository.NormalizeBoardAssignmentsAsync(currentDefaultBoard.Id);
+            }
+
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var board in missingBoards)
+        {
+            board.CreatedDateUtc = now;
+            await _repository.AddAsync(board);
+        }
+
+        await _repository.SaveChangesAsync();
+
+        var allBoards = await _repository.GetAllAsync();
+        var defaultBoard = allBoards.FirstOrDefault(definition => IsDefaultBoard(definition.Name));
+        if (defaultBoard is not null)
+        {
+            await _repository.NormalizeBoardAssignmentsAsync(defaultBoard.Id);
+        }
+    }
+
     public async Task<TicketBoardDefinition> GetDefaultCreateBoardAsync()
     {
         var enabledBoards = await GetEnabledAsync();
         var defaultBoard = enabledBoards.FirstOrDefault(definition =>
-            string.Equals(definition.Name, "Regular", StringComparison.OrdinalIgnoreCase))
+            IsDefaultBoard(definition.Name))
             ?? enabledBoards.FirstOrDefault();
 
         return defaultBoard ?? throw new InvalidOperationException(
@@ -124,6 +209,34 @@ public class TicketBoardService(
         }
     }
 
+    private static void ValidateProtectedBoardChanges(
+        TicketBoardDefinition existingDefinition,
+        TicketBoardDefinition updatedDefinition)
+    {
+        if (!IsDefaultBoard(existingDefinition.Name))
+        {
+            return;
+        }
+
+        if (!IsDefaultBoard(updatedDefinition.Name))
+        {
+            throw new ArgumentException(
+                $"The default board must remain named \"{DefaultBoardName}\".");
+        }
+
+        if (!updatedDefinition.IsEnabled)
+        {
+            throw new ArgumentException(
+                $"The default \"{DefaultBoardName}\" board must remain enabled.");
+        }
+
+        if (updatedDefinition.RequiresStoryPoints)
+        {
+            throw new ArgumentException(
+                $"The default \"{DefaultBoardName}\" board cannot require story points.");
+        }
+    }
+
     private static TicketBoardDefinition Normalize(TicketBoardDefinition definition)
     {
         return new TicketBoardDefinition
@@ -156,5 +269,10 @@ public class TicketBoardService(
     private static string? NormalizeOptionalValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static bool IsDefaultBoard(string? name)
+    {
+        return string.Equals(name?.Trim(), DefaultBoardName, StringComparison.OrdinalIgnoreCase);
     }
 }

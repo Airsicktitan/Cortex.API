@@ -47,5 +47,10 @@ public static class ReportDefinitionEndpoints
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound);
+
+        reports.MapGet("/export", ReportDefinitionHandlers.ExportReport)
+            .WithName("ExportReport")
+            .Produces(StatusCodes.Status200OK, contentType: "text/csv")
+            .Produces(StatusCodes.Status400BadRequest);
     }
 }

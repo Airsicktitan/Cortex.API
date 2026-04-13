@@ -6,32 +6,51 @@ public static class TicketBoardEndpoints
 {
     public static void MapTicketBoardEndpoints(this WebApplication app)
     {
-        var boards = app.MapGroup("/api/ticket-boards")
+        MapBoardGroup(app.MapGroup("/api/boards")
             .RequireAuthorization()
-            .WithTags("Ticket Boards");
+            .WithTags("Ticket Boards"), includeNames: true);
 
-        boards.MapGet("/", TicketBoardHandlers.GetTicketBoards)
-            .WithName("GetTicketBoards")
+        MapBoardGroup(app.MapGroup("/api/ticket-boards")
+            .RequireAuthorization()
+            .WithTags("Ticket Boards"), includeNames: false);
+    }
+
+    private static void MapBoardGroup(RouteGroupBuilder boards, bool includeNames)
+    {
+        var getBoards = boards.MapGet("/", TicketBoardHandlers.GetTicketBoards)
             .Produces(StatusCodes.Status200OK);
+        if (includeNames)
+        {
+            getBoards.WithName("GetTicketBoards");
+        }
 
-        boards.MapPost("/", TicketBoardHandlers.CreateTicketBoard)
-            .RequireAuthorization("SlaManage")
-            .WithName("CreateTicketBoard")
+        var createBoard = boards.MapPost("/", TicketBoardHandlers.CreateTicketBoard)
+            .RequireAuthorization("BoardsManage")
             .Produces(StatusCodes.Status201Created)
             .Produces(StatusCodes.Status400BadRequest);
+        if (includeNames)
+        {
+            createBoard.WithName("CreateTicketBoard");
+        }
 
-        boards.MapPut("/{id:int}", TicketBoardHandlers.UpdateTicketBoard)
-            .RequireAuthorization("SlaManage")
-            .WithName("UpdateTicketBoard")
+        var updateBoard = boards.MapPut("/{id:int}", TicketBoardHandlers.UpdateTicketBoard)
+            .RequireAuthorization("BoardsManage")
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound);
+        if (includeNames)
+        {
+            updateBoard.WithName("UpdateTicketBoard");
+        }
 
-        boards.MapDelete("/{id:int}", TicketBoardHandlers.DeleteTicketBoard)
-            .RequireAuthorization("SlaManage")
-            .WithName("DeleteTicketBoard")
+        var deleteBoard = boards.MapDelete("/{id:int}", TicketBoardHandlers.DeleteTicketBoard)
+            .RequireAuthorization("BoardsManage")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound);
+        if (includeNames)
+        {
+            deleteBoard.WithName("DeleteTicketBoard");
+        }
     }
 }

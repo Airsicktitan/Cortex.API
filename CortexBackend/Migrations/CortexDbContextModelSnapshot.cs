@@ -459,8 +459,7 @@ namespace Cortex.API.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("nvarchar(450)");
 
-                    b.Property<int?>("BoardId")
-                        .IsRequired()
+                    b.Property<int>("BoardId")
                         .HasColumnType("int");
 
                     b.Property<string>("BusinessOwner")
@@ -628,7 +627,7 @@ namespace Cortex.API.Migrations
                     b.ToTable("TicketAuditFieldChanges");
                 });
 
-            modelBuilder.Entity("Cortex.API.Models.TicketBoardDefinition", b =>
+                modelBuilder.Entity("Cortex.API.Models.TicketBoardDefinition", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -663,6 +662,38 @@ namespace Cortex.API.Migrations
                         .IsUnique();
 
                     b.ToTable("TicketBoardDefinitions");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.TicketBoardDefinition").HasData(
+                new
+                {
+                    Id = 1,
+                    CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, DateTimeKind.Utc),
+                    Description = "Standard operational ticket board.",
+                    IsEnabled = true,
+                    LastModifiedDateUtc = (DateTime?)null,
+                    Name = "Ticket",
+                    RequiresStoryPoints = false
+                },
+                new
+                {
+                    Id = 2,
+                    CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, DateTimeKind.Utc),
+                    Description = "High-touch stabilization and production support work.",
+                    IsEnabled = true,
+                    LastModifiedDateUtc = (DateTime?)null,
+                    Name = "Hypercare",
+                    RequiresStoryPoints = false
+                },
+                new
+                {
+                    Id = 3,
+                    CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, DateTimeKind.Utc),
+                    Description = "Planned improvements and backlog work.",
+                    IsEnabled = true,
+                    LastModifiedDateUtc = (DateTime?)null,
+                    Name = "Enhancement",
+                    RequiresStoryPoints = true
                 });
 
             modelBuilder.Entity("Cortex.API.Models.TicketRoutingRule", b =>

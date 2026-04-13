@@ -206,6 +206,9 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("SlaManage", policy =>
         policy.RequireClaim("permissions", "admin:system", "developer"));
 
+    options.AddPolicy("BoardsManage", policy =>
+        policy.RequireClaim("permissions", "admin:system", "developer"));
+
     options.AddPolicy("ReportsAdvanced", policy =>
         policy.RequireClaim("permissions", "admin:system", "developer"));
 
@@ -285,6 +288,12 @@ if (app.Environment.IsDevelopment())
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<CortexDbContext>();
     db.Database.Migrate();
+}
+
+using (var scope = app.Services.CreateScope())
+{
+    var ticketBoardService = scope.ServiceProvider.GetRequiredService<ITicketBoardService>();
+    await ticketBoardService.EnsureDefaultsAsync();
 }
 
 app.Run();

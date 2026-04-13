@@ -108,9 +108,7 @@ public static class TicketResponseExtensions
             Status = ticket.Status,
             Priority = ticket.Priority,
             BoardId = ticket.BoardId,
-            BoardName = (ticket.BoardId.HasValue && ticket.BoardDefinition is not null)
-                ? context.ResolveBoardName(ticket.BoardId.Value, ticket.BoardDefinition) ?? string.Empty
-                : string.Empty,
+            BoardName = context.ResolveBoardName(ticket.BoardId, ticket.BoardDefinition) ?? string.Empty,
             StoryPoints = ticket.StoryPoints,
             SynitiOwner = ticket.SynitiOwner,
             BusinessOwner = ticket.BusinessOwner,
@@ -179,9 +177,7 @@ public static class ArchivedTicketMappings
             Status = ticket.Status,
             Priority = ticket.Priority,
             BoardId = ticket.BoardId,
-            BoardName = ticket.BoardDefinition is not null
-                ? context.ResolveBoardName(ticket.BoardId, ticket.BoardDefinition) ?? string.Empty
-                : string.Empty,
+            BoardName = context.ResolveBoardName(ticket.BoardId, ticket.BoardDefinition) ?? string.Empty,
             StoryPoints = ticket.StoryPoints,
             SynitiOwner = ticket.SynitiOwner,
             BusinessOwner = ticket.BusinessOwner,

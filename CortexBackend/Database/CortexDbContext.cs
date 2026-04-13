@@ -300,6 +300,8 @@ public class CortexDbContext : DbContext
 
         modelBuilder.Entity<TicketBoardDefinition>(entity =>
         {
+            var seededDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, DateTimeKind.Utc);
+
             entity.HasKey(definition => definition.Id);
 
             entity.Property(definition => definition.Name)
@@ -317,6 +319,35 @@ public class CortexDbContext : DbContext
 
             entity.HasIndex(definition => definition.Name)
                 .IsUnique();
+
+            entity.HasData(
+                new TicketBoardDefinition
+                {
+                    Id = 1,
+                    Name = "Ticket",
+                    Description = "Standard operational ticket board.",
+                    RequiresStoryPoints = false,
+                    IsEnabled = true,
+                    CreatedDateUtc = seededDateUtc
+                },
+                new TicketBoardDefinition
+                {
+                    Id = 2,
+                    Name = "Hypercare",
+                    Description = "High-touch stabilization and production support work.",
+                    RequiresStoryPoints = false,
+                    IsEnabled = true,
+                    CreatedDateUtc = seededDateUtc
+                },
+                new TicketBoardDefinition
+                {
+                    Id = 3,
+                    Name = "Enhancement",
+                    Description = "Planned improvements and backlog work.",
+                    RequiresStoryPoints = true,
+                    IsEnabled = true,
+                    CreatedDateUtc = seededDateUtc
+                });
         });
 
         modelBuilder.Entity<SessionConfiguration>(entity =>

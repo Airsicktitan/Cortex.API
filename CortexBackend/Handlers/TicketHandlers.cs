@@ -29,9 +29,7 @@ public static class TicketHandlers
         var mappingContext = await mappingContextFactory.CreateAsync(
             visibleTickets.Select(ticket => ticket.CreatedBy),
             null,
-            visibleTickets
-                .Where(ticket => ticket.BoardId.HasValue)
-                .Select(ticket => ticket.BoardId.Value));
+            visibleTickets.Select(ticket => ticket.BoardId));
 
         return Results.Ok(
             visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
@@ -60,7 +58,7 @@ public static class TicketHandlers
         var mappingContext = await mappingContextFactory.CreateAsync(
             [ticket.CreatedBy],
             null,
-            ticket.BoardId.HasValue ? [ticket.BoardId.Value] : null);
+            [ticket.BoardId]);
 
         return Results.Ok(ticket.ToResponse(slaConfigurations, mappingContext));
     }
@@ -143,9 +141,7 @@ public static class TicketHandlers
         var mappingContext = await mappingContextFactory.CreateAsync(
             visibleTickets.Select(ticket => ticket.CreatedBy),
             null,
-            visibleTickets
-                .Where(ticket => ticket.BoardId.HasValue)
-                .Select(ticket => ticket.BoardId.Value));
+            visibleTickets.Select(ticket => ticket.BoardId));
 
         return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
     }
@@ -170,9 +166,7 @@ public static class TicketHandlers
         var mappingContext = await mappingContextFactory.CreateAsync(
             visibleTickets.Select(ticket => ticket.CreatedBy),
             null,
-            visibleTickets
-                .Where(ticket => ticket.BoardId.HasValue)
-                .Select(ticket => ticket.BoardId.Value));
+            visibleTickets.Select(ticket => ticket.BoardId));
 
         return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
     }
@@ -190,9 +184,7 @@ public static class TicketHandlers
         var mappingContext = await mappingContextFactory.CreateAsync(
             tickets.Select(ticket => ticket.CreatedBy),
             null,
-            tickets
-                .Where(ticket => ticket.BoardId.HasValue)
-                .Select(ticket => ticket.BoardId.Value));
+            tickets.Select(ticket => ticket.BoardId));
 
         return Results.Ok(tickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
     }
@@ -230,9 +222,7 @@ public static class TicketHandlers
 
             await ticketStatusService.EnsureSelectableStatusAsync(requestedStatus);
 
-            var selectedBoard = request.BoardId.HasValue
-                ? await GetSelectableBoardAsync(ticketBoardService, request.BoardId.Value)
-                : await ticketBoardService.GetDefaultCreateBoardAsync();
+            var selectedBoard = await ResolveBoardForCreateAsync(ticketBoardService, request.BoardId);
             var storyPoints = ResolveStoryPoints(
                 selectedBoard,
                 request.StoryPoints,
@@ -279,7 +269,7 @@ public static class TicketHandlers
             var mappingContext = await mappingContextFactory.CreateAsync(
                 [createdTicket.CreatedBy],
                 null,
-                createdTicket.BoardId.HasValue ? [createdTicket.BoardId.Value] : null);
+                [createdTicket.BoardId]);
 
             return Results.Created(
                 $"/api/tickets/{createdTicket.Id}",
@@ -324,14 +314,10 @@ public static class TicketHandlers
                 await ticketStatusService.EnsureSelectableStatusAsync(request.Status);
             }
 
-            if (!existing.BoardId.HasValue)
-            {
-                return Results.BadRequest(new { message = "The current ticket does not have a board assigned." });
-            }
-
-            var targetBoard = request.BoardId.HasValue
-                ? await GetBoardForUpdateAsync(ticketBoardService, request.BoardId.Value, existing.BoardId.Value)
-                : await GetExistingBoardAsync(ticketBoardService, existing.BoardId.Value);
+            var targetBoard = await ResolveBoardForUpdateAsync(
+                ticketBoardService,
+                request.BoardId,
+                existing.BoardId);
 
             var storyPoints = ResolveStoryPoints(
                 targetBoard,
@@ -377,7 +363,7 @@ public static class TicketHandlers
             var mappingContext = await mappingContextFactory.CreateAsync(
                 [updatedTicket.CreatedBy],
                 null,
-                updatedTicket.BoardId.HasValue ? [updatedTicket.BoardId.Value] : null);
+                [updatedTicket.BoardId]);
 
             return Results.Ok(updatedTicket.ToResponse(slaConfigurations, mappingContext));
         }
@@ -518,7 +504,7 @@ public static class TicketHandlers
         var mappingContext = await mappingContextFactory.CreateAsync(
             [restoredTicket.CreatedBy],
             null,
-            restoredTicket.BoardId.HasValue ? [restoredTicket.BoardId.Value] : null);
+            [restoredTicket.BoardId]);
 
         return Results.Ok(restoredTicket.ToResponse(slaConfigurations, mappingContext));
     }
@@ -601,34 +587,43 @@ public static class TicketHandlers
         return resolvedStoryPoints.Value;
     }
 
-    private static async Task<TicketBoardDefinition> GetSelectableBoardAsync(
+    private static async Task<TicketBoardDefinition> ResolveBoardForCreateAsync(
         ITicketBoardService ticketBoardService,
-        int boardId)
+        int? boardId)
     {
-        var board = await ticketBoardService.GetByIdAsync(boardId)
-            ?? throw new KeyNotFoundException("Ticket board was not found.");
-
-        if (!board.IsEnabled)
+        if (!boardId.HasValue)
         {
-            throw new ArgumentException(
-                $"Board \"{board.Name}\" is disabled and cannot be assigned to new tickets.");
+            return await ticketBoardService.GetDefaultCreateBoardAsync();
+        }
+
+        var board = await ticketBoardService.GetByIdAsync(boardId.Value);
+        if (board is null || !board.IsEnabled)
+        {
+            return await ticketBoardService.GetDefaultCreateBoardAsync();
         }
 
         return board;
     }
 
-    private static async Task<TicketBoardDefinition> GetBoardForUpdateAsync(
+    private static async Task<TicketBoardDefinition> ResolveBoardForUpdateAsync(
         ITicketBoardService ticketBoardService,
-        int boardId,
+        int? boardId,
         int existingBoardId)
     {
-        var board = await ticketBoardService.GetByIdAsync(boardId)
-            ?? throw new KeyNotFoundException("Ticket board was not found.");
-
-        if (!board.IsEnabled && boardId != existingBoardId)
+        if (!boardId.HasValue)
         {
-            throw new ArgumentException(
-                $"Board \"{board.Name}\" is disabled and cannot receive additional tickets.");
+            return await GetExistingBoardAsync(ticketBoardService, existingBoardId);
+        }
+
+        var board = await ticketBoardService.GetByIdAsync(boardId.Value);
+        if (board is null)
+        {
+            return await ticketBoardService.GetDefaultCreateBoardAsync();
+        }
+
+        if (!board.IsEnabled && board.Id != existingBoardId)
+        {
+            return await ticketBoardService.GetDefaultCreateBoardAsync();
         }
 
         return board;
@@ -639,6 +634,6 @@ public static class TicketHandlers
         int boardId)
     {
         return await ticketBoardService.GetByIdAsync(boardId)
-            ?? throw new KeyNotFoundException("The current ticket board was not found.");
+            ?? await ticketBoardService.GetDefaultCreateBoardAsync();
     }
 }

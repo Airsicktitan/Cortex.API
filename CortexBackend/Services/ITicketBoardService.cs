@@ -9,6 +9,7 @@ public interface ITicketBoardService
     Task<TicketBoardDefinition> CreateAsync(TicketBoardDefinition definition);
     Task<TicketBoardDefinition> UpdateAsync(int id, TicketBoardDefinition definition);
     Task DeleteAsync(int id);
+    Task EnsureDefaultsAsync();
     Task<TicketBoardDefinition> GetDefaultCreateBoardAsync();
     Task<TicketBoardDefinition?> GetByIdAsync(int id);
 }
