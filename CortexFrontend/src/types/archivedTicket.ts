@@ -4,6 +4,9 @@ export interface ArchivedTicket {
   description: string;
   status: string;
   priority: string;
+  boardId: number;
+  boardName: string;
+  storyPoints?: number;
   synitiOwner?: string;
   businessOwner?: string;
   createdBy: number;

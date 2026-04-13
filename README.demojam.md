@@ -56,14 +56,14 @@ CORTEX replaces manual coordination with system-driven clarity:
 
 ## 💡 Demo Flow
 
-1. Log in and create a ticket with an attachment  
+1. Log in and create a ticket with an attachment on the default `Ticket` board, then move work into `Hypercare` or `Enhancement` when needed  
 2. Show title and department-based routing automatically assigning the **Syniti Owner** and optional **Business Owner**  
 3. Show unmatched tickets defaulting **Business Owner** to the requester  
 4. Progress the ticket with comments, attachments, and status updates (live refresh with correct author identity)  
 5. Open audit history to show who changed what and why  
 6. Observe SLA state on the board and dashboard  
 7. Show notification center surfacing assignment, SLA, and archive events  
-8. Open reports (SLA, Online Users, custom reports, Excel export)  
+8. Open reports (SLA, Online Users, custom reports, CSV export for Excel / Google Sheets)  
 9. Show configuration (notifications, SLA, routing, statuses, archive policies, jobs, reports)  
 10. Review job system and automatic archive scheduler  
 11. Archive and restore tickets with full data integrity  
@@ -76,6 +76,7 @@ CORTEX replaces manual coordination with system-driven clarity:
 - API-level enforcement of system invariants  
 - Frontend optimized for **triage and responsibility visibility**  
 - System works **out of the box**, with configuration as optional enhancement  
+- Default board seeding protects ticket integrity without requiring manual setup  
 - Routing logic is configurable instead of hardcoded  
 - SLA, archive, and session behavior are configuration-driven  
 - Ticket statuses are configurable instead of workflow-locked  
@@ -84,6 +85,8 @@ CORTEX replaces manual coordination with system-driven clarity:
 - Per-user notification preferences with system defaults  
 - Assignment, SLA, and archive activity are fully observable  
 - Realtime updates are resilient during live system usage  
+- Browser refresh keeps the active Auth0 session, the login screen stays focused on sign-in, new-ticket create opens directly on the title field, comment threads refresh without reopen, archive actions stay in admin / developer hands, and the header notification dropdown stays layered above dashboard content  
+- Backend HTTP integrations stay on DI-managed clients instead of ad-hoc `new HttpClient()` usage  
 - Architecture aligned with future SaaS scaling  
 
 ---

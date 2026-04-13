@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { Ticket } from "../types/ticket";
 import type {
   CustomReportDefinition,
@@ -7,7 +8,6 @@ import type { OnlineUser } from "../types/user";
 import { ReportsSkeleton } from "./LoadingSkeletons";
 import SlaLegend from "./SlaLegend";
 import { formatSlaSummary, getSlaBadgeClass } from "../utils/ticketSla";
-import { downloadSlaReportWorkbook } from "../utils/reportExcel";
 
 type ReportSection = "sla" | "online-users" | "custom";
 
@@ -33,6 +33,8 @@ interface ReportsPageProps {
   onRefresh: () => void;
   onRefreshOnlineUsers: () => void;
   onRefreshCustomReport: () => void;
+  onExportCsv: () => void;
+  onExportGoogleSheets: () => void;
   onOpenTicket: (ticket: Ticket) => void;
 }
 
@@ -333,8 +335,28 @@ export default function ReportsPage({
   onRefresh,
   onRefreshOnlineUsers,
   onRefreshCustomReport,
+  onExportCsv,
+  onExportGoogleSheets,
   onOpenTicket,
 }: ReportsPageProps) {
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isExportMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [isExportMenuOpen]);
+
   if (
     (activeSection === "sla" && loading) ||
     (activeSection === "online-users" && onlineUsersLoading) ||
@@ -364,17 +386,6 @@ export default function ReportsPage({
     tickets.filter((ticket) => ticket.slaStatus === "Resolved Late"),
   );
 
-  const exportReport = () => {
-    downloadSlaReportWorkbook({
-      tickets,
-      statusOrder: STATUS_ORDER,
-      statusCounts,
-      statusDescriptions: STATUS_DESCRIPTIONS,
-      actionableTickets,
-      resolvedLateTickets,
-    });
-  };
-
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
@@ -392,12 +403,39 @@ export default function ReportsPage({
             <div className="flex flex-wrap gap-3">
               {activeSection === "sla" && (
                 <>
-                  <button
-                    onClick={exportReport}
-                    className="rounded-md bg-cortex-ink px-4 py-2 text-white transition-colors hover:bg-cortex-ink-dark"
-                  >
-                    Export Excel
-                  </button>
+                  <div className="relative" ref={exportMenuRef}>
+                    <button
+                      onClick={() =>
+                        setIsExportMenuOpen((currentValue) => !currentValue)
+                      }
+                      className="rounded-md bg-cortex-ink px-4 py-2 text-white transition-colors hover:bg-cortex-ink-dark"
+                    >
+                      Export Report
+                    </button>
+
+                    {isExportMenuOpen && (
+                      <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                        <button
+                          onClick={() => {
+                            setIsExportMenuOpen(false);
+                            onExportCsv();
+                          }}
+                          className="block w-full px-4 py-3 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                        >
+                          Export as CSV
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsExportMenuOpen(false);
+                            onExportGoogleSheets();
+                          }}
+                          className="block w-full border-t border-gray-100 px-4 py-3 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-800 dark:text-slate-100 dark:hover:bg-slate-800"
+                        >
+                          Export for Google Sheets
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={onToggleSlaLegend}
                     className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"

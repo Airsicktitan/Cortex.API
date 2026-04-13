@@ -13,6 +13,10 @@ import type {
   UpsertStoredProcedureDefinitionInput,
 } from "../types/storedProcedure";
 import type {
+  TicketBoardDefinition,
+  UpsertTicketBoardDefinitionInput,
+} from "../types/ticketBoard";
+import type {
   TicketStatusDefinition,
   UpsertTicketStatusDefinitionInput,
 } from "../types/ticketStatus";
@@ -21,6 +25,7 @@ import ArchivePolicySection from "./ArchivePolicySection";
 import CustomReportRegistrySection from "./CustomReportRegistrySection";
 import NotificationChannelSection from "./NotificationChannelSection";
 import StoredProcedureRegistrySection from "./StoredProcedureRegistrySection";
+import TicketBoardRegistrySection from "./TicketBoardRegistrySection";
 import TicketRoutingSection from "./TicketRoutingSection";
 import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
 
@@ -56,6 +61,20 @@ interface ConfigurationPageProps {
   ) => void;
   onRefreshNotificationChannels: () => void;
   onSaveNotificationChannels: () => void;
+  ticketBoards: TicketBoardDefinition[];
+  ticketBoardError: string | null;
+  ticketBoardLoading: boolean;
+  ticketBoardSaving: boolean;
+  ticketBoardDeletingId: number | null;
+  onRefreshTicketBoards: () => void;
+  onCreateTicketBoard: (
+    definition: UpsertTicketBoardDefinitionInput,
+  ) => Promise<void>;
+  onUpdateTicketBoard: (
+    id: number,
+    definition: UpsertTicketBoardDefinitionInput,
+  ) => Promise<void>;
+  onDeleteTicketBoard: (id: number) => Promise<void>;
   ticketStatuses: TicketStatusDefinition[];
   ticketStatusError: string | null;
   ticketStatusLoading: boolean;
@@ -158,6 +177,15 @@ export default function ConfigurationPage({
   onNotificationChannelChange,
   onRefreshNotificationChannels,
   onSaveNotificationChannels,
+  ticketBoards,
+  ticketBoardError,
+  ticketBoardLoading,
+  ticketBoardSaving,
+  ticketBoardDeletingId,
+  onRefreshTicketBoards,
+  onCreateTicketBoard,
+  onUpdateTicketBoard,
+  onDeleteTicketBoard,
   ticketStatuses,
   ticketStatusError,
   ticketStatusLoading,
@@ -237,6 +265,18 @@ export default function ConfigurationPage({
         onChange={onNotificationChannelChange}
         onRefresh={onRefreshNotificationChannels}
         onSave={onSaveNotificationChannels}
+      />
+
+      <TicketBoardRegistrySection
+        boards={ticketBoards}
+        loading={ticketBoardLoading}
+        error={ticketBoardError}
+        saving={ticketBoardSaving}
+        deletingId={ticketBoardDeletingId}
+        onRefresh={onRefreshTicketBoards}
+        onCreate={onCreateTicketBoard}
+        onUpdate={onUpdateTicketBoard}
+        onDelete={onDeleteTicketBoard}
       />
 
       <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">

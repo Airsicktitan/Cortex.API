@@ -50,9 +50,7 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
             {ticket.title}
           </h3>
           <p className="text-sm text-gray-500 dark:text-slate-400">
-            {typeof ticket.id === "string" && ticket.id.startsWith("TICKET-")
-              ? ticket.id
-              : `TICKET-${String(ticket.id).padStart(3, "0")}`}
+            {ticket.id}
           </p>
         </div>
         <span
@@ -68,11 +66,21 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
       </p>
 
       <div className="flex items-center justify-between mb-4">
-        <span
-          className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}
-        >
-          {ticket.status}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}
+          >
+            {ticket.status}
+          </span>
+          <span className="px-3 py-1 rounded-full text-xs font-medium bg-cortex-blue-soft text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
+            {ticket.boardName}
+          </span>
+          {ticket.storyPoints ? (
+            <span className="px-3 py-1 rounded-full text-xs font-medium bg-violet-100 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200">
+              {ticket.storyPoints} SP
+            </span>
+          ) : null}
+        </div>
 
         <span
           className={`px-3 py-1 rounded-full text-xs font-medium ${slaBadgeClass}`}

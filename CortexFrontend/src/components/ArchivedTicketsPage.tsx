@@ -88,6 +88,7 @@ export default function ArchivedTicketsPage({
                   <th className="px-4 py-3 font-medium">Ticket</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Priority</th>
+                  <th className="px-4 py-3 font-medium">Board</th>
                   <th className="px-4 py-3 font-medium">Syniti Owner</th>
                   <th className="px-4 py-3 font-medium">Business Owner</th>
                   <th className="px-4 py-3 font-medium">Created</th>
@@ -123,6 +124,17 @@ export default function ArchivedTicketsPage({
                     </td>
                     <td className="px-4 py-3 align-top">{formatValue(ticket.status)}</td>
                     <td className="px-4 py-3 align-top">{formatValue(ticket.priority)}</td>
+                    <td className="px-4 py-3 align-top">
+                      <div>
+                        <p>{formatValue(ticket.boardName)}</p>
+                        {ticket.storyPoints ? (
+                          <p className="text-xs text-gray-500 dark:text-slate-400">
+                            {ticket.storyPoints} story point
+                            {ticket.storyPoints === 1 ? "" : "s"}
+                          </p>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 align-top">
                       {formatValue(ticket.synitiOwner)}
                     </td>

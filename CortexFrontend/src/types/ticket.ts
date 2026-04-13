@@ -5,6 +5,9 @@ export interface Ticket {
   status: string;
   priority: string;
   department?: string;
+  boardId: number;
+  boardName: string;
+  storyPoints?: number;
   synitiOwner?: string;
   businessOwner?: string;
   createdBy: string;
@@ -31,6 +34,8 @@ export interface TicketMutationInput {
   status?: string;
   priority?: string;
   department?: string;
+  boardId?: number;
+  storyPoints?: number;
   synitiOwner?: string;
   businessOwner?: string;
   changeReason?: string;

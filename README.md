@@ -108,7 +108,10 @@ CORTEX includes:
 - Real-time dashboard with SLA risk and ownership visibility
 - “Needs Attention” workflow for high-priority tickets
 - Inline ticket editing and collaboration
+- Board-aware ticket workflows with a seeded default `Ticket` board plus configurable `Hypercare`, `Enhancement`, and future boards
 - Routing and notification configuration
+- Backend-generated CSV report export for Excel or Google Sheets compatible downloads
+- Persistent Auth0 session restore across browser refresh, a simplified login screen, new-ticket title auto-focus, fresh comment refresh, admin/developer-only archive actions, and a notification dropdown that stays layered above dashboard content
 
 ---
 
@@ -122,6 +125,9 @@ CORTEX follows a deliberate product approach:
 - Refactor openly as understanding deepens
 
 This repository reflects real-world operational problems and iterative product development — not theoretical design.
+
+- Backend HTTP integrations are kept on DI-managed clients instead of ad-hoc `new HttpClient()` usage
+- Ticket creation resolves invalid or missing board assignments to the default seeded `Ticket` board instead of risking FK drift
 
 ---
 

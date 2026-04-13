@@ -23,6 +23,10 @@ import type { ScheduledJob, UpsertScheduledJobInput } from "./types/scheduledJob
 import type { SessionConfiguration } from "./types/sessionConfiguration";
 import type { SlaConfiguration } from "./types/sla";
 import type {
+  TicketBoardDefinition,
+  UpsertTicketBoardDefinitionInput,
+} from "./types/ticketBoard";
+import type {
   DatabaseStoredProcedureDefinition,
   StoredProcedureDefinition,
   UpsertStoredProcedureDefinitionInput,
@@ -54,10 +58,12 @@ import { customReportService } from "./services/customReportService";
 import { notificationChannelConfigurationService } from "./services/notificationChannelConfigurationService";
 import { notificationService } from "./services/notificationService";
 import { realtimeService } from "./services/realtimeService";
+import { reportService } from "./services/reportService";
 import { scheduledJobService } from "./services/scheduledJobService";
 import { sessionConfigurationService } from "./services/sessionConfigurationService";
 import { slaService } from "./services/slaService";
 import { storedProcedureService } from "./services/storedProcedureService";
+import { ticketBoardService } from "./services/ticketBoardService";
 import { ticketRoutingService } from "./services/ticketRoutingService";
 import { ticketStatusService } from "./services/ticketStatusService";
 import TicketCard from "./components/TicketCard";
@@ -156,6 +162,32 @@ const DEFAULT_TICKET_STATUS_NAMES = [
   "Pending Business Review",
   "Resolved",
   "Closed",
+] as const;
+const DEFAULT_TICKET_BOARDS: ReadonlyArray<TicketBoardDefinition> = [
+  {
+    id: 1,
+    name: "Ticket",
+    description: "Standard operational ticket board.",
+    requiresStoryPoints: false,
+    isEnabled: true,
+    createdDateUtc: "",
+  },
+  {
+    id: 2,
+    name: "Hypercare",
+    description: "High-touch stabilization and production support work.",
+    requiresStoryPoints: false,
+    isEnabled: true,
+    createdDateUtc: "",
+  },
+  {
+    id: 3,
+    name: "Enhancement",
+    description: "Planned improvements and backlog work.",
+    requiresStoryPoints: true,
+    isEnabled: true,
+    createdDateUtc: "",
+  },
 ] as const;
 
 function clampSidebarWidth(width: number) {
@@ -288,6 +320,8 @@ function ticketMatchesSearch(ticket: Ticket, searchValue: string) {
     ticket.id,
     ticket.title,
     ticket.description,
+    ticket.boardName,
+    ticket.storyPoints,
     ticket.status,
     ticket.priority,
     ticket.synitiOwner,
@@ -415,6 +449,16 @@ function getDefaultTicketStatusName(statuses: TicketStatusDefinition[]) {
   );
 }
 
+function getDefaultTicketBoard(boards: TicketBoardDefinition[]) {
+  const enabledBoards = boards.filter((board) => board.isEnabled);
+
+  return (
+    enabledBoards.find((board) => board.name === "Ticket") ??
+    enabledBoards[0] ??
+    DEFAULT_TICKET_BOARDS[0]
+  );
+}
+
 function getDefaultArchiveEligibleStatuses(statuses: TicketStatusDefinition[]) {
   const preferredStatuses = statuses
     .filter((status) =>
@@ -427,6 +471,23 @@ function getDefaultArchiveEligibleStatuses(statuses: TicketStatusDefinition[]) {
 
 function sortTicketStatuses(statuses: TicketStatusDefinition[]) {
   return [...statuses].sort((left, right) => left.id - right.id);
+}
+
+function sortTicketBoards(boards: TicketBoardDefinition[]) {
+  return [...boards].sort((left, right) => {
+    const leftIsDefault = left.name.toLowerCase() === "ticket";
+    const rightIsDefault = right.name.toLowerCase() === "ticket";
+
+    if (leftIsDefault && !rightIsDefault) {
+      return -1;
+    }
+
+    if (!leftIsDefault && rightIsDefault) {
+      return 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
 }
 
 function sortTicketRoutingRules(rules: TicketRoutingRule[]) {
@@ -472,11 +533,13 @@ async function loadBootstrapData(token: string) {
 
 function createDraftTicket(
   statuses: TicketStatusDefinition[],
+  boards: TicketBoardDefinition[],
   createdByDisplayName = "",
   department = "",
 ): Ticket {
   const createdDate = new Date().toISOString();
   const targetDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const defaultBoard = getDefaultTicketBoard(boards);
 
   return {
     id: "",
@@ -484,6 +547,9 @@ function createDraftTicket(
     description: "",
     priority: "Medium",
     status: getDefaultTicketStatusName(statuses),
+    boardId: defaultBoard.id,
+    boardName: defaultBoard.name,
+    storyPoints: defaultBoard.requiresStoryPoints ? 1 : undefined,
     department,
     createdDate,
     slaTargetDate: targetDate,
@@ -536,6 +602,7 @@ function App() {
   const [filter, setFilter] = useState<FilterOption>("all");
   const [filterValue, setFilterValue] = useState("");
   const debouncedFilterValue = useDebouncedValue(filterValue, 300);
+  const [selectedBoardId, setSelectedBoardId] = useState<number | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300);
   const [pageSize, setPageSize] = useState<PageSizeOption>(10);
@@ -591,6 +658,13 @@ function App() {
     useState(false);
   const [notificationChannelError, setNotificationChannelError] =
     useState<string | null>(null);
+  const [ticketBoards, setTicketBoards] = useState<TicketBoardDefinition[]>([]);
+  const [ticketBoardLoading, setTicketBoardLoading] = useState(false);
+  const [ticketBoardSaving, setTicketBoardSaving] = useState(false);
+  const [deletingTicketBoardId, setDeletingTicketBoardId] = useState<
+    number | null
+  >(null);
+  const [ticketBoardError, setTicketBoardError] = useState<string | null>(null);
   const [sessionPromptState, setSessionPromptState] =
     useState<SessionPromptState>(null);
   const [sessionRemainingSeconds, setSessionRemainingSeconds] = useState(
@@ -1084,6 +1158,35 @@ function App() {
     [getApiToken],
   );
 
+  const loadTicketBoards = useCallback(
+    async (providedToken?: string) => {
+      setTicketBoardLoading(true);
+      setTicketBoardError(null);
+
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const data = sortTicketBoards(await ticketBoardService.getAll(token));
+        setTicketBoards(data);
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to load ticket boards", error);
+
+        if (isApiUnavailableError(error)) {
+          setApiUnavailable(true);
+        } else if (isForbiddenError(error)) {
+          setApiUnavailable(false);
+          setTicketBoardError("You do not have permission to view ticket boards.");
+        } else {
+          setApiUnavailable(false);
+          setTicketBoardError("Failed to load ticket boards.");
+        }
+      } finally {
+        setTicketBoardLoading(false);
+      }
+    },
+    [getApiToken],
+  );
+
   const syncPresence = useCallback(
     async (providedToken?: string) => {
       if (!isAuthenticated || presenceSyncInFlightRef.current) {
@@ -1495,6 +1598,24 @@ function App() {
     [getApiToken],
   );
 
+  const exportReportCsv = useCallback(
+    async (googleSheetsCompatible = false) => {
+      try {
+        const token = await getApiToken();
+        await reportService.exportCsv(
+          token,
+          googleSheetsCompatible
+            ? "cortex-report-google-sheets.csv"
+            : "cortex-report.csv",
+        );
+      } catch (error) {
+        console.error("Failed to export report", error);
+        toast.error(getErrorMessage(error, "Failed to export report"));
+      }
+    },
+    [getApiToken],
+  );
+
   const runCustomReport = useCallback(
     async (reportId: number, providedToken?: string) => {
       setCustomReportResultLoading(true);
@@ -1891,6 +2012,7 @@ function App() {
         setAllTickets(fetchedTickets);
         setNeedsConsent(false);
         setApiUnavailable(false);
+        void loadTicketBoards(token);
         void loadSessionConfiguration(token);
         void loadNotifications(token, { silent: true });
       } catch (error) {
@@ -1934,9 +2056,18 @@ function App() {
     getAccessTokenSilently,
     isAuthenticated,
     isLoading,
+    loadTicketBoards,
     loadNotifications,
     loadSessionConfiguration,
   ]);
+
+  useEffect(() => {
+    if (!isAuthenticated || ticketBoards.length > 0 || ticketBoardLoading) {
+      return;
+    }
+
+    void loadTicketBoards();
+  }, [isAuthenticated, loadTicketBoards, ticketBoardLoading, ticketBoards.length]);
 
   useEffect(() => {
     if (!isAuthenticated || ticketStatuses.length > 0 || ticketStatusLoading) {
@@ -2240,6 +2371,7 @@ function App() {
       setNeedsConsent(false);
       setPermissionsLoaded(true);
       setApiUnavailable(false);
+      void loadTicketBoards(token);
       void loadNotifications(token, { silent: true });
     } catch (error) {
       console.error("Consent failed", error);
@@ -2257,10 +2389,26 @@ function App() {
     }
   };
 
+  const availableTicketBoards = useMemo(
+    () =>
+      ticketBoards.length > 0 ? ticketBoards : [...DEFAULT_TICKET_BOARDS],
+    [ticketBoards],
+  );
+
+  const boardTabs = useMemo(() => {
+    return availableTicketBoards.filter(
+      (board) =>
+        board.isEnabled || allTickets.some((ticket) => ticket.boardId === board.id),
+    );
+  }, [allTickets, availableTicketBoards]);
+
   const tickets = useMemo(() => {
     const filterInput = normalize(debouncedFilterValue);
     const searchInput = normalize(debouncedSearchQuery);
-    let filteredTickets = allTickets;
+    let filteredTickets =
+      selectedBoardId === "all"
+        ? allTickets
+        : allTickets.filter((ticket) => ticket.boardId === selectedBoardId);
 
     if (filter !== "all" && filterInput) {
       if (filter === "status") {
@@ -2285,7 +2433,13 @@ function App() {
     return filteredTickets.filter((ticket) =>
       ticketMatchesSearch(ticket, searchInput),
     );
-  }, [allTickets, filter, debouncedFilterValue, debouncedSearchQuery]);
+  }, [
+    allTickets,
+    selectedBoardId,
+    filter,
+    debouncedFilterValue,
+    debouncedSearchQuery,
+  ]);
 
   const totalTickets = tickets.length;
   const totalPages =
@@ -2309,11 +2463,21 @@ function App() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filter, debouncedFilterValue, debouncedSearchQuery, pageSize]);
+  }, [selectedBoardId, filter, debouncedFilterValue, debouncedSearchQuery, pageSize]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
+
+  useEffect(() => {
+    if (selectedBoardId === "all") {
+      return;
+    }
+
+    if (!boardTabs.some((board) => board.id === selectedBoardId)) {
+      setSelectedBoardId("all");
+    }
+  }, [boardTabs, selectedBoardId]);
 
   const handleSaveTicket = async (
     updatedTicket: TicketMutationInput,
@@ -2516,6 +2680,158 @@ function App() {
       toast.error("Failed to save notification channel settings");
     } finally {
       setNotificationChannelSaving(false);
+    }
+  };
+
+  const createTicketBoard = async (
+    definition: UpsertTicketBoardDefinitionInput,
+  ) => {
+    try {
+      setTicketBoardSaving(true);
+      setTicketBoardError(null);
+
+      const token = await getApiToken();
+      const createdDefinition = await ticketBoardService.create(definition, token);
+
+      setTicketBoards((currentDefinitions) =>
+        sortTicketBoards([...currentDefinitions, createdDefinition]),
+      );
+      toast.success("Ticket board created");
+    } catch (error) {
+      console.error("Failed to create ticket board", error);
+
+      if (error instanceof ApiError) {
+        setTicketBoardError(error.message);
+      } else {
+        setTicketBoardError("Failed to create ticket board.");
+      }
+
+      toast.error("Failed to create ticket board");
+      throw error;
+    } finally {
+      setTicketBoardSaving(false);
+    }
+  };
+
+  const updateTicketBoard = async (
+    id: number,
+    definition: UpsertTicketBoardDefinitionInput,
+  ) => {
+    try {
+      setTicketBoardSaving(true);
+      setTicketBoardError(null);
+
+      const existingDefinition = ticketBoards.find(
+        (currentDefinition) => currentDefinition.id === id,
+      );
+      const token = await getApiToken();
+      const updatedDefinition = await ticketBoardService.update(id, definition, token);
+
+      setTicketBoards((currentDefinitions) =>
+        sortTicketBoards(
+          currentDefinitions.map((currentDefinition) =>
+            currentDefinition.id === updatedDefinition.id
+              ? updatedDefinition
+              : currentDefinition,
+          ),
+        ),
+      );
+      setAllTickets((currentTickets) =>
+        currentTickets.map((ticket) =>
+          ticket.boardId === id
+            ? {
+                ...ticket,
+                boardId: updatedDefinition.id,
+                boardName: updatedDefinition.name,
+                storyPoints: updatedDefinition.requiresStoryPoints
+                  ? ticket.storyPoints ?? 1
+                  : undefined,
+              }
+            : ticket,
+        ),
+      );
+      setArchivedTickets((currentTickets) =>
+        currentTickets.map((ticket) =>
+          ticket.boardId === id
+            ? {
+                ...ticket,
+                boardId: updatedDefinition.id,
+                boardName: updatedDefinition.name,
+                storyPoints: updatedDefinition.requiresStoryPoints
+                  ? ticket.storyPoints ?? 1
+                  : undefined,
+              }
+            : ticket,
+        ),
+      );
+      setSelectedTicket((currentTicket) =>
+        currentTicket && currentTicket.boardId === id
+          ? {
+              ...currentTicket,
+              boardId: updatedDefinition.id,
+              boardName: updatedDefinition.name,
+              storyPoints: updatedDefinition.requiresStoryPoints
+                ? currentTicket.storyPoints ?? 1
+                : undefined,
+            }
+          : currentTicket,
+      );
+
+      if (
+        selectedBoardId !== "all" &&
+        selectedBoardId === id &&
+        !updatedDefinition.isEnabled &&
+        existingDefinition?.isEnabled
+      ) {
+        setSelectedBoardId("all");
+      }
+
+      toast.success("Ticket board updated");
+    } catch (error) {
+      console.error("Failed to update ticket board", error);
+
+      if (error instanceof ApiError) {
+        setTicketBoardError(error.message);
+      } else {
+        setTicketBoardError("Failed to update ticket board.");
+      }
+
+      toast.error("Failed to update ticket board");
+      throw error;
+    } finally {
+      setTicketBoardSaving(false);
+    }
+  };
+
+  const deleteTicketBoard = async (id: number) => {
+    try {
+      setDeletingTicketBoardId(id);
+      setTicketBoardError(null);
+
+      const token = await getApiToken();
+      await ticketBoardService.delete(id, token);
+
+      setTicketBoards((currentDefinitions) =>
+        currentDefinitions.filter((currentDefinition) => currentDefinition.id !== id),
+      );
+      if (selectedBoardId === id) {
+        setSelectedBoardId("all");
+      }
+
+      toast.success("Ticket board deleted");
+    } catch (error) {
+      console.error("Failed to delete ticket board", error);
+
+      if (error instanceof ApiError) {
+        setTicketBoardError(error.message);
+      } else {
+        setTicketBoardError("Failed to delete ticket board.");
+      }
+
+      toast.error("Failed to delete ticket board");
+      throw error;
+    } finally {
+      setDeletingTicketBoardId(null);
     }
   };
 
@@ -3998,27 +4314,19 @@ function App() {
           <p className="text-gray-600 dark:text-slate-400 mb-6">
             Central Operations & Routing Technology EXpert
           </p>
-          <div className="flex flex-col items-center gap-3">
-            <button
-              onClick={() =>
-                loginWithRedirect({
-                  authorizationParams: {
-                    ...API_AUTHORIZATION_PARAMS,
-                    scope: "openid profile email",
-                  },
-                })
-              }
-              className="px-6 py-3 bg-cortex-blue text-white rounded-md hover:bg-cortex-blue-dark transition-colors"
-            >
-              Log In
-            </button>
-            <button
-              onClick={toggleTheme}
-              className="px-4 py-2 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors"
-            >
-              {isDarkMode ? "Light Mode" : "Dark Mode"}
-            </button>
-          </div>
+          <button
+            onClick={() =>
+              loginWithRedirect({
+                authorizationParams: {
+                  ...API_AUTHORIZATION_PARAMS,
+                  scope: "openid profile email",
+                },
+              })
+            }
+            className="px-6 py-3 bg-cortex-blue text-white rounded-md hover:bg-cortex-blue-dark transition-colors"
+          >
+            Log In
+          </button>
         </div>
       </div>
     );
@@ -4073,7 +4381,7 @@ function App() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-cortex-surface to-cortex-surface-alt text-gray-900 transition-colors dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
-      <header className="border-b border-gray-200 bg-white/92 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-cortex-ink-dark/92">
+      <header className="relative z-40 border-b border-gray-200 bg-white/92 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-cortex-ink-dark/92">
         <div className="mx-auto flex w-full max-w-[2200px] flex-col gap-6 px-6 py-6 2xl:px-8 xl:flex-row xl:items-center xl:justify-between">
           <div className="space-y-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-baseline md:gap-4">
@@ -4181,6 +4489,7 @@ function App() {
                       openTicket(
                         createDraftTicket(
                           ticketStatuses,
+                          ticketBoards.length > 0 ? ticketBoards : [...DEFAULT_TICKET_BOARDS],
                           currentUser?.displayName ?? user?.name ?? "",
                           currentUser?.department ?? "",
                         ),
@@ -4474,6 +4783,41 @@ function App() {
                 </div>
               </div>
 
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  onClick={() => setSelectedBoardId("all")}
+                  className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                    selectedBoardId === "all"
+                      ? "bg-cortex-blue text-white"
+                      : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  All Boards
+                  <span className="ml-2 text-xs opacity-80">{allTickets.length}</span>
+                </button>
+                {boardTabs.map((board) => {
+                  const boardCount = allTickets.filter(
+                    (ticket) => ticket.boardId === board.id,
+                  ).length;
+                  const isActive = selectedBoardId === board.id;
+
+                  return (
+                    <button
+                      key={board.id}
+                      onClick={() => setSelectedBoardId(board.id)}
+                      className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-cortex-blue text-white"
+                          : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      {board.name}
+                      <span className="ml-2 text-xs opacity-80">{boardCount}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <select
                   value={filter}
@@ -4651,6 +4995,8 @@ function App() {
                 void runCustomReport(selectedCustomReportId);
               }
             }}
+            onExportCsv={() => void exportReportCsv(false)}
+            onExportGoogleSheets={() => void exportReportCsv(true)}
             onOpenTicket={openTicket}
           />
         ) : activeView === "jobs" && canManageJobs ? (
@@ -4698,6 +5044,15 @@ function App() {
               onSaveNotificationChannels={() =>
                 void saveNotificationChannelConfiguration()
               }
+              ticketBoards={ticketBoards}
+              ticketBoardError={ticketBoardError}
+              ticketBoardLoading={ticketBoardLoading}
+              ticketBoardSaving={ticketBoardSaving}
+              ticketBoardDeletingId={deletingTicketBoardId}
+              onRefreshTicketBoards={() => void loadTicketBoards()}
+              onCreateTicketBoard={createTicketBoard}
+              onUpdateTicketBoard={updateTicketBoard}
+              onDeleteTicketBoard={deleteTicketBoard}
               ticketStatuses={ticketStatuses}
               ticketStatusError={ticketStatusError}
               ticketStatusLoading={ticketStatusLoading}
@@ -4787,6 +5142,7 @@ function App() {
           key={selectedTicket.id ?? "new"}
           ticket={selectedTicket}
           latestRealtimeEvent={latestRealtimeEvent}
+          ticketBoards={availableTicketBoards}
           ticketStatuses={
             ticketStatuses.length > 0
               ? ticketStatuses
@@ -4807,6 +5163,7 @@ function App() {
               ? {
                   displayName: currentUser.displayName ?? "",
                   department: currentUser.department ?? "",
+                  role: currentUser.role ?? "",
                 }
               : null
           }

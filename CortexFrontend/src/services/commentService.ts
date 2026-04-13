@@ -36,6 +36,7 @@ async function ensureSuccess(response: Response, fallbackMessage: string) {
 export const commentService = {
   async getByTicket(ticketId: string, token: string): Promise<Comment[]> {
     const res = await fetch(`${API_BASE_URL}/tickets/${ticketId}/comments`, {
+      cache: "no-store",
       headers: {
         Authorization: `Bearer ${token}`,
       },

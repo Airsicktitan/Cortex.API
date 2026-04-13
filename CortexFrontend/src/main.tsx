@@ -13,6 +13,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <Auth0Provider
       domain="cortex-ah.us.auth0.com"
       clientId="fda3VOCFbjM3NAV6YqJvLZZkzPGn0RW3"
+      cacheLocation="localstorage"
       authorizationParams={{
         redirect_uri: window.location.origin,
         audience: "https://cortex-api",

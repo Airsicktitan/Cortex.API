@@ -39,7 +39,7 @@ export default function NotificationPanel({
   onOpenNotification,
 }: NotificationPanelProps) {
   return (
-    <div className="absolute right-0 top-full z-20 mt-2 w-[24rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+    <div className="absolute right-0 top-full z-[90] mt-2 w-[24rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-4 py-3 dark:border-slate-800">
         <div>
           <p className="font-medium text-gray-900 dark:text-slate-100">
@@ -93,7 +93,7 @@ export default function NotificationPanel({
           No notifications yet.
         </div>
       ) : (
-        <div className="max-h-[26rem] overflow-y-auto">
+        <div className="max-h-[26rem] overflow-y-auto bg-white dark:bg-slate-900">
           <div className="divide-y divide-gray-100 dark:divide-slate-800">
             {notifications.map((notification) => (
               <button

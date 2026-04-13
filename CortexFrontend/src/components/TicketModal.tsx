@@ -11,6 +11,7 @@ import {
 import type { Ticket, TicketMutationInput } from "../types/ticket";
 import type { TicketAttachment } from "../types/attachment";
 import type { RealtimeEvent } from "../types/realtime";
+import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { TicketStatusDefinition } from "../types/ticketStatus";
 import { commentService } from "../services/commentService";
 import { attachmentService } from "../services/api";
@@ -28,6 +29,7 @@ import toast from "react-hot-toast";
 
 const API_AUDIENCE = "https://cortex-api";
 const ADMIN_PERMISSION = "admin:system";
+const DEVELOPER_PERMISSION = "developer";
 const TICKETS_CREATE_PERMISSION = "tickets:create";
 const TICKETS_UPDATE_PERMISSION = "tickets:update";
 const TICKETS_DELETE_PERMISSION = "tickets:delete";
@@ -82,6 +84,7 @@ function getQueuedAttachmentKey(file: File) {
 interface TicketModalProps {
   ticket: Ticket;
   latestRealtimeEvent?: RealtimeEvent | null;
+  ticketBoards: TicketBoardDefinition[];
   ticketStatuses: TicketStatusDefinition[];
   isOpen: boolean;
   onClose: () => void;
@@ -94,6 +97,7 @@ interface TicketModalProps {
   currentUser: {
     displayName: string;
     department?: string;
+    role?: string;
   } | null;
   createdByDisplayName: string;
 }
@@ -101,6 +105,7 @@ interface TicketModalProps {
 export default function TicketModal({
   ticket,
   latestRealtimeEvent,
+  ticketBoards,
   ticketStatuses,
   isOpen,
   onClose,
@@ -110,10 +115,18 @@ export default function TicketModal({
   currentUser,
   createdByDisplayName,
 }: TicketModalProps) {
+  const defaultBoard =
+    ticketBoards.find((board) => board.id === ticket.boardId) ??
+    ticketBoards.find((board) => board.name === "Ticket") ??
+    ticketBoards[0];
   const [priority, setPriority] = useState(ticket.priority);
   const [status, setStatus] = useState(ticket.status);
   const [department, setDepartment] = useState(
     ticket.department || currentUser?.department || "",
+  );
+  const [boardId, setBoardId] = useState(defaultBoard?.id ?? 0);
+  const [storyPoints, setStoryPoints] = useState<number | "">(
+    ticket.storyPoints ?? (defaultBoard?.requiresStoryPoints ? 1 : ""),
   );
   const [synitiOwner, setSynitiOwner] = useState(ticket.synitiOwner || "");
   const [businessOwner, setBusinessOwner] = useState(
@@ -136,6 +149,9 @@ export default function TicketModal({
     null,
   );
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
 
   const { getAccessTokenSilently } = useAuth0();
 
@@ -152,7 +168,26 @@ export default function TicketModal({
   const canUpdateTicket =
     Boolean(ticket.id) && hasPermission(TICKETS_UPDATE_PERMISSION);
   const canSaveTicket = canCreateTicket || canUpdateTicket;
-  const canArchiveTicket = Boolean(ticket.id) && canUpdateTicket;
+  const canDeleteTicket =
+    Boolean(ticket.id) && hasPermission(TICKETS_DELETE_PERMISSION);
+  const canArchiveTicket =
+    Boolean(ticket.id) &&
+    canUpdateTicket &&
+    (permissions.includes(ADMIN_PERMISSION) ||
+      permissions.includes(DEVELOPER_PERMISSION) ||
+      currentUser?.role === "Admin" ||
+      currentUser?.role === "Developer");
+  const selectedBoard =
+    ticketBoards.find((board) => board.id === boardId) ?? defaultBoard;
+  const selectedBoardRequiresStoryPoints =
+    selectedBoard?.requiresStoryPoints ?? false;
+  const quickMoveBoards = useMemo(
+    () =>
+      ticketBoards.filter(
+        (board) => board.isEnabled && Boolean(ticket.id) && board.id !== boardId,
+      ),
+    [boardId, ticket.id, ticketBoards],
+  );
   const availableStatusOptions = useMemo(() => {
     const enabledStatuses = ticketStatuses.filter(
       (statusDefinition) => statusDefinition.isEnabled,
@@ -194,13 +229,48 @@ export default function TicketModal({
     setPriority(ticket.priority);
     setStatus(ticket.status);
     setDepartment(ticket.department || currentUser?.department || "");
+    setBoardId(defaultBoard?.id ?? 0);
+    setStoryPoints(ticket.storyPoints ?? (defaultBoard?.requiresStoryPoints ? 1 : ""));
     setSynitiOwner(ticket.synitiOwner || "");
     setBusinessOwner(ticket.businessOwner || "");
     setChangeReason("");
     setQueuedAttachments([]);
     setIsAttachmentDropActive(false);
     setIsHistoryModalOpen(false);
-  }, [currentUser?.department, ticket, isOpen]);
+    setIsActionMenuOpen(false);
+  }, [currentUser?.department, defaultBoard, ticket, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || ticket.id) {
+      return;
+    }
+
+    const focusHandle = window.requestAnimationFrame(() => {
+      const titleInput = titleInputRef.current;
+      if (!titleInput) {
+        return;
+      }
+
+      titleInput.focus();
+    });
+
+    return () => window.cancelAnimationFrame(focusHandle);
+  }, [isOpen, ticket.id]);
+
+  useEffect(() => {
+    if (!isActionMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!actionMenuRef.current?.contains(event.target as Node)) {
+        setIsActionMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [isActionMenuOpen]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -212,6 +282,11 @@ export default function TicketModal({
           priority,
           status,
           department: !ticket.id ? department.trim() || undefined : undefined,
+          boardId,
+          storyPoints:
+            selectedBoardRequiresStoryPoints && storyPoints !== ""
+              ? Number(storyPoints)
+              : undefined,
           synitiOwner: synitiOwner || undefined,
           businessOwner: businessOwner || undefined,
           changeReason: ticket.id ? changeReason.trim() || undefined : undefined,
@@ -233,6 +308,9 @@ export default function TicketModal({
     status,
     ticket.id,
     department,
+    boardId,
+    selectedBoardRequiresStoryPoints,
+    storyPoints,
     synitiOwner,
     businessOwner,
     changeReason,
@@ -256,7 +334,14 @@ export default function TicketModal({
       if (e.key === "Enter" && !e.shiftKey) {
         const active = document.activeElement;
         if (active?.tagName === "TEXTAREA") return;
-        if (saving || !title.trim() || !canSaveTicket) return;
+        if (
+          saving ||
+          !title.trim() ||
+          !canSaveTicket ||
+          (selectedBoardRequiresStoryPoints && storyPoints === "")
+        ) {
+          return;
+        }
 
         e.preventDefault();
         handleSave();
@@ -271,7 +356,9 @@ export default function TicketModal({
     isHistoryModalOpen,
     isOpen,
     onClose,
+    selectedBoardRequiresStoryPoints,
     saving,
+    storyPoints,
     title,
   ]);
 
@@ -414,13 +501,26 @@ export default function TicketModal({
 
   if (!isOpen) return null;
 
+  const handleBoardSelectionChange = (nextBoardId: number) => {
+    const nextBoard = ticketBoards.find((board) => board.id === nextBoardId);
+    setBoardId(nextBoardId);
+
+    if (nextBoard?.requiresStoryPoints) {
+      setStoryPoints((currentValue) => (currentValue === "" ? 1 : currentValue));
+      return;
+    }
+
+    setStoryPoints("");
+  };
+
   const handleDelete = () => {
-    // (Keeping your current behavior)
+    setIsActionMenuOpen(false);
     onClose();
     onDelete(ticket);
   };
 
   const handleArchive = async () => {
+    setIsActionMenuOpen(false);
     setArchiving(true);
     try {
       await onArchive(ticket, changeReason.trim() || undefined);
@@ -429,6 +529,48 @@ export default function TicketModal({
       // The parent archive handler already surfaces the error to the user.
     } finally {
       setArchiving(false);
+    }
+  };
+
+  const handleQuickMove = async (targetBoard: TicketBoardDefinition) => {
+    if (!ticket.id || saving || archiving) {
+      return;
+    }
+
+    const nextStoryPoints = targetBoard.requiresStoryPoints
+      ? storyPoints === ""
+        ? 1
+        : Number(storyPoints)
+      : undefined;
+
+    setBoardId(targetBoard.id);
+    setStoryPoints(nextStoryPoints ?? "");
+    setIsActionMenuOpen(false);
+
+    try {
+      setSaving(true);
+      await onSave(
+        {
+          title,
+          description,
+          priority,
+          status,
+          boardId: targetBoard.id,
+          storyPoints: nextStoryPoints,
+          synitiOwner: synitiOwner || undefined,
+          businessOwner: businessOwner || undefined,
+          changeReason:
+            changeReason.trim() || `Moved ticket to ${targetBoard.name}.`,
+        },
+        queuedAttachments,
+      );
+      onClose();
+      toast.success(`Moved ticket to ${targetBoard.name}`);
+    } catch (error) {
+      console.error("Failed to move ticket to board", error);
+      toast.error(`Failed to move ticket to ${targetBoard.name}`);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -590,9 +732,10 @@ export default function TicketModal({
               <div className="flex items-start justify-between mb-6">
                 <div className="flex-1">
                   <label className="block text-lg font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Title
+                    Enter Ticket Title
                   </label>
                   <input
+                    ref={titleInputRef}
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
@@ -646,6 +789,47 @@ export default function TicketModal({
 
               {/* Editable Fields */}
               <div className="grid grid-cols-2 gap-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                    Board
+                  </label>
+                  <select
+                    value={boardId}
+                    onChange={(e) => handleBoardSelectionChange(Number(e.target.value))}
+                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  >
+                    {ticketBoards.map((board) => (
+                      <option key={board.id} value={board.id}>
+                        {board.name}
+                        {board.isEnabled ? "" : " (Disabled)"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedBoardRequiresStoryPoints ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                      Story Points
+                    </label>
+                    <select
+                      value={storyPoints}
+                      onChange={(e) => setStoryPoints(Number(e.target.value))}
+                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    >
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                    Story points are only used on enhancement-style boards.
+                  </div>
+                )}
+
                 {/* Priority */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
@@ -725,16 +909,16 @@ export default function TicketModal({
 
               {ticket.id && (
                 <div className="mb-6">
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Change Reason
-                </label>
-                <input
-                  type="text"
-                  value={changeReason}
-                  onChange={(e) => setChangeReason(e.target.value)}
-                  placeholder="Optional: explain why you're updating or archiving this ticket"
-                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
-                />
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                    Change Reason
+                  </label>
+                  <input
+                    type="text"
+                    value={changeReason}
+                    onChange={(e) => setChangeReason(e.target.value)}
+                    placeholder="Optional: explain why you're updating or archiving this ticket"
+                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  />
                 </div>
               )}
 
@@ -892,6 +1076,16 @@ export default function TicketModal({
                     <span className="font-medium">Created Date:</span>{" "}
                     {new Date(ticket.createdDate).toLocaleDateString()}
                   </div>
+                  <div>
+                    <span className="font-medium">Board:</span>{" "}
+                    {selectedBoard?.name ?? ticket.boardName ?? "Ticket"}
+                  </div>
+                  {selectedBoardRequiresStoryPoints && (
+                    <div>
+                      <span className="font-medium">Story Points:</span>{" "}
+                      {storyPoints === "" ? "—" : storyPoints}
+                    </div>
+                  )}
                   {hasPersistedSla ? (
                     <>
                       <div>
@@ -945,25 +1139,68 @@ export default function TicketModal({
                     </button>
                   )}
 
-                  {canArchiveTicket && (
-                    <button
-                      onClick={() => void handleArchive()}
-                      disabled={saving || archiving}
-                      className="px-4 py-2 rounded-md bg-amber-600 text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {archiving ? "Archiving..." : "Archive"}
-                    </button>
-                  )}
+                  {ticket.id &&
+                    (quickMoveBoards.length > 0 ||
+                      canArchiveTicket ||
+                      canDeleteTicket) && (
+                      <div ref={actionMenuRef} className="relative">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setIsActionMenuOpen((current) => !current)
+                          }
+                          disabled={saving || archiving}
+                          className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          Actions ▾
+                        </button>
 
-                  {ticket.id && hasPermission(TICKETS_DELETE_PERMISSION) && (
-                    <button
-                      onClick={handleDelete}
-                      disabled={saving || archiving}
-                      className="px-4 py-2 bg-red-600 text-white rounded-md disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Delete
-                    </button>
-                  )}
+                        {isActionMenuOpen && (
+                          <div className="absolute left-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+                            {quickMoveBoards.length > 0 && (
+                              <div className="border-b border-gray-100 px-2 py-2 dark:border-slate-800">
+                                {quickMoveBoards.map((board) => (
+                                  <button
+                                    key={board.id}
+                                    type="button"
+                                    onClick={() => void handleQuickMove(board)}
+                                    disabled={saving || archiving}
+                                    className="w-full rounded-md px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-200 dark:hover:bg-slate-800"
+                                  >
+                                    Move to {board.name}
+                                    {board.requiresStoryPoints
+                                      ? " (Story Points)"
+                                      : ""}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {canArchiveTicket && (
+                              <button
+                                type="button"
+                                onClick={() => void handleArchive()}
+                                disabled={saving || archiving}
+                                className="w-full px-4 py-3 text-left text-sm text-amber-700 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-amber-300 dark:hover:bg-amber-950/20"
+                              >
+                                {archiving ? "Archiving..." : "Archive"}
+                              </button>
+                            )}
+
+                            {canDeleteTicket && (
+                              <button
+                                type="button"
+                                onClick={handleDelete}
+                                disabled={saving || archiving}
+                                className="w-full px-4 py-3 text-left text-sm text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-300 dark:hover:bg-red-950/30"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
 
                 <div className="flex space-x-3">
@@ -977,7 +1214,12 @@ export default function TicketModal({
                   {canSaveTicket && (
                     <button
                       onClick={handleSave}
-                      disabled={saving || archiving || !title.trim()}
+                      disabled={
+                        saving ||
+                        archiving ||
+                        !title.trim() ||
+                        (selectedBoardRequiresStoryPoints && storyPoints === "")
+                      }
                       className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {saving
