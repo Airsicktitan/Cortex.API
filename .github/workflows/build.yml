@@ -7,12 +7,27 @@ on:
     branches: ["v2"]
 
 jobs:
-  build:
+  build-backend:
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: CortexBackend
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Say hello
-        run: echo "Pipeline is running"
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build backend
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Publish backend
+        run: dotnet publish --no-build --configuration Release -o ./out
