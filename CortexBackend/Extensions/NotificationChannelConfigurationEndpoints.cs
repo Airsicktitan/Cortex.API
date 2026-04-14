@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.DTO;
 using Cortex.API.Handlers;
 
@@ -8,7 +9,7 @@ public static class NotificationChannelConfigurationEndpoints
     public static void MapNotificationChannelConfigurationEndpoints(this WebApplication app)
     {
         var settings = app.MapGroup("/api/settings/notification-channels")
-            .RequireAuthorization("SlaManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithTags("Notification Channel Configuration");
 
         settings.MapGet("/", NotificationChannelConfigurationHandlers.GetNotificationChannelConfiguration)

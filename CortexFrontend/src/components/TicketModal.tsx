@@ -27,46 +27,15 @@ import {
   getSlaDisplayLabel,
 } from "../utils/ticketSla";
 import toast from "react-hot-toast";
+import {
+  normalizeRoles,
+  canCreateTickets,
+  canEditTickets,
+} from "../utils/role";
 
 const API_AUDIENCE = "https://cortex-api";
-const ADMIN_PERMISSION = "admin:system";
-const DEVELOPER_PERMISSION = "developer";
-const TICKETS_CREATE_PERMISSION = "tickets:create";
-const TICKETS_UPDATE_PERMISSION = "tickets:update";
-const TICKETS_DELETE_PERMISSION = "tickets:delete";
 const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 4000;
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const payload = token.split(".")[1];
-  if (!payload) return null;
-
-  try {
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    return JSON.parse(atob(padded)) as Record<string, unknown>;
-  } catch (error) {
-    console.error("Failed to decode token payload", error);
-    return null;
-  }
-}
-
-function parsePermissionsFromToken(token: string): string[] {
-  const payload = decodeJwtPayload(token);
-  const value = payload?.permissions;
-
-  if (Array.isArray(value)) {
-    return value.filter(
-      (permission): permission is string => typeof permission === "string",
-    );
-  }
-
-  if (typeof value === "string" && value.trim()) {
-    return [value];
-  }
-
-  return [];
-}
 
 function formatFileSize(fileSize: number) {
   if (fileSize < 1024) {
@@ -101,6 +70,7 @@ interface TicketModalProps {
     displayName: string;
     department?: string;
     role?: string;
+    roles?: string[];
   } | null;
   createdByDisplayName: string;
 }
@@ -154,7 +124,6 @@ export default function TicketModal({
   const [attachmentActionId, setAttachmentActionId] = useState<number | null>(
     null,
   );
-  const [permissions, setPermissions] = useState<string[]>([]);
   const [validationErrors, setValidationErrors] = useState<CreateFormErrors>({});
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
@@ -165,26 +134,18 @@ export default function TicketModal({
   // Used to prevent older comment fetches from overwriting newer ones
   const commentsLoadVersion = useRef(0);
   const attachmentsLoadVersion = useRef(0);
-  const hasPermission = (permission: string) => {
-    return (
-      permissions.includes(permission) || permissions.includes(ADMIN_PERMISSION)
-    );
-  };
-  const canCreateTicket =
-    !ticket.id && hasPermission(TICKETS_CREATE_PERMISSION);
+  const authRoles = useMemo(
+    () => normalizeRoles(currentUser?.roles, currentUser?.role),
+    [currentUser?.roles, currentUser?.role],
+  );
   const isCreateMode = !ticket.id;
-  const canUpdateTicket =
-    Boolean(ticket.id) && hasPermission(TICKETS_UPDATE_PERMISSION);
+  const canCreateTicket = isCreateMode && canCreateTickets(authRoles);
+  const canUpdateTicket = Boolean(ticket.id) && canEditTickets(authRoles);
   const canSaveTicket = canCreateTicket || canUpdateTicket;
-  const canDeleteTicket =
-    Boolean(ticket.id) && hasPermission(TICKETS_DELETE_PERMISSION);
-  const canArchiveTicket =
-    Boolean(ticket.id) &&
-    canUpdateTicket &&
-    (permissions.includes(ADMIN_PERMISSION) ||
-      permissions.includes(DEVELOPER_PERMISSION) ||
-      currentUser?.role === "Admin" ||
-      currentUser?.role === "Developer");
+  const canDeleteTicket = Boolean(ticket.id) && canEditTickets(authRoles);
+  const canArchiveTicket = Boolean(ticket.id) && canEditTickets(authRoles);
+  /** Existing ticket: User/Guest cannot edit (API enforces Business Manager+). */
+  const formReadOnly = Boolean(ticket.id) && !canUpdateTicket;
   const selectedBoard =
     ticketBoards.find((board) => board.id === boardId) ?? defaultBoard;
   const selectedBoardRequiresStoryPoints =
@@ -530,19 +491,6 @@ export default function TicketModal({
     ticket.id,
   ]);
 
-  useEffect(() => {
-    const loadPermissions = async () => {
-      try {
-        const token = await getApiToken();
-        setPermissions(parsePermissionsFromToken(token));
-      } catch (err) {
-        console.error("Failed to load permissions", err);
-      }
-    };
-
-    void loadPermissions();
-  }, [getApiToken]);
-
   const queueAttachments = useCallback((selectedFiles: File[]) => {
     if (selectedFiles.length === 0) {
       return;
@@ -821,8 +769,9 @@ export default function TicketModal({
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
+                    readOnly={formReadOnly}
                     placeholder="Enter ticket title..."
-                    className="w-full bg-transparent text-xl font-bold text-gray-900 dark:text-slate-100 mb-1 border-b border-gray-300 dark:border-slate-700 focus:border-cortex-blue focus:outline-none"
+                    className="w-full bg-transparent text-xl font-bold text-gray-900 dark:text-slate-100 mb-1 border-b border-gray-300 dark:border-slate-700 focus:border-cortex-blue focus:outline-none read-only:cursor-not-allowed read-only:opacity-80"
                   />
                   {isCreateMode && validationErrors.title && (
                     <p className="mt-1 text-xs text-red-600 dark:text-red-400">
@@ -875,9 +824,10 @@ export default function TicketModal({
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  readOnly={formReadOnly}
                   rows={4}
                   placeholder="Enter ticket description..."
-                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 read-only:cursor-not-allowed read-only:opacity-80"
                 />
                 {isCreateMode && validationErrors.description && (
                   <p className="mt-2 text-xs text-red-600 dark:text-red-400">
@@ -1454,7 +1404,10 @@ export default function TicketModal({
                 </div>
 
                 <div className="mt-3">
-                  <AddComment onAdd={addComment} />
+                  <AddComment
+                    onAdd={addComment}
+                    disabled={!canCreateTickets(authRoles)}
+                  />
                 </div>
               </div>
             )}

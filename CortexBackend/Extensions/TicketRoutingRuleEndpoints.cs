@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 
 namespace Cortex.API.Extensions;
@@ -7,7 +8,7 @@ public static class TicketRoutingRuleEndpoints
     public static void MapTicketRoutingRuleEndpoints(this WebApplication app)
     {
         var routing = app.MapGroup("/api/settings/ticket-routing")
-            .RequireAuthorization("SlaManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithTags("Ticket Routing");
 
         routing.MapGet("/", TicketRoutingRuleHandlers.GetTicketRoutingRules)

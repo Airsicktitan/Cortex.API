@@ -41,9 +41,9 @@ import type {
 } from "./types/ticketRouting";
 import type {
   AdminUpdateUserInput,
+  Auth0RoleOption,
   CreateUserInput,
   OnlineUser,
-  UpdateUserAccessInput,
   UpdateUserProfileInput,
   UserProfile,
   UserRecord,
@@ -91,13 +91,19 @@ import {
 } from "./components/LoadingSkeletons";
 import { applyTheme, getPreferredTheme, type ThemeMode } from "./theme";
 import toast from "react-hot-toast";
+import {
+  normalizeRoles,
+  isAdmin as checkIsAdmin,
+  canManageUsers,
+  canAccessConfig,
+  canViewReports,
+  canManageJobs,
+  canManageReportDefinitions,
+  canCreateTickets,
+  canEditTickets,
+} from "./utils/role";
 
 const API_AUDIENCE = "https://cortex-api";
-const ADMIN_PERMISSION = "admin:system";
-const DEVELOPER_PERMISSION = "developer";
-const TICKETS_READ_PERMISSION = "tickets:read";
-const TICKETS_CREATE_PERMISSION = "tickets:create";
-const TICKETS_UPDATE_PERMISSION = "tickets:update";
 const API_AUTHORIZATION_PARAMS = {
   audience: API_AUDIENCE,
 } as const;
@@ -132,12 +138,6 @@ const APP_VIEW_LABELS: Record<AppView, string> = {
   users: "Users",
 };
 
-type Permission =
-  | typeof ADMIN_PERMISSION
-  | typeof DEVELOPER_PERMISSION
-  | typeof TICKETS_READ_PERMISSION
-  | typeof TICKETS_CREATE_PERMISSION
-  | typeof TICKETS_UPDATE_PERMISSION;
 type FilterOption = "all" | "status" | "priority" | "sla";
 type AppView =
   | "dashboard"
@@ -167,15 +167,6 @@ const DEFAULT_TICKET_STATUS_NAMES = [
   "Pending Business Review",
   "Resolved",
   "Closed",
-] as const;
-const DEFAULT_ADMIN_ACCESS_PERMISSIONS = [
-  "tickets:read",
-  "tickets:create",
-  "tickets:update",
-  "comments:read",
-  "comments:create",
-  "users:read",
-  "users:update",
 ] as const;
 const DEFAULT_TICKET_BOARDS: ReadonlyArray<TicketBoardDefinition> = [
   {
@@ -460,39 +451,6 @@ function sortTicketsForList(tickets: Ticket[], sort: TicketListSortOption): Tick
   }
 }
 
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const payload = token.split(".")[1];
-  if (!payload) return null;
-
-  try {
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    return JSON.parse(atob(padded)) as Record<string, unknown>;
-  } catch (error) {
-    console.error("Failed to decode token payload", error);
-    return null;
-  }
-}
-
-function parsePermissionsFromToken(token: string | undefined): string[] {
-  if (!token) return [];
-
-  const payload = decodeJwtPayload(token);
-  const value = payload?.permissions;
-
-  if (Array.isArray(value)) {
-    return value.filter((permission): permission is string => {
-      return typeof permission === "string";
-    });
-  }
-
-  if (typeof value === "string" && value.trim()) {
-    return [value];
-  }
-
-  return [];
-}
-
 function isConsentRequiredError(error: unknown) {
   if (typeof error !== "object" || error === null) return false;
 
@@ -725,8 +683,7 @@ function App() {
   const [reactivatingArchivedTicketId, setReactivatingArchivedTicketId] =
     useState<string | null>(null);
 
-  const [permissions, setPermissions] = useState<string[]>([]);
-  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const [needsConsent, setNeedsConsent] = useState(false);
 
   const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
@@ -874,11 +831,17 @@ function App() {
     null,
   );
   const [adminUserDraft, setAdminUserDraft] = useState<AdminUpdateUserInput>({});
-  const [adminAccessRoleDraft, setAdminAccessRoleDraft] = useState("User");
-  const [adminAccessPermissionsDraft, setAdminAccessPermissionsDraft] = useState<string[]>([]);
+  const [adminAuth0Roles, setAdminAuth0Roles] = useState<Auth0RoleOption[]>([]);
+  const [availableAuth0Roles, setAvailableAuth0Roles] = useState<Auth0RoleOption[]>(
+    [],
+  );
+  const [adminRolesLoading, setAdminRolesLoading] = useState(false);
+  const [roleMutationLoading, setRoleMutationLoading] = useState(false);
   const [adminAccessFeedback, setAdminAccessFeedback] = useState<string | null>(null);
   const [adminAccessError, setAdminAccessError] = useState<string | null>(null);
   const [adminUserSaving, setAdminUserSaving] = useState(false);
+  const [sessionRefreshInProgress, setSessionRefreshInProgress] = useState(false);
+  const [sessionRefreshNotice, setSessionRefreshNotice] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
@@ -901,9 +864,12 @@ function App() {
   const ticketSilentRefreshInFlightRef = useRef(false);
   const ticketSilentRefreshRequestIdRef = useRef(0);
 
-  const permissionSet = useMemo(() => new Set(permissions), [permissions]);
-  const isAdmin = permissionSet.has(ADMIN_PERMISSION);
-  const isDeveloper = permissionSet.has(DEVELOPER_PERMISSION);
+  const authRoles = useMemo(
+    () => normalizeRoles(currentUser?.roles, currentUser?.role),
+    [currentUser?.roles, currentUser?.role],
+  );
+
+  const isAdmin = useMemo(() => checkIsAdmin(authRoles), [authRoles]);
   const isDarkMode = theme === "dark";
   const isAccountExpired = isUserExpired(currentUser);
   const isAccountInactive = isUserInactive(currentUser);
@@ -944,37 +910,24 @@ function App() {
     [sessionStorageIdentity],
   );
 
-  const hasPermission = (permission: Permission) => {
-    return isAdmin || permissionSet.has(permission);
-  };
+  const sessionUnlocked =
+    bootstrapComplete && !needsConsent && Boolean(currentUser);
 
-  const canCreateTickets =
-    permissionsLoaded &&
-    !needsConsent &&
-    hasPermission(TICKETS_CREATE_PERMISSION);
-  const canUpdateTickets =
-    permissionsLoaded &&
-    !needsConsent &&
-    hasPermission(TICKETS_UPDATE_PERMISSION);
-  const canViewTicketSections =
-    permissionsLoaded &&
-    !needsConsent &&
-    hasPermission(TICKETS_READ_PERMISSION);
+  const canCreateTicketsCap = sessionUnlocked && canCreateTickets(authRoles);
+  const canEditTicketsCap = sessionUnlocked && canEditTickets(authRoles);
+  const canViewTicketSections = sessionUnlocked;
   const canViewDashboard = canViewTicketSections;
-  const canViewReports = canViewTicketSections;
-  const canViewOnlineUsersReport =
-    permissionsLoaded && !needsConsent && (isAdmin || isDeveloper);
-  const canManageCustomReports = canViewOnlineUsersReport;
+  const canViewReportsNav = sessionUnlocked && canViewReports(authRoles);
+  const canViewOnlineUsersReport = canViewReportsNav;
+  const canManageCustomReportDefinitions =
+    sessionUnlocked && canManageReportDefinitions(authRoles);
   const canViewArchived = canViewTicketSections;
-  const canManageConfiguration =
-    permissionsLoaded && !needsConsent && (isAdmin || isDeveloper);
-  const canManageJobs =
-    permissionsLoaded && !needsConsent && (isAdmin || isDeveloper);
-  const canViewUsers =
-    permissionsLoaded && !needsConsent && (isAdmin || isDeveloper);
+  const canManageConfiguration = sessionUnlocked && canAccessConfig(authRoles);
+  const canManageJobsNav = sessionUnlocked && canManageJobs(authRoles);
+  const canViewUsers = sessionUnlocked && canManageUsers(authRoles);
   const canCreateUsers = canViewUsers;
-  const canEditUsers = permissionsLoaded && !needsConsent && isAdmin;
-  const canDeleteUsers = permissionsLoaded && !needsConsent && isAdmin;
+  const canEditUsers = sessionUnlocked && canManageUsers(authRoles);
+  const canDeleteUsers = sessionUnlocked && canManageUsers(authRoles);
   const failedJobsCount = useMemo(
     () => jobs.filter((job) => job.lastRunStatus === "Failed").length,
     [jobs],
@@ -1009,13 +962,13 @@ function App() {
         view: "reports",
         label: "Reports",
         description: "Drill into SLA trends and detailed reporting.",
-        enabled: canViewReports,
+        enabled: canViewReportsNav,
       },
       {
         view: "jobs",
         label: "Jobs",
         description: "Create and manage background automation jobs.",
-        enabled: canManageJobs,
+        enabled: canManageJobsNav,
       },
       {
         view: "sla",
@@ -1031,24 +984,68 @@ function App() {
       },
     ];
 
-    return items.filter((item) => item.enabled || item.view === activeView);
+    return items.filter((item) => item.enabled);
   }, [
-    activeView,
-    canManageJobs,
+    canManageJobsNav,
     canManageConfiguration,
     canViewArchived,
     canViewDashboard,
-    canViewReports,
+    canViewReportsNav,
     canViewTicketSections,
     canViewUsers,
   ]);
   const activeNavigationItem =
     navigationItems.find((item) => item.view === activeView) ?? null;
 
+  const isViewAllowed = useCallback(
+    (view: AppView) =>
+      view === "dashboard" ||
+      view === "tickets" ||
+      view === "archived" ||
+      (view === "reports" && canViewReportsNav) ||
+      (view === "jobs" && canManageJobsNav) ||
+      (view === "sla" && canManageConfiguration) ||
+      (view === "users" && canViewUsers),
+    [canManageConfiguration, canManageJobsNav, canViewReportsNav, canViewUsers],
+  );
+
+  const getFallbackView = useCallback((): AppView => {
+    if (canViewTicketSections) {
+      return "tickets";
+    }
+    if (canViewReportsNav) {
+      return "reports";
+    }
+    if (canManageJobsNav) {
+      return "jobs";
+    }
+    if (canManageConfiguration) {
+      return "sla";
+    }
+    if (canViewUsers) {
+      return "users";
+    }
+
+    return "dashboard";
+  }, [
+    canManageConfiguration,
+    canManageJobsNav,
+    canViewReportsNav,
+    canViewTicketSections,
+    canViewUsers,
+  ]);
+
   const getApiToken = useCallback(async () => {
     return await getAccessTokenSilently({
       authorizationParams: API_AUTHORIZATION_PARAMS,
     });
+  }, [getAccessTokenSilently]);
+
+  const getFreshApiToken = useCallback(async () => {
+    return await getAccessTokenSilently({
+      authorizationParams: API_AUTHORIZATION_PARAMS,
+      cacheMode: "off",
+    } as Parameters<typeof getAccessTokenSilently>[0]);
   }, [getAccessTokenSilently]);
 
   const persistSessionLastActivity = useCallback(
@@ -1678,7 +1675,7 @@ function App() {
 
       try {
         const token = providedToken ?? (await getApiToken());
-        const data = await customReportService.getAll(token);
+        const data = await customReportService.listRunnable(token);
         setCustomReports(data);
         setApiUnavailable(false);
       } catch (error) {
@@ -1688,6 +1685,39 @@ function App() {
           setApiUnavailable(false);
           setCustomReportsError(
             "You do not have permission to manage custom reports.",
+          );
+        } else if (isLikelyNetworkError(error)) {
+          setApiUnavailable(true);
+        } else {
+          setApiUnavailable(false);
+          setCustomReportsError("Failed to load custom reports.");
+        }
+      } finally {
+        setCustomReportsLoadedOnce(true);
+        setCustomReportsLoading(false);
+      }
+    },
+    [getApiToken],
+  );
+
+  /** Settings/registry API (Developer+) — full definitions for Configuration workspace. */
+  const loadCustomReportDefinitions = useCallback(
+    async (providedToken?: string) => {
+      setCustomReportsLoading(true);
+      setCustomReportsError(null);
+
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const data = await customReportService.getAll(token);
+        setCustomReports(data);
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to load custom report definitions", error);
+
+        if (isForbiddenError(error)) {
+          setApiUnavailable(false);
+          setCustomReportsError(
+            "You do not have permission to manage custom report definitions.",
           );
         } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
@@ -1906,7 +1936,7 @@ function App() {
   useEffect(() => {
     if (
       !isAuthenticated ||
-      !permissionsLoaded ||
+      !bootstrapComplete ||
       needsConsent ||
       !canViewTicketSections ||
       activeView !== "tickets"
@@ -1949,12 +1979,12 @@ function App() {
     isModalOpen,
     loading,
     needsConsent,
-    permissionsLoaded,
+    bootstrapComplete,
     refreshTicketsSilently,
   ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !permissionsLoaded || needsConsent || !canViewTicketSections) {
+    if (!isAuthenticated || !bootstrapComplete || needsConsent || !canViewTicketSections) {
       return;
     }
 
@@ -1995,7 +2025,7 @@ function App() {
     isAuthenticated,
     loadNotifications,
     needsConsent,
-    permissionsLoaded,
+    bootstrapComplete,
     scheduleRealtimeTicketRefresh,
   ]);
 
@@ -2185,16 +2215,13 @@ function App() {
     const bootstrap = async () => {
       setLoading(true);
       setError(null);
-      setPermissionsLoaded(false);
-      let parsedPermissions: string[] = [];
+      setBootstrapComplete(false);
 
       try {
         const token = await getAccessTokenSilently({
           authorizationParams: API_AUTHORIZATION_PARAMS,
         });
-        parsedPermissions = parsePermissionsFromToken(token);
         if (cancelled) return;
-        setPermissions(parsedPermissions);
         const { fetchedCurrentUser, fetchedTickets } =
           await loadBootstrapData(token);
 
@@ -2211,8 +2238,6 @@ function App() {
         console.error("Bootstrap failed", error);
 
         if (cancelled) return;
-
-        setPermissions(parsedPermissions);
 
         if (isConsentRequiredError(error)) {
           setNeedsConsent(true);
@@ -2233,7 +2258,7 @@ function App() {
         }
       } finally {
         if (!cancelled) {
-          setPermissionsLoaded(true);
+          setBootstrapComplete(true);
           setLoading(false);
         }
       }
@@ -2316,8 +2341,8 @@ function App() {
       void loadArchiveConfigurations();
     }
 
-    if (!customReportsLoadedOnce) {
-      void loadCustomReports();
+    if (!customReportsLoadedOnce && canManageCustomReportDefinitions) {
+      void loadCustomReportDefinitions();
     }
 
     if (databaseViews.length === 0) {
@@ -2339,7 +2364,8 @@ function App() {
     databaseStoredProcedures.length,
     databaseViews.length,
     loadNotificationChannelConfiguration,
-    loadCustomReports,
+    canManageCustomReportDefinitions,
+    loadCustomReportDefinitions,
     loadArchiveConfigurations,
     loadDatabaseStoredProcedures,
     loadDatabaseViews,
@@ -2357,7 +2383,7 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (activeView !== "jobs" || !canManageJobs) {
+    if (activeView !== "jobs" || !canManageJobsNav) {
       return;
     }
 
@@ -2370,7 +2396,7 @@ function App() {
     }
   }, [
     activeView,
-    canManageJobs,
+    canManageJobsNav,
     jobsLoaded,
     loadJobs,
     loadStoredProcedures,
@@ -2378,17 +2404,17 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!canManageJobs || jobsLoaded || jobsLoading) {
+    if (!canManageJobsNav || jobsLoaded || jobsLoading) {
       return;
     }
 
     void loadJobs();
-  }, [canManageJobs, jobsLoaded, jobsLoading, loadJobs]);
+  }, [canManageJobsNav, jobsLoaded, jobsLoading, loadJobs]);
 
   useEffect(() => {
     if (
       !isAuthenticated ||
-      !permissionsLoaded ||
+      !bootstrapComplete ||
       needsConsent ||
       notificationsLoaded ||
       notificationsLoading
@@ -2403,7 +2429,7 @@ function App() {
     needsConsent,
     notificationsLoaded,
     notificationsLoading,
-    permissionsLoaded,
+    bootstrapComplete,
   ]);
 
   useEffect(() => {
@@ -2431,6 +2457,16 @@ function App() {
       setHighlightedArchivedTicketId(null);
     }
   }, [activeView, highlightedArchivedTicketId]);
+
+  useEffect(() => {
+    if (!sessionUnlocked || isViewAllowed(activeView)) {
+      return;
+    }
+
+    setActiveView(getFallbackView());
+    setIsAppMenuOpen(false);
+    setIsNotificationPanelOpen(false);
+  }, [activeView, getFallbackView, isViewAllowed, sessionUnlocked]);
 
   useEffect(() => {
     if (canViewOnlineUsersReport || activeReportSection !== "online-users") {
@@ -2463,7 +2499,7 @@ function App() {
   useEffect(() => {
     if (
       activeView !== "reports" ||
-      !canManageCustomReports ||
+      !canViewReportsNav ||
       customReportsLoadedOnce
     ) {
       return;
@@ -2472,7 +2508,7 @@ function App() {
     void loadCustomReports();
   }, [
     activeView,
-    canManageCustomReports,
+    canViewReportsNav,
     customReportsLoadedOnce,
     loadCustomReports,
   ]);
@@ -2482,7 +2518,7 @@ function App() {
       return;
     }
 
-    if (!canManageCustomReports) {
+    if (!canViewReportsNav) {
       setActiveReportSection("sla");
       setSelectedCustomReportId(null);
       return;
@@ -2503,7 +2539,7 @@ function App() {
     }
   }, [
     activeReportSection,
-    canManageCustomReports,
+    canViewReportsNav,
     customReports,
     selectedCustomReportId,
   ]);
@@ -2544,7 +2580,6 @@ function App() {
   const grantConsent = async () => {
     setLoading(true);
     setError(null);
-    let parsedPermissions: string[] = [];
 
     try {
       const token = await getAccessTokenWithPopup({
@@ -2553,21 +2588,18 @@ function App() {
       if (!token) {
         throw new Error("No access token was returned.");
       }
-      parsedPermissions = parsePermissionsFromToken(token);
       const { fetchedCurrentUser, fetchedTickets } =
         await loadBootstrapData(token);
 
-      setPermissions(parsedPermissions);
       setCurrentUser(fetchedCurrentUser);
       setAllTickets(fetchedTickets);
       setNeedsConsent(false);
-      setPermissionsLoaded(true);
+      setBootstrapComplete(true);
       setApiUnavailable(false);
       void loadTicketBoards(token);
       void loadNotifications(token, { silent: true });
     } catch (error) {
       console.error("Consent failed", error);
-      setPermissions(parsedPermissions);
 
       if (isLikelyNetworkError(error)) {
         setApiUnavailable(true);
@@ -3931,12 +3963,21 @@ function App() {
   };
 
   const handleViewChange = (view: AppView) => {
+    if (!isViewAllowed(view)) {
+      toast.error("You do not have access to this section.");
+      return;
+    }
+
     setActiveView(view);
     setIsAppMenuOpen(false);
     setIsNotificationPanelOpen(false);
   };
 
   const openFailedJobsQueue = () => {
+    if (!canManageJobsNav) {
+      return;
+    }
+
     setActiveView("jobs");
     setIsAppMenuOpen(false);
     setIsUserMenuOpen(false);
@@ -4309,25 +4350,42 @@ function App() {
       assignmentNotificationChannel:
         selectedUser.assignmentNotificationChannel ?? "",
       slaRiskNotificationChannel: selectedUser.slaRiskNotificationChannel ?? "",
-      role: selectedUser.role,
       isActive: selectedUser.isActive,
       expiryDate: selectedUser.expiryDate ?? "",
     });
-    setAdminAccessRoleDraft(selectedUser.role ?? "User");
-    setAdminAccessPermissionsDraft(
-      selectedUser.permissions && selectedUser.permissions.length > 0
-        ? [...selectedUser.permissions]
-        : [...DEFAULT_ADMIN_ACCESS_PERMISSIONS],
-    );
     setAdminAccessFeedback(null);
     setAdminAccessError(null);
+    setAdminAuth0Roles([]);
+    setAvailableAuth0Roles([]);
+    setAdminRolesLoading(true);
+
+    void (async () => {
+      try {
+        const token = await getApiToken();
+        const [detail, catalog] = await Promise.all([
+          selectedUser.auth0Id
+            ? userService.getUserAuth0Roles(selectedUser.id, token)
+            : Promise.resolve({ roles: [] as Auth0RoleOption[] }),
+          userService.getAvailableAuth0Roles(token),
+        ]);
+        setAdminAuth0Roles(detail.roles);
+        setAvailableAuth0Roles(catalog);
+      } catch (error) {
+        console.error("Failed to load Auth0 roles", error);
+        setAdminAccessError(
+          getUserFacingErrorMessage(error, "Could not load Auth0 roles."),
+        );
+      } finally {
+        setAdminRolesLoading(false);
+      }
+    })();
   };
 
   const closeAdminUserModal = () => {
     setEditingAdminUser(null);
     setAdminUserDraft({});
-    setAdminAccessRoleDraft("User");
-    setAdminAccessPermissionsDraft([]);
+    setAdminAuth0Roles([]);
+    setAvailableAuth0Roles([]);
     setAdminAccessFeedback(null);
     setAdminAccessError(null);
   };
@@ -4350,6 +4408,136 @@ function App() {
       ...currentDraft,
       [field]: value,
     }));
+  };
+
+  const refreshSessionAfterSelfRoleChange = useCallback(
+    async (updatedUser: UserRecord) => {
+      const isCurrentUser =
+        (currentUser?.id != null && updatedUser.id === currentUser.id) ||
+        (Boolean(user?.sub) &&
+          Boolean(updatedUser.auth0Id) &&
+          user?.sub === updatedUser.auth0Id);
+      if (!isCurrentUser) {
+        return;
+      }
+
+      setSessionRefreshInProgress(true);
+      setSessionRefreshNotice(null);
+
+      try {
+        const freshToken = await getFreshApiToken();
+        const refreshedUser = await userService.getCurrentUser(freshToken);
+        setCurrentUser(refreshedUser);
+
+        const expectedRoles = normalizeRoles(updatedUser.roles, updatedUser.role);
+        const refreshedRoles = normalizeRoles(refreshedUser.roles, refreshedUser.role);
+        const claimsAreFresh =
+          expectedRoles.length === refreshedRoles.length &&
+          expectedRoles.every((value, index) => value === refreshedRoles[index]);
+
+        if (!claimsAreFresh) {
+          setSessionRefreshNotice(
+            "Your access changed. Refresh your session to apply updated navigation and permissions.",
+          );
+          return;
+        }
+
+        setSessionRefreshNotice(null);
+      } catch (error) {
+        console.warn("Failed to refresh session after role update", error);
+        setSessionRefreshNotice(
+          "Your access changed. Refresh your session to apply updated navigation and permissions.",
+        );
+      } finally {
+        setSessionRefreshInProgress(false);
+      }
+    },
+    [currentUser?.id, getFreshApiToken, user?.sub],
+  );
+
+  const forceSessionRefreshForAuthChanges = useCallback(() => {
+    setSessionRefreshNotice(null);
+    void loginWithRedirect({
+      authorizationParams: {
+        ...API_AUTHORIZATION_PARAMS,
+        prompt: "login",
+        max_age: 0,
+      },
+    });
+  }, [loginWithRedirect]);
+
+  const handleAddAuth0Role = async (roleName: string) => {
+    if (!editingAdminUser?.auth0Id || !canEditUsers) return;
+
+    setRoleMutationLoading(true);
+    setAdminAccessError(null);
+    try {
+      const token = await getApiToken();
+      const updated = await userService.mutateUserAuth0Role(
+        editingAdminUser.id,
+        { action: "add", roleName },
+        token,
+      );
+      setUsers((list) =>
+        list.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
+      );
+      setEditingAdminUser((prev) =>
+        prev && prev.id === updated.id ? { ...prev, ...updated } : prev,
+      );
+      setCurrentUser((existingUser) =>
+        existingUser && existingUser.id === updated.id
+          ? { ...existingUser, ...updated }
+          : existingUser,
+      );
+      const detail = await userService.getUserAuth0Roles(editingAdminUser.id, token);
+      setAdminAuth0Roles(detail.roles);
+      await refreshSessionAfterSelfRoleChange(updated);
+      toast.success(`Role "${roleName}" added`);
+    } catch (error) {
+      console.error("Failed to add role", error);
+      const message = getUserFacingErrorMessage(error, "Failed to add role");
+      setAdminAccessError(message);
+      toast.error(message);
+    } finally {
+      setRoleMutationLoading(false);
+    }
+  };
+
+  const handleRemoveAuth0Role = async (roleName: string) => {
+    if (!editingAdminUser?.auth0Id || !canEditUsers) return;
+
+    setRoleMutationLoading(true);
+    setAdminAccessError(null);
+    try {
+      const token = await getApiToken();
+      const updated = await userService.mutateUserAuth0Role(
+        editingAdminUser.id,
+        { action: "remove", roleName },
+        token,
+      );
+      setUsers((list) =>
+        list.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
+      );
+      setEditingAdminUser((prev) =>
+        prev && prev.id === updated.id ? { ...prev, ...updated } : prev,
+      );
+      setCurrentUser((existingUser) =>
+        existingUser && existingUser.id === updated.id
+          ? { ...existingUser, ...updated }
+          : existingUser,
+      );
+      const detail = await userService.getUserAuth0Roles(editingAdminUser.id, token);
+      setAdminAuth0Roles(detail.roles);
+      await refreshSessionAfterSelfRoleChange(updated);
+      toast.success(`Role "${roleName}" removed`);
+    } catch (error) {
+      console.error("Failed to remove role", error);
+      const message = getUserFacingErrorMessage(error, "Failed to remove role");
+      setAdminAccessError(message);
+      toast.error(message);
+    } finally {
+      setRoleMutationLoading(false);
+    }
   };
 
   const handleCreateUserDraftChange = (
@@ -4398,7 +4586,6 @@ function App() {
       const token = await getApiToken();
       const payload: AdminUpdateUserInput = {
         ...adminUserDraft,
-        role: adminAccessRoleDraft,
         expiryDate: adminUserDraft.expiryDate?.trim()
           ? adminUserDraft.expiryDate
           : null,
@@ -4408,34 +4595,21 @@ function App() {
         payload,
         token,
       );
-      const accessPayload: UpdateUserAccessInput = {
-        role: adminAccessRoleDraft,
-        permissions: adminAccessPermissionsDraft,
-      };
-      const accessResult = await userService.updateUserAccess(
-        editingAdminUser.id,
-        accessPayload,
-        token,
-      );
 
       setUsers((currentUsers) =>
         currentUsers.map((userRecord) =>
-          userRecord.id === updatedUser.id
-            ? { ...updatedUser, permissions: accessResult.requestedPermissions }
-            : userRecord,
+          userRecord.id === updatedUser.id ? { ...userRecord, ...updatedUser } : userRecord,
         ),
       );
       setCurrentUser((existingUser) =>
         existingUser && existingUser.id === updatedUser.id
-          ? {
-              ...existingUser,
-              ...updatedUser,
-            }
+          ? { ...existingUser, ...updatedUser }
           : existingUser,
       );
-      setAdminAccessFeedback("Role and permissions saved.");
+
+      setAdminAccessFeedback("User saved.");
       closeAdminUserModal();
-      toast.success("User access updated");
+      toast.success("User updated");
     } catch (error) {
       console.error("Failed to update user", error);
       const message = getUserFacingErrorMessage(error, "Failed to update user access");
@@ -4444,14 +4618,6 @@ function App() {
     } finally {
       setAdminUserSaving(false);
     }
-  };
-
-  const toggleAdminAccessPermission = (permission: string) => {
-    setAdminAccessPermissionsDraft((currentPermissions) =>
-      currentPermissions.includes(permission)
-        ? currentPermissions.filter((item) => item !== permission)
-        : [...currentPermissions, permission],
-    );
   };
 
   const saveCreatedUser = async () => {
@@ -4515,7 +4681,7 @@ function App() {
         closeAdminUserModal();
       }
 
-      if (canManageJobs) {
+      if (canManageJobsNav) {
         void loadJobs(token);
       }
 
@@ -4716,7 +4882,7 @@ function App() {
                   Refresh
                 </button>
 
-                {canCreateTickets && (
+                {canCreateTicketsCap && (
                   <button
                     onClick={() =>
                       openTicket(
@@ -4736,10 +4902,10 @@ function App() {
               </>
             )}
 
-            {permissionsLoaded && needsConsent && (
+            {bootstrapComplete && needsConsent && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-yellow-700 dark:text-amber-300">
-                  CORTEX API consent is required before permission-based UI can
+                  CORTEX API consent is required before the app can
                   load.
                 </span>
                 <button
@@ -4747,6 +4913,21 @@ function App() {
                   className="rounded-md bg-cortex-blue px-3 py-2 text-white transition-colors hover:bg-cortex-blue-dark"
                 >
                   Grant Access
+                </button>
+              </div>
+            )}
+
+            {sessionRefreshNotice && (
+              <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+                <span className="text-sm text-amber-800 dark:text-amber-200">
+                  {sessionRefreshNotice}
+                </span>
+                <button
+                  onClick={forceSessionRefreshForAuthChanges}
+                  disabled={sessionRefreshInProgress}
+                  className="rounded-md bg-amber-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {sessionRefreshInProgress ? "Refreshing..." : "Refresh Session"}
                 </button>
               </div>
             )}
@@ -4805,7 +4986,7 @@ function App() {
                 )}
               </div>
 
-              {canManageJobs && failedJobsCount > 0 && (
+              {canManageJobsNav && failedJobsCount > 0 && (
                 <button
                   onClick={openFailedJobsQueue}
                   className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-slate-300 dark:hover:bg-red-950/30 dark:hover:text-red-200"
@@ -5248,11 +5429,11 @@ function App() {
             error={apiUnavailable ? null : archivedError}
             highlightedTicketId={highlightedArchivedTicketId}
             onRefresh={() => void loadArchivedTickets()}
-            canReactivate={canUpdateTickets}
+            canReactivate={canEditTicketsCap}
             reactivatingTicketId={reactivatingArchivedTicketId}
             onReactivate={handleReactivateArchivedTicket}
           />
-        ) : activeView === "reports" && canViewReports ? (
+        ) : activeView === "reports" && canViewReportsNav ? (
           <ReportsPage
             tickets={allTickets}
             onlineUsers={onlineUsers}
@@ -5266,7 +5447,7 @@ function App() {
             customReportError={apiUnavailable ? null : customReportResultError}
             showSlaLegend={showReportSlaLegend}
             canViewOnlineUsers={canViewOnlineUsersReport}
-            canViewCustomReports={canManageCustomReports}
+            canViewCustomReports={canViewReportsNav}
             activeSection={activeReportSection}
             onChangeSection={setActiveReportSection}
             selectedCustomReportId={selectedCustomReportId}
@@ -5285,7 +5466,7 @@ function App() {
             onExportGoogleSheets={() => void exportReportCsv(true)}
             onOpenTicket={openTicket}
           />
-        ) : activeView === "jobs" && canManageJobs ? (
+        ) : activeView === "jobs" && canManageJobsNav ? (
           <JobsPage
             jobs={jobs}
             storedProcedures={storedProcedures}
@@ -5381,7 +5562,7 @@ function App() {
               customReportLoading={customReportsLoading}
               customReportSaving={customReportsSaving}
               customReportDeletingId={deletingCustomReportId}
-              onRefreshCustomReports={() => void loadCustomReports()}
+              onRefreshCustomReports={() => void loadCustomReportDefinitions()}
               onCreateCustomReport={createCustomReport}
               onUpdateCustomReport={updateCustomReport}
               onDeleteCustomReport={deleteCustomReport}
@@ -5398,7 +5579,8 @@ function App() {
               onDeleteStoredProcedure={deleteStoredProcedureDefinition}
               canExportAdminLogs={isAdmin}
               onExportAdminLogs={exportAdminLogsCsv}
-              canManageJobs={canManageJobs}
+              canManageJobs={canManageJobsNav}
+              canManageReportDefinitions={canManageCustomReportDefinitions}
               canViewUsers={canViewUsers}
               onOpenJobs={() => setActiveView("jobs")}
               onOpenUsers={() => setActiveView("users")}
@@ -5456,6 +5638,7 @@ function App() {
                   displayName: currentUser.displayName ?? "",
                   department: currentUser.department ?? "",
                   role: currentUser.role ?? "",
+                  roles: currentUser.roles,
                 }
               : null
           }
@@ -5498,12 +5681,14 @@ function App() {
         saving={adminUserSaving}
         onChange={handleAdminUserDraftChange}
         canManageAccess={canEditUsers}
-        accessRole={adminAccessRoleDraft}
-        accessPermissions={adminAccessPermissionsDraft}
+        auth0AssignedRoles={adminAuth0Roles}
+        availableAuth0Roles={availableAuth0Roles}
+        rolesLoading={adminRolesLoading}
+        roleMutationLoading={roleMutationLoading}
         accessFeedback={adminAccessFeedback}
         accessError={adminAccessError}
-        onAccessRoleChange={setAdminAccessRoleDraft}
-        onTogglePermission={toggleAdminAccessPermission}
+        onAddRole={(roleName) => void handleAddAuth0Role(roleName)}
+        onRemoveRole={(roleName) => void handleRemoveAuth0Role(roleName)}
         onClose={closeAdminUserModal}
         onSave={() => void saveAdminUser()}
       />

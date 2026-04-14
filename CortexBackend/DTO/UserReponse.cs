@@ -13,6 +13,9 @@ public class UserResponse
     public string? AssignmentNotificationChannel { get; set; }
     public string? SlaRiskNotificationChannel { get; set; }
     public required string Role { get; set; }
+
+    /// <summary>Roles from the access token (Auth0). Authoritative for authorization in the UI.</summary>
+    public List<string> Roles { get; set; } = [];
     public bool IsActive { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastLoginDate { get; set; }

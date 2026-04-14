@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 
 namespace Cortex.API.Extensions;
@@ -7,7 +8,7 @@ public static class ScheduledJobEndpoints
     public static void MapScheduledJobEndpoints(this WebApplication app)
     {
         var jobs = app.MapGroup("/api/jobs")
-            .RequireAuthorization("SlaManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithTags("Jobs");
 
         jobs.MapGet("/", ScheduledJobHandlers.GetScheduledJobs)

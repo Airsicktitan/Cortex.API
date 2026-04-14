@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 
 namespace Cortex.API.Extensions;
@@ -15,7 +16,7 @@ public static class SessionConfigurationEndpoints
             .Produces(StatusCodes.Status200OK);
 
         session.MapPut("/", SessionConfigurationHandlers.UpdateSessionConfiguration)
-            .RequireAuthorization("SlaManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("UpdateSessionConfiguration")
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest);

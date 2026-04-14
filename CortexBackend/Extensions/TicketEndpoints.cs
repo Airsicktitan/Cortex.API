@@ -1,104 +1,75 @@
 namespace Cortex.API.Extensions;
 
-using Cortex.API.Models;
-using Cortex.API.Database;
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 using Cortex.API.DTO;
-
-using Microsoft.EntityFrameworkCore;
+using Cortex.API.Models;
 
 /// <summary>
-/// Defines all ticket-related API endpoints for CORTEX.
-/// Implements RESTful CRUD operations with database persistence via Entity Framework Core.
-
-/// - JWT authentication
-/// - Role-based authorization (admin vs regular user)
-
-/// Known Limitations:
-/// - POST endpoint uses client-side ID generation (see inline TODO)
-/// - Authentication/authorization not yet implemented (see inline TODOs)
-/// - Delete endpoint commented out pending auth implementation
-/// 
-/// Future Enhancements:
-/// - Audit logging for all operations
-/// - Input validation middleware
+/// Ticket API: read for all authenticated roles; writes gated by capability policies.
 /// </summary>
-
 public static class TicketEndpoints
 {
     public static void MapTicketEndpoints(this WebApplication app)
     {
-        // Get all tickets
         var tickets = app.MapGroup("/api/tickets")
             .RequireAuthorization()
             .WithTags("Tickets");
 
         tickets.MapGet("/archived", TicketHandlers.GetArchivedTickets)
-            .RequireAuthorization("TicketsRead")
             .WithName("GetArchivedTickets")
             .Produces<List<ArchivedTicket>>(StatusCodes.Status200OK);
 
         tickets.MapGet("/", TicketHandlers.GetAllTickets)
-            .RequireAuthorization("TicketsRead")
             .WithName("GetAllTickets")
             .Produces<List<Ticket>>(StatusCodes.Status200OK);
 
-        // Get ticket by ID
         tickets.MapGet("/{id}", TicketHandlers.GetTicketById)
-            .RequireAuthorization("TicketsRead")
             .WithName("GetTicketById")
             .Produces<Ticket>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapGet("/{id}/history", TicketHandlers.GetTicketHistory)
-            .RequireAuthorization("TicketsRead")
             .WithName("GetTicketHistory")
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
-        // Get tickets by status
         tickets.MapGet("/status/{status}", TicketHandlers.GetTicketsByStatus)
-            .RequireAuthorization("TicketsRead")
             .WithName("GetTicketsByStatus")
             .Produces<List<Ticket>>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
-        // Get tickets by priority
         tickets.MapGet("/priority/{priority}", TicketHandlers.GetTicketsByPriority)
-            .RequireAuthorization("TicketsRead")
             .WithName("GetTicketsByPriority")
             .Produces<List<Ticket>>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
-        // Create new ticket
         tickets.MapPost("/", TicketHandlers.CreateTicket)
-            .RequireAuthorization("TicketsCreate")
+            .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
             .WithName("CreateTicket")
             .Produces<Ticket>(StatusCodes.Status201Created);
 
-        // Update ticket
         tickets.MapPut("/{id}", TicketHandlers.UpdateTicket)
-            .RequireAuthorization("TicketsUpdate")
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .WithName("UpdateTicket")
             .Produces<Ticket>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapPost("/{id}/archive", TicketHandlers.ArchiveTicket)
-            .RequireAuthorization("TicketsArchiveManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .WithName("ArchiveTicket")
             .Accepts<TicketActionReasonRequest>("application/json")
             .Produces<ArchivedTicket>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapPost("/archived/{id}/reactivate", TicketHandlers.ReactivateArchivedTicket)
-            .RequireAuthorization("TicketsUpdate")
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .WithName("ReactivateArchivedTicket")
             .Produces<Ticket>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status409Conflict);
 
         tickets.MapDelete("/{id}", TicketHandlers.DeleteTicket)
-            .RequireAuthorization("TicketsDelete")
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .WithName("DeleteTicket")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status404NotFound);

@@ -1,9 +1,8 @@
 namespace Cortex.API.Extensions;
 
+using Cortex.API.Authorization;
 using Cortex.API.Models;
 using Cortex.API.Handlers;
-
-using Microsoft.EntityFrameworkCore;
 
 public static class CommentEndpoints
 {
@@ -14,14 +13,14 @@ public static class CommentEndpoints
             .WithTags("Comments");
 
         comments.MapGet("/", CommentHandlers.GetComment)
-            .RequireAuthorization("CommentsRead")
             .WithName("GetAllComments")
             .Produces<List<Comment>>(StatusCodes.Status200OK);
 
         comments.MapPost("/", CommentHandlers.CreateComment)
-            .RequireAuthorization("CommentsCreate")
+            .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
             .WithName("CreateComment")
             .Produces<Comment>(StatusCodes.Status201Created);
     }
+
     public record CreateCommentRequest(string Body, string? CreatedBy);
 }

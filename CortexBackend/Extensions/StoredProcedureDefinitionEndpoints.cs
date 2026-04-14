@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 
 namespace Cortex.API.Extensions;
@@ -7,7 +8,7 @@ public static class StoredProcedureDefinitionEndpoints
     public static void MapStoredProcedureDefinitionEndpoints(this WebApplication app)
     {
         var storedProcedures = app.MapGroup("/api/settings/stored-procedures")
-            .RequireAuthorization("SlaManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithTags("Stored Procedures");
 
         storedProcedures.MapGet("/", StoredProcedureDefinitionHandlers.GetStoredProcedureDefinitions)

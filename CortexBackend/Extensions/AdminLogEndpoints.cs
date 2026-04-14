@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 
 namespace Cortex.API.Extensions;
@@ -7,7 +8,7 @@ public static class AdminLogEndpoints
     public static void MapAdminLogEndpoints(this WebApplication app)
     {
         var admin = app.MapGroup("/api/admin/logs")
-            .RequireAuthorization("AdminLogsExport")
+            .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly)
             .WithTags("Admin Logs");
 
         admin.MapGet("/export", AdminLogExportHandlers.ExportRequestLogs)

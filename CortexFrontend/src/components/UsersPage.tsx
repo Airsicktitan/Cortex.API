@@ -29,6 +29,32 @@ function formatValue(value?: string) {
   return value && value.trim() ? value : "—";
 }
 
+function formatRolesDisplay(user: UserRecord) {
+  const list =
+    user.roles && user.roles.length > 0
+      ? user.roles
+      : user.role
+        ? [user.role]
+        : [];
+  if (list.length === 0) {
+    return (
+      <span className="text-gray-400 dark:text-slate-500">No roles assigned</span>
+    );
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {list.map((r) => (
+        <span
+          key={r}
+          className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+        >
+          {r}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function UsersPage({
   users,
   loading,
@@ -134,7 +160,7 @@ export default function UsersPage({
                     <td className="px-4 py-3 align-top">
                       {formatValue(user.department)}
                     </td>
-                    <td className="px-4 py-3 align-top">{formatValue(user.role)}</td>
+                    <td className="px-4 py-3 align-top">{formatRolesDisplay(user)}</td>
                     <td className="px-4 py-3 align-top">
                       <span
                         className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${

@@ -1,4 +1,5 @@
-import type { AdminUpdateUserInput, UserRecord } from "../types/user";
+import { useMemo, useState } from "react";
+import type { AdminUpdateUserInput, Auth0RoleOption, UserRecord } from "../types/user";
 import PhoneNumberInput from "./PhoneNumberInput";
 
 interface AdminUserEditModalProps {
@@ -10,34 +11,24 @@ interface AdminUserEditModalProps {
   onClose: () => void;
   onSave: () => void;
   canManageAccess: boolean;
-  accessRole: string;
-  accessPermissions: string[];
+  /** Roles currently assigned in Auth0 (from Management API). */
+  auth0AssignedRoles: Auth0RoleOption[];
+  /** All roles defined in Auth0 (for add dropdown). */
+  availableAuth0Roles: Auth0RoleOption[];
+  rolesLoading: boolean;
+  roleMutationLoading: boolean;
   accessFeedback: string | null;
   accessError: string | null;
-  onAccessRoleChange: (role: string) => void;
-  onTogglePermission: (permission: string) => void;
+  onAddRole: (roleName: string) => void;
+  onRemoveRole: (roleName: string) => void;
 }
 
-const ROLE_OPTIONS = ["Guest", "User", "Manager", "Admin"] as const;
 const NOTIFICATION_CHANNEL_OPTIONS = [
   { value: "", label: "Use system default" },
   { value: "Neither", label: "Neither" },
   { value: "Email", label: "Email" },
   { value: "Teams", label: "Teams" },
   { value: "Both", label: "Both" },
-] as const;
-const SUPPORTED_PERMISSION_OPTIONS = [
-  "admin:system",
-  "developer",
-  "business:user",
-  "tickets:read",
-  "tickets:create",
-  "tickets:update",
-  "tickets:delete",
-  "comments:read",
-  "comments:create",
-  "users:read",
-  "users:update",
 ] as const;
 
 function toDateInputValue(value?: string | null) {
@@ -54,6 +45,10 @@ function toDateInputValue(value?: string | null) {
   return `${year}-${month}-${day}`;
 }
 
+function normalizeRoleKey(name: string) {
+  return name.trim().toLowerCase();
+}
+
 export default function AdminUserEditModal({
   isOpen,
   user,
@@ -63,14 +58,30 @@ export default function AdminUserEditModal({
   onClose,
   onSave,
   canManageAccess,
-  accessRole,
-  accessPermissions,
+  auth0AssignedRoles,
+  availableAuth0Roles,
+  rolesLoading,
+  roleMutationLoading,
   accessFeedback,
   accessError,
-  onAccessRoleChange,
-  onTogglePermission,
+  onAddRole,
+  onRemoveRole,
 }: AdminUserEditModalProps) {
+  const [addSelection, setAddSelection] = useState("");
+
+  const assignedNameSet = useMemo(() => {
+    return new Set(auth0AssignedRoles.map((r) => normalizeRoleKey(r.name)));
+  }, [auth0AssignedRoles]);
+
+  const rolesAvailableToAdd = useMemo(() => {
+    return availableAuth0Roles.filter(
+      (r) => !assignedNameSet.has(normalizeRoleKey(r.name)),
+    );
+  }, [availableAuth0Roles, assignedNameSet]);
+
   if (!isOpen || !user) return null;
+
+  const noAuth0 = !user.auth0Id;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -86,7 +97,7 @@ export default function AdminUserEditModal({
               <h2 className="text-2xl font-semibold">Edit User</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
                 Update local CORTEX user settings. Display name and email still
-                sync from Auth0 when available.
+                sync from Auth0 when available. Auth0 roles are managed below.
               </p>
             </div>
             <button
@@ -203,27 +214,6 @@ export default function AdminUserEditModal({
 
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
-                Role
-              </label>
-              <select
-                value={canManageAccess ? accessRole : (draft.role ?? "User")}
-                onChange={(event) =>
-                  canManageAccess
-                    ? onAccessRoleChange(event.target.value)
-                    : onChange("role", event.target.value)
-                }
-                className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              >
-                {ROLE_OPTIONS.map((role) => (
-                  <option key={role} value={role}>
-                    {role}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
                 Expiry Date
               </label>
               <input
@@ -261,41 +251,103 @@ export default function AdminUserEditModal({
           {canManageAccess && (
             <section className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950/40">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">
-                Access Permissions
+                Auth0 roles
               </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Select only supported Cortex permissions for this user.
+                Source of truth is Auth0 RBAC. Changes apply immediately in Auth0;
+                users may need to refresh tokens to see authorization updates.
               </p>
 
-              <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
-                {SUPPORTED_PERMISSION_OPTIONS.map((permission) => {
-                  const checked = accessPermissions.includes(permission);
-                  return (
-                    <label
-                      key={permission}
-                      className="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => onTogglePermission(permission)}
-                        className="h-4 w-4 rounded border-gray-300 text-cortex-blue focus:ring-cortex-blue"
-                      />
-                      <span className="font-mono text-xs">{permission}</span>
-                    </label>
-                  );
-                })}
-              </div>
-
-              {accessError && (
-                <p className="mt-3 text-sm text-red-700 dark:text-red-300">{accessError}</p>
-              )}
-              {accessFeedback && (
-                <p className="mt-3 text-sm text-green-700 dark:text-green-300">
-                  {accessFeedback}
+              {noAuth0 ? (
+                <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">
+                  This user has no Auth0 account linked. Role management is unavailable.
                 </p>
+              ) : rolesLoading ? (
+                <p className="mt-3 text-sm text-gray-500 dark:text-slate-400">
+                  Loading roles…
+                </p>
+              ) : (
+                <>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {auth0AssignedRoles.length === 0 ? (
+                      <span className="text-sm italic text-gray-500 dark:text-slate-400">
+                        No roles assigned
+                      </span>
+                    ) : (
+                      auth0AssignedRoles.map((role) => (
+                        <span
+                          key={role.id}
+                          className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1 text-sm text-gray-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                        >
+                          {role.name}
+                          <button
+                            type="button"
+                            disabled={roleMutationLoading}
+                            onClick={() => onRemoveRole(role.name)}
+                            className="ml-1 rounded-full px-1 text-lg leading-none text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                            title={`Remove ${role.name}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-end gap-2">
+                    <div className="min-w-[200px] flex-1">
+                      <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
+                        Add role
+                      </label>
+                      <select
+                        value={addSelection}
+                        onChange={(e) => setAddSelection(e.target.value)}
+                        disabled={roleMutationLoading || rolesAvailableToAdd.length === 0}
+                        className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      >
+                        <option value="">
+                          {rolesAvailableToAdd.length === 0
+                            ? "All roles already assigned"
+                            : "Select a role…"}
+                        </option>
+                        {rolesAvailableToAdd.map((r) => (
+                          <option key={r.id} value={r.name}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={
+                        roleMutationLoading ||
+                        !addSelection ||
+                        rolesAvailableToAdd.length === 0
+                      }
+                      onClick={() => {
+                        if (!addSelection) return;
+                        onAddRole(addSelection);
+                        setAddSelection("");
+                      }}
+                      className="rounded-md bg-cortex-blue px-4 py-2 text-sm text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-50"
+                    >
+                      {roleMutationLoading ? "Applying…" : "Add role"}
+                    </button>
+                  </div>
+                </>
               )}
             </section>
+          )}
+
+          {(accessError || accessFeedback) && (
+            <div className="mt-4 space-y-2">
+              {accessError && (
+                <p className="text-sm text-red-700 dark:text-red-300">{accessError}</p>
+              )}
+              {accessFeedback && (
+                <p className="text-sm text-green-700 dark:text-green-300">{accessFeedback}</p>
+              )}
+            </div>
           )}
 
           <div className="mt-6 flex justify-end gap-3">
@@ -307,10 +359,10 @@ export default function AdminUserEditModal({
             </button>
             <button
               onClick={onSave}
-              disabled={saving}
+              disabled={saving || roleMutationLoading}
               className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
             >
-              {saving ? "Saving..." : "Save User"}
+              {saving ? "Saving…" : "Save User"}
             </button>
           </div>
         </div>

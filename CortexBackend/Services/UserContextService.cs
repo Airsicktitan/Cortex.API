@@ -55,6 +55,8 @@ public class UserContextService(IUserRepository userRepository, IHttpContextAcce
                 NickName = string.IsNullOrWhiteSpace(nickName) ? null : nickName.Trim(),
                 Email = normalizedEmail ?? BuildFallbackEmail(auth0Id),
                 PhoneNumber = string.IsNullOrWhiteSpace(phoneNumber) ? null : phoneNumber.Trim(),
+                // New logins only: persist default Cortex role (do not touch Role for existing rows).
+                Role = Auth0Roles.User,
                 CreatedDate = DateTime.UtcNow,
                 LastLoginDate = DateTime.UtcNow
             };

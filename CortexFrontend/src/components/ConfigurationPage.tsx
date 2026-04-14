@@ -157,6 +157,8 @@ interface ConfigurationPageProps {
   canExportAdminLogs: boolean;
   onExportAdminLogs: (fromUtcIso: string, toUtcIso: string) => Promise<void>;
   canManageJobs: boolean;
+  /** Developer+ — custom SQL report definitions and database views. */
+  canManageReportDefinitions: boolean;
   canViewUsers: boolean;
   onOpenJobs: () => void;
   onOpenUsers: () => void;
@@ -267,6 +269,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     canExportAdminLogs,
     onExportAdminLogs,
     canManageJobs,
+    canManageReportDefinitions,
     canViewUsers,
     onOpenJobs,
     onOpenUsers,
@@ -292,7 +295,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
   const navItems: Array<{ id: ConfigSection; label: string; description: string }> = [
     { id: "general", label: "General", description: "SLA, session, and archive policy" },
     { id: "boards", label: "Boards", description: "Boards, statuses, and routing" },
-    { id: "roles", label: "Roles & Permissions", description: "User administration access" },
+    { id: "roles", label: "User roles", description: "User administration access" },
     { id: "notifications", label: "Notifications", description: "Delivery channels and defaults" },
     { id: "jobs", label: "Scheduled Jobs", description: "Operational automation jobs" },
     { id: "reports", label: "Reports", description: "Custom reports and procedures" },
@@ -471,7 +474,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
 
             {activeSection === "roles" && (
               <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Roles & Permissions</h3>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">User roles</h3>
                 <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">Manage admin and developer user access from the Users workspace.</p>
                 <div className="mt-4">
                   <button onClick={onOpenUsers} disabled={!canViewUsers} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">Open Users Management</button>
@@ -503,19 +506,21 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
 
             {activeSection === "reports" && (
               <div className="space-y-6">
-                <CustomReportRegistrySection
-                  reports={customReports}
-                  databaseViews={databaseViews}
-                  databaseViewsLoading={databaseViewsLoading}
-                  loading={customReportLoading}
-                  error={customReportError}
-                  saving={customReportSaving}
-                  deletingId={customReportDeletingId}
-                  onRefresh={onRefreshCustomReports}
-                  onCreate={onCreateCustomReport}
-                  onUpdate={onUpdateCustomReport}
-                  onDelete={onDeleteCustomReport}
-                />
+                {canManageReportDefinitions && (
+                  <CustomReportRegistrySection
+                    reports={customReports}
+                    databaseViews={databaseViews}
+                    databaseViewsLoading={databaseViewsLoading}
+                    loading={customReportLoading}
+                    error={customReportError}
+                    saving={customReportSaving}
+                    deletingId={customReportDeletingId}
+                    onRefresh={onRefreshCustomReports}
+                    onCreate={onCreateCustomReport}
+                    onUpdate={onUpdateCustomReport}
+                    onDelete={onDeleteCustomReport}
+                  />
+                )}
                 <StoredProcedureRegistrySection
                   storedProcedures={storedProcedures}
                   databaseStoredProcedures={databaseStoredProcedures}

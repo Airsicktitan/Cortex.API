@@ -5,76 +5,21 @@ using Cortex.API.DTO;
 using Cortex.API.Data;
 using Cortex.API.Database;
 using Cortex.API.Services;
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
-/// Defines all user-related API handlers for CORTEX.
-/// Implements RESTful CRUD operations with database persistence via Entity Framework Core.
+/// User-related API handlers. Authorization uses Auth0 roles via ASP.NET policies.
 /// </summary>
 public static class UserHandlers
 {
-    private static readonly HashSet<string> AllowedPermissionValues = new(
-    [
-        "admin:system",
-        "developer",
-        "business:user",
-        "tickets:read",
-        "tickets:create",
-        "tickets:update",
-        "tickets:delete",
-        "comments:read",
-        "comments:create",
-        "users:read",
-        "users:update"
-    ],
-    StringComparer.OrdinalIgnoreCase);
-
     private static string? NormalizeOptionalValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private static bool TryParseRole(string? rawRole, out UserRole role)
-    {
-        role = default;
-        return !string.IsNullOrWhiteSpace(rawRole)
-            && Enum.TryParse<UserRole>(rawRole.Trim(), ignoreCase: true, out role);
-    }
-
-    private static bool TryNormalizePermissions(
-        IReadOnlyList<string>? rawPermissions,
-        out IReadOnlyList<string> normalizedPermissions,
-        out string? validationError)
-    {
-        normalizedPermissions = [];
-        validationError = null;
-
-        if (rawPermissions is null)
-        {
-            return true;
-        }
-
-        var values = rawPermissions
-            .Where(permission => !string.IsNullOrWhiteSpace(permission))
-            .Select(permission => permission.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var invalidValues = values
-            .Where(permission => !AllowedPermissionValues.Contains(permission))
-            .OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (invalidValues.Count > 0)
-        {
-            validationError = $"Unsupported permissions: {string.Join(", ", invalidValues)}.";
-            return false;
-        }
-
-        normalizedPermissions = values;
-        return true;
-    }
+    /// <summary>Parses a single role string for admin user create/update (must match Auth0).</summary>
+    private static bool TryParseRole(string? rawRole, out string role) =>
+        Auth0Roles.TryNormalize(rawRole, out role);
 
     private static NotificationChannelMode? ParseNotificationChannelOrNull(
         string? rawValue,
@@ -97,35 +42,259 @@ public static class UserHandlers
             fieldName);
     }
 
-    private static bool HasPermission(ClaimsPrincipal? principal, string permission)
-    {
-        if (principal is null)
-        {
-            return false;
-        }
-
-        return principal.Claims.Any(claim =>
-            string.Equals(claim.Type, "permissions", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(claim.Value, permission, StringComparison.OrdinalIgnoreCase));
-    }
-
-    public static async Task<IResult> GetUsers(IUserRepository repo)
+    public static async Task<IResult> GetUsers(
+        IUserRepository repo,
+        IAuth0ManagementService auth0Management,
+        CancellationToken cancellationToken)
     {
         var users = await repo.GetAllUsersAsync();
-        var response = users
+        var ordered = users
             .Where(user => user.Id > 0)
             .OrderBy(user => user.DisplayName ?? user.Email)
-            .Select(user => user.ToAdminResponse())
             .ToList();
+
+        var response = new List<AdminUserResponse>(ordered.Count);
+        foreach (var user in ordered)
+        {
+            var roleNames = await GetAuth0RoleNamesForUserAsync(
+                user,
+                auth0Management,
+                fallbackToLocalRole: true,
+                cancellationToken);
+            response.Add(user.ToAdminResponse(roleNames));
+        }
 
         return Results.Ok(response);
     }
 
-    public static async Task<IResult> GetCurrentUser(IUserContextService userContext)
+    public static async Task<IResult> GetAvailableAuth0Roles(
+        IAuth0ManagementService auth0Management,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var roles = await auth0Management.GetAllRolesAsync(cancellationToken);
+            return Results.Ok(roles.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList());
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Results.Problem(
+                title: "Auth0 management is not configured",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+        catch (Auth0ManagementException exception)
+        {
+            return Results.Problem(
+                title: "Failed to list Auth0 roles",
+                detail: exception.Message,
+                statusCode: exception.StatusCode is >= 400 and < 500
+                    ? exception.StatusCode
+                    : StatusCodes.Status502BadGateway);
+        }
+    }
+
+    public static async Task<IResult> GetUserAuth0Roles(
+        int id,
+        IUserRepository repo,
+        IAuth0ManagementService auth0Management,
+        CancellationToken cancellationToken)
+    {
+        var user = await repo.GetByIdAsync(id);
+        if (user is null)
+        {
+            return Results.NotFound($"User {id} was not found.");
+        }
+
+        if (string.IsNullOrWhiteSpace(user.Auth0Id))
+        {
+            return Results.Ok(new UserAuth0RolesResponse { Roles = [] });
+        }
+
+        try
+        {
+            var roles = await auth0Management.GetUserRolesAsync(user.Auth0Id!, cancellationToken);
+            var dtos = roles
+                .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return Results.Ok(new UserAuth0RolesResponse { Roles = dtos });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Results.Problem(
+                title: "Auth0 management is not configured",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+        catch (Auth0ManagementException exception)
+        {
+            return Results.Problem(
+                title: "Failed to load Auth0 roles",
+                detail: exception.Message,
+                statusCode: exception.StatusCode is >= 400 and < 500
+                    ? exception.StatusCode
+                    : StatusCodes.Status502BadGateway);
+        }
+    }
+
+    public static async Task<IResult> MutateUserAuth0Role(
+        int id,
+        UserRoleMutationRequest request,
+        IUserRepository repo,
+        IAuth0ManagementService auth0Management,
+        IAuth0UserRoleSyncService roleSync,
+        CancellationToken cancellationToken)
+    {
+        var action = request.Action?.Trim().ToLowerInvariant();
+        if (action is not ("add" or "remove"))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["action"] = ["Action must be \"add\" or \"remove\"."]
+            });
+        }
+
+        if (!Auth0Roles.TryNormalize(request.RoleName, out var canonicalName))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["roleName"] = ["Unknown role. Use Admin, Developer, Business Manager, User, or Guest."]
+            });
+        }
+
+        var user = await repo.GetByIdAsync(id);
+        if (user is null)
+        {
+            return Results.NotFound($"User {id} was not found.");
+        }
+
+        if (string.IsNullOrWhiteSpace(user.Auth0Id))
+        {
+            return Results.BadRequest(new { message = "This user has no Auth0 account; roles cannot be changed via Auth0." });
+        }
+
+        try
+        {
+            var allRoles = await auth0Management.GetAllRolesAsync(cancellationToken);
+            var match = allRoles.FirstOrDefault(r =>
+                r.Name.Equals(canonicalName, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                return Results.NotFound(new
+                {
+                    message = $"Role \"{canonicalName}\" is not defined in Auth0. Create it in Auth0 Dashboard → User Management → Roles."
+                });
+            }
+
+            var current = await auth0Management.GetUserRolesAsync(user.Auth0Id!, cancellationToken);
+            var hasRole = current.Any(r => string.Equals(r.Id, match.Id, StringComparison.Ordinal));
+
+            if (action == "add")
+            {
+                if (hasRole)
+                {
+                    return Results.Conflict(new { message = "The user already has this role." });
+                }
+
+                await auth0Management.AssignRolesToUserAsync(user.Auth0Id!, [match.Id], cancellationToken);
+            }
+            else
+            {
+                if (!hasRole)
+                {
+                    return Results.Conflict(new { message = "The user does not have this role." });
+                }
+
+                await auth0Management.RemoveRolesFromUserAsync(user.Auth0Id!, [match.Id], cancellationToken);
+            }
+
+            var fresh = await auth0Management.GetUserRolesAsync(user.Auth0Id!, cancellationToken);
+            var nameList = NormalizeAuth0RoleNames(fresh);
+            user.Role = Auth0Roles.GetHighestRole(nameList);
+            user.LastModifiedDate = DateTime.UtcNow;
+            await repo.SaveChangesAsync();
+            await roleSync.SyncRoleToAuth0Async(user, cancellationToken);
+
+            return Results.Ok(user.ToAdminResponse(nameList));
+        }
+        catch (Auth0ManagementException exception)
+        {
+            return Results.Problem(
+                title: "Auth0 role change failed",
+                detail: exception.Message,
+                statusCode: exception.StatusCode is >= 400 and < 600
+                    ? exception.StatusCode
+                    : StatusCodes.Status502BadGateway);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Results.Problem(
+                title: "Auth0 management is not configured",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+    }
+
+    private static List<string> NormalizeAuth0RoleNames(IEnumerable<Auth0RoleDto> dtos)
+    {
+        var list = new List<string>();
+        foreach (var dto in dtos)
+        {
+            if (Auth0Roles.TryNormalize(dto.Name, out var canonical))
+            {
+                if (!list.Contains(canonical, StringComparer.OrdinalIgnoreCase))
+                {
+                    list.Add(canonical);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(dto.Name))
+            {
+                var raw = dto.Name.Trim();
+                if (!list.Contains(raw, StringComparer.OrdinalIgnoreCase))
+                {
+                    list.Add(raw);
+                }
+            }
+        }
+
+        return list;
+    }
+
+    private static async Task<List<string>> GetAuth0RoleNamesForUserAsync(
+        User user,
+        IAuth0ManagementService auth0Management,
+        bool fallbackToLocalRole,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(user.Auth0Id))
+        {
+            return new List<string> { user.Role };
+        }
+
+        try
+        {
+            var dtos = await auth0Management.GetUserRolesAsync(user.Auth0Id!, cancellationToken);
+            return NormalizeAuth0RoleNames(dtos);
+        }
+        catch
+        {
+            return fallbackToLocalRole
+                ? new List<string> { user.Role }
+                : new List<string>();
+        }
+    }
+
+    public static async Task<IResult> GetCurrentUser(
+        IUserContextService userContext,
+        IHttpContextAccessor httpContextAccessor)
     {
         var user = await userContext.GetCurrentUserAsync();
-        
-        return Results.Ok(user.ToResponse());
+        var principal = httpContextAccessor.HttpContext?.User;
+        var roles = principal is not null
+            ? JwtRoleClaims.ResolveRoles(principal)
+            : Array.Empty<string>();
+
+        return Results.Ok(user.ToResponse(roles));
     }
 
     public static async Task<IResult> GetOnlineUsers(
@@ -170,7 +339,10 @@ public static class UserHandlers
     public static async Task<IResult> UpdateUser(
         int id,
         AdminUpdateUserRequest request,
-        IUserRepository repo)
+        IUserRepository repo,
+        IAuth0ManagementService auth0Management,
+        IAuth0UserRoleSyncService roleSync,
+        CancellationToken cancellationToken)
     {
         var user = await repo.GetByIdAsync(id);
         if (user is null)
@@ -178,12 +350,20 @@ public static class UserHandlers
             return Results.NotFound($"User {id} was not found.");
         }
 
-        if (!TryParseRole(request.Role, out var role))
+        var role = user.Role;
+        var roleExplicitlyChanged = false;
+        if (!string.IsNullOrWhiteSpace(request.Role))
         {
-            return Results.ValidationProblem(new Dictionary<string, string[]>
+            if (!TryParseRole(request.Role, out var parsed))
             {
-                ["role"] = ["A valid role is required."]
-            });
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["role"] = ["Role must be one of: Admin, Developer, Business Manager, User, Guest."]
+                });
+            }
+
+            role = parsed;
+            roleExplicitlyChanged = !string.Equals(user.Role, parsed, StringComparison.Ordinal);
         }
 
         try
@@ -203,8 +383,17 @@ public static class UserHandlers
             user.LastModifiedDate = DateTime.UtcNow;
 
             await repo.SaveChangesAsync();
+            if (roleExplicitlyChanged)
+            {
+                await roleSync.SyncRoleToAuth0Async(user, cancellationToken);
+            }
 
-            return Results.Ok(user.ToAdminResponse());
+            var freshNames = await GetAuth0RoleNamesForUserAsync(
+                user,
+                auth0Management,
+                fallbackToLocalRole: true,
+                cancellationToken);
+            return Results.Ok(user.ToAdminResponse(freshNames));
         }
         catch (ArgumentException exception)
         {
@@ -212,81 +401,13 @@ public static class UserHandlers
         }
     }
 
-    public static async Task<IResult> UpdateUserAccess(
-        int id,
-        UpdateUserAccessRequest request,
-        ClaimsPrincipal principal,
-        IUserRepository repo,
-        IUserAccessSyncService userAccessSyncService,
-        CancellationToken cancellationToken)
-    {
-        if (!HasPermission(principal, "admin:system"))
-        {
-            return Results.Forbid();
-        }
-
-        var user = await repo.GetByIdAsync(id);
-        if (user is null)
-        {
-            return Results.NotFound($"User {id} was not found.");
-        }
-
-        var hasRoleUpdate = !string.IsNullOrWhiteSpace(request.Role);
-        var hasPermissionsUpdate = request.Permissions is not null;
-        if (!hasRoleUpdate && !hasPermissionsUpdate)
-        {
-            return Results.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["request"] = ["Provide role and/or permissions."]
-            });
-        }
-
-        UserRole? updatedRole = null;
-        if (hasRoleUpdate)
-        {
-            if (!TryParseRole(request.Role, out var parsedRole))
-            {
-                return Results.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["role"] = ["A valid role is required when role is provided."]
-                });
-            }
-
-            updatedRole = parsedRole;
-        }
-
-        if (!TryNormalizePermissions(request.Permissions, out var normalizedPermissions, out var permissionError))
-        {
-            return Results.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["permissions"] = [permissionError ?? "Invalid permissions."]
-            });
-        }
-
-        if (updatedRole.HasValue)
-        {
-            user.Role = updatedRole.Value;
-            user.LastModifiedDate = DateTime.UtcNow;
-            await repo.SaveChangesAsync();
-        }
-
-        await userAccessSyncService.QueueUserAccessSyncAsync(user, normalizedPermissions, cancellationToken);
-
-        return Results.Ok(new UserAccessUpdateResponse
-        {
-            UserId = user.Id,
-            Role = user.Role.ToString(),
-            RequestedPermissions = normalizedPermissions,
-            SyncQueued = true
-        });
-    }
-
     public static async Task<IResult> CreateUser(
         CreateUserRequest request,
         IUserRepository repo,
         IUserContextService userContext,
         IAuth0ManagementService auth0ManagementService,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.DisplayName) ||
             string.IsNullOrWhiteSpace(request.Email) ||
@@ -312,7 +433,7 @@ public static class UserHandlers
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["role"] = ["A valid role is required."]
+                ["role"] = ["Role must be one of: Admin, Developer, Business Manager, User, Guest."]
             });
         }
 
@@ -323,13 +444,9 @@ public static class UserHandlers
             return Results.Conflict(new { message = "A user with this email already exists." });
         }
 
-        var currentUser = await userContext.GetCurrentUserAsync();
-        var principal = httpContextAccessor.HttpContext?.User;
-        var isAdminCreator =
-            currentUser.Role == UserRole.Admin ||
-            HasPermission(principal, "admin:system");
+        var isAdminCaller = httpContextAccessor.HttpContext?.User.IsInRole(Auth0Roles.Admin) == true;
 
-        if (!isAdminCreator && role == UserRole.Admin)
+        if (!isAdminCaller && role.Equals(Auth0Roles.Admin, StringComparison.Ordinal))
         {
             return Results.Forbid();
         }
@@ -358,8 +475,46 @@ public static class UserHandlers
             await repo.CreateUserAsync(user);
             await repo.SaveChangesAsync();
 
+            try
+            {
+                var allRoles = await auth0ManagementService.GetAllRolesAsync(cancellationToken);
+                var match = allRoles.FirstOrDefault(r =>
+                    r.Name.Equals(role, StringComparison.OrdinalIgnoreCase));
+                if (match is not null)
+                {
+                    await auth0ManagementService.AssignRolesToUserAsync(
+                        createdAuth0UserId!,
+                        [match.Id],
+                        cancellationToken);
+                }
+            }
+            catch
+            {
+                // Provisioning succeeded; RBAC role assignment can be completed in Admin UI.
+            }
+
             var createdUser = await repo.GetByIdAsync(user.Id) ?? user;
-            return Results.Created($"/api/users/{createdUser.Id}", createdUser.ToAdminResponse());
+            List<string> nameList;
+            try
+            {
+                nameList = NormalizeAuth0RoleNames(
+                    await auth0ManagementService.GetUserRolesAsync(createdAuth0UserId!, cancellationToken));
+            }
+            catch
+            {
+                nameList = new List<string> { role };
+            }
+
+            if (nameList.Count == 0)
+            {
+                nameList = new List<string> { role };
+            }
+
+            createdUser.Role = Auth0Roles.GetHighestRole(nameList);
+            createdUser.LastModifiedDate = DateTime.UtcNow;
+            await repo.SaveChangesAsync();
+
+            return Results.Created($"/api/users/{createdUser.Id}", createdUser.ToAdminResponse(nameList));
         }
         catch (Auth0ManagementException exception)
         {

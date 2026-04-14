@@ -2,17 +2,20 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Cortex.API.DTO;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Cortex.API.Services;
 
 public class Auth0ManagementService(
     HttpClient httpClient,
-    IOptions<Auth0ManagementOptions> options) : IAuth0ManagementService
+    IOptions<Auth0ManagementOptions> options,
+    ILogger<Auth0ManagementService> logger) : IAuth0ManagementService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _httpClient = httpClient;
     private readonly Auth0ManagementOptions _options = options.Value;
+    private readonly ILogger<Auth0ManagementService> _logger = logger;
 
     public async Task<string> CreateUserAsync(
         CreateUserRequest request,
@@ -61,7 +64,7 @@ public class Auth0ManagementService(
         using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw await CreateExceptionAsync(response, "Failed to create Auth0 user.");
+            throw await CreateExceptionAsync(response, "Failed to create Auth0 user.", cancellationToken);
         }
 
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -94,12 +97,194 @@ public class Auth0ManagementService(
         using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
         {
-            throw await CreateExceptionAsync(response, "Failed to delete Auth0 user.");
+            throw await CreateExceptionAsync(response, "Failed to delete Auth0 user.", cancellationToken);
         }
+    }
+
+    public async Task<IReadOnlyList<Auth0RoleDto>> GetAllRolesAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureManagementApiConfigured();
+        var accessToken = await GetManagementTokenAsync(cancellationToken);
+
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            BuildPath("/api/v2/roles?per_page=100"));
+
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await CreateExceptionAsync(response, "Failed to list Auth0 roles.", cancellationToken);
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+        return DeserializeRoleArray(json);
+    }
+
+    public async Task<IReadOnlyList<Auth0RoleDto>> GetUserRolesAsync(
+        string auth0UserId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureManagementApiConfigured();
+        if (string.IsNullOrWhiteSpace(auth0UserId))
+        {
+            return Array.Empty<Auth0RoleDto>();
+        }
+
+        var accessToken = await GetManagementTokenAsync(cancellationToken);
+
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            BuildPath($"/api/v2/users/{Uri.EscapeDataString(auth0UserId)}/roles"));
+
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await CreateExceptionAsync(response, "Failed to load Auth0 user roles.", cancellationToken);
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+        return DeserializeRoleArray(json);
+    }
+
+    public async Task AssignRolesToUserAsync(
+        string auth0UserId,
+        IReadOnlyList<string> roleIds,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureManagementApiConfigured();
+        if (roleIds.Count == 0)
+        {
+            return;
+        }
+
+        var accessToken = await GetManagementTokenAsync(cancellationToken);
+
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            BuildPath($"/api/v2/users/{Uri.EscapeDataString(auth0UserId)}/roles"))
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(new { roles = roleIds.ToArray() }, JsonOptions),
+                Encoding.UTF8,
+                "application/json")
+        };
+
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await CreateExceptionAsync(response, "Failed to assign Auth0 roles.", cancellationToken);
+        }
+    }
+
+    public async Task RemoveRolesFromUserAsync(
+        string auth0UserId,
+        IReadOnlyList<string> roleIds,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureManagementApiConfigured();
+        if (roleIds.Count == 0)
+        {
+            return;
+        }
+
+        var accessToken = await GetManagementTokenAsync(cancellationToken);
+
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Delete,
+            BuildPath($"/api/v2/users/{Uri.EscapeDataString(auth0UserId)}/roles"))
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(new { roles = roleIds.ToArray() }, JsonOptions),
+                Encoding.UTF8,
+                "application/json")
+        };
+
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await CreateExceptionAsync(response, "Failed to remove Auth0 roles.", cancellationToken);
+        }
+    }
+
+    private static IReadOnlyList<Auth0RoleDto> DeserializeRoleArray(string json)
+    {
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<List<Auth0RoleJson>>(json, JsonOptions);
+            if (parsed is null || parsed.Count == 0)
+            {
+                return Array.Empty<Auth0RoleDto>();
+            }
+
+            return parsed
+                .Where(r => !string.IsNullOrWhiteSpace(r.Id) && !string.IsNullOrWhiteSpace(r.Name))
+                .Select(r => new Auth0RoleDto { Id = r.Id!, Name = r.Name! })
+                .ToList();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<Auth0RoleDto>();
+        }
+    }
+
+    private sealed class Auth0RoleJson
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+    }
+
+    private void EnsureManagementApiConfigured()
+    {
+        if (string.IsNullOrWhiteSpace(_options.ManagementClientSecret))
+        {
+            _logger.LogError(
+                "Auth0 Management API: Auth0:ManagementClientSecret is missing or blank. " +
+                "Set it in configuration, Azure App Settings, or user secrets (dotnet user-secrets). " +
+                "Role listing and user role changes will fail until this is set.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_options.Domain) ||
+            string.IsNullOrWhiteSpace(_options.ManagementClientId) ||
+            string.IsNullOrWhiteSpace(_options.ManagementClientSecret))
+        {
+            throw new InvalidOperationException(
+                "Auth0 management API is not configured. Set Auth0:Domain, Auth0:ManagementClientId, and Auth0:ManagementClientSecret.");
+        }
+    }
+
+    /// <summary>
+    /// Resolves the Management API audience for M2M tokens. Never uses <see cref="Auth0ManagementOptions.Audience"/> (Cortex API JWT audience).
+    /// </summary>
+    private string GetManagementApiAudience()
+    {
+        if (!string.IsNullOrWhiteSpace(_options.ManagementApiAudience))
+        {
+            var trimmed = _options.ManagementApiAudience.Trim();
+            return trimmed.EndsWith('/') ? trimmed : trimmed + "/";
+        }
+
+        var domain = _options.Domain?.Trim().TrimEnd('/');
+        if (string.IsNullOrEmpty(domain))
+        {
+            throw new InvalidOperationException("Auth0:Domain is required for Management API audience.");
+        }
+
+        return $"https://{domain}/api/v2/";
     }
 
     private async Task<string> GetManagementTokenAsync(CancellationToken cancellationToken)
     {
+        var audience = GetManagementApiAudience();
+        _logger.LogDebug("Requesting Auth0 Management API token with audience {Audience}", audience);
+
         var request = new HttpRequestMessage(
             HttpMethod.Post,
             BuildPath("/oauth/token"))
@@ -110,7 +295,7 @@ public class Auth0ManagementService(
                     {
                         client_id = _options.ManagementClientId,
                         client_secret = _options.ManagementClientSecret,
-                        audience = $"https://{_options.Domain}/api/v2/",
+                        audience,
                         grant_type = "client_credentials"
                     },
                     JsonOptions),
@@ -124,7 +309,8 @@ public class Auth0ManagementService(
         {
             throw await CreateExceptionAsync(
                 response,
-                "Failed to request an Auth0 management access token.");
+                "Failed to request an Auth0 management access token.",
+                cancellationToken);
         }
 
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -159,16 +345,29 @@ public class Auth0ManagementService(
         }
     }
 
-    private static async Task<Auth0ManagementException> CreateExceptionAsync(
+    private async Task<Auth0ManagementException> CreateExceptionAsync(
         HttpResponseMessage response,
-        string fallbackMessage)
+        string fallbackMessage,
+        CancellationToken cancellationToken = default)
     {
-        var message = fallbackMessage;
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        var bodyPreview = body.Length > 2048 ? body[..2048] + "…" : body;
+        _logger.LogWarning(
+            "Auth0 Management API call failed: {StatusCode} {ReasonPhrase}. Response body: {Body}",
+            (int)response.StatusCode,
+            response.ReasonPhrase,
+            string.IsNullOrEmpty(bodyPreview) ? "(empty)" : bodyPreview);
 
+        var message = fallbackMessage;
         try
         {
-            using var stream = await response.Content.ReadAsStreamAsync();
-            using var document = await JsonDocument.ParseAsync(stream);
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                message = $"{fallbackMessage} (HTTP {(int)response.StatusCode})";
+                return new Auth0ManagementException(message, (int)response.StatusCode);
+            }
+
+            using var document = JsonDocument.Parse(body);
 
             if (document.RootElement.TryGetProperty("message", out var messageElement) &&
                 messageElement.ValueKind == JsonValueKind.String &&
@@ -189,9 +388,11 @@ public class Auth0ManagementService(
                 message = errorElement.GetString()!;
             }
         }
-        catch
+        catch (JsonException)
         {
-            // Fall back to the provided message when the response body cannot be parsed.
+            message = string.IsNullOrWhiteSpace(body)
+                ? $"{fallbackMessage} (HTTP {(int)response.StatusCode})"
+                : $"{fallbackMessage}: {bodyPreview}";
         }
 
         return new Auth0ManagementException(message, (int)response.StatusCode);

@@ -2,14 +2,15 @@ import { useState } from "react";
 
 interface AddCommentProps {
   onAdd: (body: string) => Promise<void>;
+  disabled?: boolean;
 }
 
-export default function AddComment({ onAdd }: AddCommentProps) {
+export default function AddComment({ onAdd, disabled = false }: AddCommentProps) {
   const [body, setBody] = useState("");
   const [posting, setPosting] = useState(false);
 
   const submit = async () => {
-    if (posting || !body.trim()) return;
+    if (disabled || posting || !body.trim()) return;
 
     try {
       setPosting(true);
@@ -39,7 +40,7 @@ export default function AddComment({ onAdd }: AddCommentProps) {
         onChange={(e) => setBody(e.target.value)}
         rows={3}
         placeholder="Write a comment…"
-        disabled={posting}
+        disabled={posting || disabled}
         className="w-full rounded-md border-gray-300 bg-white text-sm text-gray-900 shadow-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
@@ -52,7 +53,7 @@ export default function AddComment({ onAdd }: AddCommentProps) {
       <div className="flex justify-end">
         <button
           onClick={submit}
-          disabled={posting || !body.trim()}
+          disabled={disabled || posting || !body.trim()}
           className="rounded-md bg-cortex-blue px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
           {posting ? "Posting..." : "Post Comment"}

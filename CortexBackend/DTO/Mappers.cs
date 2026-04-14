@@ -5,8 +5,12 @@ namespace Cortex.API.DTO;
 
 public static class UserResponseExtensions
 {
-    public static UserResponse ToResponse(this User user)
+    public static UserResponse ToResponse(this User user, IReadOnlyList<string>? auth0Roles = null)
     {
+        var roles = auth0Roles is { Count: > 0 }
+            ? auth0Roles.ToList()
+            : new List<string> { user.Role };
+
         return new UserResponse
         {
             Id = user.Id,
@@ -17,7 +21,8 @@ public static class UserResponseExtensions
             Department = user.Department ?? string.Empty,
             AssignmentNotificationChannel = user.AssignmentNotificationChannel?.ToString(),
             SlaRiskNotificationChannel = user.SlaRiskNotificationChannel?.ToString(),
-            Role = user.Role.ToString(),
+            Role = user.Role,
+            Roles = roles,
             IsActive = user.IsActive,
             CreatedDate = user.CreatedDate,
             LastLoginDate = user.LastLoginDate,
@@ -27,8 +32,14 @@ public static class UserResponseExtensions
         };
     }
 
-    public static AdminUserResponse ToAdminResponse(this User user)
+    public static AdminUserResponse ToAdminResponse(
+        this User user,
+        IReadOnlyList<string>? auth0RoleNames = null)
     {
+        var roles = auth0RoleNames is { Count: > 0 }
+            ? auth0RoleNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+            : new List<string>();
+
         return new AdminUserResponse
         {
             Id = user.Id,
@@ -39,7 +50,8 @@ public static class UserResponseExtensions
             Department = user.Department ?? string.Empty,
             AssignmentNotificationChannel = user.AssignmentNotificationChannel?.ToString(),
             SlaRiskNotificationChannel = user.SlaRiskNotificationChannel?.ToString(),
-            Role = user.Role.ToString(),
+            Role = user.Role,
+            Roles = roles,
             CreatedDate = user.CreatedDate,
             LastLoginDate = user.LastLoginDate,
             LastSeenDateUtc = user.LastSeenDateUtc,
@@ -59,7 +71,7 @@ public static class UserResponseExtensions
             NickName = user.NickName,
             Email = user.Email ?? string.Empty,
             Department = user.Department ?? string.Empty,
-            Role = user.Role.ToString(),
+            Role = user.Role,
             LastSeenDateUtc = user.LastSeenDateUtc,
             LastLoginDate = user.LastLoginDate
         };

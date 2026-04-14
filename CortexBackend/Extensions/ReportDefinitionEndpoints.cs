@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 
 namespace Cortex.API.Extensions;
@@ -7,7 +8,7 @@ public static class ReportDefinitionEndpoints
     public static void MapReportDefinitionEndpoints(this WebApplication app)
     {
         var reportSettings = app.MapGroup("/api/settings/reports")
-            .RequireAuthorization("ReportsAdvanced")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithTags("Report Definitions");
 
         reportSettings.MapGet("/", ReportDefinitionHandlers.GetReportDefinitions)
@@ -35,7 +36,7 @@ public static class ReportDefinitionEndpoints
             .Produces(StatusCodes.Status404NotFound);
 
         var reports = app.MapGroup("/api/reports")
-            .RequireAuthorization("ReportsAdvanced")
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessAccess)
             .WithTags("Reports");
 
         reports.MapGet("/custom", ReportDefinitionHandlers.GetReportDefinitions)

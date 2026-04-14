@@ -9,7 +9,10 @@ export interface UserProfile {
   department?: string;
   assignmentNotificationChannel?: NotificationChannelMode | null;
   slaRiskNotificationChannel?: NotificationChannelMode | null;
+  /** Highest-privilege role from local DB (display); prefer `roles` from API for Auth0. */
   role: string;
+  /** Roles from the access token (Auth0); authoritative for UI authorization. */
+  roles?: string[];
   createdDate: string;
   isActive: boolean;
   lastLoginDate?: string;
@@ -20,7 +23,21 @@ export interface UserProfile {
 
 export interface UserRecord extends UserProfile {
   auth0Id?: string;
-  permissions?: string[];
+}
+
+/** Role definition from Auth0 Management API (admin screens). */
+export interface Auth0RoleOption {
+  id: string;
+  name: string;
+}
+
+export interface UserAuth0RolesResponse {
+  roles: Auth0RoleOption[];
+}
+
+export interface UserRoleMutationRequest {
+  action: "add" | "remove";
+  roleName: string;
 }
 
 export interface OnlineUser {
@@ -43,18 +60,6 @@ export interface AdminUpdateUserInput {
   role?: string;
   isActive?: boolean;
   expiryDate?: string | null;
-}
-
-export interface UpdateUserAccessInput {
-  role?: string;
-  permissions?: string[];
-}
-
-export interface UserAccessUpdateResult {
-  userId: number;
-  role: string;
-  requestedPermissions: string[];
-  syncQueued: boolean;
 }
 
 export interface CreateUserInput {

@@ -4,13 +4,14 @@ import type { TicketAttachment } from "../types/attachment";
 import type { TicketAuditEntry } from "../types/ticketAudit";
 import type {
   AdminUpdateUserInput,
+  Auth0RoleOption,
   CreateUserInput,
   OnlineUser,
-  UpdateUserAccessInput,
   UpdateUserProfileInput,
-  UserAccessUpdateResult,
+  UserAuth0RolesResponse,
   UserProfile,
   UserRecord,
+  UserRoleMutationRequest,
 } from "../types/user";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
@@ -49,6 +50,11 @@ async function readErrorMessage(response: Response, fallbackMessage: string) {
     }
 
     if (typeof data === "object" && data !== null) {
+      const detail = "detail" in data ? data.detail : undefined;
+      if (typeof detail === "string" && detail.trim()) {
+        return detail;
+      }
+
       const message = "message" in data ? data.message : undefined;
       if (typeof message === "string" && message.trim()) {
         return message;
@@ -76,14 +82,16 @@ export async function ensureSuccess(
   }
 
   const parsed = await readErrorMessage(response, userMessage);
+  const effectiveMessage =
+    parsed.trim() && parsed !== userMessage ? parsed : userMessage;
   const rawMessage =
-    parsed !== userMessage && parsed.trim() ? parsed : undefined;
+    effectiveMessage !== userMessage ? effectiveMessage : undefined;
 
   if (import.meta.env.DEV && rawMessage) {
     console.warn("[API error]", response.status, userMessage, rawMessage);
   }
 
-  throw new ApiError(userMessage, response.status, rawMessage);
+  throw new ApiError(effectiveMessage, response.status, rawMessage);
 }
 
 export function isLikelyNetworkError(error: unknown): boolean {
@@ -388,18 +396,39 @@ export const userService = {
     return response.json();
   },
 
-  async updateUserAccess(
-    id: number,
-    access: UpdateUserAccessInput,
-    token: string,
-  ): Promise<UserAccessUpdateResult> {
-    const response = await fetch(`${API_BASE_URL}/users/${id}/access`, {
-      method: "PUT",
-      headers: authHeaders(token, true),
-      body: JSON.stringify(access),
+  async getAvailableAuth0Roles(token: string): Promise<Auth0RoleOption[]> {
+    const response = await fetch(`${API_BASE_URL}/users/available-roles`, {
+      headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to update user access");
+    await ensureSuccess(response, "Failed to load Auth0 roles");
+    return response.json();
+  },
+
+  async getUserAuth0Roles(
+    id: number,
+    token: string,
+  ): Promise<UserAuth0RolesResponse> {
+    const response = await fetch(`${API_BASE_URL}/users/${id}/roles`, {
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, "Failed to load user roles");
+    return response.json();
+  },
+
+  async mutateUserAuth0Role(
+    id: number,
+    body: UserRoleMutationRequest,
+    token: string,
+  ): Promise<UserRecord> {
+    const response = await fetch(`${API_BASE_URL}/users/${id}/roles/mutation`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify(body),
+    });
+
+    await ensureSuccess(response, "Failed to update user role");
     return response.json();
   },
 

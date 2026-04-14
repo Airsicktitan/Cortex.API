@@ -7,7 +7,7 @@ public class User
     public string? NickName { get; set; } // Nullable
     public required string Email { get; set; } = string.Empty; // Default to empty string
     public string? PhoneNumber { get; set; } // Nullable
-    public UserRole Role { get; set; } = UserRole.User; // Default to User role
+    public string Role { get; set; } = Auth0Roles.User;
     public string? Department { get; set; } // Nullable
     public NotificationChannelMode? AssignmentNotificationChannel { get; set; }
     public NotificationChannelMode? SlaRiskNotificationChannel { get; set; }

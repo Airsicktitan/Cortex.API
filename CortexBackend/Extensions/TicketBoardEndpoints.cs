@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 
 namespace Cortex.API.Extensions;
@@ -25,7 +26,7 @@ public static class TicketBoardEndpoints
         }
 
         var createBoard = boards.MapPost("/", TicketBoardHandlers.CreateTicketBoard)
-            .RequireAuthorization("BoardsManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .Produces(StatusCodes.Status201Created)
             .Produces(StatusCodes.Status400BadRequest);
         if (includeNames)
@@ -34,7 +35,7 @@ public static class TicketBoardEndpoints
         }
 
         var updateBoard = boards.MapPut("/{id:int}", TicketBoardHandlers.UpdateTicketBoard)
-            .RequireAuthorization("BoardsManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound);
@@ -44,7 +45,7 @@ public static class TicketBoardEndpoints
         }
 
         var deleteBoard = boards.MapDelete("/{id:int}", TicketBoardHandlers.DeleteTicketBoard)
-            .RequireAuthorization("BoardsManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound);

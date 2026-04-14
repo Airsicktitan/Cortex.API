@@ -7,7 +7,7 @@ public static class RealtimeEndpoints
     public static void MapRealtimeEndpoints(this WebApplication app)
     {
         app.MapGet("/api/realtime/stream", RealtimeHandlers.StreamEvents)
-            .RequireAuthorization("TicketsRead")
+            .RequireAuthorization()
             .WithTags("Realtime");
     }
 }

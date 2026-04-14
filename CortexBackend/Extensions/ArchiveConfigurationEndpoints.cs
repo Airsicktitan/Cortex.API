@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 using Cortex.API.Handlers;
 
 namespace Cortex.API.Extensions;
@@ -7,7 +8,7 @@ public static class ArchiveConfigurationEndpoints
     public static void MapArchiveConfigurationEndpoints(this WebApplication app)
     {
         var archive = app.MapGroup("/api/settings/archive")
-            .RequireAuthorization("SlaManage")
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithTags("Archive");
 
         archive.MapGet("/", ArchiveConfigurationHandlers.GetArchiveConfigurations)

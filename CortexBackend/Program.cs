@@ -11,6 +11,8 @@ using Cortex.API.Data.Repositories;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Cortex.API.Services;
+using Cortex.API.Authorization;
+using System.Security.Claims;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,7 +50,7 @@ builder.Services.AddHttpClient<IAuth0ManagementService, Auth0ManagementService>(
             client.BaseAddress = baseAddress;
         }
     });
-builder.Services.AddHttpClient<IUserAccessSyncService, Auth0UserAccessSyncService>(
+builder.Services.AddHttpClient<IAuth0UserRoleSyncService, Auth0UserRoleSyncService>(
     (serviceProvider, client) =>
     {
         var options = serviceProvider
@@ -190,7 +192,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = $"https://{builder.Configuration["Auth0:Domain"]}/",  // <-- Trailing slash added here
             ValidateLifetime = true,
             NameClaimType = "name",
-            RoleClaimType = "role"
+            RoleClaimType = ClaimTypes.Role
         };
 
         options.MapInboundClaims = false; // Prevents default claim type mapping
@@ -208,75 +210,35 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 }
 
                 return Task.CompletedTask;
+            },
+            OnTokenValidated = context =>
+            {
+                if (context.Principal is not null)
+                {
+                    JwtRoleClaims.AddNormalizedRoleClaims(context.Principal);
+                }
+
+                return Task.CompletedTask;
             }
         };
     });
 
-var permissions = new Dictionary<string, string>
-{
-    ["TicketsRead"] = "tickets:read",
-    ["TicketsCreate"] = "tickets:create",
-    ["TicketsUpdate"] = "tickets:update",
-    ["TicketsDelete"] = "tickets:delete",
-    ["CommentsRead"] = "comments:read",
-    ["CommentsCreate"] = "comments:create",
-    ["UsersRead"] = "users:read",
-    ["UsersUpdate"] = "users:update"
-};
-
-builder.Services.AddAuthorization(options =>
-{
-    // Broad admin/system policy
-    options.AddPolicy("AdminSystem", policy =>
-        policy.RequireClaim("permissions", "admin"));
-    
-    options.AddPolicy("DeveloperRole", policy =>
-        policy.RequireClaim("permissions", "developer"));
-
-    options.AddPolicy("SlaManage", policy =>
-        policy.RequireClaim("permissions", "admin:system", "developer"));
-
-    options.AddPolicy("BoardsManage", policy =>
-        policy.RequireClaim("permissions", "admin:system", "developer"));
-
-    options.AddPolicy("ReportsAdvanced", policy =>
-        policy.RequireClaim("permissions", "admin:system", "developer"));
-
-    options.AddPolicy("UsersAdminRead", policy =>
-        policy.RequireClaim("permissions", "admin:system", "developer"));
-
-    options.AddPolicy("UsersCreate", policy =>
-        policy.RequireClaim("permissions", "admin:system", "developer"));
-
-    options.AddPolicy("UsersAdminUpdate", policy =>
-        policy.RequireClaim("permissions", "admin:system"));
-
-    options.AddPolicy("UsersAdminDelete", policy =>
-        policy.RequireClaim("permissions", "admin:system"));
-
-    options.AddPolicy("UsersAccessManage", policy =>
-        policy.RequireClaim("permissions", "admin:system"));
-
-    options.AddPolicy("AdminLogsExport", policy =>
-        policy.RequireClaim("permissions", "admin:system"));
-
-    options.AddPolicy("TicketsArchiveManage", policy =>
-        policy.RequireClaim("permissions", "admin:system", "developer"));
-
-    options.AddPolicy("TicketsWrite", policy =>
-        policy.RequireClaim("permissions", "tickets:create", "tickets:update", "admin:system"));
-
-    
-    // Specific policies for users with granular permissions
-    foreach (var (name, permission) in permissions)
-    {
-        options.AddPolicy(name, policy =>
-            policy.RequireClaim("permissions", permission, "admin:system"));
-    }
-});
+builder.Services.AddAuthorization(options => options.AddCortexPolicies());
 
 // Build app
 var app = builder.Build();
+
+var auth0ManagementOptions = app.Services
+    .GetRequiredService<Microsoft.Extensions.Options.IOptions<Auth0ManagementOptions>>()
+    .Value;
+var startupLogger = app.Services
+    .GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
+    .CreateLogger("Auth0Management");
+if (string.IsNullOrWhiteSpace(auth0ManagementOptions.ManagementClientSecret))
+{
+    startupLogger.LogWarning(
+        "Auth0:ManagementClientSecret is blank at startup. Auth0 Management API (roles, user provisioning) will fail until the secret is set in configuration or user secrets.");
+}
 
 app.UseStructuredRequestLogging();
 app.UseExceptionHandler();

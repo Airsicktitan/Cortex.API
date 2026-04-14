@@ -224,7 +224,8 @@ public class CortexDbContext : DbContext
                 .IsUnique();
 
             entity.Property(u => u.Role)
-                .HasConversion<string>();
+                .IsRequired()
+                .HasMaxLength(50);
             
             entity.HasIndex(u => u.Auth0Id)
                 .IsUnique()

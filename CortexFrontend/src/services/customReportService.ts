@@ -14,8 +14,21 @@ const authHeaders = (token: string): HeadersInit => ({
 });
 
 export const customReportService = {
+  /** Report definitions for management (Admin, Developer) — GET /api/settings/reports */
   async getAll(token: string): Promise<CustomReportDefinition[]> {
     const response = await fetch(`${API_BASE_URL}/settings/reports`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    await ensureSuccess(response, "Failed to load custom reports");
+    return response.json();
+  },
+
+  /** Runnable report list for Business+ — GET /api/reports/custom */
+  async listRunnable(token: string): Promise<CustomReportDefinition[]> {
+    const response = await fetch(`${API_BASE_URL}/reports/custom`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },

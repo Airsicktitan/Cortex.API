@@ -1,4 +1,5 @@
 import type { CreateUserInput } from "../types/user";
+import { AUTH0_ROLES } from "../utils/role";
 import PhoneNumberInput from "./PhoneNumberInput";
 
 interface AdminUserCreateModalProps {
@@ -11,7 +12,12 @@ interface AdminUserCreateModalProps {
   onSave: () => void;
 }
 
-const BASE_ROLE_OPTIONS = ["Guest", "User", "Manager"] as const;
+const BASE_ROLE_OPTIONS = [
+  AUTH0_ROLES.User,
+  AUTH0_ROLES.Guest,
+  AUTH0_ROLES.BusinessManager,
+  AUTH0_ROLES.Developer,
+] as const;
 
 function toDateInputValue(value?: string | null) {
   if (!value) return "";
@@ -39,8 +45,14 @@ export default function AdminUserCreateModal({
   if (!isOpen) return null;
 
   const roleOptions = canAssignAdminRole
-    ? [...BASE_ROLE_OPTIONS, "Admin"]
-    : [...BASE_ROLE_OPTIONS];
+    ? ([
+        AUTH0_ROLES.Admin,
+        AUTH0_ROLES.Developer,
+        AUTH0_ROLES.BusinessManager,
+        AUTH0_ROLES.User,
+        AUTH0_ROLES.Guest,
+      ] as const)
+    : BASE_ROLE_OPTIONS;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">

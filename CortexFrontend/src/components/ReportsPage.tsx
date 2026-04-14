@@ -547,7 +547,7 @@ export default function ReportsPage({
                     {totalTickets}
                   </p>
                   <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
-                    Visible to your current role and permissions.
+                    Visible to your current role.
                   </p>
                 </div>
 

@@ -1,3 +1,4 @@
+using Cortex.API.Authorization;
 namespace Cortex.API.Extensions;
 
 public static class ClaimsEndpoint
@@ -10,12 +11,13 @@ public static class ClaimsEndpoint
         claims.MapGet("/", async (HttpContext httpContext) =>
         {
             var userClaims = httpContext.User.Claims
-                .Select(c => new 
-                    { 
-                        c.Type, c.Value 
-                    })
+                .Select(c => new
+                {
+                    c.Type,
+                    c.Value
+                })
                 .ToList();
-            
+
             return Results.Ok(userClaims);
         }
         ).WithName("GetUserClaims")
@@ -23,15 +25,13 @@ public static class ClaimsEndpoint
 
         claims.MapGet("/admin", () =>
         {
-            return Results.Ok("Admin endpoint - access granted"); 
+            return Results.Ok("Admin endpoint - access granted");
         })
-        .RequireAuthorization("AdminSystem");
+        .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly);
 
         claims.MapGet("/user", () =>
         {
-            return Results.Ok("User endpoint - access granted"); 
-        })
-        .RequireAuthorization("UserRole");
-
+            return Results.Ok("User endpoint - access granted");
+        });
     }
 }

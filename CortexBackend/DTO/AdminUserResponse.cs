@@ -10,7 +10,12 @@ public class AdminUserResponse
     public string? Department { get; set; }
     public string? AssignmentNotificationChannel { get; set; }
     public string? SlaRiskNotificationChannel { get; set; }
+
+    /// <summary>Compatibility: highest-privilege role in local DB (synced from Auth0 after role changes).</summary>
     public required string Role { get; set; }
+
+    /// <summary>Roles assigned in Auth0 (RBAC). Authoritative for admin UI.</summary>
+    public List<string> Roles { get; set; } = [];
     public DateTime CreatedDate { get; set; }
     public DateTime? LastLoginDate { get; set; }
     public DateTime? LastSeenDateUtc { get; set; }
