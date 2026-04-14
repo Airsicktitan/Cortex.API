@@ -14,9 +14,66 @@ using Microsoft.EntityFrameworkCore;
 /// </summary>
 public static class UserHandlers
 {
+    private static readonly HashSet<string> AllowedPermissionValues = new(
+    [
+        "admin:system",
+        "developer",
+        "business:user",
+        "tickets:read",
+        "tickets:create",
+        "tickets:update",
+        "tickets:delete",
+        "comments:read",
+        "comments:create",
+        "users:read",
+        "users:update"
+    ],
+    StringComparer.OrdinalIgnoreCase);
+
     private static string? NormalizeOptionalValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static bool TryParseRole(string? rawRole, out UserRole role)
+    {
+        role = default;
+        return !string.IsNullOrWhiteSpace(rawRole)
+            && Enum.TryParse<UserRole>(rawRole.Trim(), ignoreCase: true, out role);
+    }
+
+    private static bool TryNormalizePermissions(
+        IReadOnlyList<string>? rawPermissions,
+        out IReadOnlyList<string> normalizedPermissions,
+        out string? validationError)
+    {
+        normalizedPermissions = [];
+        validationError = null;
+
+        if (rawPermissions is null)
+        {
+            return true;
+        }
+
+        var values = rawPermissions
+            .Where(permission => !string.IsNullOrWhiteSpace(permission))
+            .Select(permission => permission.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var invalidValues = values
+            .Where(permission => !AllowedPermissionValues.Contains(permission))
+            .OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (invalidValues.Count > 0)
+        {
+            validationError = $"Unsupported permissions: {string.Join(", ", invalidValues)}.";
+            return false;
+        }
+
+        normalizedPermissions = values;
+        return true;
     }
 
     private static NotificationChannelMode? ParseNotificationChannelOrNull(
@@ -121,8 +178,7 @@ public static class UserHandlers
             return Results.NotFound($"User {id} was not found.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.Role) ||
-            !Enum.TryParse<UserRole>(request.Role.Trim(), ignoreCase: true, out var role))
+        if (!TryParseRole(request.Role, out var role))
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
@@ -156,6 +212,75 @@ public static class UserHandlers
         }
     }
 
+    public static async Task<IResult> UpdateUserAccess(
+        int id,
+        UpdateUserAccessRequest request,
+        ClaimsPrincipal principal,
+        IUserRepository repo,
+        IUserAccessSyncService userAccessSyncService,
+        CancellationToken cancellationToken)
+    {
+        if (!HasPermission(principal, "admin:system"))
+        {
+            return Results.Forbid();
+        }
+
+        var user = await repo.GetByIdAsync(id);
+        if (user is null)
+        {
+            return Results.NotFound($"User {id} was not found.");
+        }
+
+        var hasRoleUpdate = !string.IsNullOrWhiteSpace(request.Role);
+        var hasPermissionsUpdate = request.Permissions is not null;
+        if (!hasRoleUpdate && !hasPermissionsUpdate)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["request"] = ["Provide role and/or permissions."]
+            });
+        }
+
+        UserRole? updatedRole = null;
+        if (hasRoleUpdate)
+        {
+            if (!TryParseRole(request.Role, out var parsedRole))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["role"] = ["A valid role is required when role is provided."]
+                });
+            }
+
+            updatedRole = parsedRole;
+        }
+
+        if (!TryNormalizePermissions(request.Permissions, out var normalizedPermissions, out var permissionError))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["permissions"] = [permissionError ?? "Invalid permissions."]
+            });
+        }
+
+        if (updatedRole.HasValue)
+        {
+            user.Role = updatedRole.Value;
+            user.LastModifiedDate = DateTime.UtcNow;
+            await repo.SaveChangesAsync();
+        }
+
+        await userAccessSyncService.QueueUserAccessSyncAsync(user, normalizedPermissions, cancellationToken);
+
+        return Results.Ok(new UserAccessUpdateResponse
+        {
+            UserId = user.Id,
+            Role = user.Role.ToString(),
+            RequestedPermissions = normalizedPermissions,
+            SyncQueued = true
+        });
+    }
+
     public static async Task<IResult> CreateUser(
         CreateUserRequest request,
         IUserRepository repo,
@@ -183,8 +308,7 @@ public static class UserHandlers
             });
         }
 
-        if (string.IsNullOrWhiteSpace(request.Role) ||
-            !Enum.TryParse<UserRole>(request.Role.Trim(), ignoreCase: true, out var role))
+        if (!TryParseRole(request.Role, out var role))
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
@@ -355,36 +479,7 @@ public static class UserHandlers
             return 0;
         }
 
-        await dbContext.Database.ExecuteSqlRawAsync(
-            """
-            IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE Id = 0)
-            BEGIN
-                SET IDENTITY_INSERT dbo.Users ON;
-
-                INSERT INTO dbo.Users
-                (
-                    Id,
-                    DisplayName,
-                    Email,
-                    Role,
-                    Department,
-                    CreatedDate,
-                    IsActive
-                )
-                VALUES
-                (
-                    0,
-                    N'Legacy User',
-                    N'legacy-user@local.invalid',
-                    N'User',
-                    NULL,
-                    SYSUTCDATETIME(),
-                    0
-                );
-
-                SET IDENTITY_INSERT dbo.Users OFF;
-            END;
-            """);
+        await EfSqlGuardrails.EnsureLegacyUserExistsAsync(dbContext.Database);
 
         return 0;
     }

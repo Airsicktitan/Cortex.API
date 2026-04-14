@@ -7,7 +7,12 @@ import type {
 import type { OnlineUser } from "../types/user";
 import { ReportsSkeleton } from "./LoadingSkeletons";
 import SlaLegend from "./SlaLegend";
-import { formatSlaSummary, getSlaBadgeClass } from "../utils/ticketSla";
+import {
+  formatSlaSummary,
+  getSlaBadgeClass,
+  getSlaDisplayLabel,
+  mapBackendSlaStatusToDisplayLabel,
+} from "../utils/ticketSla";
 
 type ReportSection = "sla" | "online-users" | "custom";
 
@@ -49,9 +54,9 @@ const STATUS_ORDER = [
 const STATUS_DESCRIPTIONS: Record<(typeof STATUS_ORDER)[number], string> = {
   "On Track": "Open tickets comfortably inside their SLA window.",
   "At Risk": "Open tickets inside the warning window before breach.",
-  Breached: "Open tickets that are already past their SLA target.",
-  Met: "Resolved or closed tickets completed within SLA.",
-  "Resolved Late": "Resolved or closed tickets completed after the SLA target.",
+  Breached: "Open tickets past the SLA deadline (shown as Overdue in the UI).",
+  Met: "Resolved or closed before the SLA deadline (shown as Resolved On Time).",
+  "Resolved Late": "Resolved or closed after the SLA deadline.",
 };
 
 function formatPercentage(count: number, total: number) {
@@ -146,9 +151,9 @@ function RiskTable({
                   <td className="px-4 py-3 align-top">
                     <div className="flex flex-col gap-1">
                       <span
-                        className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-medium ${getSlaBadgeClass(ticket.slaStatus)}`}
+                        className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-medium ${getSlaBadgeClass(getSlaDisplayLabel(ticket))}`}
                       >
-                        {ticket.slaStatus}
+                        {getSlaDisplayLabel(ticket)}
                       </span>
                       <span className="text-xs text-gray-500 dark:text-slate-400">
                         {formatSlaSummary(ticket)}
@@ -578,7 +583,7 @@ export default function ReportsPage({
                     {outsideSlaCount}
                   </p>
                   <p className="mt-2 text-sm text-red-700/80 dark:text-red-300/80">
-                    Breached or resolved after the SLA target.
+                    Overdue open tickets or resolved after the SLA deadline.
                   </p>
                 </div>
               </section>
@@ -611,9 +616,9 @@ export default function ReportsPage({
                         >
                           <td className="px-4 py-3 align-top">
                             <span
-                              className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${getSlaBadgeClass(status)}`}
+                              className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${getSlaBadgeClass(mapBackendSlaStatusToDisplayLabel(status))}`}
                             >
-                              {status}
+                              {mapBackendSlaStatusToDisplayLabel(status)}
                             </span>
                           </td>
                           <td className="px-4 py-3 align-top font-medium text-gray-900 dark:text-slate-100">

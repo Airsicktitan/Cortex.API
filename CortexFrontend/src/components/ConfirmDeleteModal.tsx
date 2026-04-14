@@ -23,7 +23,7 @@ export default function ConfirmDeleteModal({
         <h2 className="text-xl font-bold mb-3">{title}</h2>
         <p className="mb-6 text-gray-600 dark:text-slate-400">{message}</p>
 
-        <div className="flex justify-end space-x-3">
+        <div className="flex flex-wrap justify-end gap-2 sm:gap-3">
           <button
             onClick={onCancel}
             className="px-4 py-2 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors"

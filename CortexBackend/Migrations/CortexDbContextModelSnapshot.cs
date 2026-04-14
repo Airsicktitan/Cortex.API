@@ -235,6 +235,48 @@ namespace Cortex.API.Migrations
                     b.ToTable("Comments");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.HttpRequestLogEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<double>("DurationMs")
+                        .HasColumnType("float");
+
+                    b.Property<bool>("IsAuthenticated")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<int>("StatusCode")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TraceId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OccurredUtc");
+
+                    b.ToTable("HttpRequestLogEntries");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.NotificationChannelConfiguration", b =>
                 {
                     b.Property<int>("Id")
@@ -627,7 +669,7 @@ namespace Cortex.API.Migrations
                     b.ToTable("TicketAuditFieldChanges");
                 });
 
-                modelBuilder.Entity("Cortex.API.Models.TicketBoardDefinition", b =>
+            modelBuilder.Entity("Cortex.API.Models.TicketBoardDefinition", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -662,38 +704,35 @@ namespace Cortex.API.Migrations
                         .IsUnique();
 
                     b.ToTable("TicketBoardDefinitions");
-                });
 
-            modelBuilder.Entity("Cortex.API.Models.TicketBoardDefinition").HasData(
-                new
-                {
-                    Id = 1,
-                    CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, DateTimeKind.Utc),
-                    Description = "Standard operational ticket board.",
-                    IsEnabled = true,
-                    LastModifiedDateUtc = (DateTime?)null,
-                    Name = "Ticket",
-                    RequiresStoryPoints = false
-                },
-                new
-                {
-                    Id = 2,
-                    CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, DateTimeKind.Utc),
-                    Description = "High-touch stabilization and production support work.",
-                    IsEnabled = true,
-                    LastModifiedDateUtc = (DateTime?)null,
-                    Name = "Hypercare",
-                    RequiresStoryPoints = false
-                },
-                new
-                {
-                    Id = 3,
-                    CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, DateTimeKind.Utc),
-                    Description = "Planned improvements and backlog work.",
-                    IsEnabled = true,
-                    LastModifiedDateUtc = (DateTime?)null,
-                    Name = "Enhancement",
-                    RequiresStoryPoints = true
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Description = "Standard operational ticket board.",
+                            IsEnabled = true,
+                            Name = "Ticket",
+                            RequiresStoryPoints = false
+                        },
+                        new
+                        {
+                            Id = 2,
+                            CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Description = "High-touch stabilization and production support work.",
+                            IsEnabled = true,
+                            Name = "Hypercare",
+                            RequiresStoryPoints = false
+                        },
+                        new
+                        {
+                            Id = 3,
+                            CreatedDateUtc = new DateTime(2026, 4, 12, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Description = "Planned improvements and backlog work.",
+                            IsEnabled = true,
+                            Name = "Enhancement",
+                            RequiresStoryPoints = true
+                        });
                 });
 
             modelBuilder.Entity("Cortex.API.Models.TicketRoutingRule", b =>

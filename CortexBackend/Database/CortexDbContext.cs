@@ -30,6 +30,7 @@ public class CortexDbContext : DbContext
     public DbSet<TicketBoardDefinition> TicketBoardDefinitions => Set<TicketBoardDefinition>();
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
+    public DbSet<HttpRequestLogEntry> HttpRequestLogEntries => Set<HttpRequestLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -566,6 +567,28 @@ public class CortexDbContext : DbContext
             entity.Property(change => change.FieldName)
                 .IsRequired()
                 .HasMaxLength(100);
+        });
+
+        modelBuilder.Entity<HttpRequestLogEntry>(entity =>
+        {
+            entity.HasKey(entry => entry.Id);
+
+            entity.Property(entry => entry.OccurredUtc)
+                .IsRequired();
+
+            entity.Property(entry => entry.Method)
+                .IsRequired()
+                .HasMaxLength(16);
+
+            entity.Property(entry => entry.Path)
+                .IsRequired()
+                .HasMaxLength(2048);
+
+            entity.Property(entry => entry.TraceId)
+                .IsRequired()
+                .HasMaxLength(128);
+
+            entity.HasIndex(entry => entry.OccurredUtc);
         });
     }
 }

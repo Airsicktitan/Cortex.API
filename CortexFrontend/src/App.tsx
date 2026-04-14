@@ -43,13 +43,17 @@ import type {
   AdminUpdateUserInput,
   CreateUserInput,
   OnlineUser,
+  UpdateUserAccessInput,
   UpdateUserProfileInput,
   UserProfile,
   UserRecord,
 } from "./types/user";
 import {
+  API_USER_MESSAGES,
   ApiError,
   attachmentService,
+  getUserFacingErrorMessage,
+  isLikelyNetworkError,
   ticketService,
   userService,
 } from "./services/api";
@@ -104,6 +108,7 @@ const SIDEBAR_MIN_WIDTH = 232;
 const SIDEBAR_MAX_WIDTH = 440;
 const SIDEBAR_DEFAULT_WIDTH = 296;
 const REALTIME_REFRESH_DEBOUNCE_MS = 500;
+const TICKET_AUTO_REFRESH_INTERVAL_MS = 15000;
 const DEFAULT_SESSION_CONFIGURATION: SessionConfiguration = {
   inactivityTimeoutMinutes: 10,
   warningMinutes: 1,
@@ -162,6 +167,15 @@ const DEFAULT_TICKET_STATUS_NAMES = [
   "Pending Business Review",
   "Resolved",
   "Closed",
+] as const;
+const DEFAULT_ADMIN_ACCESS_PERMISSIONS = [
+  "tickets:read",
+  "tickets:create",
+  "tickets:update",
+  "comments:read",
+  "comments:create",
+  "users:read",
+  "users:update",
 ] as const;
 const DEFAULT_TICKET_BOARDS: ReadonlyArray<TicketBoardDefinition> = [
   {
@@ -334,6 +348,118 @@ function ticketMatchesSearch(ticket: Ticket, searchValue: string) {
   );
 }
 
+function getOwnerMatchCandidates(
+  profile: UserProfile | null,
+  auth0Name: string | undefined,
+  auth0Email: string | undefined,
+): Set<string> {
+  const candidates = new Set<string>();
+  for (const value of [
+    profile?.displayName,
+    profile?.nickName,
+    profile?.email,
+    auth0Name,
+    auth0Email,
+  ]) {
+    const n = normalize(String(value ?? ""));
+    if (n) {
+      candidates.add(n);
+    }
+  }
+  return candidates;
+}
+
+function ticketIsOwnedByCurrentUser(
+  ticket: Ticket,
+  candidates: Set<string>,
+): boolean {
+  const syn = normalize(String(ticket.synitiOwner ?? ""));
+  const bus = normalize(String(ticket.businessOwner ?? ""));
+  if (!syn && !bus) {
+    return false;
+  }
+  return (syn !== "" && candidates.has(syn)) || (bus !== "" && candidates.has(bus));
+}
+
+type TicketListSortOption =
+  | "newest-first"
+  | "oldest-first"
+  | "priority-high-low"
+  | "priority-low-high"
+  | "due-soonest"
+  | "most-overdue";
+
+const PRIORITY_RANK: Record<string, number> = {
+  Critical: 4,
+  High: 3,
+  Medium: 2,
+  Low: 1,
+};
+
+function getPriorityRank(priority: string): number {
+  return PRIORITY_RANK[priority] ?? 0;
+}
+
+function parseTicketTime(value: string | undefined): number {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function isTicketListSortOption(value: string): value is TicketListSortOption {
+  return (
+    value === "newest-first" ||
+    value === "oldest-first" ||
+    value === "priority-high-low" ||
+    value === "priority-low-high" ||
+    value === "due-soonest" ||
+    value === "most-overdue"
+  );
+}
+
+/** Sorts the already-filtered ticket list (stable triage: due / overdue use SLA fields). */
+function sortTicketsForList(tickets: Ticket[], sort: TicketListSortOption): Ticket[] {
+  const copy = [...tickets];
+
+  switch (sort) {
+    case "newest-first":
+      return copy.sort(
+        (a, b) => parseTicketTime(b.createdDate) - parseTicketTime(a.createdDate),
+      );
+    case "oldest-first":
+      return copy.sort(
+        (a, b) => parseTicketTime(a.createdDate) - parseTicketTime(b.createdDate),
+      );
+    case "priority-high-low":
+      return copy.sort(
+        (a, b) => getPriorityRank(b.priority) - getPriorityRank(a.priority),
+      );
+    case "priority-low-high":
+      return copy.sort(
+        (a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority),
+      );
+    case "due-soonest":
+      return copy.sort(
+        (a, b) =>
+          parseTicketTime(a.slaTargetDate) - parseTicketTime(b.slaTargetDate),
+      );
+    case "most-overdue":
+      return copy.sort((a, b) => {
+        const byRemaining = a.slaRemainingMinutes - b.slaRemainingMinutes;
+        if (byRemaining !== 0) {
+          return byRemaining;
+        }
+
+        return parseTicketTime(a.slaTargetDate) - parseTicketTime(b.slaTargetDate);
+      });
+    default:
+      return copy;
+  }
+}
+
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const payload = token.split(".")[1];
   if (!payload) return null;
@@ -383,39 +509,6 @@ function isConsentRequiredError(error: unknown) {
 
 function isForbiddenError(error: unknown) {
   return error instanceof ApiError && error.status === 403;
-}
-
-function isApiUnavailableError(error: unknown) {
-  if (error instanceof ApiError) {
-    return false;
-  }
-
-  if (error instanceof TypeError) {
-    return true;
-  }
-
-  if (error instanceof Error) {
-    const normalizedMessage = error.message.toLowerCase();
-    return (
-      normalizedMessage.includes("failed to fetch") ||
-      normalizedMessage.includes("networkerror") ||
-      normalizedMessage.includes("load failed")
-    );
-  }
-
-  return false;
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError && error.message.trim()) {
-    return error.message;
-  }
-
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-
-  return fallback;
 }
 
 function isUserExpired(user: UserProfile | null) {
@@ -606,6 +699,9 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300);
   const [pageSize, setPageSize] = useState<PageSizeOption>(10);
+  const [ticketListSort, setTicketListSort] =
+    useState<TicketListSortOption>("newest-first");
+  const [myTicketsOnly, setMyTicketsOnly] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [showReportSlaLegend, setShowReportSlaLegend] = useState(false);
   const [activeReportSection, setActiveReportSection] =
@@ -778,6 +874,10 @@ function App() {
     null,
   );
   const [adminUserDraft, setAdminUserDraft] = useState<AdminUpdateUserInput>({});
+  const [adminAccessRoleDraft, setAdminAccessRoleDraft] = useState("User");
+  const [adminAccessPermissionsDraft, setAdminAccessPermissionsDraft] = useState<string[]>([]);
+  const [adminAccessFeedback, setAdminAccessFeedback] = useState<string | null>(null);
+  const [adminAccessError, setAdminAccessError] = useState<string | null>(null);
   const [adminUserSaving, setAdminUserSaving] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
@@ -798,6 +898,8 @@ function App() {
   const lastPresenceSyncAtRef = useRef(0);
   const presenceSyncInFlightRef = useRef(false);
   const realtimeRefreshTimerRef = useRef<number | null>(null);
+  const ticketSilentRefreshInFlightRef = useRef(false);
+  const ticketSilentRefreshRequestIdRef = useRef(0);
 
   const permissionSet = useMemo(() => new Set(permissions), [permissions]);
   const isAdmin = permissionSet.has(ADMIN_PERMISSION);
@@ -991,20 +1093,43 @@ function App() {
     });
   }, [clearSessionTimeoutState, logout]);
 
-  const refreshTicketsSilently = async (providedToken?: string) => {
-    try {
-      const token = providedToken ?? (await getApiToken());
-      const data = await ticketService.getAll(token);
-      setAllTickets(data);
-      setApiUnavailable(false);
-    } catch (error) {
-      console.error("Failed to refresh tickets silently", error);
-
-      if (isApiUnavailableError(error)) {
-        setApiUnavailable(true);
+  const refreshTicketsSilently = useCallback(
+    async (providedToken?: string) => {
+      if (ticketSilentRefreshInFlightRef.current) {
+        return;
       }
-    }
-  };
+
+      ticketSilentRefreshInFlightRef.current = true;
+      const requestId = ++ticketSilentRefreshRequestIdRef.current;
+
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const data = await ticketService.getAll(token);
+
+        if (requestId !== ticketSilentRefreshRequestIdRef.current) {
+          return;
+        }
+
+        setAllTickets(data);
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to refresh tickets silently", error);
+
+        if (requestId !== ticketSilentRefreshRequestIdRef.current) {
+          return;
+        }
+
+        if (isLikelyNetworkError(error)) {
+          setApiUnavailable(true);
+        }
+      } finally {
+        if (requestId === ticketSilentRefreshRequestIdRef.current) {
+          ticketSilentRefreshInFlightRef.current = false;
+        }
+      }
+    },
+    [getApiToken],
+  );
 
   const loadAllTickets = useCallback(
     async (providedToken?: string) => {
@@ -1027,11 +1152,11 @@ function App() {
         } else if (isForbiddenError(error)) {
           setApiUnavailable(false);
           setError("You do not have permission to view tickets.");
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
-          setError("Failed to load tickets. Make sure the API is running.");
+          setError(API_USER_MESSAGES.loadTickets);
         }
       } finally {
         setLoading(false);
@@ -1056,7 +1181,7 @@ function App() {
         if (isForbiddenError(error)) {
           setApiUnavailable(false);
           setSlaError("You do not have permission to manage SLA settings.");
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1105,7 +1230,7 @@ function App() {
       } catch (error) {
         console.error("Failed to load session configuration", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else if (isForbiddenError(error)) {
           setApiUnavailable(false);
@@ -1137,7 +1262,7 @@ function App() {
       } catch (error) {
         console.error("Failed to load notification channel configuration", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else if (isForbiddenError(error)) {
           setApiUnavailable(false);
@@ -1171,14 +1296,16 @@ function App() {
       } catch (error) {
         console.error("Failed to load ticket boards", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else if (isForbiddenError(error)) {
           setApiUnavailable(false);
           setTicketBoardError("You do not have permission to view ticket boards.");
         } else {
           setApiUnavailable(false);
-          setTicketBoardError("Failed to load ticket boards.");
+          setTicketBoardError(
+            getUserFacingErrorMessage(error, "Failed to load ticket boards."),
+          );
         }
       } finally {
         setTicketBoardLoading(false);
@@ -1202,7 +1329,7 @@ function App() {
       } catch (error) {
         console.error("Failed to update presence", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         }
       } finally {
@@ -1253,7 +1380,7 @@ function App() {
       } catch (error) {
         console.error("Failed to load ticket statuses", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1297,7 +1424,7 @@ function App() {
       } catch (error) {
         console.error("Failed to load ticket routing rules", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1348,7 +1475,7 @@ function App() {
           setArchiveError(
             "You do not have permission to manage archive configuration.",
           );
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1380,7 +1507,7 @@ function App() {
           setStoredProcedureError(
             "You do not have permission to manage stored procedures.",
           );
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1406,7 +1533,7 @@ function App() {
       } catch (error) {
         console.error("Failed to load database stored procedures", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         }
       } finally {
@@ -1432,7 +1559,7 @@ function App() {
         if (isForbiddenError(error)) {
           setApiUnavailable(false);
           setJobsError("You do not have permission to manage jobs.");
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1466,7 +1593,7 @@ function App() {
       } catch (error) {
         console.error("Failed to load notifications", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else if (isForbiddenError(error)) {
           setApiUnavailable(false);
@@ -1500,7 +1627,7 @@ function App() {
         if (isForbiddenError(error)) {
           setApiUnavailable(false);
           setUsersError("You do not have permission to view users.");
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1531,7 +1658,7 @@ function App() {
           setOnlineUsersError(
             "You do not have permission to view online users.",
           );
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1562,7 +1689,7 @@ function App() {
           setCustomReportsError(
             "You do not have permission to manage custom reports.",
           );
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1588,7 +1715,7 @@ function App() {
       } catch (error) {
         console.error("Failed to load database views", error);
 
-        if (isApiUnavailableError(error)) {
+        if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         }
       } finally {
@@ -1610,8 +1737,21 @@ function App() {
         );
       } catch (error) {
         console.error("Failed to export report", error);
-        toast.error(getErrorMessage(error, "Failed to export report"));
+        toast.error(getUserFacingErrorMessage(error, "Failed to export report"));
       }
+    },
+    [getApiToken],
+  );
+
+  const exportAdminLogsCsv = useCallback(
+    async (fromUtcIso: string, toUtcIso: string) => {
+      const token = await getApiToken();
+      await reportService.exportAdminLogsCsv(
+        token,
+        fromUtcIso,
+        toUtcIso,
+        "cortex-request-logs.csv",
+      );
     },
     [getApiToken],
   );
@@ -1634,11 +1774,13 @@ function App() {
           setCustomReportResultError(
             "You do not have permission to run this custom report.",
           );
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
-          setCustomReportResultError("Failed to run custom report.");
+          setCustomReportResultError(
+            getUserFacingErrorMessage(error, "Unable to run this custom report."),
+          );
         }
       } finally {
         setCustomReportResultLoading(false);
@@ -1663,7 +1805,7 @@ function App() {
         if (isForbiddenError(error)) {
           setApiUnavailable(false);
           setArchivedError("You do not have permission to view archived tickets.");
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
@@ -1760,6 +1902,56 @@ function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !permissionsLoaded ||
+      needsConsent ||
+      !canViewTicketSections ||
+      activeView !== "tickets"
+    ) {
+      return;
+    }
+
+    const isUserInteractingWithForm = () => {
+      if (typeof document === "undefined") {
+        return false;
+      }
+
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (!activeElement) {
+        return false;
+      }
+
+      if (activeElement.isContentEditable) {
+        return true;
+      }
+
+      return ["INPUT", "TEXTAREA", "SELECT"].includes(activeElement.tagName);
+    };
+
+    const intervalId = window.setInterval(() => {
+      if (loading || isModalOpen || isUserInteractingWithForm()) {
+        return;
+      }
+
+      void refreshTicketsSilently();
+    }, TICKET_AUTO_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [
+    activeView,
+    canViewTicketSections,
+    isAuthenticated,
+    isModalOpen,
+    loading,
+    needsConsent,
+    permissionsLoaded,
+    refreshTicketsSilently,
+  ]);
 
   useEffect(() => {
     if (!isAuthenticated || !permissionsLoaded || needsConsent || !canViewTicketSections) {
@@ -2030,14 +2222,14 @@ function App() {
           setNeedsConsent(false);
           setApiUnavailable(false);
           setError("You do not have permission to view tickets.");
-        } else if (isApiUnavailableError(error)) {
+        } else if (isLikelyNetworkError(error)) {
           setNeedsConsent(false);
           setApiUnavailable(true);
           setError(null);
         } else {
           setNeedsConsent(false);
           setApiUnavailable(false);
-          setError("Failed to initialize the application.");
+          setError(API_USER_MESSAGES.generic);
         }
       } finally {
         if (!cancelled) {
@@ -2377,12 +2569,14 @@ function App() {
       console.error("Consent failed", error);
       setPermissions(parsedPermissions);
 
-      if (isApiUnavailableError(error)) {
+      if (isLikelyNetworkError(error)) {
         setApiUnavailable(true);
       } else {
         setApiUnavailable(false);
         setError("Failed to grant CORTEX API access.");
-        toast.error("Failed to grant CORTEX API access");
+        toast.error(
+          getUserFacingErrorMessage(error, "Failed to grant CORTEX API access"),
+        );
       }
     } finally {
       setLoading(false);
@@ -2426,6 +2620,21 @@ function App() {
       }
     }
 
+    if (myTicketsOnly) {
+      const candidates = getOwnerMatchCandidates(
+        currentUser,
+        user?.name,
+        user?.email,
+      );
+      if (candidates.size === 0) {
+        filteredTickets = [];
+      } else {
+        filteredTickets = filteredTickets.filter((ticket) =>
+          ticketIsOwnedByCurrentUser(ticket, candidates),
+        );
+      }
+    }
+
     if (!searchInput) {
       return filteredTickets;
     }
@@ -2439,19 +2648,28 @@ function App() {
     filter,
     debouncedFilterValue,
     debouncedSearchQuery,
+    myTicketsOnly,
+    currentUser,
+    user?.name,
+    user?.email,
   ]);
 
-  const totalTickets = tickets.length;
+  const sortedTickets = useMemo(
+    () => sortTicketsForList(tickets, ticketListSort),
+    [tickets, ticketListSort],
+  );
+
+  const totalTickets = sortedTickets.length;
   const totalPages =
     pageSize === "all" ? 1 : Math.max(1, Math.ceil(totalTickets / pageSize));
   const pagedTickets = useMemo(() => {
     if (pageSize === "all") {
-      return tickets;
+      return sortedTickets;
     }
 
     const startIndex = (currentPage - 1) * pageSize;
-    return tickets.slice(startIndex, startIndex + pageSize);
-  }, [currentPage, pageSize, tickets]);
+    return sortedTickets.slice(startIndex, startIndex + pageSize);
+  }, [currentPage, pageSize, sortedTickets]);
   const showingStart =
     totalTickets === 0
       ? 0
@@ -2463,7 +2681,15 @@ function App() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedBoardId, filter, debouncedFilterValue, debouncedSearchQuery, pageSize]);
+  }, [
+    selectedBoardId,
+    filter,
+    debouncedFilterValue,
+    debouncedSearchQuery,
+    pageSize,
+    ticketListSort,
+    myTicketsOnly,
+  ]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
@@ -2484,19 +2710,31 @@ function App() {
     attachments: File[],
   ) => {
     if (!selectedTicket) return;
+    const isCreateAction = !selectedTicket.id;
+    const actionLabel = isCreateAction ? "create" : "update";
 
     try {
       const token = await getApiToken();
       let savedTicket: Ticket;
-      let successMessage = "";
+      let successMessage = isCreateAction ? "Ticket created" : "Ticket updated";
 
-      if (!selectedTicket.id) {
+      if (isCreateAction) {
+        const createPayload: CreateTicketInput = {
+          title: updatedTicket.title?.trim() ?? "",
+          description: updatedTicket.description?.trim() ?? "",
+          priority: updatedTicket.priority?.trim() ?? "",
+          department: updatedTicket.department,
+          boardId: updatedTicket.boardId,
+          storyPoints: updatedTicket.storyPoints,
+          synitiOwner: updatedTicket.synitiOwner,
+          businessOwner: updatedTicket.businessOwner,
+        };
+
         savedTicket = await ticketService.create(
-          updatedTicket as CreateTicketInput,
+          createPayload,
           token,
         );
         setAllTickets((prev) => [savedTicket, ...prev]);
-        successMessage = "Ticket created";
       } else {
         savedTicket = await ticketService.update(
           selectedTicket.id,
@@ -2506,7 +2744,6 @@ function App() {
         setAllTickets((prev) =>
           prev.map((ticket) => (ticket.id === savedTicket.id ? savedTicket : ticket)),
         );
-        successMessage = "Ticket updated";
       }
 
       if (attachments.length > 0) {
@@ -2518,20 +2755,27 @@ function App() {
               : ` with ${attachments.length} attachments`;
         } catch (attachmentError) {
           console.error("Failed to upload attachments", attachmentError);
-          toast.success(successMessage);
-          toast.error("Ticket saved, but attachments failed to upload");
+          toast.success(successMessage, { id: "ticket-save-success" });
+          toast.error(
+            getUserFacingErrorMessage(
+              attachmentError,
+              "Ticket saved, but attachments could not be uploaded",
+            ),
+          );
           setIsModalOpen(false);
           setSelectedTicket(null);
           return;
         }
       }
 
-      toast.success(successMessage);
+      toast.success(successMessage, { id: "ticket-save-success" });
       setIsModalOpen(false);
       setSelectedTicket(null);
     } catch (error) {
       console.error("Failed to save ticket", error);
-      toast.error("Failed to save ticket");
+      toast.error(getUserFacingErrorMessage(error, API_USER_MESSAGES.saveChanges), {
+        id: `ticket-save-error-${actionLabel}`,
+      });
       throw error;
     }
   };
@@ -2567,11 +2811,9 @@ function App() {
     } catch (error) {
       console.error("Failed to save SLA settings", error);
 
-      if (error instanceof ApiError) {
-        setSlaError(error.message);
-      } else {
-        setSlaError("Failed to save SLA settings.");
-      }
+      setSlaError(
+        getUserFacingErrorMessage(error, "Failed to save SLA settings."),
+      );
 
       toast.error("Failed to save SLA settings");
     } finally {
@@ -2636,11 +2878,9 @@ function App() {
     } catch (error) {
       console.error("Failed to save session configuration", error);
 
-      if (error instanceof ApiError) {
-        setSessionError(error.message);
-      } else {
-        setSessionError("Failed to save session configuration.");
-      }
+      setSessionError(
+        getUserFacingErrorMessage(error, "Failed to save session configuration."),
+      );
 
       toast.error("Failed to save session policy");
     } finally {
@@ -2669,13 +2909,12 @@ function App() {
     } catch (error) {
       console.error("Failed to save notification channel configuration", error);
 
-      if (error instanceof ApiError) {
-        setNotificationChannelError(error.message);
-      } else {
-        setNotificationChannelError(
+      setNotificationChannelError(
+        getUserFacingErrorMessage(
+          error,
           "Failed to save notification channel settings.",
-        );
-      }
+        ),
+      );
 
       toast.error("Failed to save notification channel settings");
     } finally {
@@ -2700,11 +2939,9 @@ function App() {
     } catch (error) {
       console.error("Failed to create ticket board", error);
 
-      if (error instanceof ApiError) {
-        setTicketBoardError(error.message);
-      } else {
-        setTicketBoardError("Failed to create ticket board.");
-      }
+      setTicketBoardError(
+        getUserFacingErrorMessage(error, "Failed to create ticket board."),
+      );
 
       toast.error("Failed to create ticket board");
       throw error;
@@ -2790,11 +3027,9 @@ function App() {
     } catch (error) {
       console.error("Failed to update ticket board", error);
 
-      if (error instanceof ApiError) {
-        setTicketBoardError(error.message);
-      } else {
-        setTicketBoardError("Failed to update ticket board.");
-      }
+      setTicketBoardError(
+        getUserFacingErrorMessage(error, "Failed to update ticket board."),
+      );
 
       toast.error("Failed to update ticket board");
       throw error;
@@ -2822,11 +3057,9 @@ function App() {
     } catch (error) {
       console.error("Failed to delete ticket board", error);
 
-      if (error instanceof ApiError) {
-        setTicketBoardError(error.message);
-      } else {
-        setTicketBoardError("Failed to delete ticket board.");
-      }
+      setTicketBoardError(
+        getUserFacingErrorMessage(error, "Failed to delete ticket board."),
+      );
 
       toast.error("Failed to delete ticket board");
       throw error;
@@ -2852,11 +3085,9 @@ function App() {
     } catch (error) {
       console.error("Failed to create ticket status", error);
 
-      if (error instanceof ApiError) {
-        setTicketStatusError(error.message);
-      } else {
-        setTicketStatusError("Failed to create ticket status.");
-      }
+      setTicketStatusError(
+        getUserFacingErrorMessage(error, "Failed to create ticket status."),
+      );
 
       toast.error("Failed to create ticket status");
       throw error;
@@ -2930,11 +3161,9 @@ function App() {
     } catch (error) {
       console.error("Failed to update ticket status", error);
 
-      if (error instanceof ApiError) {
-        setTicketStatusError(error.message);
-      } else {
-        setTicketStatusError("Failed to update ticket status.");
-      }
+      setTicketStatusError(
+        getUserFacingErrorMessage(error, "Failed to update ticket status."),
+      );
 
       toast.error("Failed to update ticket status");
       throw error;
@@ -2958,11 +3187,9 @@ function App() {
     } catch (error) {
       console.error("Failed to delete ticket status", error);
 
-      if (error instanceof ApiError) {
-        setTicketStatusError(error.message);
-      } else {
-        setTicketStatusError("Failed to delete ticket status.");
-      }
+      setTicketStatusError(
+        getUserFacingErrorMessage(error, "Failed to delete ticket status."),
+      );
 
       toast.error("Failed to delete ticket status");
       throw error;
@@ -3041,11 +3268,9 @@ function App() {
     } catch (error) {
       console.error("Failed to save ticket routing rule", error);
 
-      if (error instanceof ApiError) {
-        setTicketRoutingError(error.message);
-      } else {
-        setTicketRoutingError("Failed to save ticket routing rule.");
-      }
+      setTicketRoutingError(
+        getUserFacingErrorMessage(error, "Failed to save ticket routing rule."),
+      );
 
       toast.error("Failed to save ticket routing rule");
       throw error;
@@ -3091,11 +3316,9 @@ function App() {
     } catch (error) {
       console.error("Failed to delete ticket routing rule", error);
 
-      if (error instanceof ApiError) {
-        setTicketRoutingError(error.message);
-      } else {
-        setTicketRoutingError("Failed to delete ticket routing rule.");
-      }
+      setTicketRoutingError(
+        getUserFacingErrorMessage(error, "Failed to delete ticket routing rule."),
+      );
 
       toast.error("Failed to delete ticket routing rule");
       throw error;
@@ -3131,11 +3354,9 @@ function App() {
     } catch (error) {
       console.error("Failed to create custom report", error);
 
-      if (error instanceof ApiError) {
-        setCustomReportsError(error.message);
-      } else {
-        setCustomReportsError("Failed to create custom report.");
-      }
+      setCustomReportsError(
+        getUserFacingErrorMessage(error, "Failed to create custom report."),
+      );
 
       toast.error("Failed to create custom report");
       throw error;
@@ -3175,11 +3396,9 @@ function App() {
     } catch (error) {
       console.error("Failed to update custom report", error);
 
-      if (error instanceof ApiError) {
-        setCustomReportsError(error.message);
-      } else {
-        setCustomReportsError("Failed to update custom report.");
-      }
+      setCustomReportsError(
+        getUserFacingErrorMessage(error, "Failed to update custom report."),
+      );
 
       toast.error("Failed to update custom report");
       throw error;
@@ -3221,11 +3440,9 @@ function App() {
     } catch (error) {
       console.error("Failed to delete custom report", error);
 
-      if (error instanceof ApiError) {
-        setCustomReportsError(error.message);
-      } else {
-        setCustomReportsError("Failed to delete custom report.");
-      }
+      setCustomReportsError(
+        getUserFacingErrorMessage(error, "Failed to delete custom report."),
+      );
 
       toast.error("Failed to delete custom report");
       throw error;
@@ -3312,11 +3529,9 @@ function App() {
     } catch (error) {
       console.error("Failed to save archive configuration", error);
 
-      if (error instanceof ApiError) {
-        setArchiveError(error.message);
-      } else {
-        setArchiveError("Failed to save archive configuration.");
-      }
+      setArchiveError(
+        getUserFacingErrorMessage(error, "Failed to save archive configuration."),
+      );
 
       toast.error("Failed to save archive configuration");
     } finally {
@@ -3354,11 +3569,9 @@ function App() {
     } catch (error) {
       console.error("Failed to delete archive configuration", error);
 
-      if (error instanceof ApiError) {
-        setArchiveError(error.message);
-      } else {
-        setArchiveError("Failed to delete archive configuration.");
-      }
+      setArchiveError(
+        getUserFacingErrorMessage(error, "Failed to delete archive configuration."),
+      );
 
       toast.error("Failed to delete archive configuration");
     } finally {
@@ -3387,11 +3600,9 @@ function App() {
     } catch (error) {
       console.error("Failed to archive eligible tickets", error);
 
-      if (error instanceof ApiError) {
-        setArchiveError(error.message);
-      } else {
-        setArchiveError("Failed to archive eligible tickets.");
-      }
+      setArchiveError(
+        getUserFacingErrorMessage(error, "Failed to archive eligible tickets."),
+      );
 
       toast.error("Failed to archive eligible tickets");
     } finally {
@@ -3419,11 +3630,9 @@ function App() {
     } catch (error) {
       console.error("Failed to create stored procedure", error);
 
-      if (error instanceof ApiError) {
-        setStoredProcedureError(error.message);
-      } else {
-        setStoredProcedureError("Failed to create stored procedure.");
-      }
+      setStoredProcedureError(
+        getUserFacingErrorMessage(error, "Failed to create stored procedure."),
+      );
 
       toast.error("Failed to create stored procedure");
       throw error;
@@ -3471,11 +3680,9 @@ function App() {
     } catch (error) {
       console.error("Failed to update stored procedure", error);
 
-      if (error instanceof ApiError) {
-        setStoredProcedureError(error.message);
-      } else {
-        setStoredProcedureError("Failed to update stored procedure.");
-      }
+      setStoredProcedureError(
+        getUserFacingErrorMessage(error, "Failed to update stored procedure."),
+      );
 
       toast.error("Failed to update stored procedure");
       throw error;
@@ -3520,11 +3727,9 @@ function App() {
     } catch (error) {
       console.error("Failed to delete stored procedure", error);
 
-      if (error instanceof ApiError) {
-        setStoredProcedureError(error.message);
-      } else {
-        setStoredProcedureError("Failed to delete stored procedure.");
-      }
+      setStoredProcedureError(
+        getUserFacingErrorMessage(error, "Failed to delete stored procedure."),
+      );
 
       toast.error("Failed to delete stored procedure");
       throw error;
@@ -3550,11 +3755,7 @@ function App() {
     } catch (error) {
       console.error("Failed to create job", error);
 
-      if (error instanceof ApiError) {
-        setJobsError(error.message);
-      } else {
-        setJobsError("Failed to create job.");
-      }
+      setJobsError(getUserFacingErrorMessage(error, "Failed to create job."));
 
       toast.error("Failed to create job");
       throw error;
@@ -3585,11 +3786,7 @@ function App() {
     } catch (error) {
       console.error("Failed to update job", error);
 
-      if (error instanceof ApiError) {
-        setJobsError(error.message);
-      } else {
-        setJobsError("Failed to update job.");
-      }
+      setJobsError(getUserFacingErrorMessage(error, "Failed to update job."));
 
       toast.error("Failed to update job");
       throw error;
@@ -3623,11 +3820,7 @@ function App() {
     } catch (error) {
       console.error("Failed to run job", error);
 
-      if (error instanceof ApiError) {
-        setJobsError(error.message);
-      } else {
-        setJobsError("Failed to run job.");
-      }
+      setJobsError(getUserFacingErrorMessage(error, "Failed to run job."));
 
       toast.error("Failed to run job");
       throw error;
@@ -3689,7 +3882,7 @@ function App() {
       toast.success("Ticket archived");
     } catch (error) {
       console.error("Failed to archive ticket", error);
-      toast.error(getErrorMessage(error, "Failed to archive ticket"));
+      toast.error(getUserFacingErrorMessage(error, "Failed to archive ticket"));
       throw error;
     }
   };
@@ -3719,7 +3912,7 @@ function App() {
       );
     } catch (error) {
       console.error("Failed to reactivate archived ticket", error);
-      toast.error(getErrorMessage(error, "Failed to reactivate archived ticket"));
+      toast.error(getUserFacingErrorMessage(error, "Failed to reactivate archived ticket"));
     } finally {
       setReactivatingArchivedTicketId(null);
     }
@@ -3827,7 +4020,7 @@ function App() {
     } catch (error) {
       console.error("Failed to mark notifications as read", error);
       setNotificationsError(
-        getErrorMessage(error, "Failed to mark notifications as read."),
+        getUserFacingErrorMessage(error, "Failed to mark notifications as read."),
       );
       toast.error("Failed to mark notifications as read");
     } finally {
@@ -3870,7 +4063,7 @@ function App() {
       await openTicketById(notification.ticketId, token);
     } catch (error) {
       console.error("Failed to open notification", error);
-      setNotificationsError(getErrorMessage(error, "Failed to open notification."));
+      setNotificationsError(getUserFacingErrorMessage(error, "Failed to open notification."));
       toast.error("Failed to open notification");
     } finally {
       setMarkingNotificationId(null);
@@ -4078,7 +4271,7 @@ function App() {
       setIsProfileModalOpen(true);
     } catch (error) {
       console.error("Failed to load profile", error);
-      toast.error(getErrorMessage(error, "Failed to load profile"));
+      toast.error(getUserFacingErrorMessage(error, "Failed to load profile"));
     } finally {
       setProfileLoading(false);
     }
@@ -4120,11 +4313,23 @@ function App() {
       isActive: selectedUser.isActive,
       expiryDate: selectedUser.expiryDate ?? "",
     });
+    setAdminAccessRoleDraft(selectedUser.role ?? "User");
+    setAdminAccessPermissionsDraft(
+      selectedUser.permissions && selectedUser.permissions.length > 0
+        ? [...selectedUser.permissions]
+        : [...DEFAULT_ADMIN_ACCESS_PERMISSIONS],
+    );
+    setAdminAccessFeedback(null);
+    setAdminAccessError(null);
   };
 
   const closeAdminUserModal = () => {
     setEditingAdminUser(null);
     setAdminUserDraft({});
+    setAdminAccessRoleDraft("User");
+    setAdminAccessPermissionsDraft([]);
+    setAdminAccessFeedback(null);
+    setAdminAccessError(null);
   };
 
   const handleProfileDraftChange = (
@@ -4177,7 +4382,7 @@ function App() {
       toast.success("Profile updated");
     } catch (error) {
       console.error("Failed to update profile", error);
-      toast.error(getErrorMessage(error, "Failed to update profile"));
+      toast.error(getUserFacingErrorMessage(error, "Failed to update profile"));
     } finally {
       setProfileSaving(false);
     }
@@ -4188,9 +4393,12 @@ function App() {
 
     try {
       setAdminUserSaving(true);
+      setAdminAccessFeedback(null);
+      setAdminAccessError(null);
       const token = await getApiToken();
       const payload: AdminUpdateUserInput = {
         ...adminUserDraft,
+        role: adminAccessRoleDraft,
         expiryDate: adminUserDraft.expiryDate?.trim()
           ? adminUserDraft.expiryDate
           : null,
@@ -4200,25 +4408,50 @@ function App() {
         payload,
         token,
       );
+      const accessPayload: UpdateUserAccessInput = {
+        role: adminAccessRoleDraft,
+        permissions: adminAccessPermissionsDraft,
+      };
+      const accessResult = await userService.updateUserAccess(
+        editingAdminUser.id,
+        accessPayload,
+        token,
+      );
 
       setUsers((currentUsers) =>
         currentUsers.map((userRecord) =>
-          userRecord.id === updatedUser.id ? updatedUser : userRecord,
+          userRecord.id === updatedUser.id
+            ? { ...updatedUser, permissions: accessResult.requestedPermissions }
+            : userRecord,
         ),
       );
       setCurrentUser((existingUser) =>
         existingUser && existingUser.id === updatedUser.id
-          ? { ...existingUser, ...updatedUser }
+          ? {
+              ...existingUser,
+              ...updatedUser,
+            }
           : existingUser,
       );
+      setAdminAccessFeedback("Role and permissions saved.");
       closeAdminUserModal();
-      toast.success("User updated");
+      toast.success("User access updated");
     } catch (error) {
       console.error("Failed to update user", error);
-      toast.error(getErrorMessage(error, "Failed to update user"));
+      const message = getUserFacingErrorMessage(error, "Failed to update user access");
+      setAdminAccessError(message);
+      toast.error(message);
     } finally {
       setAdminUserSaving(false);
     }
+  };
+
+  const toggleAdminAccessPermission = (permission: string) => {
+    setAdminAccessPermissionsDraft((currentPermissions) =>
+      currentPermissions.includes(permission)
+        ? currentPermissions.filter((item) => item !== permission)
+        : [...currentPermissions, permission],
+    );
   };
 
   const saveCreatedUser = async () => {
@@ -4250,7 +4483,7 @@ function App() {
       toast.success("User created");
     } catch (error) {
       console.error("Failed to create user", error);
-      toast.error(getErrorMessage(error, "Failed to create user"));
+      toast.error(getUserFacingErrorMessage(error, "Failed to create user"));
     } finally {
       setCreateUserSaving(false);
     }
@@ -4289,7 +4522,7 @@ function App() {
       toast.success("User deleted");
     } catch (error) {
       console.error("Failed to delete user", error);
-      toast.error(getErrorMessage(error, "Failed to delete user"));
+      toast.error(getUserFacingErrorMessage(error, "Failed to delete user"));
     } finally {
       setDeletingUserId(null);
     }
@@ -4382,7 +4615,7 @@ function App() {
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-cortex-surface to-cortex-surface-alt text-gray-900 transition-colors dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
       <header className="relative z-40 border-b border-gray-200 bg-white/92 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-cortex-ink-dark/92">
-        <div className="mx-auto flex w-full max-w-[2200px] flex-col gap-6 px-6 py-6 2xl:px-8 xl:flex-row xl:items-center xl:justify-between">
+        <div className="mx-auto flex w-full max-w-[2200px] flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6 2xl:px-8 xl:flex-row xl:items-center xl:justify-between">
           <div className="space-y-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-baseline md:gap-4">
               <h1 className="text-3xl font-bold">🧠 CORTEX</h1>
@@ -4662,7 +4895,7 @@ function App() {
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-[2200px] flex-1 px-6 py-8 lg:gap-8 2xl:px-8">
+      <div className="mx-auto flex w-full max-w-[2200px] flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:gap-8 2xl:px-8">
         <aside
           className="relative hidden shrink-0 lg:block"
           style={{ width: `${sidebarWidth}px` }}
@@ -4885,14 +5118,67 @@ function App() {
                 </select>
               </div>
 
-              <div className="mt-3">
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div
+                  className="flex shrink-0 gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 dark:border-slate-700 dark:bg-slate-800"
+                  role="group"
+                  aria-label="Ticket scope"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSavedFilterId("");
+                      setMyTicketsOnly(false);
+                    }}
+                    className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                      !myTicketsOnly
+                        ? "bg-cortex-blue text-white"
+                        : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    All Tickets
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSavedFilterId("");
+                      setMyTicketsOnly(true);
+                    }}
+                    className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                      myTicketsOnly
+                        ? "bg-cortex-blue text-white"
+                        : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    My Tickets
+                  </button>
+                </div>
                 <input
                   type="text"
                   placeholder="Search tickets..."
                   value={searchQuery}
                   onChange={(event) => handleSearchChange(event.target.value)}
-                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  className="min-w-0 flex-1 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
+                <select
+                  aria-label="Sort tickets"
+                  value={ticketListSort}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (isTicketListSortOption(value)) {
+                      setSelectedSavedFilterId("");
+                      setTicketListSort(value);
+                    }
+                  }}
+                  className="w-full shrink-0 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm sm:w-52 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                >
+                  <option value="newest-first">Newest first</option>
+                  <option value="oldest-first">Oldest first</option>
+                  <option value="priority-high-low">Priority (high → low)</option>
+                  <option value="priority-low-high">Priority (low → high)</option>
+                  <option value="due-soonest">Due soonest</option>
+                  <option value="most-overdue">Most overdue</option>
+                </select>
               </div>
             </div>
 
@@ -4912,7 +5198,7 @@ function App() {
 
             {!loading && !apiUnavailable && !error && tickets.length > 0 && (
               <>
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                   {pagedTickets.map((ticket) => (
                     <TicketCard
                       key={ticket.id}
@@ -5110,6 +5396,12 @@ function App() {
               onCreateStoredProcedure={createStoredProcedureDefinition}
               onUpdateStoredProcedure={updateStoredProcedureDefinition}
               onDeleteStoredProcedure={deleteStoredProcedureDefinition}
+              canExportAdminLogs={isAdmin}
+              onExportAdminLogs={exportAdminLogsCsv}
+              canManageJobs={canManageJobs}
+              canViewUsers={canViewUsers}
+              onOpenJobs={() => setActiveView("jobs")}
+              onOpenUsers={() => setActiveView("users")}
             />
           )
         ) : activeView === "users" && canViewUsers ? (
@@ -5205,6 +5497,13 @@ function App() {
         draft={adminUserDraft}
         saving={adminUserSaving}
         onChange={handleAdminUserDraftChange}
+        canManageAccess={canEditUsers}
+        accessRole={adminAccessRoleDraft}
+        accessPermissions={adminAccessPermissionsDraft}
+        accessFeedback={adminAccessFeedback}
+        accessError={adminAccessError}
+        onAccessRoleChange={setAdminAccessRoleDraft}
+        onTogglePermission={toggleAdminAccessPermission}
         onClose={closeAdminUserModal}
         onSave={() => void saveAdminUser()}
       />

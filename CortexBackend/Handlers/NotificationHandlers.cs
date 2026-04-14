@@ -1,4 +1,5 @@
 using Cortex.API.Services;
+using Cortex.API.Validation;
 
 namespace Cortex.API.Handlers;
 
@@ -9,8 +10,13 @@ public static class NotificationHandlers
         IUserContextService userContext,
         INotificationService notificationService)
     {
+        if (!QueryParameterValidation.TryNormalizeNotificationTake(take, out var normalizedTake, out var takeError))
+        {
+            return Results.BadRequest(new { message = takeError });
+        }
+
         var currentUser = await userContext.GetCurrentUserAsync();
-        var feed = await notificationService.GetFeedAsync(currentUser.Id, take ?? 20);
+        var feed = await notificationService.GetFeedAsync(currentUser.Id, normalizedTake);
         return Results.Ok(feed);
     }
 

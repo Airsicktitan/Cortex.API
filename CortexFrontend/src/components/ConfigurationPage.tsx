@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type { ArchiveConfiguration } from "../types/archiveConfiguration";
 import type {
   CustomReportDefinition,
@@ -153,409 +154,410 @@ interface ConfigurationPageProps {
     definition: UpsertStoredProcedureDefinitionInput,
   ) => Promise<void>;
   onDeleteStoredProcedure: (id: number) => Promise<void>;
+  canExportAdminLogs: boolean;
+  onExportAdminLogs: (fromUtcIso: string, toUtcIso: string) => Promise<void>;
+  canManageJobs: boolean;
+  canViewUsers: boolean;
+  onOpenJobs: () => void;
+  onOpenUsers: () => void;
 }
 
-export default function ConfigurationPage({
-  slaConfigurations,
-  slaError,
-  slaLoading,
-  slaSaving,
-  onSlaChange,
-  onRefreshSla,
-  onSaveSla,
-  sessionConfiguration,
-  sessionError,
-  sessionLoading,
-  sessionSaving,
-  onSessionChange,
-  onRefreshSession,
-  onSaveSession,
-  notificationChannelConfiguration,
-  notificationChannelError,
-  notificationChannelLoading,
-  notificationChannelSaving,
-  onNotificationChannelChange,
-  onRefreshNotificationChannels,
-  onSaveNotificationChannels,
-  ticketBoards,
-  ticketBoardError,
-  ticketBoardLoading,
-  ticketBoardSaving,
-  ticketBoardDeletingId,
-  onRefreshTicketBoards,
-  onCreateTicketBoard,
-  onUpdateTicketBoard,
-  onDeleteTicketBoard,
-  ticketStatuses,
-  ticketStatusError,
-  ticketStatusLoading,
-  ticketStatusSaving,
-  ticketStatusDeletingId,
-  onRefreshTicketStatuses,
-  onCreateTicketStatus,
-  onUpdateTicketStatus,
-  onDeleteTicketStatus,
-  ticketRoutingRules,
-  selectedTicketRoutingRule,
-  ticketRoutingError,
-  ticketRoutingLoading,
-  ticketRoutingSaving,
-  ticketRoutingDeletingId,
-  onRefreshTicketRouting,
-  onCreateTicketRoutingRule,
-  onSelectTicketRoutingRule,
-  onTicketRoutingChange,
-  onSaveTicketRoutingRule,
-  onDeleteTicketRoutingRule,
-  archiveConfigurations,
-  archiveConfiguration,
-  archiveError,
-  archiveLoading,
-  archiveSaving,
-  archiveDeletingId,
-  archiveRunning,
-  onCreateArchivePolicy,
-  onSelectArchivePolicy,
-  onArchiveChange,
-  onRefreshArchive,
-  onSaveArchive,
-  onDeleteArchive,
-  onRunArchiveNow,
-  customReports,
-  databaseViews,
-  databaseViewsLoading,
-  customReportError,
-  customReportLoading,
-  customReportSaving,
-  customReportDeletingId,
-  onRefreshCustomReports,
-  onCreateCustomReport,
-  onUpdateCustomReport,
-  onDeleteCustomReport,
-  storedProcedures,
-  databaseStoredProcedures,
-  databaseStoredProceduresLoading,
-  storedProcedureError,
-  storedProcedureLoading,
-  storedProcedureSaving,
-  storedProcedureDeletingId,
-  onRefreshStoredProcedures,
-  onCreateStoredProcedure,
-  onUpdateStoredProcedure,
-  onDeleteStoredProcedure,
-}: ConfigurationPageProps) {
+type ConfigSection =
+  | "general"
+  | "boards"
+  | "roles"
+  | "notifications"
+  | "jobs"
+  | "reports"
+  | "logs";
+
+function formatUtcDateInput(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+export default function ConfigurationPage(props: ConfigurationPageProps) {
+  const {
+    slaConfigurations,
+    slaError,
+    slaLoading,
+    slaSaving,
+    onSlaChange,
+    onRefreshSla,
+    onSaveSla,
+    sessionConfiguration,
+    sessionError,
+    sessionLoading,
+    sessionSaving,
+    onSessionChange,
+    onRefreshSession,
+    onSaveSession,
+    notificationChannelConfiguration,
+    notificationChannelError,
+    notificationChannelLoading,
+    notificationChannelSaving,
+    onNotificationChannelChange,
+    onRefreshNotificationChannels,
+    onSaveNotificationChannels,
+    ticketBoards,
+    ticketBoardError,
+    ticketBoardLoading,
+    ticketBoardSaving,
+    ticketBoardDeletingId,
+    onRefreshTicketBoards,
+    onCreateTicketBoard,
+    onUpdateTicketBoard,
+    onDeleteTicketBoard,
+    ticketStatuses,
+    ticketStatusError,
+    ticketStatusLoading,
+    ticketStatusSaving,
+    ticketStatusDeletingId,
+    onRefreshTicketStatuses,
+    onCreateTicketStatus,
+    onUpdateTicketStatus,
+    onDeleteTicketStatus,
+    ticketRoutingRules,
+    selectedTicketRoutingRule,
+    ticketRoutingError,
+    ticketRoutingLoading,
+    ticketRoutingSaving,
+    ticketRoutingDeletingId,
+    onRefreshTicketRouting,
+    onCreateTicketRoutingRule,
+    onSelectTicketRoutingRule,
+    onTicketRoutingChange,
+    onSaveTicketRoutingRule,
+    onDeleteTicketRoutingRule,
+    archiveConfigurations,
+    archiveConfiguration,
+    archiveError,
+    archiveLoading,
+    archiveSaving,
+    archiveDeletingId,
+    archiveRunning,
+    onCreateArchivePolicy,
+    onSelectArchivePolicy,
+    onArchiveChange,
+    onRefreshArchive,
+    onSaveArchive,
+    onDeleteArchive,
+    onRunArchiveNow,
+    customReports,
+    databaseViews,
+    databaseViewsLoading,
+    customReportError,
+    customReportLoading,
+    customReportSaving,
+    customReportDeletingId,
+    onRefreshCustomReports,
+    onCreateCustomReport,
+    onUpdateCustomReport,
+    onDeleteCustomReport,
+    storedProcedures,
+    databaseStoredProcedures,
+    databaseStoredProceduresLoading,
+    storedProcedureError,
+    storedProcedureLoading,
+    storedProcedureSaving,
+    storedProcedureDeletingId,
+    onRefreshStoredProcedures,
+    onCreateStoredProcedure,
+    onUpdateStoredProcedure,
+    onDeleteStoredProcedure,
+    canExportAdminLogs,
+    onExportAdminLogs,
+    canManageJobs,
+    canViewUsers,
+    onOpenJobs,
+    onOpenUsers,
+  } = props;
+
+  const [activeSection, setActiveSection] = useState<ConfigSection>("general");
+  const defaultDateRange = useMemo(() => {
+    const endUtc = new Date();
+    const startUtc = new Date(endUtc);
+    startUtc.setUTCDate(startUtc.getUTCDate() - 7);
+
+    return {
+      fromDate: formatUtcDateInput(startUtc),
+      toDate: formatUtcDateInput(endUtc),
+    };
+  }, []);
+  const [logExportFromDate, setLogExportFromDate] = useState(defaultDateRange.fromDate);
+  const [logExportToDate, setLogExportToDate] = useState(defaultDateRange.toDate);
+  const [logExporting, setLogExporting] = useState(false);
+  const [logExportError, setLogExportError] = useState<string | null>(null);
+  const [logExportSuccess, setLogExportSuccess] = useState<string | null>(null);
+
+  const navItems: Array<{ id: ConfigSection; label: string; description: string }> = [
+    { id: "general", label: "General", description: "SLA, session, and archive policy" },
+    { id: "boards", label: "Boards", description: "Boards, statuses, and routing" },
+    { id: "roles", label: "Roles & Permissions", description: "User administration access" },
+    { id: "notifications", label: "Notifications", description: "Delivery channels and defaults" },
+    { id: "jobs", label: "Scheduled Jobs", description: "Operational automation jobs" },
+    { id: "reports", label: "Reports", description: "Custom reports and procedures" },
+    { id: "logs", label: "Log Export", description: "Admin request log downloads" },
+  ];
+
+  const handleExportLogs = async () => {
+    setLogExportError(null);
+    setLogExportSuccess(null);
+
+    if (!logExportFromDate || !logExportToDate) {
+      setLogExportError("Select both a start date and end date.");
+      return;
+    }
+
+    if (logExportToDate < logExportFromDate) {
+      setLogExportError("End date must be on or after start date.");
+      return;
+    }
+
+    const fromUtcIso = `${logExportFromDate}T00:00:00.000Z`;
+    const toUtcIso = `${logExportToDate}T23:59:59.999Z`;
+
+    try {
+      setLogExporting(true);
+      await onExportAdminLogs(fromUtcIso, toUtcIso);
+      setLogExportSuccess("Log export started. Your CSV download should begin shortly.");
+    } catch {
+      setLogExportError("Unable to export logs. Please try again.");
+    } finally {
+      setLogExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
-            Configuration
-          </h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-            Manage the operational rules for notifications, SLA tracking, session security, and archive policy.
-          </p>
-        </div>
-      </section>
-
-      <NotificationChannelSection
-        configuration={notificationChannelConfiguration}
-        loading={notificationChannelLoading}
-        saving={notificationChannelSaving}
-        error={notificationChannelError}
-        onChange={onNotificationChannelChange}
-        onRefresh={onRefreshNotificationChannels}
-        onSave={onSaveNotificationChannels}
-      />
-
-      <TicketBoardRegistrySection
-        boards={ticketBoards}
-        loading={ticketBoardLoading}
-        error={ticketBoardError}
-        saving={ticketBoardSaving}
-        deletingId={ticketBoardDeletingId}
-        onRefresh={onRefreshTicketBoards}
-        onCreate={onCreateTicketBoard}
-        onUpdate={onUpdateTicketBoard}
-        onDelete={onDeleteTicketBoard}
-      />
-
-      <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-                SLA Configuration
-              </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Set the SLA target and warning window for each ticket priority.
-              </p>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={onRefreshSla}
-                className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={onSaveSla}
-                disabled={slaSaving || slaLoading}
-                className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
-              >
-                {slaSaving ? "Saving..." : "Save SLA"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {slaError && (
-          <div className="border-b border-red-200 bg-red-50 px-6 py-4 dark:border-red-900/40 dark:bg-red-950/40">
-            <p className="text-red-700 dark:text-red-300">{slaError}</p>
-          </div>
-        )}
-
-        <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-4 bg-gray-50 px-6 py-4 text-sm font-medium text-gray-600 dark:bg-slate-800/80 dark:text-slate-300">
-          <span>Priority</span>
-          <span>SLA Target (hours)</span>
-          <span>Warning Window (hours)</span>
-        </div>
-
-        {slaLoading ? (
-          <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">
-            Loading SLA settings...
-          </div>
-        ) : (
-          slaConfigurations.map((configuration) => (
-            <div
-              key={configuration.priority}
-              className="grid grid-cols-[1.2fr_1fr_1fr] items-center gap-4 border-t border-gray-100 px-6 py-4 dark:border-slate-800"
-            >
-              <div>
-                <p className="font-medium text-gray-900 dark:text-slate-100">
-                  {configuration.priority}
-                </p>
-                <p className="text-sm text-gray-500 dark:text-slate-400">
-                  Tickets turn yellow when they enter this warning window.
-                </p>
-              </div>
-
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={configuration.targetHours}
-                onChange={(event) =>
-                  onSlaChange(
-                    configuration.priority,
-                    "targetHours",
-                    Number(event.target.value),
-                  )
-                }
-                className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              />
-
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={configuration.warningHours}
-                onChange={(event) =>
-                  onSlaChange(
-                    configuration.priority,
-                    "warningHours",
-                    Number(event.target.value),
-                  )
-                }
-                className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </div>
-          ))
-        )}
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Configuration</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+          Manage admin settings with section-based navigation.
+        </p>
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-                Session Security
-              </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Require users to re-authenticate after a period of inactivity.
-              </p>
-            </div>
+        <div className="grid gap-0 lg:grid-cols-[280px_1fr]">
+          <aside className="border-b border-gray-100 p-4 dark:border-slate-800 lg:border-b-0 lg:border-r">
+            <nav className="space-y-2">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveSection(item.id)}
+                  className={`w-full rounded-md border px-3 py-3 text-left transition-colors ${
+                    activeSection === item.id
+                      ? "border-cortex-blue bg-cortex-blue-soft text-cortex-ink dark:border-cortex-blue dark:bg-cortex-blue/20 dark:text-slate-100"
+                      : "border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  <p className="text-sm font-semibold">{item.label}</p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">{item.description}</p>
+                </button>
+              ))}
+            </nav>
+          </aside>
 
-            <div className="flex gap-3">
-              <button
-                onClick={onRefreshSession}
-                className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={onSaveSession}
-                disabled={sessionSaving || sessionLoading || !sessionConfiguration}
-                className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
-              >
-                {sessionSaving ? "Saving..." : "Save Session Policy"}
-              </button>
-            </div>
+          <div className="p-4 md:p-6">
+            {activeSection === "general" && (
+              <div className="space-y-6">
+                <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                  <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">SLA Configuration</h3>
+                        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">Set the SLA target and warning window for each ticket priority.</p>
+                      </div>
+                      <div className="flex gap-3">
+                        <button onClick={onRefreshSla} className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">Refresh</button>
+                        <button onClick={onSaveSla} disabled={slaSaving || slaLoading} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">{slaSaving ? "Saving..." : "Save SLA"}</button>
+                      </div>
+                    </div>
+                  </div>
+                  {slaError && <div className="border-b border-red-200 bg-red-50 px-6 py-4 dark:border-red-900/40 dark:bg-red-950/40"><p className="text-red-700 dark:text-red-300">{slaError}</p></div>}
+                  <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-4 bg-gray-50 px-6 py-4 text-sm font-medium text-gray-600 dark:bg-slate-800/80 dark:text-slate-300"><span>Priority</span><span>SLA Target (hours)</span><span>Warning Window (hours)</span></div>
+                  {slaLoading ? <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">Loading SLA settings...</div> : slaConfigurations.map((configuration) => (
+                    <div key={configuration.priority} className="grid grid-cols-[1.2fr_1fr_1fr] items-center gap-4 border-t border-gray-100 px-6 py-4 dark:border-slate-800">
+                      <div><p className="font-medium text-gray-900 dark:text-slate-100">{configuration.priority}</p></div>
+                      <input type="number" min={1} step={1} value={configuration.targetHours} onChange={(event) => onSlaChange(configuration.priority, "targetHours", Number(event.target.value))} className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+                      <input type="number" min={0} step={1} value={configuration.warningHours} onChange={(event) => onSlaChange(configuration.priority, "warningHours", Number(event.target.value))} className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+                    </div>
+                  ))}
+                </section>
+
+                <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                  <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Session Security</h3>
+                        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">Require users to re-authenticate after inactivity.</p>
+                      </div>
+                      <div className="flex gap-3">
+                        <button onClick={onRefreshSession} className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">Refresh</button>
+                        <button onClick={onSaveSession} disabled={sessionSaving || sessionLoading || !sessionConfiguration} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">{sessionSaving ? "Saving..." : "Save Session Policy"}</button>
+                      </div>
+                    </div>
+                  </div>
+                  {sessionError && <div className="border-b border-red-200 bg-red-50 px-6 py-4 dark:border-red-900/40 dark:bg-red-950/40"><p className="text-red-700 dark:text-red-300">{sessionError}</p></div>}
+                  {sessionLoading || !sessionConfiguration ? <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">Loading session policy...</div> : (
+                    <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.2fr_1fr]">
+                      <div className="space-y-5">
+                        <div><label className="block text-sm font-medium text-gray-700 dark:text-slate-300">Inactivity timeout (minutes)</label><input type="number" min={1} step={1} value={sessionConfiguration.inactivityTimeoutMinutes} onChange={(event) => onSessionChange("inactivityTimeoutMinutes", Number(event.target.value))} className="mt-3 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 dark:text-slate-300">Warning window (minutes)</label><input type="number" min={0} step={1} value={sessionConfiguration.warningMinutes} onChange={(event) => onSessionChange("warningMinutes", Number(event.target.value))} className="mt-3 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" /></div>
+                      </div>
+                    </div>
+                  )}
+                </section>
+
+                <ArchivePolicySection
+                  policies={archiveConfigurations}
+                  selectedPolicy={archiveConfiguration}
+                  availableStatuses={ticketStatuses}
+                  loading={archiveLoading}
+                  saving={archiveSaving}
+                  deletingId={archiveDeletingId}
+                  running={archiveRunning}
+                  error={archiveError}
+                  onRefresh={onRefreshArchive}
+                  onNew={onCreateArchivePolicy}
+                  onSelect={onSelectArchivePolicy}
+                  onChange={onArchiveChange}
+                  onSave={onSaveArchive}
+                  onDelete={onDeleteArchive}
+                  onRunNow={onRunArchiveNow}
+                />
+              </div>
+            )}
+
+            {activeSection === "boards" && (
+              <div className="space-y-6">
+                <TicketBoardRegistrySection
+                  boards={ticketBoards}
+                  loading={ticketBoardLoading}
+                  error={ticketBoardError}
+                  saving={ticketBoardSaving}
+                  deletingId={ticketBoardDeletingId}
+                  onRefresh={onRefreshTicketBoards}
+                  onCreate={onCreateTicketBoard}
+                  onUpdate={onUpdateTicketBoard}
+                  onDelete={onDeleteTicketBoard}
+                />
+                <TicketStatusRegistrySection
+                  statuses={ticketStatuses}
+                  loading={ticketStatusLoading}
+                  error={ticketStatusError}
+                  saving={ticketStatusSaving}
+                  deletingId={ticketStatusDeletingId}
+                  onRefresh={onRefreshTicketStatuses}
+                  onCreate={onCreateTicketStatus}
+                  onUpdate={onUpdateTicketStatus}
+                  onDelete={onDeleteTicketStatus}
+                />
+                <TicketRoutingSection
+                  rules={ticketRoutingRules}
+                  selectedRule={selectedTicketRoutingRule}
+                  loading={ticketRoutingLoading}
+                  saving={ticketRoutingSaving}
+                  deletingId={ticketRoutingDeletingId}
+                  error={ticketRoutingError}
+                  onRefresh={onRefreshTicketRouting}
+                  onNew={onCreateTicketRoutingRule}
+                  onSelect={onSelectTicketRoutingRule}
+                  onChange={onTicketRoutingChange}
+                  onSave={() => void onSaveTicketRoutingRule()}
+                  onDelete={() => void onDeleteTicketRoutingRule()}
+                />
+              </div>
+            )}
+
+            {activeSection === "roles" && (
+              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Roles & Permissions</h3>
+                <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">Manage admin and developer user access from the Users workspace.</p>
+                <div className="mt-4">
+                  <button onClick={onOpenUsers} disabled={!canViewUsers} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">Open Users Management</button>
+                </div>
+              </section>
+            )}
+
+            {activeSection === "notifications" && (
+              <NotificationChannelSection
+                configuration={notificationChannelConfiguration}
+                loading={notificationChannelLoading}
+                saving={notificationChannelSaving}
+                error={notificationChannelError}
+                onChange={onNotificationChannelChange}
+                onRefresh={onRefreshNotificationChannels}
+                onSave={onSaveNotificationChannels}
+              />
+            )}
+
+            {activeSection === "jobs" && (
+              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Scheduled Jobs</h3>
+                <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">Create and manage operational jobs from the Jobs workspace.</p>
+                <div className="mt-4">
+                  <button onClick={onOpenJobs} disabled={!canManageJobs} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">Open Scheduled Jobs</button>
+                </div>
+              </section>
+            )}
+
+            {activeSection === "reports" && (
+              <div className="space-y-6">
+                <CustomReportRegistrySection
+                  reports={customReports}
+                  databaseViews={databaseViews}
+                  databaseViewsLoading={databaseViewsLoading}
+                  loading={customReportLoading}
+                  error={customReportError}
+                  saving={customReportSaving}
+                  deletingId={customReportDeletingId}
+                  onRefresh={onRefreshCustomReports}
+                  onCreate={onCreateCustomReport}
+                  onUpdate={onUpdateCustomReport}
+                  onDelete={onDeleteCustomReport}
+                />
+                <StoredProcedureRegistrySection
+                  storedProcedures={storedProcedures}
+                  databaseStoredProcedures={databaseStoredProcedures}
+                  databaseStoredProceduresLoading={databaseStoredProceduresLoading}
+                  loading={storedProcedureLoading}
+                  error={storedProcedureError}
+                  saving={storedProcedureSaving}
+                  deletingId={storedProcedureDeletingId}
+                  onRefresh={onRefreshStoredProcedures}
+                  onCreate={onCreateStoredProcedure}
+                  onUpdate={onUpdateStoredProcedure}
+                  onDelete={onDeleteStoredProcedure}
+                />
+              </div>
+            )}
+
+            {activeSection === "logs" && (
+              <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Admin Log Export</h3>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">Export request logs as CSV for a selected UTC date range.</p>
+                </div>
+                <div className="space-y-4 px-6 py-6">
+                  {!canExportAdminLogs ? (
+                    <p className="text-sm text-gray-500 dark:text-slate-400">You do not have permission to export admin logs.</p>
+                  ) : (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div><label className="block text-sm font-medium text-gray-700 dark:text-slate-300">From (UTC date)</label><input type="date" value={logExportFromDate} onChange={(event) => setLogExportFromDate(event.target.value)} className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" /></div>
+                        <div><label className="block text-sm font-medium text-gray-700 dark:text-slate-300">To (UTC date)</label><input type="date" value={logExportToDate} onChange={(event) => setLogExportToDate(event.target.value)} className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" /></div>
+                      </div>
+                      <button onClick={() => void handleExportLogs()} disabled={logExporting} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">{logExporting ? "Exporting..." : "Export Logs (CSV)"}</button>
+                    </>
+                  )}
+                  {logExportError && <div className="rounded border-l-4 border-red-500 bg-red-50 px-4 py-3 dark:bg-red-950/40"><p className="text-red-700 dark:text-red-300">{logExportError}</p></div>}
+                  {logExportSuccess && <div className="rounded border-l-4 border-green-500 bg-green-50 px-4 py-3 dark:bg-green-950/40"><p className="text-green-700 dark:text-green-300">{logExportSuccess}</p></div>}
+                </div>
+              </section>
+            )}
           </div>
         </div>
-
-        {sessionError && (
-          <div className="border-b border-red-200 bg-red-50 px-6 py-4 dark:border-red-900/40 dark:bg-red-950/40">
-            <p className="text-red-700 dark:text-red-300">{sessionError}</p>
-          </div>
-        )}
-
-        {sessionLoading || !sessionConfiguration ? (
-          <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">
-            Loading session policy...
-          </div>
-        ) : (
-          <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.2fr_1fr]">
-            <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Inactivity timeout (minutes)
-                </label>
-                <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                  Users must re-authenticate after this many idle minutes.
-                </p>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={sessionConfiguration.inactivityTimeoutMinutes}
-                  onChange={(event) =>
-                    onSessionChange(
-                      "inactivityTimeoutMinutes",
-                      Number(event.target.value),
-                    )
-                  }
-                  className="mt-3 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Warning window (minutes)
-                </label>
-                <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                  Show a countdown prompt before the session locks.
-                </p>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={sessionConfiguration.warningMinutes}
-                  onChange={(event) =>
-                    onSessionChange("warningMinutes", Number(event.target.value))
-                  }
-                  className="mt-3 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                />
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-slate-700 dark:bg-slate-950/40">
-              <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
-                Current Policy
-              </h4>
-              <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-                Users can stay idle for{" "}
-                <span className="font-medium text-gray-900 dark:text-slate-100">
-                  {sessionConfiguration.inactivityTimeoutMinutes} minute
-                  {sessionConfiguration.inactivityTimeoutMinutes === 1 ? "" : "s"}
-                </span>{" "}
-                before the app requires Auth0 sign-in again.
-              </p>
-              <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-                A warning appears{" "}
-                <span className="font-medium text-gray-900 dark:text-slate-100">
-                  {sessionConfiguration.warningMinutes} minute
-                  {sessionConfiguration.warningMinutes === 1 ? "" : "s"}
-                </span>{" "}
-                before lockout.
-              </p>
-            </div>
-          </div>
-        )}
       </section>
-
-      <TicketStatusRegistrySection
-        statuses={ticketStatuses}
-        loading={ticketStatusLoading}
-        error={ticketStatusError}
-        saving={ticketStatusSaving}
-        deletingId={ticketStatusDeletingId}
-        onRefresh={onRefreshTicketStatuses}
-        onCreate={onCreateTicketStatus}
-        onUpdate={onUpdateTicketStatus}
-        onDelete={onDeleteTicketStatus}
-      />
-
-      <TicketRoutingSection
-        rules={ticketRoutingRules}
-        selectedRule={selectedTicketRoutingRule}
-        loading={ticketRoutingLoading}
-        saving={ticketRoutingSaving}
-        deletingId={ticketRoutingDeletingId}
-        error={ticketRoutingError}
-        onRefresh={onRefreshTicketRouting}
-        onNew={onCreateTicketRoutingRule}
-        onSelect={onSelectTicketRoutingRule}
-        onChange={onTicketRoutingChange}
-        onSave={() => void onSaveTicketRoutingRule()}
-        onDelete={() => void onDeleteTicketRoutingRule()}
-      />
-
-      <ArchivePolicySection
-        policies={archiveConfigurations}
-        selectedPolicy={archiveConfiguration}
-        availableStatuses={ticketStatuses}
-        loading={archiveLoading}
-        saving={archiveSaving}
-        deletingId={archiveDeletingId}
-        running={archiveRunning}
-        error={archiveError}
-        onRefresh={onRefreshArchive}
-        onNew={onCreateArchivePolicy}
-        onSelect={onSelectArchivePolicy}
-        onChange={onArchiveChange}
-        onSave={onSaveArchive}
-        onDelete={onDeleteArchive}
-        onRunNow={onRunArchiveNow}
-      />
-
-      <CustomReportRegistrySection
-        reports={customReports}
-        databaseViews={databaseViews}
-        databaseViewsLoading={databaseViewsLoading}
-        loading={customReportLoading}
-        error={customReportError}
-        saving={customReportSaving}
-        deletingId={customReportDeletingId}
-        onRefresh={onRefreshCustomReports}
-        onCreate={onCreateCustomReport}
-        onUpdate={onUpdateCustomReport}
-        onDelete={onDeleteCustomReport}
-      />
-
-      <StoredProcedureRegistrySection
-        storedProcedures={storedProcedures}
-        databaseStoredProcedures={databaseStoredProcedures}
-        databaseStoredProceduresLoading={databaseStoredProceduresLoading}
-        loading={storedProcedureLoading}
-        error={storedProcedureError}
-        saving={storedProcedureSaving}
-        deletingId={storedProcedureDeletingId}
-        onRefresh={onRefreshStoredProcedures}
-        onCreate={onCreateStoredProcedure}
-        onUpdate={onUpdateStoredProcedure}
-        onDelete={onDeleteStoredProcedure}
-      />
     </div>
   );
 }

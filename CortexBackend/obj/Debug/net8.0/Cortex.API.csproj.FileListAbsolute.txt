@@ -147,3 +147,7 @@ C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\refint\Cortex
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.pdb
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.genruntimeconfig.cache
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\ref\Cortex.API.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.HealthChecks.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Extensions.Options.dll

@@ -2,6 +2,7 @@ using Cortex.API.Data;
 using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Services;
+using Cortex.API.Validation;
 using System.Text;
 
 namespace Cortex.API.Handlers;
@@ -120,9 +121,9 @@ public static class ReportDefinitionHandlers
         ISlaConfigurationService slaConfigurationService,
         IResponseMappingContextFactory mappingContextFactory)
     {
-        if (!string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase))
+        if (!QueryParameterValidation.IsAllowedExportFormat(format, out var formatError))
         {
-            return Results.BadRequest(new { message = "Only CSV export is currently supported." });
+            return Results.BadRequest(new { message = formatError });
         }
 
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();

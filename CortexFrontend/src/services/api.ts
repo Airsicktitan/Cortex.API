@@ -6,7 +6,9 @@ import type {
   AdminUpdateUserInput,
   CreateUserInput,
   OnlineUser,
+  UpdateUserAccessInput,
   UpdateUserProfileInput,
+  UserAccessUpdateResult,
   UserProfile,
   UserRecord,
 } from "../types/user";
@@ -18,13 +20,23 @@ const authHeaders = (token: string, includeJson = false): HeadersInit => ({
   Authorization: `Bearer ${token}`,
 });
 
+/** User-visible copy only — use with `ensureSuccess` / `getUserFacingErrorMessage`. */
+export const API_USER_MESSAGES = {
+  generic: "Something went wrong. Please try again.",
+  loadTickets: "Unable to load tickets",
+  saveChanges: "Failed to save changes",
+} as const;
+
 export class ApiError extends Error {
   status: number;
+  /** Parsed server body for diagnostics; never display to end users. */
+  rawMessage?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, rawMessage?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.rawMessage = rawMessage;
   }
 }
 
@@ -54,11 +66,60 @@ async function readErrorMessage(response: Response, fallbackMessage: string) {
   return fallbackMessage;
 }
 
-async function ensureSuccess(response: Response, fallbackMessage: string) {
-  if (response.ok) return;
+/** Always throws with a caller-supplied, user-safe `userMessage`. Raw bodies are kept on `rawMessage` for dev logging only. */
+export async function ensureSuccess(
+  response: Response,
+  userMessage: string,
+): Promise<void> {
+  if (response.ok) {
+    return;
+  }
 
-  const message = await readErrorMessage(response, fallbackMessage);
-  throw new ApiError(message, response.status);
+  const parsed = await readErrorMessage(response, userMessage);
+  const rawMessage =
+    parsed !== userMessage && parsed.trim() ? parsed : undefined;
+
+  if (import.meta.env.DEV && rawMessage) {
+    console.warn("[API error]", response.status, userMessage, rawMessage);
+  }
+
+  throw new ApiError(userMessage, response.status, rawMessage);
+}
+
+export function isLikelyNetworkError(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return false;
+  }
+
+  if (error instanceof TypeError) {
+    return true;
+  }
+
+  if (error instanceof Error) {
+    const normalizedMessage = error.message.toLowerCase();
+    return (
+      normalizedMessage.includes("failed to fetch") ||
+      normalizedMessage.includes("networkerror") ||
+      normalizedMessage.includes("load failed")
+    );
+  }
+
+  return false;
+}
+
+export function getUserFacingErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+
+  if (isLikelyNetworkError(error)) {
+    return "Unable to connect. Please try again.";
+  }
+
+  return fallback;
 }
 
 export const ticketService = {
@@ -78,7 +139,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch tickets");
+    await ensureSuccess(response, API_USER_MESSAGES.loadTickets);
     return response.json();
   },
 
@@ -98,7 +159,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch tickets");
+    await ensureSuccess(response, API_USER_MESSAGES.loadTickets);
     return response.json();
   },
 
@@ -111,7 +172,7 @@ export const ticketService = {
       },
     );
 
-    await ensureSuccess(response, "Failed to fetch tickets");
+    await ensureSuccess(response, API_USER_MESSAGES.loadTickets);
     return response.json();
   },
 
@@ -138,13 +199,17 @@ export const ticketService = {
     ticket: CreateTicketInput,
     token: string,
   ): Promise<Ticket> {
+    const { status: _ignoredStatus, ...createPayload } = ticket as CreateTicketInput & {
+      status?: string;
+    };
+
     const response = await fetch(`${API_BASE_URL}/tickets`, {
       method: "POST",
       headers: authHeaders(token, true),
-      body: JSON.stringify(ticket),
+      body: JSON.stringify(createPayload),
     });
 
-    await ensureSuccess(response, "Failed to create ticket");
+    await ensureSuccess(response, API_USER_MESSAGES.saveChanges);
     return response.json();
   },
 
@@ -160,7 +225,7 @@ export const ticketService = {
       body: JSON.stringify(ticket),
     });
 
-    await ensureSuccess(response, "Failed to update ticket");
+    await ensureSuccess(response, API_USER_MESSAGES.saveChanges);
     return response.json();
   },
 
@@ -320,6 +385,21 @@ export const userService = {
     });
 
     await ensureSuccess(response, "Failed to update user");
+    return response.json();
+  },
+
+  async updateUserAccess(
+    id: number,
+    access: UpdateUserAccessInput,
+    token: string,
+  ): Promise<UserAccessUpdateResult> {
+    const response = await fetch(`${API_BASE_URL}/users/${id}/access`, {
+      method: "PUT",
+      headers: authHeaders(token, true),
+      body: JSON.stringify(access),
+    });
+
+    await ensureSuccess(response, "Failed to update user access");
     return response.json();
   },
 

@@ -41,6 +41,8 @@ export interface TicketMutationInput {
   changeReason?: string;
 }
 
-export interface CreateTicketInput extends TicketMutationInput {
+export interface CreateTicketInput extends Omit<TicketMutationInput, "status"> {
   title: string;
+  description: string;
+  priority: string;
 }

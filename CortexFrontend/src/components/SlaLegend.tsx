@@ -1,18 +1,23 @@
 const legendItems = [
   {
-    label: "In SLA",
-    description: "More than the warning window remains.",
+    label: "On Track",
+    description: "Comfortably inside the SLA window.",
     colorClass: "bg-green-500",
   },
   {
-    label: "Approaching SLA",
-    description: "Inside the warning window before breach.",
+    label: "At Risk",
+    description: "Inside the warning window before the deadline.",
     colorClass: "bg-yellow-400",
   },
   {
-    label: "Outside SLA",
-    description: "Past the configured SLA deadline.",
+    label: "Overdue",
+    description: "Past the SLA deadline while still open.",
     colorClass: "bg-red-500",
+  },
+  {
+    label: "Resolved",
+    description: "Closed tickets show Resolved On Time or Resolved Late on the badge.",
+    colorClass: "bg-emerald-600",
   },
 ];
 
@@ -47,7 +52,8 @@ export default function SlaLegend({ compact = false }: SlaLegendProps) {
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">SLA Legend</h3>
           <p className="text-sm text-gray-500 dark:text-slate-400">
-            Ticket card borders reflect the current SLA state.
+            Ticket card borders and badges reflect SLA state (On Track, At Risk, Overdue, or
+            resolved outcomes).
           </p>
         </div>
 

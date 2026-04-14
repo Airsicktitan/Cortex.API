@@ -1,0 +1,5 @@
+root = true
+
+[*.cs]
+# EF Core: flag interpolated SQL passed to DatabaseFacade methods (review for injection; prefer EfSqlGuardrails or parameters).
+dotnet_diagnostic.EF1002.severity = warning

@@ -9,6 +9,13 @@ interface AdminUserEditModalProps {
   onChange: (field: keyof AdminUpdateUserInput, value: string | boolean) => void;
   onClose: () => void;
   onSave: () => void;
+  canManageAccess: boolean;
+  accessRole: string;
+  accessPermissions: string[];
+  accessFeedback: string | null;
+  accessError: string | null;
+  onAccessRoleChange: (role: string) => void;
+  onTogglePermission: (permission: string) => void;
 }
 
 const ROLE_OPTIONS = ["Guest", "User", "Manager", "Admin"] as const;
@@ -18,6 +25,19 @@ const NOTIFICATION_CHANNEL_OPTIONS = [
   { value: "Email", label: "Email" },
   { value: "Teams", label: "Teams" },
   { value: "Both", label: "Both" },
+] as const;
+const SUPPORTED_PERMISSION_OPTIONS = [
+  "admin:system",
+  "developer",
+  "business:user",
+  "tickets:read",
+  "tickets:create",
+  "tickets:update",
+  "tickets:delete",
+  "comments:read",
+  "comments:create",
+  "users:read",
+  "users:update",
 ] as const;
 
 function toDateInputValue(value?: string | null) {
@@ -42,6 +62,13 @@ export default function AdminUserEditModal({
   onChange,
   onClose,
   onSave,
+  canManageAccess,
+  accessRole,
+  accessPermissions,
+  accessFeedback,
+  accessError,
+  onAccessRoleChange,
+  onTogglePermission,
 }: AdminUserEditModalProps) {
   if (!isOpen || !user) return null;
 
@@ -179,8 +206,12 @@ export default function AdminUserEditModal({
                 Role
               </label>
               <select
-                value={draft.role ?? "User"}
-                onChange={(event) => onChange("role", event.target.value)}
+                value={canManageAccess ? accessRole : (draft.role ?? "User")}
+                onChange={(event) =>
+                  canManageAccess
+                    ? onAccessRoleChange(event.target.value)
+                    : onChange("role", event.target.value)
+                }
                 className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               >
                 {ROLE_OPTIONS.map((role) => (
@@ -226,6 +257,46 @@ export default function AdminUserEditModal({
               </label>
             </div>
           </div>
+
+          {canManageAccess && (
+            <section className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950/40">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">
+                Access Permissions
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                Select only supported Cortex permissions for this user.
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+                {SUPPORTED_PERMISSION_OPTIONS.map((permission) => {
+                  const checked = accessPermissions.includes(permission);
+                  return (
+                    <label
+                      key={permission}
+                      className="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => onTogglePermission(permission)}
+                        className="h-4 w-4 rounded border-gray-300 text-cortex-blue focus:ring-cortex-blue"
+                      />
+                      <span className="font-mono text-xs">{permission}</span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {accessError && (
+                <p className="mt-3 text-sm text-red-700 dark:text-red-300">{accessError}</p>
+              )}
+              {accessFeedback && (
+                <p className="mt-3 text-sm text-green-700 dark:text-green-300">
+                  {accessFeedback}
+                </p>
+              )}
+            </section>
+          )}
 
           <div className="mt-6 flex justify-end gap-3">
             <button

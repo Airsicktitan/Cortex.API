@@ -11,6 +11,7 @@
           "Microsoft.AspNetCore.Authentication.JwtBearer": "8.0.0",
           "Microsoft.EntityFrameworkCore.Design": "8.0.1",
           "Microsoft.EntityFrameworkCore.SqlServer": "8.0.1",
+          "Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore": "8.0.1",
           "Newtonsoft.Json": "13.0.3",
           "Swashbuckle.AspNetCore": "6.5.0"
         },
@@ -400,6 +401,47 @@
           "lib/net8.0/Microsoft.Extensions.DependencyModel.dll": {
             "assemblyVersion": "8.0.0.0",
             "fileVersion": "8.0.23.53103"
+          }
+        }
+      },
+      "Microsoft.Extensions.Diagnostics.HealthChecks/8.0.1": {
+        "dependencies": {
+          "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions": "8.0.1",
+          "Microsoft.Extensions.Options": "8.0.1"
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Diagnostics.HealthChecks.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.123.58008"
+          }
+        }
+      },
+      "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions/8.0.1": {
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.123.58008"
+          }
+        }
+      },
+      "Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore/8.0.1": {
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore.Relational": "8.0.1",
+          "Microsoft.Extensions.Diagnostics.HealthChecks": "8.0.1",
+          "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions": "8.0.1"
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore.dll": {
+            "assemblyVersion": "8.0.1.0",
+            "fileVersion": "8.0.123.58008"
+          }
+        }
+      },
+      "Microsoft.Extensions.Options/8.0.1": {
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Options.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.123.58001"
           }
         }
       },
@@ -895,6 +937,34 @@
       "sha512": "sha512-NSmDw3K0ozNDgShSIpsZcbFIzBX4w28nDag+TfaQujkXGazBm+lid5onlWoCBy4VsLxqnnKjEBbGSJVWJMf43g==",
       "path": "microsoft.extensions.dependencymodel/8.0.0",
       "hashPath": "microsoft.extensions.dependencymodel.8.0.0.nupkg.sha512"
+    },
+    "Microsoft.Extensions.Diagnostics.HealthChecks/8.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-ll/mAgAZ1yEaVfJkr5Q/gQYbYn1uokXIqHPmOl3iAfpeOqkw9EugPi81+5PYgPfj5sjkPsuH3AwovfsaEl5Wug==",
+      "path": "microsoft.extensions.diagnostics.healthchecks/8.0.1",
+      "hashPath": "microsoft.extensions.diagnostics.healthchecks.8.0.1.nupkg.sha512"
+    },
+    "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions/8.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-N02LRzHTOTz3K8kjWTYizY2P3GaBy9q9cUIhHuyyfanG6wxHdfMbK8xsCaNmkz0Qkg93xpe1cUPrY8ZFF3p35g==",
+      "path": "microsoft.extensions.diagnostics.healthchecks.abstractions/8.0.1",
+      "hashPath": "microsoft.extensions.diagnostics.healthchecks.abstractions.8.0.1.nupkg.sha512"
+    },
+    "Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore/8.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-WuykvG+U1cCyucpENGEcGe10By3V1zGzjjMrKbZ3dxR78LnZydNhwgtqLo7ladETfSk6y/XnqeBr52sQpjbbjg==",
+      "path": "microsoft.extensions.diagnostics.healthchecks.entityframeworkcore/8.0.1",
+      "hashPath": "microsoft.extensions.diagnostics.healthchecks.entityframeworkcore.8.0.1.nupkg.sha512"
+    },
+    "Microsoft.Extensions.Options/8.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-wmpp+BSU3oGifaev6Z9rrlwHoITLFfpVOSbgBrOXjkbJSCXnZVCsoRGE5c3fJFI4VlNgnNkNlI9y+5jC4fmOEA==",
+      "path": "microsoft.extensions.options/8.0.1",
+      "hashPath": "microsoft.extensions.options.8.0.1.nupkg.sha512"
     },
     "Microsoft.Identity.Client/4.47.2": {
       "type": "package",

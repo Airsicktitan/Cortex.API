@@ -6,14 +6,18 @@ namespace Cortex.API.Data.Repositories;
 
 public class NotificationRepository(CortexDbContext context) : INotificationRepository
 {
+    private const int MaxRecentNotificationsTake = 100;
+
     private readonly CortexDbContext _context = context;
 
     public async Task<IReadOnlyList<UserNotification>> GetRecentByUserIdAsync(int userId, int take)
     {
+        var safeTake = Math.Clamp(take, 1, MaxRecentNotificationsTake);
+
         return await _context.UserNotifications
             .Where(notification => notification.UserId == userId)
             .OrderByDescending(notification => notification.CreatedDateUtc)
-            .Take(take)
+            .Take(safeTake)
             .ToListAsync();
     }
 

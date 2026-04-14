@@ -344,6 +344,11 @@ public partial class ReportDefinitionService(
             throw new ArgumentException("Custom report views must use a single SQL statement without semicolons.");
         }
 
+        if (normalized.Contains("--", StringComparison.Ordinal) || normalized.Contains("/*", StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Custom report views do not support SQL comments.");
+        }
+
         if (BlockedKeywordPattern().IsMatch(normalized))
         {
             throw new ArgumentException("Custom reports only support read-only SQL.");

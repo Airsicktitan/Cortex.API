@@ -1,52 +1,131 @@
 import type { Ticket } from "../types/ticket";
 
-const slaAccentClasses: Record<string, string> = {
+/** User-facing SLA state (derived from API fields + dates; API contract unchanged). */
+export type SlaDisplayLabel =
+  | "On Track"
+  | "At Risk"
+  | "Overdue"
+  | "Resolved On Time"
+  | "Resolved Late";
+
+const SLA_DISPLAY_LABELS = new Set<SlaDisplayLabel>([
+  "On Track",
+  "At Risk",
+  "Overdue",
+  "Resolved On Time",
+  "Resolved Late",
+]);
+
+type SlaLabelInput = Pick<
+  Ticket,
+  "slaStatus" | "slaTargetDate" | "slaCompletedDate" | "slaRemainingMinutes" | "isSlaBreached"
+>;
+
+const slaAccentClasses: Record<SlaDisplayLabel, string> = {
   "On Track": "border-l-green-500",
   "At Risk": "border-l-yellow-400",
-  Breached: "border-l-red-500",
-  Met: "border-l-green-500",
-  "Resolved Late": "border-l-red-500",
+  Overdue: "border-l-red-500",
+  "Resolved On Time": "border-l-emerald-500",
+  "Resolved Late": "border-l-rose-600",
 };
 
-const slaBadgeClasses: Record<string, string> = {
-  "On Track": "bg-green-100 text-green-800",
-  "At Risk": "bg-yellow-100 text-yellow-800",
-  Breached: "bg-red-100 text-red-800",
-  Met: "bg-emerald-100 text-emerald-800",
-  "Resolved Late": "bg-rose-100 text-rose-800",
+const slaBadgeClasses: Record<SlaDisplayLabel, string> = {
+  "On Track": "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
+  "At Risk": "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200",
+  Overdue: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+  "Resolved On Time":
+    "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+  "Resolved Late": "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200",
 };
 
-export function getSlaAccentClass(status: string) {
-  return slaAccentClasses[status] ?? "border-l-gray-300";
-}
-
-export function getSlaBadgeClass(status: string) {
-  return slaBadgeClasses[status] ?? "bg-gray-100 text-gray-700";
-}
-
-export function formatSlaSummary(ticket: Pick<Ticket, "slaRemainingMinutes" | "slaStatus">) {
-  const duration = formatDuration(ticket.slaRemainingMinutes);
-
-  switch (ticket.slaStatus) {
+/** Map API `slaStatus` bucket (report rows) to the label shown in the UI. */
+export function mapBackendSlaStatusToDisplayLabel(raw: string): SlaDisplayLabel {
+  const status = raw.trim();
+  switch (status) {
     case "Met":
-      return `Resolved ${duration} early`;
-    case "Resolved Late":
-      return `Resolved ${duration} late`;
+      return "Resolved On Time";
     case "Breached":
-      return `${duration} overdue`;
+      return "Overdue";
+    case "On Track":
     case "At Risk":
-      return `${duration} remaining`;
+    case "Resolved Late":
+      return status;
     default:
-      return `${duration} remaining`;
+      return "On Track";
   }
 }
 
-export function buildSlaTooltip(ticket: Pick<
-  Ticket,
-  "slaStatus" | "slaTargetDate" | "slaCompletedDate" | "slaRemainingMinutes"
->) {
+/**
+ * Derives a clear SLA label from `slaStatus`, breach flag, and due/completed timestamps.
+ * Backend still sends the original `slaStatus` string; this is display-only.
+ */
+export function getSlaDisplayLabel(ticket: SlaLabelInput): SlaDisplayLabel {
+  const raw = ticket.slaStatus?.trim() ?? "";
+  const targetMs = new Date(ticket.slaTargetDate).getTime();
+  const completedMs = ticket.slaCompletedDate
+    ? new Date(ticket.slaCompletedDate).getTime()
+    : null;
+
+  if (completedMs !== null && !Number.isNaN(completedMs) && !Number.isNaN(targetMs)) {
+    if (raw === "Met") return "Resolved On Time";
+    if (raw === "Resolved Late") return "Resolved Late";
+    if (raw === "Breached") return "Resolved Late";
+    return completedMs <= targetMs ? "Resolved On Time" : "Resolved Late";
+  }
+
+  if (raw === "Breached" || ticket.isSlaBreached === true) return "Overdue";
+  if (raw === "At Risk") return "At Risk";
+  if (raw === "On Track") return "On Track";
+
+  if (!Number.isNaN(targetMs) && Date.now() > targetMs) return "Overdue";
+
+  return "On Track";
+}
+
+function normalizeSlaStyleKey(statusOrLabel: string): SlaDisplayLabel {
+  const trimmed = statusOrLabel.trim();
+  if (SLA_DISPLAY_LABELS.has(trimmed as SlaDisplayLabel)) {
+    return trimmed as SlaDisplayLabel;
+  }
+  return mapBackendSlaStatusToDisplayLabel(trimmed);
+}
+
+export function getSlaAccentClass(statusOrLabel: string) {
+  return slaAccentClasses[normalizeSlaStyleKey(statusOrLabel)] ?? "border-l-gray-300";
+}
+
+export function getSlaBadgeClass(statusOrLabel: string) {
+  return (
+    slaBadgeClasses[normalizeSlaStyleKey(statusOrLabel)] ?? "bg-gray-100 text-gray-700"
+  );
+}
+
+export function formatSlaSummary(ticket: SlaLabelInput) {
+  const label = getSlaDisplayLabel(ticket);
+  const minutes = ticket.slaRemainingMinutes;
+  const duration = formatDuration(minutes);
+
+  switch (label) {
+    case "Resolved On Time":
+      return minutes > 0
+        ? `Resolved on time · ${duration} before deadline`
+        : "Resolved on time · met SLA deadline";
+    case "Resolved Late":
+      return `Resolved late · ${duration} after deadline`;
+    case "Overdue":
+      return `Overdue · ${duration} past deadline`;
+    case "At Risk":
+      return `At risk · ${duration} until deadline`;
+    case "On Track":
+    default:
+      return `On track · ${duration} until deadline`;
+  }
+}
+
+export function buildSlaTooltip(ticket: SlaLabelInput) {
+  const display = getSlaDisplayLabel(ticket);
   const lines = [
-    `SLA status: ${ticket.slaStatus}`,
+    `SLA: ${display}`,
     `Target: ${formatDateTime(ticket.slaTargetDate)}`,
     `Timing: ${formatSlaSummary(ticket)}`,
   ];

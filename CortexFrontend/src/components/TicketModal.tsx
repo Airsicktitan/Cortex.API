@@ -14,7 +14,7 @@ import type { RealtimeEvent } from "../types/realtime";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { TicketStatusDefinition } from "../types/ticketStatus";
 import { commentService } from "../services/commentService";
-import { attachmentService } from "../services/api";
+import { attachmentService, getUserFacingErrorMessage } from "../services/api";
 import type { Comment } from "../types/comment";
 import CommentList from "./CommentList";
 import AddComment from "./AddComment";
@@ -24,6 +24,7 @@ import {
   buildSlaTooltip,
   formatSlaSummary,
   getSlaBadgeClass,
+  getSlaDisplayLabel,
 } from "../utils/ticketSla";
 import toast from "react-hot-toast";
 
@@ -33,6 +34,8 @@ const DEVELOPER_PERMISSION = "developer";
 const TICKETS_CREATE_PERMISSION = "tickets:create";
 const TICKETS_UPDATE_PERMISSION = "tickets:update";
 const TICKETS_DELETE_PERMISSION = "tickets:delete";
+const MAX_TITLE_LENGTH = 200;
+const MAX_DESCRIPTION_LENGTH = 4000;
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const payload = token.split(".")[1];
@@ -102,6 +105,9 @@ interface TicketModalProps {
   createdByDisplayName: string;
 }
 
+type CreateFormField = "title" | "description" | "priority" | "storyPoints";
+type CreateFormErrors = Partial<Record<CreateFormField, string>>;
+
 export default function TicketModal({
   ticket,
   latestRealtimeEvent,
@@ -120,7 +126,7 @@ export default function TicketModal({
     ticketBoards.find((board) => board.name === "Ticket") ??
     ticketBoards[0];
   const [priority, setPriority] = useState(ticket.priority);
-  const [status, setStatus] = useState(ticket.status);
+  const [status, setStatus] = useState(ticket.id ? ticket.status : "New");
   const [department, setDepartment] = useState(
     ticket.department || currentUser?.department || "",
   );
@@ -149,6 +155,7 @@ export default function TicketModal({
     null,
   );
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [validationErrors, setValidationErrors] = useState<CreateFormErrors>({});
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -165,6 +172,7 @@ export default function TicketModal({
   };
   const canCreateTicket =
     !ticket.id && hasPermission(TICKETS_CREATE_PERMISSION);
+  const isCreateMode = !ticket.id;
   const canUpdateTicket =
     Boolean(ticket.id) && hasPermission(TICKETS_UPDATE_PERMISSION);
   const canSaveTicket = canCreateTicket || canUpdateTicket;
@@ -181,6 +189,36 @@ export default function TicketModal({
     ticketBoards.find((board) => board.id === boardId) ?? defaultBoard;
   const selectedBoardRequiresStoryPoints =
     selectedBoard?.requiresStoryPoints ?? false;
+  const validateCreateForm = useCallback((): CreateFormErrors => {
+    const errors: CreateFormErrors = {};
+    const trimmedTitle = title.trim();
+    const trimmedDescription = description.trim();
+    const trimmedPriority = priority.trim();
+
+    if (!trimmedTitle) {
+      errors.title = "Title is required.";
+    } else if (trimmedTitle.length > MAX_TITLE_LENGTH) {
+      errors.title = `Title must be ${MAX_TITLE_LENGTH} characters or fewer.`;
+    }
+
+    if (!trimmedDescription) {
+      errors.description = "Description is required.";
+    } else if (trimmedDescription.length > MAX_DESCRIPTION_LENGTH) {
+      errors.description =
+        `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`;
+    }
+
+    if (!trimmedPriority) {
+      errors.priority = "Priority is required.";
+    }
+
+    if (selectedBoardRequiresStoryPoints && storyPoints === "") {
+      errors.storyPoints = "Story points are required for this board.";
+    }
+
+    return errors;
+  }, [description, priority, selectedBoardRequiresStoryPoints, storyPoints, title]);
+  const hasCreateValidationErrors = Object.keys(validationErrors).length > 0;
   const quickMoveBoards = useMemo(
     () =>
       ticketBoards.filter(
@@ -227,7 +265,7 @@ export default function TicketModal({
     setTitle(ticket.title || "");
     setDescription(ticket.description || "");
     setPriority(ticket.priority);
-    setStatus(ticket.status);
+    setStatus(ticket.id ? ticket.status : "New");
     setDepartment(ticket.department || currentUser?.department || "");
     setBoardId(defaultBoard?.id ?? 0);
     setStoryPoints(ticket.storyPoints ?? (defaultBoard?.requiresStoryPoints ? 1 : ""));
@@ -258,6 +296,15 @@ export default function TicketModal({
   }, [isOpen, ticket.id]);
 
   useEffect(() => {
+    if (!isCreateMode) {
+      setValidationErrors({});
+      return;
+    }
+
+    setValidationErrors(validateCreateForm());
+  }, [isCreateMode, validateCreateForm]);
+
+  useEffect(() => {
     if (!isActionMenuOpen) {
       return;
     }
@@ -273,6 +320,18 @@ export default function TicketModal({
   }, [isActionMenuOpen]);
 
   const handleSave = useCallback(async () => {
+    if (saving || archiving) {
+      return;
+    }
+
+    if (isCreateMode) {
+      const nextErrors = validateCreateForm();
+      setValidationErrors(nextErrors);
+      if (Object.keys(nextErrors).length > 0) {
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       await onSave(
@@ -280,7 +339,7 @@ export default function TicketModal({
           title,
           description,
           priority,
-          status,
+          status: ticket.id ? status : undefined,
           department: !ticket.id ? department.trim() || undefined : undefined,
           boardId,
           storyPoints:
@@ -300,6 +359,8 @@ export default function TicketModal({
       setSaving(false);
     }
   }, [
+    archiving,
+    isCreateMode,
     onSave,
     onClose,
     title,
@@ -315,6 +376,8 @@ export default function TicketModal({
     businessOwner,
     changeReason,
     queuedAttachments,
+    saving,
+    validateCreateForm,
   ]);
 
   useEffect(() => {
@@ -336,7 +399,7 @@ export default function TicketModal({
         if (active?.tagName === "TEXTAREA") return;
         if (
           saving ||
-          !title.trim() ||
+          (isCreateMode ? hasCreateValidationErrors : !title.trim()) ||
           !canSaveTicket ||
           (selectedBoardRequiresStoryPoints && storyPoints === "")
         ) {
@@ -352,7 +415,9 @@ export default function TicketModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     canSaveTicket,
+    hasCreateValidationErrors,
     handleSave,
+    isCreateMode,
     isHistoryModalOpen,
     isOpen,
     onClose,
@@ -419,7 +484,9 @@ export default function TicketModal({
       console.error("Failed to load attachments", error);
 
       if (attachmentsLoadVersion.current === myVersion) {
-        toast.error("Failed to load attachments");
+        toast.error(
+          getUserFacingErrorMessage(error, "Unable to load attachments."),
+        );
       }
     } finally {
       if (attachmentsLoadVersion.current === myVersion) {
@@ -568,7 +635,12 @@ export default function TicketModal({
       toast.success(`Moved ticket to ${targetBoard.name}`);
     } catch (error) {
       console.error("Failed to move ticket to board", error);
-      toast.error(`Failed to move ticket to ${targetBoard.name}`);
+      toast.error(
+        getUserFacingErrorMessage(
+          error,
+          `Unable to move ticket to ${targetBoard.name}.`,
+        ),
+      );
     } finally {
       setSaving(false);
     }
@@ -583,11 +655,7 @@ export default function TicketModal({
       await reloadComments();
     } catch (error) {
       console.error("Failed to add comment", error);
-      toast.error(
-        error instanceof Error && error.message.trim()
-          ? error.message
-          : "Failed to add comment",
-      );
+      toast.error(getUserFacingErrorMessage(error, "Failed to add comment"));
       throw error;
     }
   };
@@ -656,7 +724,7 @@ export default function TicketModal({
     } catch (error) {
       console.error("Failed to open attachment", error);
       previewWindow.close();
-      toast.error("Failed to open attachment");
+      toast.error(getUserFacingErrorMessage(error, "Unable to open attachment."));
     } finally {
       setAttachmentActionId(null);
     }
@@ -685,7 +753,9 @@ export default function TicketModal({
       setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
     } catch (error) {
       console.error("Failed to download attachment", error);
-      toast.error("Failed to download attachment");
+      toast.error(
+        getUserFacingErrorMessage(error, "Unable to download attachment."),
+      );
     } finally {
       setAttachmentActionId(null);
     }
@@ -705,7 +775,16 @@ export default function TicketModal({
   const hasPersistedSla = Boolean(ticket.id);
   const canManageComments = Boolean(ticket.id);
   const slaTooltip = buildSlaTooltip(ticket);
-  const slaBadgeClass = getSlaBadgeClass(ticket.slaStatus);
+  const slaDisplayLabel = getSlaDisplayLabel(ticket);
+  const slaBadgeClass = getSlaBadgeClass(slaDisplayLabel);
+  const priorityBadgeClass =
+    priority === "Critical"
+      ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+      : priority === "High"
+        ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+        : priority === "Medium"
+          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200"
+          : "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200";
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -716,23 +795,26 @@ export default function TicketModal({
       />
 
       {/* Modal */}
-      <div className="flex min-h-full items-center justify-center p-4">
+      <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-4">
         <div
-          className="relative bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 rounded-lg shadow-xl border border-gray-200 dark:border-slate-800 max-w-5xl w-full p-6"
+          className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6"
           tabIndex={-1}
         >
           <div
             className={`grid gap-6 ${
-              canManageComments ? "grid-cols-[1fr_380px]" : "grid-cols-1"
+              canManageComments ? "grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px]" : "grid-cols-1"
             }`}
           >
             {/* ================= LEFT PANEL ================= */}
-            <div className="min-w-0">
+            <div className="min-w-0 space-y-6">
               {/* Header */}
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex-1">
+              <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
+                <div className="min-w-0 flex-1">
                   <label className="block text-lg font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Enter Ticket Title
+                    {isCreateMode && (
+                      <span className="ml-1 text-red-600 dark:text-red-400">*</span>
+                    )}
                   </label>
                   <input
                     ref={titleInputRef}
@@ -742,9 +824,37 @@ export default function TicketModal({
                     placeholder="Enter ticket title..."
                     className="w-full bg-transparent text-xl font-bold text-gray-900 dark:text-slate-100 mb-1 border-b border-gray-300 dark:border-slate-700 focus:border-cortex-blue focus:outline-none"
                   />
+                  {isCreateMode && validationErrors.title && (
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                      {validationErrors.title}
+                    </p>
+                  )}
                   <p className="text-sm text-gray-500 dark:text-slate-400">
                     {ticket.id}
                   </p>
+                  {ticket.id && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-cortex-blue-soft px-3 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
+                        {status}
+                      </span>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityBadgeClass}`}
+                      >
+                        {priority}
+                      </span>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${slaBadgeClass}`}
+                        title={slaTooltip}
+                      >
+                        {slaDisplayLabel}
+                      </span>
+                    </div>
+                  )}
+                  {isCreateMode && (
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Fields marked with * are required.
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={onClose}
@@ -755,9 +865,12 @@ export default function TicketModal({
               </div>
 
               {/* Description */}
-              <div className="mb-6">
+              <div className="rounded-md border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40">
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                   Description
+                  {isCreateMode && (
+                    <span className="ml-1 text-red-600 dark:text-red-400">*</span>
+                  )}
                 </label>
                 <textarea
                   value={description}
@@ -766,10 +879,15 @@ export default function TicketModal({
                   placeholder="Enter ticket description..."
                   className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
+                {isCreateMode && validationErrors.description && (
+                  <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                    {validationErrors.description}
+                  </p>
+                )}
               </div>
 
               {!ticket.id && (
-                <div className="mb-6">
+                <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Routing Department
                   </label>
@@ -788,7 +906,7 @@ export default function TicketModal({
               )}
 
               {/* Editable Fields */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="grid grid-cols-1 gap-5 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/40 md:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Board
@@ -823,6 +941,11 @@ export default function TicketModal({
                         </option>
                       ))}
                     </select>
+                    {isCreateMode && validationErrors.storyPoints && (
+                      <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {validationErrors.storyPoints}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
@@ -834,6 +957,9 @@ export default function TicketModal({
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Priority
+                    {isCreateMode && (
+                      <span className="ml-1 text-red-600 dark:text-red-400">*</span>
+                    )}
                   </label>
                   <select
                     value={priority}
@@ -845,6 +971,11 @@ export default function TicketModal({
                     <option value="Medium">Medium</option>
                     <option value="Low">Low</option>
                   </select>
+                  {isCreateMode && validationErrors.priority && (
+                    <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                      {validationErrors.priority}
+                    </p>
+                  )}
                 </div>
 
                 {/* Status */}
@@ -852,21 +983,35 @@ export default function TicketModal({
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Status
                   </label>
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                  >
-                    {availableStatusOptions.map((statusDefinition) => (
-                      <option
-                        key={`${statusDefinition.id}-${statusDefinition.name}`}
-                        value={statusDefinition.name}
-                      >
-                        {statusDefinition.name}
-                        {statusDefinition.isEnabled ? "" : " (Disabled)"}
-                      </option>
-                    ))}
-                  </select>
+                  {isCreateMode ? (
+                    <input
+                      type="text"
+                      value="New"
+                      readOnly
+                      className="w-full rounded-md border-gray-300 bg-gray-100 text-gray-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    />
+                  ) : (
+                    <select
+                      value={status}
+                      onChange={(e) => setStatus(e.target.value)}
+                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    >
+                      {availableStatusOptions.map((statusDefinition) => (
+                        <option
+                          key={`${statusDefinition.id}-${statusDefinition.name}`}
+                          value={statusDefinition.name}
+                        >
+                          {statusDefinition.name}
+                          {statusDefinition.isEnabled ? "" : " (Disabled)"}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {isCreateMode && (
+                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                      Status defaults to New when creating a ticket.
+                    </p>
+                  )}
                 </div>
 
                 {/* Syniti Owner */}
@@ -922,7 +1067,7 @@ export default function TicketModal({
                 </div>
               )}
 
-              <div className="mb-6 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/60">
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/60">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
@@ -1066,60 +1211,109 @@ export default function TicketModal({
               </div>
 
               {/* Metadata */}
-              <div className="bg-gray-50 dark:bg-slate-800/70 p-4 rounded-md mb-6">
-                <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/70">
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-gray-800 dark:text-slate-200">
+                    Ticket Details
+                  </h4>
+                </div>
+                <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
                   <div>
-                    <span className="font-medium">Created By:</span>{" "}
-                    {createdByName}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                      Created By
+                    </p>
+                    <p className="mt-1 text-gray-800 dark:text-slate-200">{createdByName}</p>
                   </div>
                   <div>
-                    <span className="font-medium">Created Date:</span>{" "}
-                    {new Date(ticket.createdDate).toLocaleDateString()}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                      Created Date
+                    </p>
+                    <p className="mt-1 text-gray-800 dark:text-slate-200">
+                      {new Date(ticket.createdDate).toLocaleDateString()}
+                    </p>
                   </div>
                   <div>
-                    <span className="font-medium">Board:</span>{" "}
-                    {selectedBoard?.name ?? ticket.boardName ?? "Ticket"}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                      Board
+                    </p>
+                    <p className="mt-1 text-gray-800 dark:text-slate-200">
+                      {selectedBoard?.name ?? ticket.boardName ?? "Ticket"}
+                    </p>
                   </div>
                   {selectedBoardRequiresStoryPoints && (
                     <div>
-                      <span className="font-medium">Story Points:</span>{" "}
-                      {storyPoints === "" ? "—" : storyPoints}
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                        Story Points
+                      </p>
+                      <p className="mt-1 text-gray-800 dark:text-slate-200">
+                        {storyPoints === "" ? "—" : storyPoints}
+                      </p>
                     </div>
                   )}
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                      Syniti Owner
+                    </p>
+                    <p className="mt-1 text-gray-800 dark:text-slate-200">
+                      {synitiOwner?.trim() || "Unassigned"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                      Business Owner
+                    </p>
+                    <p className="mt-1 text-gray-800 dark:text-slate-200">
+                      {businessOwner?.trim() || "Unassigned"}
+                    </p>
+                  </div>
                   {hasPersistedSla ? (
                     <>
                       <div>
-                        <span className="font-medium">SLA Status:</span>{" "}
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                          SLA Status
+                        </p>
                         <span
-                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${slaBadgeClass}`}
+                          className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${slaBadgeClass}`}
                           title={slaTooltip}
                         >
-                          {ticket.slaStatus}
+                          {slaDisplayLabel}
                         </span>
                       </div>
                       <div title={slaTooltip}>
-                        <span className="font-medium">SLA Deadline:</span>{" "}
-                        {new Date(ticket.slaTargetDate).toLocaleString()}
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                          SLA Deadline
+                        </p>
+                        <p className="mt-1 text-gray-800 dark:text-slate-200">
+                          {new Date(ticket.slaTargetDate).toLocaleString()}
+                        </p>
                       </div>
-                      <div title={slaTooltip}>
-                        <span className="font-medium">SLA Tracking:</span>{" "}
-                        {formatSlaSummary(ticket)}
+                      <div className="sm:col-span-2" title={slaTooltip}>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                          SLA Tracking
+                        </p>
+                        <p className="mt-1 text-gray-700 dark:text-slate-300">
+                          {formatSlaSummary(ticket)}
+                        </p>
                       </div>
                       {ticket.slaCompletedDate && (
-                        <div title={slaTooltip}>
-                          <span className="font-medium">SLA Completed:</span>{" "}
-                          {new Date(ticket.slaCompletedDate).toLocaleString()}
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                            SLA Completed
+                          </p>
+                          <p className="mt-1 text-gray-800 dark:text-slate-200">
+                            {new Date(ticket.slaCompletedDate).toLocaleString()}
+                          </p>
                         </div>
                       )}
                     </>
                   ) : (
-                    <div className="col-span-2 text-gray-600 dark:text-slate-400">
+                    <div className="text-gray-600 sm:col-span-2 dark:text-slate-400">
                       SLA timing will be calculated after the ticket is created
                       using the selected priority settings.
                     </div>
                   )}
                   {!canManageComments && (
-                    <div className="col-span-2 text-gray-600 dark:text-slate-400">
+                    <div className="text-gray-600 sm:col-span-2 dark:text-slate-400">
                       Comments will be available after the ticket is created.
                     </div>
                   )}
@@ -1127,8 +1321,8 @@ export default function TicketModal({
               </div>
 
               {/* Actions */}
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-3">
+              <div className="sticky bottom-0 flex flex-col gap-3 border-t border-gray-200 bg-white/95 pt-4 dark:border-slate-800 dark:bg-slate-900/95 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                   {ticket.id && (
                     <button
                       onClick={() => setIsHistoryModalOpen(true)}
@@ -1156,7 +1350,7 @@ export default function TicketModal({
                         </button>
 
                         {isActionMenuOpen && (
-                          <div className="absolute left-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+                          <div className="absolute left-0 top-full z-20 mt-2 max-w-[min(16rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:left-auto sm:right-0">
                             {quickMoveBoards.length > 0 && (
                               <div className="border-b border-gray-100 px-2 py-2 dark:border-slate-800">
                                 {quickMoveBoards.map((board) => (
@@ -1203,11 +1397,11 @@ export default function TicketModal({
                     )}
                 </div>
 
-                <div className="flex space-x-3">
+                <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
                   <button
                     onClick={onClose}
                     disabled={archiving}
-                    className="rounded-md bg-gray-200 px-4 py-2 text-gray-800 transition-colors hover:bg-gray-300 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
                     Cancel
                   </button>
@@ -1217,10 +1411,12 @@ export default function TicketModal({
                       disabled={
                         saving ||
                         archiving ||
-                        !title.trim() ||
+                        (isCreateMode
+                          ? hasCreateValidationErrors
+                          : !title.trim()) ||
                         (selectedBoardRequiresStoryPoints && storyPoints === "")
                       }
-                      className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md bg-cortex-blue px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {saving
                         ? ticket.id
@@ -1237,10 +1433,15 @@ export default function TicketModal({
 
             {/* ================= RIGHT PANEL ================= */}
             {canManageComments && (
-              <div className="border-l border-gray-200 dark:border-slate-800 pl-4 flex flex-col min-h-[500px]">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
-                  Comments
-                </h3>
+              <div className="flex min-h-[min(50vh,28rem)] flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30 lg:min-h-[500px]">
+                <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-slate-800">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+                    Comments
+                  </h3>
+                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-slate-800 dark:text-slate-300">
+                    {comments.length}
+                  </span>
+                </div>
 
                 <div className="flex-1 overflow-y-auto pr-1">
                   {loadingComments ? (

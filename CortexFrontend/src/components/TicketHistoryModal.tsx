@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ApiError, ticketService } from "../services/api";
+import { getUserFacingErrorMessage, ticketService } from "../services/api";
 import type { TicketAuditEntry } from "../types/ticketAudit";
 
 const API_AUDIENCE = "https://cortex-api";
@@ -75,11 +75,9 @@ export default function TicketHistoryModal({
           return;
         }
 
-        if (loadError instanceof ApiError && loadError.message.trim()) {
-          setError(loadError.message);
-        } else {
-          setError("Failed to load ticket history.");
-        }
+        setError(
+          getUserFacingErrorMessage(loadError, "Unable to load ticket history."),
+        );
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -121,11 +119,11 @@ export default function TicketHistoryModal({
         onClick={onClose}
       />
 
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div className="relative max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100">
-          <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5 dark:border-slate-800">
-            <div>
-              <h2 className="text-xl font-semibold">Audit History</h2>
+      <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-4">
+        <div className="relative max-h-[min(90dvh,85vh)] w-full max-w-4xl overflow-hidden rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100">
+          <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-4 py-4 dark:border-slate-800 sm:px-6 sm:py-5">
+            <div className="min-w-0 pr-2">
+              <h2 className="text-lg font-semibold sm:text-xl">Audit History</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
                 Review who changed this ticket, what changed, and when it happened.
               </p>
@@ -139,7 +137,7 @@ export default function TicketHistoryModal({
             </button>
           </div>
 
-          <div className="max-h-[calc(85vh-88px)] overflow-y-auto px-6 py-5">
+          <div className="max-h-[calc(min(90dvh,85vh)-5.5rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
             {loading ? (
               <div className="space-y-4">
                 {Array.from({ length: 4 }).map((_, index) => (

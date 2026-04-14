@@ -1,6 +1,6 @@
 import type { Ticket } from "../types/ticket";
 import { DashboardSkeleton } from "./LoadingSkeletons";
-import { formatSlaSummary, getSlaBadgeClass } from "../utils/ticketSla";
+import { formatSlaSummary, getSlaBadgeClass, getSlaDisplayLabel } from "../utils/ticketSla";
 
 interface DashboardPageProps {
   tickets: Ticket[];
@@ -238,9 +238,9 @@ function TicketTable({
                   <td className="px-4 py-3 align-top">
                     <div className="flex flex-col gap-1">
                       <span
-                        className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-medium ${getSlaBadgeClass(ticket.slaStatus)}`}
+                        className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-medium ${getSlaBadgeClass(getSlaDisplayLabel(ticket))}`}
                       >
-                        {ticket.slaStatus}
+                        {getSlaDisplayLabel(ticket)}
                       </span>
                       <span className="text-xs text-gray-500 dark:text-slate-400">
                         {formatSlaSummary(ticket)}
@@ -339,9 +339,9 @@ export default function DashboardPage({
               className="border-cortex-blue/30 bg-cortex-blue-soft text-cortex-ink dark:border-cortex-blue/30 dark:bg-cortex-blue/20 dark:text-slate-100"
             />
             <SummaryCard
-              title="Breached"
+              title="Overdue"
               value={breachedTickets.length}
-              description="Open tickets already outside SLA."
+              description="Open tickets past their SLA deadline."
               className="border-red-200 bg-red-50 text-red-900 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-100"
             />
             <SummaryCard
@@ -382,7 +382,7 @@ export default function DashboardPage({
           <div className="grid gap-6 xl:grid-cols-2">
             <TicketTable
               title="Needs Attention"
-              description="Breached and at-risk tickets sorted by urgency."
+              description="Overdue and at-risk tickets sorted by urgency."
               tickets={attentionTickets}
               emptyMessage="No active tickets currently need urgent SLA attention."
               rightColumnLabel="Due"

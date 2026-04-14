@@ -1,5 +1,10 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Cortex.API.ExceptionHandling;
 using Cortex.API.Extensions;
+using Cortex.API.Health;
+using Cortex.API.Middleware;
 using Cortex.API.Database;
 using Cortex.API.Data;
 using Cortex.API.Data.Repositories;
@@ -17,12 +22,33 @@ var connectionString = builder.Configuration.GetConnectionString("AzureCortexDb"
 
 builder.Services.AddDbContext<CortexDbContext>(options =>
     options.UseSqlServer(connectionString));
+
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+    .AddDbContextCheck<CortexDbContext>(tags: ["ready"]);
+
 builder.Services.Configure<Auth0ManagementOptions>(builder.Configuration.GetSection("Auth0"));
 
 
 // Add services
 builder.Services.AddEndpointsApiExplorer(); // for minimal APIs, needed for Swagger
 builder.Services.AddHttpClient<IAuth0ManagementService, Auth0ManagementService>(
+    (serviceProvider, client) =>
+    {
+        var options = serviceProvider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Auth0ManagementOptions>>()
+            .Value;
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Clear();
+
+        var normalizedDomain = options.Domain?.Trim().TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(normalizedDomain) &&
+            Uri.TryCreate($"https://{normalizedDomain}", UriKind.Absolute, out var baseAddress))
+        {
+            client.BaseAddress = baseAddress;
+        }
+    });
+builder.Services.AddHttpClient<IUserAccessSyncService, Auth0UserAccessSyncService>(
     (serviceProvider, client) =>
     {
         var options = serviceProvider
@@ -53,6 +79,7 @@ builder.Services.AddScoped<ITicketRoutingRuleRepository, TicketRoutingRuleReposi
 builder.Services.AddScoped<ITicketBoardDefinitionRepository, TicketBoardDefinitionRepository>();
 builder.Services.AddScoped<IScheduledJobRepository, ScheduledJobRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+builder.Services.AddScoped<IHttpRequestLogRepository, HttpRequestLogRepository>();
 builder.Services.AddScoped<IUserContextService, UserContextService>();
 builder.Services.AddScoped<ISlaConfigurationService, SlaConfigurationService>();
 builder.Services.AddScoped<IArchiveConfigurationService, ArchiveConfigurationService>();
@@ -79,6 +106,9 @@ builder.Services.AddHostedService<ScheduledJobHostedService>();
 builder.Services.AddHostedService<SlaNotificationHostedService>();
 builder.Services.AddHttpContextAccessor(); // Register the built-in IHttpContextAccessor
 
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+// Required with AddExceptionHandler<T>(): wires ExceptionHandlerOptions so UseExceptionHandler() has a valid ExceptionHandler (otherwise startup throws).
+builder.Services.AddProblemDetails();
 
 // Configure Swagger/OpenAPI
 builder.Services.AddSwaggerGen(options =>
@@ -224,6 +254,12 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("UsersAdminDelete", policy =>
         policy.RequireClaim("permissions", "admin:system"));
 
+    options.AddPolicy("UsersAccessManage", policy =>
+        policy.RequireClaim("permissions", "admin:system"));
+
+    options.AddPolicy("AdminLogsExport", policy =>
+        policy.RequireClaim("permissions", "admin:system"));
+
     options.AddPolicy("TicketsArchiveManage", policy =>
         policy.RequireClaim("permissions", "admin:system", "developer"));
 
@@ -241,6 +277,9 @@ builder.Services.AddAuthorization(options =>
 
 // Build app
 var app = builder.Build();
+
+app.UseStructuredRequestLogging();
+app.UseExceptionHandler();
 
 // Enable Swagger in Dev or Production, probably want to lock this down later
 app.UseSwagger();
@@ -263,6 +302,20 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
+var healthJsonWriter = MinimalHealthCheckResponseWriter.WriteAsync;
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("live"),
+    ResponseWriter = healthJsonWriter,
+}).WithTags("Health").WithName("HealthLive").AllowAnonymous();
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready"),
+    ResponseWriter = healthJsonWriter,
+}).WithTags("Health").WithName("HealthReady").AllowAnonymous();
+
 // Map all ticket endpoints
 app.MapRootEndpoint();
 app.MapTicketEndpoints();
@@ -275,6 +328,7 @@ app.MapArchiveConfigurationEndpoints();
 app.MapSessionConfigurationEndpoints();
 app.MapNotificationChannelConfigurationEndpoints();
 app.MapReportDefinitionEndpoints();
+app.MapAdminLogEndpoints();
 app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();
 app.MapTicketRoutingRuleEndpoints();

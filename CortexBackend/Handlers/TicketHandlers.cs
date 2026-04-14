@@ -4,6 +4,9 @@ using Cortex.API.Models;
 using Cortex.API.Data;
 using Cortex.API.DTO;
 using Cortex.API.Services;
+using Cortex.API.Validation;
+
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Defines all ticket-related API handlers for CORTEX.
@@ -15,6 +18,10 @@ using Cortex.API.Services;
 /// </summary>
 public static class TicketHandlers
 {
+    private static readonly string[] AllowedPriorities = ["Critical", "High", "Medium", "Low"];
+    private const int MaxTitleLength = 200;
+    private const int MaxDescriptionLength = 4000;
+
     public static async Task<IResult> GetAllTickets(
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
@@ -125,11 +132,30 @@ public static class TicketHandlers
         string status,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
+        ITicketStatusService ticketStatusService,
         ISlaConfigurationService slaConfigurationService,
         IResponseMappingContextFactory mappingContextFactory)
     {
+        if (!QueryParameterValidation.TryValidateSafeFilterString(status, out var trimmedStatus, out var statusError))
+        {
+            return Results.BadRequest(new { message = statusError });
+        }
+
+        var definitions = await ticketStatusService.GetAllAsync();
+        if (definitions.Count > 0)
+        {
+            var match = definitions.FirstOrDefault(definition =>
+                string.Equals(definition.Name, trimmedStatus, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                return Results.BadRequest(new { message = "Status must be a configured ticket status name." });
+            }
+
+            trimmedStatus = match.Name;
+        }
+
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
-        var filtered = await repo.GetTicketsByStatusAsync(status);
+        var filtered = await repo.GetTicketsByStatusAsync(trimmedStatus);
         var visibleTickets = filtered.Where(visibilityContext.CanView).ToList();
 
         if (!visibleTickets.Any())
@@ -153,8 +179,21 @@ public static class TicketHandlers
         ISlaConfigurationService slaConfigurationService,
         IResponseMappingContextFactory mappingContextFactory)
     {
+        if (!QueryParameterValidation.TryValidateSafeFilterString(priority, out var trimmedPriority, out var priorityError))
+        {
+            return Results.BadRequest(new { message = priorityError });
+        }
+
+        if (!QueryParameterValidation.IsAllowedPriority(trimmedPriority, AllowedPriorities, out var canonicalPriority))
+        {
+            return Results.BadRequest(new
+            {
+                message = $"Priority must be one of: {string.Join(", ", AllowedPriorities)}."
+            });
+        }
+
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
-        var filtered = await repo.GetTicketsByPriorityAsync(priority);
+        var filtered = await repo.GetTicketsByPriorityAsync(canonicalPriority);
         var visibleTickets = filtered.Where(visibilityContext.CanView).ToList();
 
         if (!visibleTickets.Any())
@@ -200,15 +239,17 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        ILogger<TicketHandlersLogCategory> logger)
     {
         try
         {
+            ValidateCreateTicketRequest(request);
+
             var nextTicketId = await repo.GetNextTicketIdAsync();
             var currentUser = await userContext.GetCurrentUserAsync();
-            var requestedStatus = string.IsNullOrWhiteSpace(request.Status)
-                ? await ticketStatusService.GetDefaultCreateStatusAsync()
-                : request.Status.Trim();
+            var createStatus = "New";
+            var normalizedPriority = NormalizePriority(request.Priority!);
             var routingDepartment = NormalizeOptionalValue(request.Department)
                 ?? NormalizeOptionalValue(currentUser.Department);
             var routingResolution = await ticketRoutingRuleService.ResolveOwnersAsync(
@@ -220,8 +261,6 @@ public static class TicketHandlers
                 ?? routingResolution.BusinessOwner
                 ?? GetDefaultBusinessOwner(currentUser);
 
-            await ticketStatusService.EnsureSelectableStatusAsync(requestedStatus);
-
             var selectedBoard = await ResolveBoardForCreateAsync(ticketBoardService, request.BoardId);
             var storyPoints = ResolveStoryPoints(
                 selectedBoard,
@@ -231,14 +270,14 @@ public static class TicketHandlers
             var ticket = new Ticket
             {
                 Id = nextTicketId,
-                Title = request.Title,
-                Description = request.Description ?? string.Empty,
-                Priority = request.Priority ?? "Medium",
+                Title = request.Title.Trim(),
+                Description = request.Description!.Trim(),
+                Priority = normalizedPriority,
                 BoardId = selectedBoard.Id,
                 StoryPoints = storyPoints,
                 SynitiOwner = resolvedSynitiOwner,
                 BusinessOwner = resolvedBusinessOwner,
-                Status = requestedStatus,
+                Status = createStatus,
                 CreatedBy = currentUser.Id,
                 CreatedDate = DateTime.UtcNow
             };
@@ -264,6 +303,13 @@ public static class TicketHandlers
                 TicketId = createdTicket.Id,
                 EntityId = createdTicket.Id
             });
+
+            LogTicketCreated(
+                logger,
+                createdTicket.Id,
+                currentUser.Id,
+                createdTicket.BoardId,
+                createdTicket.Status);
 
             var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
             var mappingContext = await mappingContextFactory.CreateAsync(
@@ -296,7 +342,8 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        ILogger<TicketHandlersLogCategory> logger)
     {
         try
         {
@@ -358,6 +405,12 @@ public static class TicketHandlers
                 TicketId = updatedTicket.Id,
                 EntityId = updatedTicket.Id
             });
+
+            LogTicketUpdatedLifecycle(
+                logger,
+                originalTicket,
+                updatedTicket,
+                currentUser.Id);
 
             var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
             var mappingContext = await mappingContextFactory.CreateAsync(
@@ -527,6 +580,53 @@ public static class TicketHandlers
         return Results.NoContent();
     }
 
+    private static void LogTicketCreated(
+        ILogger logger,
+        string ticketId,
+        int actingUserId,
+        int boardId,
+        string status)
+    {
+        logger.LogInformation(
+            "Ticket created. TicketId={TicketId} ActingUserId={ActingUserId} BoardId={BoardId} Status={Status}",
+            ticketId,
+            actingUserId,
+            boardId,
+            status);
+    }
+
+    private static void LogTicketUpdatedLifecycle(
+        ILogger logger,
+        Ticket original,
+        Ticket updated,
+        int actingUserId)
+    {
+        var statusChanged = !string.Equals(original.Status, updated.Status, StringComparison.Ordinal);
+        var synitiOwnerChanged = !OwnerFieldsEqual(original.SynitiOwner, updated.SynitiOwner);
+        var businessOwnerChanged = !OwnerFieldsEqual(original.BusinessOwner, updated.BusinessOwner);
+
+        logger.LogInformation(
+            "Ticket updated. TicketId={TicketId} ActingUserId={ActingUserId} BoardId={BoardId} " +
+            "StatusChanged={StatusChanged} PreviousStatus={PreviousStatus} NewStatus={NewStatus} " +
+            "SynitiOwnerChanged={SynitiOwnerChanged} BusinessOwnerChanged={BusinessOwnerChanged}",
+            updated.Id,
+            actingUserId,
+            updated.BoardId,
+            statusChanged,
+            original.Status,
+            updated.Status,
+            synitiOwnerChanged,
+            businessOwnerChanged);
+    }
+
+    private static bool OwnerFieldsEqual(string? left, string? right)
+    {
+        return string.Equals(
+            NormalizeOptionalValue(left) ?? string.Empty,
+            NormalizeOptionalValue(right) ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Ticket CloneTicket(Ticket ticket)
     {
         return new Ticket
@@ -550,6 +650,52 @@ public static class TicketHandlers
     private static string? NormalizeOptionalValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static void ValidateCreateTicketRequest(CreateTicketRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            throw new ArgumentException("Title is required.");
+        }
+
+        if (request.Title.Trim().Length > MaxTitleLength)
+        {
+            throw new ArgumentException($"Title must be {MaxTitleLength} characters or fewer.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Description))
+        {
+            throw new ArgumentException("Description is required.");
+        }
+
+        if (request.Description.Trim().Length > MaxDescriptionLength)
+        {
+            throw new ArgumentException($"Description must be {MaxDescriptionLength} characters or fewer.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Priority))
+        {
+            throw new ArgumentException("Priority is required.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Status))
+        {
+            throw new ArgumentException("Status cannot be provided when creating a ticket.");
+        }
+    }
+
+    private static string NormalizePriority(string priority)
+    {
+        var normalizedPriority = AllowedPriorities.FirstOrDefault(candidate =>
+            string.Equals(candidate, priority.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (normalizedPriority is null)
+        {
+            throw new ArgumentException(
+                $"Priority must be one of: {string.Join(", ", AllowedPriorities)}.");
+        }
+
+        return normalizedPriority;
     }
 
     private static string? GetDefaultBusinessOwner(User user)
@@ -637,3 +783,8 @@ public static class TicketHandlers
             ?? await ticketBoardService.GetDefaultCreateBoardAsync();
     }
 }
+
+/// <summary>
+/// Log category for <see cref="TicketHandlers"/> (required because <c>ILogger&lt;T&gt;</c> cannot use a static class as <c>T</c>).
+/// </summary>
+public sealed class TicketHandlersLogCategory;

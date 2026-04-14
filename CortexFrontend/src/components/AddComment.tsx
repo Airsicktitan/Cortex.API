@@ -9,7 +9,7 @@ export default function AddComment({ onAdd }: AddCommentProps) {
   const [posting, setPosting] = useState(false);
 
   const submit = async () => {
-    if (!body.trim()) return;
+    if (posting || !body.trim()) return;
 
     try {
       setPosting(true);
@@ -23,13 +23,24 @@ export default function AddComment({ onAdd }: AddCommentProps) {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/70">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+          Add Comment
+        </p>
+        {posting && (
+          <span className="text-xs text-cortex-blue dark:text-cortex-cyan">
+            Posting comment...
+          </span>
+        )}
+      </div>
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
         rows={3}
         placeholder="Write a comment…"
-        className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm text-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+        disabled={posting}
+        className="w-full rounded-md border-gray-300 bg-white text-sm text-gray-900 shadow-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -42,9 +53,9 @@ export default function AddComment({ onAdd }: AddCommentProps) {
         <button
           onClick={submit}
           disabled={posting || !body.trim()}
-          className="rounded-md bg-cortex-blue px-3 py-1.5 text-sm text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-50"
+          className="rounded-md bg-cortex-blue px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {posting ? "Posting…" : "Post"}
+          {posting ? "Posting..." : "Post Comment"}
         </button>
       </div>
     </div>

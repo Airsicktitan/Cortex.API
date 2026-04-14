@@ -1,3 +1,5 @@
+import { API_USER_MESSAGES, ApiError } from "./api";
+
 export async function fetchWithAuth(
   url: string,
   accessToken: string,
@@ -13,7 +15,7 @@ export async function fetchWithAuth(
   });
 
   if (!response.ok) {
-    throw new Error(`API call failed: ${response.status}`);
+    throw new ApiError(API_USER_MESSAGES.generic, response.status);
   }
 
   return response.json();

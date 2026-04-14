@@ -20,6 +20,7 @@ export interface UserProfile {
 
 export interface UserRecord extends UserProfile {
   auth0Id?: string;
+  permissions?: string[];
 }
 
 export interface OnlineUser {
@@ -42,6 +43,18 @@ export interface AdminUpdateUserInput {
   role?: string;
   isActive?: boolean;
   expiryDate?: string | null;
+}
+
+export interface UpdateUserAccessInput {
+  role?: string;
+  permissions?: string[];
+}
+
+export interface UserAccessUpdateResult {
+  userId: number;
+  role: string;
+  requestedPermissions: string[];
+  syncQueued: boolean;
 }
 
 export interface CreateUserInput {

@@ -1,3 +1,4 @@
+using Cortex.API.Data;
 using Cortex.API.Data.Repositories;
 using Cortex.API.Database;
 using Cortex.API.Models;
@@ -130,11 +131,9 @@ public class ScheduledJobService(
             throw new InvalidOperationException("Stored procedure definition is disabled.");
         }
 
-        var qualifiedName = BuildQualifiedProcedureName(job.StoredProcedureDefinition.ProcedureName);
-        // Procedure names are validated on save and re-qualified here to avoid arbitrary SQL text.
-#pragma warning disable EF1002
-        await _dbContext.Database.ExecuteSqlRawAsync($"EXEC {qualifiedName}");
-#pragma warning restore EF1002
+        await EfSqlGuardrails.ExecuteStoredProcedureByNameAsync(
+            _dbContext.Database,
+            job.StoredProcedureDefinition.ProcedureName);
         return $"Executed {job.StoredProcedureDefinition.ProcedureName}.";
     }
 
@@ -202,14 +201,4 @@ public class ScheduledJobService(
         }
     }
 
-    private static string BuildQualifiedProcedureName(string procedureName)
-    {
-        var parts = procedureName.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length is < 1 or > 2)
-        {
-            throw new ArgumentException("Stored procedure names must be schema-qualified or procedure-only.");
-        }
-
-        return string.Join(".", parts.Select(part => $"[{part}]"));
-    }
 }

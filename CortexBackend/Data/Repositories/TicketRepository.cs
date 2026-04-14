@@ -1,3 +1,4 @@
+using Cortex.API.Data;
 using Cortex.API.Database;
 using Cortex.API.Models;
 
@@ -100,8 +101,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 
     public async Task<bool> ArchiveTicketAsync(string id, int archivedBy)
     {
-        await _context.Database.ExecuteSqlInterpolatedAsync(
-            $"EXEC dbo.ArchiveTicket @TicketId={id}, @ArchivedBy={archivedBy}");
+        await EfSqlGuardrails.ExecuteArchiveTicketAsync(_context.Database, id, archivedBy);
 
         return await _context.ArchivedTickets.AnyAsync(ticket => ticket.Id == id);
     }
