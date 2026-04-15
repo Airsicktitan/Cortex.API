@@ -90,6 +90,36 @@ CORTEX is designed to work **out of the box**, with intelligent defaults for rou
 
 ## 🏗 SaaS-Oriented Architecture
 
+## 🔧 Platform Maturity & Engineering Focus
+
+CORTEX is actively evolving from a prototype into a production-ready platform.
+
+Recent engineering work has focused on:
+
+- **Frontend architecture decomposition**
+  - Breaking down large application surfaces into domain-specific hooks (`useUsers`, `useConfiguration`)
+  - Reducing coupling and improving maintainability for future features
+
+- **Backend data integrity enforcement**
+  - Fixing archived ticket failures caused by null data and schema drift
+  - Aligning database contracts with application models to prevent runtime materialization errors
+
+- **Stored procedure contract hardening**
+  - Ensuring `dbo.ArchiveTicket` persists all required fields (including `BoardId` and `StoryPoints`)
+  - Eliminating reliance on brittle fallback logic in application code
+
+- **Production debugging practices**
+  - Tracing failures across frontend → API → EF Core → SQL Server
+  - Identifying and resolving real-world data inconsistencies
+
+- **Safe deployment workflow**
+  - Introducing branch-based development (`dev` vs `v2`) to prevent unintended production deployments
+  - Verifying database and application state alignment across environments
+
+> CORTEX is being built with the expectation that real-world data is imperfect — and the system must handle it safely.
+
+---
+
 ## 📁 Repository Layout
 
 - `CortexBackend/` - ASP.NET Core API, EF Core models, handlers, services, and backend Dockerfile
