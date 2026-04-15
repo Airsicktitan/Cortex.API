@@ -7,69 +7,25 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import type { CreateTicketInput, Ticket, TicketMutationInput } from "./types/ticket";
-import type { ArchivedTicket } from "./types/archivedTicket";
-import type { ArchiveConfiguration } from "./types/archiveConfiguration";
-import type {
-  CustomReportDefinition,
-  CustomReportResult,
-  DatabaseViewDefinition,
-  UpsertCustomReportDefinitionInput,
-} from "./types/customReport";
-import type { NotificationChannelConfiguration } from "./types/notificationChannelConfiguration";
+import type { Ticket } from "./types/ticket";
 import type { UserNotification } from "./types/notification";
 import type { RealtimeEvent } from "./types/realtime";
-import type { ScheduledJob, UpsertScheduledJobInput } from "./types/scheduledJob";
 import type { SessionConfiguration } from "./types/sessionConfiguration";
-import type { SlaConfiguration } from "./types/sla";
+import type { TicketBoardDefinition } from "./types/ticketBoard";
+import type { TicketStatusDefinition } from "./types/ticketStatus";
 import type {
-  TicketBoardDefinition,
-  UpsertTicketBoardDefinitionInput,
-} from "./types/ticketBoard";
-import type {
-  DatabaseStoredProcedureDefinition,
-  StoredProcedureDefinition,
-  UpsertStoredProcedureDefinitionInput,
-} from "./types/storedProcedure";
-import type {
-  TicketStatusDefinition,
-  UpsertTicketStatusDefinitionInput,
-} from "./types/ticketStatus";
-import type {
-  TicketRoutingRule,
-  UpsertTicketRoutingRuleInput,
-} from "./types/ticketRouting";
-import type {
-  AdminUpdateUserInput,
-  Auth0RoleOption,
-  CreateUserInput,
-  OnlineUser,
   UpdateUserProfileInput,
   UserProfile,
-  UserRecord,
 } from "./types/user";
 import {
   API_USER_MESSAGES,
   ApiError,
-  attachmentService,
   getUserFacingErrorMessage,
   isLikelyNetworkError,
-  ticketService,
   userService,
 } from "./services/api";
-import { archiveConfigurationService } from "./services/archiveConfigurationService";
-import { customReportService } from "./services/customReportService";
-import { notificationChannelConfigurationService } from "./services/notificationChannelConfigurationService";
 import { notificationService } from "./services/notificationService";
 import { realtimeService } from "./services/realtimeService";
-import { reportService } from "./services/reportService";
-import { scheduledJobService } from "./services/scheduledJobService";
-import { sessionConfigurationService } from "./services/sessionConfigurationService";
-import { slaService } from "./services/slaService";
-import { storedProcedureService } from "./services/storedProcedureService";
-import { ticketBoardService } from "./services/ticketBoardService";
-import { ticketRoutingService } from "./services/ticketRoutingService";
-import { ticketStatusService } from "./services/ticketStatusService";
 import TicketCard from "./components/TicketCard";
 import TicketModal from "./components/TicketModal";
 import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
@@ -92,6 +48,7 @@ import {
 import { applyTheme, getPreferredTheme, type ThemeMode } from "./theme";
 import { useUsers } from "./hooks/useUsers";
 import { useConfiguration } from "./hooks/useConfiguration";
+import { useTickets } from "./hooks/useTickets";
 import toast from "react-hot-toast";
 import {
   normalizeRoles,
@@ -233,17 +190,6 @@ function getInitialSidebarWidth() {
   return clampSidebarWidth(storedValue);
 }
 
-function useDebouncedValue<T>(value: T, delayMs: number) {
-  const [debounced, setDebounced] = useState(value);
-
-  useEffect(() => {
-    const handle = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(handle);
-  }, [value, delayMs]);
-
-  return debounced;
-}
-
 function normalize(value: string) {
   return value.trim().toLowerCase();
 }
@@ -322,58 +268,6 @@ function parseSavedFilters(rawValue: string | null): SavedTicketFilter[] {
   }
 }
 
-function ticketMatchesSearch(ticket: Ticket, searchValue: string) {
-  const searchableValues = [
-    ticket.id,
-    ticket.title,
-    ticket.description,
-    ticket.boardName,
-    ticket.storyPoints,
-    ticket.status,
-    ticket.priority,
-    ticket.synitiOwner,
-    ticket.businessOwner,
-    ticket.createdByDisplayName,
-  ];
-
-  return searchableValues.some((value) =>
-    normalize(String(value ?? "")).includes(searchValue),
-  );
-}
-
-function getOwnerMatchCandidates(
-  profile: UserProfile | null,
-  auth0Name: string | undefined,
-  auth0Email: string | undefined,
-): Set<string> {
-  const candidates = new Set<string>();
-  for (const value of [
-    profile?.displayName,
-    profile?.nickName,
-    profile?.email,
-    auth0Name,
-    auth0Email,
-  ]) {
-    const n = normalize(String(value ?? ""));
-    if (n) {
-      candidates.add(n);
-    }
-  }
-  return candidates;
-}
-
-function ticketIsOwnedByCurrentUser(
-  ticket: Ticket,
-  candidates: Set<string>,
-): boolean {
-  const syn = normalize(String(ticket.synitiOwner ?? ""));
-  const bus = normalize(String(ticket.businessOwner ?? ""));
-  if (!syn && !bus) {
-    return false;
-  }
-  return (syn !== "" && candidates.has(syn)) || (bus !== "" && candidates.has(bus));
-}
-
 type TicketListSortOption =
   | "newest-first"
   | "oldest-first"
@@ -381,26 +275,6 @@ type TicketListSortOption =
   | "priority-low-high"
   | "due-soonest"
   | "most-overdue";
-
-const PRIORITY_RANK: Record<string, number> = {
-  Critical: 4,
-  High: 3,
-  Medium: 2,
-  Low: 1,
-};
-
-function getPriorityRank(priority: string): number {
-  return PRIORITY_RANK[priority] ?? 0;
-}
-
-function parseTicketTime(value: string | undefined): number {
-  if (!value) {
-    return 0;
-  }
-
-  const parsed = new Date(value).getTime();
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
 
 function isTicketListSortOption(value: string): value is TicketListSortOption {
   return (
@@ -411,46 +285,6 @@ function isTicketListSortOption(value: string): value is TicketListSortOption {
     value === "due-soonest" ||
     value === "most-overdue"
   );
-}
-
-/** Sorts the already-filtered ticket list (stable triage: due / overdue use SLA fields). */
-function sortTicketsForList(tickets: Ticket[], sort: TicketListSortOption): Ticket[] {
-  const copy = [...tickets];
-
-  switch (sort) {
-    case "newest-first":
-      return copy.sort(
-        (a, b) => parseTicketTime(b.createdDate) - parseTicketTime(a.createdDate),
-      );
-    case "oldest-first":
-      return copy.sort(
-        (a, b) => parseTicketTime(a.createdDate) - parseTicketTime(b.createdDate),
-      );
-    case "priority-high-low":
-      return copy.sort(
-        (a, b) => getPriorityRank(b.priority) - getPriorityRank(a.priority),
-      );
-    case "priority-low-high":
-      return copy.sort(
-        (a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority),
-      );
-    case "due-soonest":
-      return copy.sort(
-        (a, b) =>
-          parseTicketTime(a.slaTargetDate) - parseTicketTime(b.slaTargetDate),
-      );
-    case "most-overdue":
-      return copy.sort((a, b) => {
-        const byRemaining = a.slaRemainingMinutes - b.slaRemainingMinutes;
-        if (byRemaining !== 0) {
-          return byRemaining;
-        }
-
-        return parseTicketTime(a.slaTargetDate) - parseTicketTime(b.slaTargetDate);
-      });
-    default:
-      return copy;
-  }
 }
 
 function isConsentRequiredError(error: unknown) {
@@ -512,76 +346,13 @@ function getDefaultTicketBoard(boards: TicketBoardDefinition[]) {
   );
 }
 
-function getDefaultArchiveEligibleStatuses(statuses: TicketStatusDefinition[]) {
-  const preferredStatuses = statuses
-    .filter((status) =>
-      status.name === "Resolved" || status.name === "Closed",
-    )
-    .map((status) => status.name);
-
-  return preferredStatuses;
-}
-
-function sortTicketStatuses(statuses: TicketStatusDefinition[]) {
-  return [...statuses].sort((left, right) => left.id - right.id);
-}
-
-function sortTicketBoards(boards: TicketBoardDefinition[]) {
-  return [...boards].sort((left, right) => {
-    const leftIsDefault = left.name.toLowerCase() === "ticket";
-    const rightIsDefault = right.name.toLowerCase() === "ticket";
-
-    if (leftIsDefault && !rightIsDefault) {
-      return -1;
-    }
-
-    if (!leftIsDefault && rightIsDefault) {
-      return 1;
-    }
-
-    return left.name.localeCompare(right.name);
-  });
-}
-
-function sortTicketRoutingRules(rules: TicketRoutingRule[]) {
-  return [...rules].sort((left, right) => {
-    const leftKey =
-      `${left.titleContains}|${left.department}|${left.synitiOwner}|${left.businessOwner}`.toLowerCase();
-    const rightKey =
-      `${right.titleContains}|${right.department}|${right.synitiOwner}|${right.businessOwner}`.toLowerCase();
-    const keyComparison = leftKey.localeCompare(rightKey);
-    if (keyComparison !== 0) {
-      return keyComparison;
-    }
-
-    return left.id - right.id;
-  });
-}
-
-function createDraftTicketRoutingRule(): TicketRoutingRule {
-  return {
-    id: 0,
-    department: "",
-    titleContains: "",
-    synitiOwner: "",
-    businessOwner: "",
-    isEnabled: true,
-    createdDateUtc: "",
-  };
-}
-
-async function loadBootstrapData(token: string) {
-  const [fetchedTickets, fetchedCurrentUser] = await Promise.all([
-    ticketService.getAll(token),
-    userService.getCurrentUser(token).catch(
-      (error) => {
-        console.warn("Current user profile could not be loaded", error);
-        return null;
-      },
-    ),
-  ]);
-
-  return { fetchedCurrentUser, fetchedTickets };
+async function loadBootstrapCurrentUser(token: string) {
+  return await userService.getCurrentUser(token).catch(
+    (error) => {
+      console.warn("Current user profile could not be loaded", error);
+      return null;
+    },
+  );
 }
 
 function createDraftTicket(
@@ -613,26 +384,6 @@ function createDraftTicket(
   } as Ticket;
 }
 
-function createDraftArchiveConfiguration(
-  statuses: TicketStatusDefinition[],
-): ArchiveConfiguration {
-  return {
-    id: 0,
-    archiveAfterDays: 30,
-    eligibleStatuses: getDefaultArchiveEligibleStatuses(statuses),
-  };
-}
-
-function sortArchiveConfigurations(configurations: ArchiveConfiguration[]) {
-  return [...configurations].sort((left, right) => {
-    if (left.archiveAfterDays !== right.archiveAfterDays) {
-      return left.archiveAfterDays - right.archiveAfterDays;
-    }
-
-    return left.id - right.id;
-  });
-}
-
 function App() {
   const {
     isAuthenticated,
@@ -646,23 +397,10 @@ function App() {
 
   const [activeView, setActiveView] = useState<AppView>("tickets");
   const [theme, setTheme] = useState<ThemeMode>(getPreferredTheme);
-  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [apiUnavailable, setApiUnavailable] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-
-  const [filter, setFilter] = useState<FilterOption>("all");
-  const [filterValue, setFilterValue] = useState("");
-  const debouncedFilterValue = useDebouncedValue(filterValue, 300);
-  const [selectedBoardId, setSelectedBoardId] = useState<number | "all">("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300);
-  const [pageSize, setPageSize] = useState<PageSizeOption>(10);
-  const [ticketListSort, setTicketListSort] =
-    useState<TicketListSortOption>("newest-first");
-  const [myTicketsOnly, setMyTicketsOnly] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
   const [showReportSlaLegend, setShowReportSlaLegend] = useState(false);
   const [activeReportSection, setActiveReportSection] =
     useState<ReportSection>("sla");
@@ -673,23 +411,10 @@ function App() {
   const [selectedSavedFilterId, setSelectedSavedFilterId] = useState("");
   const [isSaveFilterModalOpen, setIsSaveFilterModalOpen] = useState(false);
   const [savedFilterName, setSavedFilterName] = useState("");
-
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [latestRealtimeEvent, setLatestRealtimeEvent] = useState<RealtimeEvent | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [archivedTickets, setArchivedTickets] = useState<ArchivedTicket[]>([]);
-  const [archivedLoading, setArchivedLoading] = useState(false);
-  const [archivedError, setArchivedError] = useState<string | null>(null);
-  const [highlightedArchivedTicketId, setHighlightedArchivedTicketId] =
-    useState<string | null>(null);
-  const [reactivatingArchivedTicketId, setReactivatingArchivedTicketId] =
-    useState<string | null>(null);
 
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const [needsConsent, setNeedsConsent] = useState(false);
-
-  const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   // Configuration domain state is owned by useConfiguration (wired below after loadArchivedTickets).
 
@@ -728,8 +453,6 @@ function App() {
   const lastPresenceSyncAtRef = useRef(0);
   const presenceSyncInFlightRef = useRef(false);
   const realtimeRefreshTimerRef = useRef<number | null>(null);
-  const ticketSilentRefreshInFlightRef = useRef(false);
-  const ticketSilentRefreshRequestIdRef = useRef(0);
 
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
@@ -935,77 +658,68 @@ function App() {
     });
   }, [clearSessionTimeoutState, logout]);
 
-  const refreshTicketsSilently = useCallback(
-    async (providedToken?: string) => {
-      if (ticketSilentRefreshInFlightRef.current) {
-        return;
-      }
-
-      ticketSilentRefreshInFlightRef.current = true;
-      const requestId = ++ticketSilentRefreshRequestIdRef.current;
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await ticketService.getAll(token);
-
-        if (requestId !== ticketSilentRefreshRequestIdRef.current) {
-          return;
-        }
-
-        setAllTickets(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to refresh tickets silently", error);
-
-        if (requestId !== ticketSilentRefreshRequestIdRef.current) {
-          return;
-        }
-
-        if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        }
-      } finally {
-        if (requestId === ticketSilentRefreshRequestIdRef.current) {
-          ticketSilentRefreshInFlightRef.current = false;
-        }
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadAllTickets = useCallback(
-    async (providedToken?: string) => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await ticketService.getAll(token);
-        setAllTickets(data);
-        setNeedsConsent(false);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load tickets", error);
-
-        if (isConsentRequiredError(error)) {
-          setApiUnavailable(false);
-          setNeedsConsent(true);
-          setError("CORTEX API consent is required before tickets can load.");
-        } else if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setError("You do not have permission to view tickets.");
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setError(API_USER_MESSAGES.loadTickets);
-        }
-      } finally {
-        setLoading(false);
-      }
-    },
-    [getApiToken],
-  );
+  const {
+    allTickets,
+    setAllTickets,
+    filter,
+    setFilter,
+    filterValue,
+    setFilterValue,
+    selectedBoardId,
+    setSelectedBoardId,
+    searchQuery,
+    setSearchQuery,
+    pageSize,
+    setPageSize,
+    ticketListSort,
+    setTicketListSort,
+    myTicketsOnly,
+    setMyTicketsOnly,
+    currentPage,
+    setCurrentPage,
+    selectedTicket,
+    setSelectedTicket,
+    isModalOpen,
+    archivedTickets,
+    setArchivedTickets,
+    archivedLoading,
+    archivedError,
+    highlightedArchivedTicketId,
+    setHighlightedArchivedTicketId,
+    reactivatingArchivedTicketId,
+    ticketToDelete,
+    setTicketToDelete,
+    deleting,
+    refreshTicketsSilently,
+    loadAllTickets,
+    loadArchivedTickets,
+    tickets,
+    totalTickets,
+    totalPages,
+    pagedTickets,
+    showingStart,
+    showingEnd,
+    handleSaveTicket,
+    requestDeleteTicket,
+    confirmDeleteTicket,
+    handleArchiveTicket,
+    handleReactivateArchivedTicket,
+    closeModal,
+    openTicket,
+    openTicketById,
+  } = useTickets({
+    getApiToken,
+    setApiUnavailable,
+    setLoading,
+    setError,
+    setNeedsConsent,
+    currentUser,
+    auth0Name: user?.name,
+    auth0Email: user?.email,
+    isConsentRequiredError,
+    isForbiddenError,
+    isLikelyNetworkError,
+  });
 
   // loadSlaConfigurations and other configuration loaders live in useConfiguration.
 
@@ -1113,35 +827,6 @@ function App() {
         if (!silent) {
           setNotificationsLoading(false);
         }
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadArchivedTickets = useCallback(
-    async (providedToken?: string) => {
-      setArchivedLoading(true);
-      setArchivedError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await ticketService.getArchived(token);
-        setArchivedTickets(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load archived tickets", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setArchivedError("You do not have permission to view archived tickets.");
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setArchivedError("Failed to load archived tickets.");
-        }
-      } finally {
-        setArchivedLoading(false);
       }
     },
     [getApiToken],
@@ -1745,13 +1430,12 @@ function App() {
           authorizationParams: API_AUTHORIZATION_PARAMS,
         });
         if (cancelled) return;
-        const { fetchedCurrentUser, fetchedTickets } =
-          await loadBootstrapData(token);
+        const fetchedCurrentUser = await loadBootstrapCurrentUser(token);
 
         if (cancelled) return;
 
         setCurrentUser(fetchedCurrentUser);
-        setAllTickets(fetchedTickets);
+        await loadAllTickets(token);
         setNeedsConsent(false);
         setApiUnavailable(false);
         void loadTicketBoards(token);
@@ -1796,6 +1480,7 @@ function App() {
     getAccessTokenSilently,
     isAuthenticated,
     isLoading,
+    loadAllTickets,
     loadTicketBoards,
     loadNotifications,
     loadSessionConfiguration,
@@ -1979,7 +1664,7 @@ function App() {
     if (activeView !== "archived" && highlightedArchivedTicketId) {
       setHighlightedArchivedTicketId(null);
     }
-  }, [activeView, highlightedArchivedTicketId]);
+  }, [activeView, highlightedArchivedTicketId, setHighlightedArchivedTicketId]);
 
   useEffect(() => {
     if (!sessionUnlocked || isViewAllowed(activeView)) {
@@ -2063,6 +1748,7 @@ function App() {
   }, [
     activeReportSection,
     canViewReportsNav,
+    clearCustomReportResult,
     customReports,
     selectedCustomReportId,
   ]);
@@ -2111,11 +1797,10 @@ function App() {
       if (!token) {
         throw new Error("No access token was returned.");
       }
-      const { fetchedCurrentUser, fetchedTickets } =
-        await loadBootstrapData(token);
+      const fetchedCurrentUser = await loadBootstrapCurrentUser(token);
 
       setCurrentUser(fetchedCurrentUser);
-      setAllTickets(fetchedTickets);
+      await loadAllTickets(token);
       setNeedsConsent(false);
       setBootstrapComplete(true);
       setApiUnavailable(false);
@@ -2151,105 +1836,6 @@ function App() {
     );
   }, [allTickets, availableTicketBoards]);
 
-  const tickets = useMemo(() => {
-    const filterInput = normalize(debouncedFilterValue);
-    const searchInput = normalize(debouncedSearchQuery);
-    let filteredTickets =
-      selectedBoardId === "all"
-        ? allTickets
-        : allTickets.filter((ticket) => ticket.boardId === selectedBoardId);
-
-    if (filter !== "all" && filterInput) {
-      if (filter === "status") {
-        filteredTickets = filteredTickets.filter((ticket) =>
-          normalize(ticket.status ?? "").includes(filterInput),
-        );
-      } else if (filter === "sla") {
-        filteredTickets = filteredTickets.filter((ticket) =>
-          normalize(ticket.slaStatus ?? "").includes(filterInput),
-        );
-      } else {
-        filteredTickets = filteredTickets.filter((ticket) =>
-          normalize(ticket.priority ?? "").includes(filterInput),
-        );
-      }
-    }
-
-    if (myTicketsOnly) {
-      const candidates = getOwnerMatchCandidates(
-        currentUser,
-        user?.name,
-        user?.email,
-      );
-      if (candidates.size === 0) {
-        filteredTickets = [];
-      } else {
-        filteredTickets = filteredTickets.filter((ticket) =>
-          ticketIsOwnedByCurrentUser(ticket, candidates),
-        );
-      }
-    }
-
-    if (!searchInput) {
-      return filteredTickets;
-    }
-
-    return filteredTickets.filter((ticket) =>
-      ticketMatchesSearch(ticket, searchInput),
-    );
-  }, [
-    allTickets,
-    selectedBoardId,
-    filter,
-    debouncedFilterValue,
-    debouncedSearchQuery,
-    myTicketsOnly,
-    currentUser,
-    user?.name,
-    user?.email,
-  ]);
-
-  const sortedTickets = useMemo(
-    () => sortTicketsForList(tickets, ticketListSort),
-    [tickets, ticketListSort],
-  );
-
-  const totalTickets = sortedTickets.length;
-  const totalPages =
-    pageSize === "all" ? 1 : Math.max(1, Math.ceil(totalTickets / pageSize));
-  const pagedTickets = useMemo(() => {
-    if (pageSize === "all") {
-      return sortedTickets;
-    }
-
-    const startIndex = (currentPage - 1) * pageSize;
-    return sortedTickets.slice(startIndex, startIndex + pageSize);
-  }, [currentPage, pageSize, sortedTickets]);
-  const showingStart =
-    totalTickets === 0
-      ? 0
-      : (currentPage - 1) * (pageSize === "all" ? totalTickets : pageSize) + 1;
-  const showingEnd =
-    pageSize === "all"
-      ? totalTickets
-      : Math.min(totalTickets, currentPage * pageSize);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    selectedBoardId,
-    filter,
-    debouncedFilterValue,
-    debouncedSearchQuery,
-    pageSize,
-    ticketListSort,
-    myTicketsOnly,
-  ]);
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
-
   useEffect(() => {
     if (selectedBoardId === "all") {
       return;
@@ -2258,184 +1844,7 @@ function App() {
     if (!boardTabs.some((board) => board.id === selectedBoardId)) {
       setSelectedBoardId("all");
     }
-  }, [boardTabs, selectedBoardId]);
-
-  const handleSaveTicket = async (
-    updatedTicket: TicketMutationInput,
-    attachments: File[],
-  ) => {
-    if (!selectedTicket) return;
-    const isCreateAction = !selectedTicket.id;
-    const actionLabel = isCreateAction ? "create" : "update";
-
-    try {
-      const token = await getApiToken();
-      let savedTicket: Ticket;
-      let successMessage = isCreateAction ? "Ticket created" : "Ticket updated";
-
-      if (isCreateAction) {
-        const createPayload: CreateTicketInput = {
-          title: updatedTicket.title?.trim() ?? "",
-          description: updatedTicket.description?.trim() ?? "",
-          priority: updatedTicket.priority?.trim() ?? "",
-          department: updatedTicket.department,
-          boardId: updatedTicket.boardId,
-          storyPoints: updatedTicket.storyPoints,
-          synitiOwner: updatedTicket.synitiOwner,
-          businessOwner: updatedTicket.businessOwner,
-        };
-
-        savedTicket = await ticketService.create(
-          createPayload,
-          token,
-        );
-        setAllTickets((prev) => [savedTicket, ...prev]);
-      } else {
-        savedTicket = await ticketService.update(
-          selectedTicket.id,
-          updatedTicket,
-          token,
-        );
-        setAllTickets((prev) =>
-          prev.map((ticket) => (ticket.id === savedTicket.id ? savedTicket : ticket)),
-        );
-      }
-
-      if (attachments.length > 0) {
-        try {
-          await attachmentService.upload(savedTicket.id, attachments, token);
-          successMessage +=
-            attachments.length === 1
-              ? " with 1 attachment"
-              : ` with ${attachments.length} attachments`;
-        } catch (attachmentError) {
-          console.error("Failed to upload attachments", attachmentError);
-          toast.success(successMessage, { id: "ticket-save-success" });
-          toast.error(
-            getUserFacingErrorMessage(
-              attachmentError,
-              "Ticket saved, but attachments could not be uploaded",
-            ),
-          );
-          setIsModalOpen(false);
-          setSelectedTicket(null);
-          return;
-        }
-      }
-
-      toast.success(successMessage, { id: "ticket-save-success" });
-      setIsModalOpen(false);
-      setSelectedTicket(null);
-    } catch (error) {
-      console.error("Failed to save ticket", error);
-      toast.error(getUserFacingErrorMessage(error, API_USER_MESSAGES.saveChanges), {
-        id: `ticket-save-error-${actionLabel}`,
-      });
-      throw error;
-    }
-  };
-
-  // handleSlaConfigurationChange through runScheduledJobNow — all in useConfiguration.
-  const requestDeleteTicket = (ticket: Ticket) => {
-    setTicketToDelete(ticket);
-  };
-
-  const confirmDeleteTicket = async () => {
-    if (!ticketToDelete) return;
-
-    try {
-      setDeleting(true);
-      const token = await getApiToken();
-      await ticketService.delete(ticketToDelete.id, token);
-      setAllTickets((prev) =>
-        prev.filter((ticket) => ticket.id !== ticketToDelete.id),
-      );
-      toast.success("Ticket deleted");
-    } catch (error) {
-      console.error("Failed to delete ticket", error);
-      toast.error("Failed to delete ticket");
-    } finally {
-      setDeleting(false);
-      setTicketToDelete(null);
-    }
-  };
-
-  const handleArchiveTicket = async (
-    ticket: Ticket,
-    changeReason?: string,
-  ) => {
-    if (!ticket.id) {
-      return;
-    }
-
-    try {
-      const token = await getApiToken();
-      const archivedTicket = await ticketService.archiveWithReason(
-        ticket.id,
-        changeReason,
-        token,
-      );
-
-      setAllTickets((currentTickets) =>
-        currentTickets.filter((currentTicket) => currentTicket.id !== ticket.id),
-      );
-      setArchivedTickets((currentTickets) => [
-        archivedTicket,
-        ...currentTickets.filter((currentTicket) => currentTicket.id !== ticket.id),
-      ]);
-
-      setIsModalOpen(false);
-      setSelectedTicket(null);
-      toast.success("Ticket archived");
-    } catch (error) {
-      console.error("Failed to archive ticket", error);
-      toast.error(getUserFacingErrorMessage(error, "Failed to archive ticket"));
-      throw error;
-    }
-  };
-
-  const handleReactivateArchivedTicket = async (ticket: ArchivedTicket) => {
-    if (!ticket.id) {
-      return;
-    }
-
-    try {
-      setReactivatingArchivedTicketId(ticket.id);
-      const token = await getApiToken();
-      const restoredTicket = await ticketService.reactivateArchived(ticket.id, token);
-
-      setArchivedTickets((currentTickets) =>
-        currentTickets.filter((currentTicket) => currentTicket.id !== ticket.id),
-      );
-      setAllTickets((currentTickets) => [
-        restoredTicket,
-        ...currentTickets.filter((currentTicket) => currentTicket.id !== ticket.id),
-      ]);
-
-      toast.success(
-        restoredTicket.status !== ticket.status
-          ? `Ticket reactivated and reopened as ${restoredTicket.status}`
-          : "Ticket reactivated",
-      );
-    } catch (error) {
-      console.error("Failed to reactivate archived ticket", error);
-      toast.error(getUserFacingErrorMessage(error, "Failed to reactivate archived ticket"));
-    } finally {
-      setReactivatingArchivedTicketId(null);
-    }
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setTimeout(() => {
-      setSelectedTicket(null);
-    }, 0);
-  };
-
-  const openTicket = (ticket: Ticket) => {
-    setSelectedTicket(ticket);
-    setIsModalOpen(true);
-  };
+  }, [boardTabs, selectedBoardId, setSelectedBoardId]);
 
   const handleViewChange = (view: AppView) => {
     if (!isViewAllowed(view)) {
@@ -2464,27 +1873,6 @@ function App() {
         block: "start",
       });
     }, 50);
-  };
-
-  const openTicketById = async (ticketId: string, providedToken?: string) => {
-    const existingTicket = allTickets.find((ticket) => ticket.id === ticketId);
-    if (existingTicket) {
-      openTicket(existingTicket);
-      return;
-    }
-
-    const token = providedToken ?? (await getApiToken());
-    const fetchedTicket = await ticketService.getById(ticketId, token);
-
-    setAllTickets((currentTickets) => {
-      if (currentTickets.some((ticket) => ticket.id === fetchedTicket.id)) {
-        return currentTickets;
-      }
-
-      return [fetchedTicket, ...currentTickets];
-    });
-
-    openTicket(fetchedTicket);
   };
 
   const markNotificationAsRead = async (
