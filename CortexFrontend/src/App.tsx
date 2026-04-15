@@ -13,10 +13,7 @@ import type { RealtimeEvent } from "./types/realtime";
 import type { SessionConfiguration } from "./types/sessionConfiguration";
 import type { TicketBoardDefinition } from "./types/ticketBoard";
 import type { TicketStatusDefinition } from "./types/ticketStatus";
-import type {
-  UpdateUserProfileInput,
-  UserProfile,
-} from "./types/user";
+import type { UpdateUserProfileInput, UserProfile } from "./types/user";
 import {
   API_USER_MESSAGES,
   ApiError,
@@ -68,7 +65,8 @@ const API_AUTHORIZATION_PARAMS = {
 } as const;
 const SIDEBAR_WIDTH_STORAGE_KEY = "cortex:sidebar-width";
 const SESSION_LAST_ACTIVITY_STORAGE_KEY_PREFIX = "cortex:session-last-activity";
-const SESSION_REAUTH_PENDING_STORAGE_KEY_PREFIX = "cortex:session-reauth-pending";
+const SESSION_REAUTH_PENDING_STORAGE_KEY_PREFIX =
+  "cortex:session-reauth-pending";
 const SIDEBAR_MIN_WIDTH = 232;
 const SIDEBAR_MAX_WIDTH = 440;
 const SIDEBAR_DEFAULT_WIDTH = 296;
@@ -158,7 +156,10 @@ function clampSidebarWidth(width: number) {
   const maxWidth =
     typeof window === "undefined"
       ? SIDEBAR_MAX_WIDTH
-      : Math.min(SIDEBAR_MAX_WIDTH, Math.max(320, Math.floor(window.innerWidth * 0.24)));
+      : Math.min(
+          SIDEBAR_MAX_WIDTH,
+          Math.max(320, Math.floor(window.innerWidth * 0.24)),
+        );
 
   return Math.min(maxWidth, Math.max(SIDEBAR_MIN_WIDTH, width));
 }
@@ -182,7 +183,9 @@ function getInitialSidebarWidth() {
     return SIDEBAR_DEFAULT_WIDTH;
   }
 
-  const storedValue = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+  const storedValue = Number(
+    window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY),
+  );
   if (Number.isNaN(storedValue)) {
     return SIDEBAR_DEFAULT_WIDTH;
   }
@@ -234,9 +237,7 @@ function parseSavedFilters(rawValue: string | null): SavedTicketFilter[] {
       const candidate = item as Partial<SavedTicketFilter>;
       const filterOption = candidate.filter;
       const pageSizeValue =
-        candidate.pageSize === "all"
-          ? "all"
-          : Number(candidate.pageSize ?? 0);
+        candidate.pageSize === "all" ? "all" : Number(candidate.pageSize ?? 0);
 
       if (
         typeof candidate.id !== "string" ||
@@ -254,7 +255,9 @@ function parseSavedFilters(rawValue: string | null): SavedTicketFilter[] {
           name: candidate.name,
           filter: filterOption,
           filterValue:
-            typeof candidate.filterValue === "string" ? candidate.filterValue : "",
+            typeof candidate.filterValue === "string"
+              ? candidate.filterValue
+              : "",
           searchQuery:
             typeof candidate.searchQuery === "string"
               ? candidate.searchQuery
@@ -347,12 +350,10 @@ function getDefaultTicketBoard(boards: TicketBoardDefinition[]) {
 }
 
 async function loadBootstrapCurrentUser(token: string) {
-  return await userService.getCurrentUser(token).catch(
-    (error) => {
-      console.warn("Current user profile could not be loaded", error);
-      return null;
-    },
-  );
+  return await userService.getCurrentUser(token).catch((error) => {
+    console.warn("Current user profile could not be loaded", error);
+    return null;
+  });
 }
 
 function createDraftTicket(
@@ -404,14 +405,15 @@ function App() {
   const [showReportSlaLegend, setShowReportSlaLegend] = useState(false);
   const [activeReportSection, setActiveReportSection] =
     useState<ReportSection>("sla");
-  const [selectedCustomReportId, setSelectedCustomReportId] = useState<number | null>(
-    null,
-  );
+  const [selectedCustomReportId, setSelectedCustomReportId] = useState<
+    number | null
+  >(null);
   const [savedFilters, setSavedFilters] = useState<SavedTicketFilter[]>([]);
   const [selectedSavedFilterId, setSelectedSavedFilterId] = useState("");
   const [isSaveFilterModalOpen, setIsSaveFilterModalOpen] = useState(false);
   const [savedFilterName, setSavedFilterName] = useState("");
-  const [latestRealtimeEvent, setLatestRealtimeEvent] = useState<RealtimeEvent | null>(null);
+  const [latestRealtimeEvent, setLatestRealtimeEvent] =
+    useState<RealtimeEvent | null>(null);
 
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const [needsConsent, setNeedsConsent] = useState(false);
@@ -426,12 +428,14 @@ function App() {
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsLoaded, setNotificationsLoaded] = useState(false);
-  const [notificationsError, setNotificationsError] = useState<string | null>(null);
-  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
-  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
-  const [markingNotificationId, setMarkingNotificationId] = useState<number | null>(
+  const [notificationsError, setNotificationsError] = useState<string | null>(
     null,
   );
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [markingNotificationId, setMarkingNotificationId] = useState<
+    number | null
+  >(null);
   const [markingAllNotificationsRead, setMarkingAllNotificationsRead] =
     useState(false);
   // User management state is owned by useUsers (wired below after getApiToken).
@@ -481,11 +485,13 @@ function App() {
     [currentUser?.id, user?.sub],
   );
   const sessionLastActivityStorageKey = useMemo(
-    () => `${SESSION_LAST_ACTIVITY_STORAGE_KEY_PREFIX}:${sessionStorageIdentity}`,
+    () =>
+      `${SESSION_LAST_ACTIVITY_STORAGE_KEY_PREFIX}:${sessionStorageIdentity}`,
     [sessionStorageIdentity],
   );
   const sessionReauthPendingStorageKey = useMemo(
-    () => `${SESSION_REAUTH_PENDING_STORAGE_KEY_PREFIX}:${sessionStorageIdentity}`,
+    () =>
+      `${SESSION_REAUTH_PENDING_STORAGE_KEY_PREFIX}:${sessionStorageIdentity}`,
     [sessionStorageIdentity],
   );
 
@@ -818,7 +824,9 @@ function App() {
           setApiUnavailable(true);
         } else if (isForbiddenError(error)) {
           setApiUnavailable(false);
-          setNotificationsError("You do not have permission to view notifications.");
+          setNotificationsError(
+            "You do not have permission to view notifications.",
+          );
         } else {
           setApiUnavailable(false);
           setNotificationsError("Failed to load notifications.");
@@ -1192,7 +1200,12 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!isAuthenticated || !bootstrapComplete || needsConsent || !canViewTicketSections) {
+    if (
+      !isAuthenticated ||
+      !bootstrapComplete ||
+      needsConsent ||
+      !canViewTicketSections
+    ) {
       return;
     }
 
@@ -1264,7 +1277,12 @@ function App() {
   }, [isAppMenuOpen, isNotificationPanelOpen, isUserMenuOpen]);
 
   useEffect(() => {
-    if (!isAuthenticated || isLoading || isAccountExpired || isAccountInactive) {
+    if (
+      !isAuthenticated ||
+      isLoading ||
+      isAccountExpired ||
+      isAccountInactive
+    ) {
       sessionPromptStateRef.current = null;
       sessionLastActivityAtRef.current = Date.now();
       setSessionPromptState(null);
@@ -1281,7 +1299,10 @@ function App() {
       : readStoredTimestamp(sessionLastActivityStorageKey);
     const restoredLastActivity = storedLastActivity ?? now;
     const elapsedSeconds = Math.floor((now - restoredLastActivity) / 1000);
-    const remainingSeconds = Math.max(0, sessionTimeoutSeconds - elapsedSeconds);
+    const remainingSeconds = Math.max(
+      0,
+      sessionTimeoutSeconds - elapsedSeconds,
+    );
     const initialPromptState: SessionPromptState =
       remainingSeconds === 0
         ? "expired"
@@ -1320,7 +1341,10 @@ function App() {
       const elapsedSeconds = Math.floor(
         (Date.now() - sessionLastActivityAtRef.current) / 1000,
       );
-      const remainingSeconds = Math.max(0, sessionTimeoutSeconds - elapsedSeconds);
+      const remainingSeconds = Math.max(
+        0,
+        sessionTimeoutSeconds - elapsedSeconds,
+      );
 
       setSessionRemainingSeconds(remainingSeconds);
 
@@ -1371,7 +1395,12 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!isAuthenticated || isLoading || isAccountExpired || isAccountInactive) {
+    if (
+      !isAuthenticated ||
+      isLoading ||
+      isAccountExpired ||
+      isAccountInactive
+    ) {
       return;
     }
 
@@ -1492,7 +1521,12 @@ function App() {
     }
 
     void loadTicketBoards();
-  }, [isAuthenticated, loadTicketBoards, ticketBoardLoading, ticketBoards.length]);
+  }, [
+    isAuthenticated,
+    loadTicketBoards,
+    ticketBoardLoading,
+    ticketBoards.length,
+  ]);
 
   useEffect(() => {
     if (!isAuthenticated || ticketStatuses.length > 0 || ticketStatusLoading) {
@@ -1658,7 +1692,12 @@ function App() {
     }
 
     void loadArchivedTickets();
-  }, [activeView, archivedTickets.length, canViewArchived, loadArchivedTickets]);
+  }, [
+    activeView,
+    archivedTickets.length,
+    canViewArchived,
+    loadArchivedTickets,
+  ]);
 
   useEffect(() => {
     if (activeView !== "archived" && highlightedArchivedTicketId) {
@@ -1763,7 +1802,12 @@ function App() {
     }
 
     void runCustomReport(selectedCustomReportId);
-  }, [activeReportSection, activeView, runCustomReport, selectedCustomReportId]);
+  }, [
+    activeReportSection,
+    activeView,
+    runCustomReport,
+    selectedCustomReportId,
+  ]);
 
   useEffect(() => {
     if (
@@ -1824,15 +1868,15 @@ function App() {
   };
 
   const availableTicketBoards = useMemo(
-    () =>
-      ticketBoards.length > 0 ? ticketBoards : [...DEFAULT_TICKET_BOARDS],
+    () => (ticketBoards.length > 0 ? ticketBoards : [...DEFAULT_TICKET_BOARDS]),
     [ticketBoards],
   );
 
   const boardTabs = useMemo(() => {
     return availableTicketBoards.filter(
       (board) =>
-        board.isEnabled || allTickets.some((ticket) => ticket.boardId === board.id),
+        board.isEnabled ||
+        allTickets.some((ticket) => ticket.boardId === board.id),
     );
   }, [allTickets, availableTicketBoards]);
 
@@ -1896,9 +1940,7 @@ function App() {
           : currentNotification,
       ),
     );
-    setNotificationUnreadCount((currentCount) =>
-      Math.max(0, currentCount - 1),
-    );
+    setNotificationUnreadCount((currentCount) => Math.max(0, currentCount - 1));
   };
 
   const markAllNotificationsRead = async () => {
@@ -1924,7 +1966,10 @@ function App() {
     } catch (error) {
       console.error("Failed to mark notifications as read", error);
       setNotificationsError(
-        getUserFacingErrorMessage(error, "Failed to mark notifications as read."),
+        getUserFacingErrorMessage(
+          error,
+          "Failed to mark notifications as read.",
+        ),
       );
       toast.error("Failed to mark notifications as read");
     } finally {
@@ -1967,7 +2012,9 @@ function App() {
       await openTicketById(notification.ticketId, token);
     } catch (error) {
       console.error("Failed to open notification", error);
-      setNotificationsError(getUserFacingErrorMessage(error, "Failed to open notification."));
+      setNotificationsError(
+        getUserFacingErrorMessage(error, "Failed to open notification."),
+      );
       toast.error("Failed to open notification");
     } finally {
       setMarkingNotificationId(null);
@@ -2004,11 +2051,7 @@ function App() {
     }
 
     const nextPageSize = Number(value);
-    if (
-      nextPageSize === 10 ||
-      nextPageSize === 25 ||
-      nextPageSize === 50
-    ) {
+    if (nextPageSize === 10 || nextPageSize === 25 || nextPageSize === 50) {
       setPageSize(nextPageSize);
     }
   };
@@ -2048,11 +2091,15 @@ function App() {
 
     setSavedFilters((currentFilters) => [
       nextSavedFilter,
-      ...currentFilters.filter((savedFilter) => savedFilter.id !== savedFilterId),
+      ...currentFilters.filter(
+        (savedFilter) => savedFilter.id !== savedFilterId,
+      ),
     ]);
     setSelectedSavedFilterId(savedFilterId);
     closeSaveFilterModal();
-    toast.success(existingFilter ? "Saved filter updated" : "Saved filter saved");
+    toast.success(
+      existingFilter ? "Saved filter updated" : "Saved filter saved",
+    );
   };
 
   const applySavedFilter = (savedFilterId: string) => {
@@ -2265,7 +2312,9 @@ function App() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center px-6 text-gray-900 dark:text-slate-100">
         <div className="max-w-xl rounded-2xl border border-red-200 bg-white/90 px-8 py-10 text-center shadow-xl backdrop-blur dark:border-red-900/40 dark:bg-slate-900/90">
-          <h1 className="mb-4 text-3xl font-bold">Your account has been expired</h1>
+          <h1 className="mb-4 text-3xl font-bold">
+            Your account has been expired
+          </h1>
           <p className="text-gray-600 dark:text-slate-400">
             Please contact an administrator if you believe this is a mistake.
           </p>
@@ -2418,7 +2467,9 @@ function App() {
                       openTicket(
                         createDraftTicket(
                           ticketStatuses,
-                          ticketBoards.length > 0 ? ticketBoards : [...DEFAULT_TICKET_BOARDS],
+                          ticketBoards.length > 0
+                            ? ticketBoards
+                            : [...DEFAULT_TICKET_BOARDS],
                           currentUser?.displayName ?? user?.name ?? "",
                           currentUser?.department ?? "",
                         ),
@@ -2435,8 +2486,7 @@ function App() {
             {bootstrapComplete && needsConsent && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-yellow-700 dark:text-amber-300">
-                  CORTEX API consent is required before the app can
-                  load.
+                  CORTEX API consent is required before the app can load.
                 </span>
                 <button
                   onClick={() => void grantConsent()}
@@ -2457,7 +2507,9 @@ function App() {
                   disabled={sessionRefreshInProgress}
                   className="rounded-md bg-amber-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {sessionRefreshInProgress ? "Refreshing..." : "Refresh Session"}
+                  {sessionRefreshInProgress
+                    ? "Refreshing..."
+                    : "Refresh Session"}
                 </button>
               </div>
             )}
@@ -2496,7 +2548,9 @@ function App() {
                   </svg>
                   {notificationUnreadCount > 0 && (
                     <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-cortex-cyan px-1 text-[11px] font-semibold leading-none text-cortex-ink">
-                      {notificationUnreadCount > 9 ? "9+" : notificationUnreadCount}
+                      {notificationUnreadCount > 9
+                        ? "9+"
+                        : notificationUnreadCount}
                     </span>
                   )}
                 </button>
@@ -2611,7 +2665,7 @@ function App() {
           className="relative hidden shrink-0 lg:block"
           style={{ width: `${sidebarWidth}px` }}
         >
-          <div className="relative sticky top-8 flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
+          <div className="sticky top-8 flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
             <div className="border-b border-gray-100 px-5 py-5 dark:border-slate-800">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-slate-400">
                 Navigation
@@ -2680,464 +2734,495 @@ function App() {
         </aside>
 
         <main className="min-w-0 flex-1">
-        {activeView === "dashboard" && canViewDashboard ? (
-          <DashboardPage
-            tickets={allTickets}
-            loading={loading || apiUnavailable}
-            error={apiUnavailable ? null : error}
-            onRefresh={() => void loadAllTickets()}
-            onOpenTicket={openTicket}
-          />
-        ) : activeView === "tickets" ? (
-          <>
-            <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-                    Ticket Filters
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-slate-400">
-                    Search, narrow, and save ticket views without crowding the header.
-                  </p>
+          {activeView === "dashboard" && canViewDashboard ? (
+            <DashboardPage
+              tickets={allTickets}
+              loading={loading || apiUnavailable}
+              error={apiUnavailable ? null : error}
+              onRefresh={() => void loadAllTickets()}
+              onOpenTicket={openTicket}
+            />
+          ) : activeView === "tickets" ? (
+            <>
+              <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                      Ticket Filters
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-slate-400">
+                      Search, narrow, and save ticket views without crowding the
+                      header.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={openSaveFilterModal}
+                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Save Filter
+                    </button>
+
+                    {selectedSavedFilterId && (
+                      <button
+                        onClick={deleteSavedFilter}
+                        className="inline-flex items-center rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30"
+                      >
+                        Delete Saved
+                      </button>
+                    )}
+
+                    <button
+                      onClick={clearTicketFilters}
+                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-wrap gap-2">
                   <button
-                    onClick={openSaveFilterModal}
-                    className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    onClick={() => setSelectedBoardId("all")}
+                    className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                      selectedBoardId === "all"
+                        ? "bg-cortex-blue text-white"
+                        : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    }`}
                   >
-                    Save Filter
+                    All Boards
+                    <span className="ml-2 text-xs opacity-80">
+                      {allTickets.length}
+                    </span>
                   </button>
+                  {boardTabs.map((board) => {
+                    const boardCount = allTickets.filter(
+                      (ticket) => ticket.boardId === board.id,
+                    ).length;
+                    const isActive = selectedBoardId === board.id;
 
-                  {selectedSavedFilterId && (
-                    <button
-                      onClick={deleteSavedFilter}
-                      className="inline-flex items-center rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30"
-                    >
-                      Delete Saved
-                    </button>
-                  )}
-
-                  <button
-                    onClick={clearTicketFilters}
-                    className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    Clear
-                  </button>
+                    return (
+                      <button
+                        key={board.id}
+                        onClick={() => setSelectedBoardId(board.id)}
+                        className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? "bg-cortex-blue text-white"
+                            : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                        }`}
+                      >
+                        {board.name}
+                        <span className="ml-2 text-xs opacity-80">
+                          {boardCount}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setSelectedBoardId("all")}
-                  className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                    selectedBoardId === "all"
-                      ? "bg-cortex-blue text-white"
-                      : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  All Boards
-                  <span className="ml-2 text-xs opacity-80">{allTickets.length}</span>
-                </button>
-                {boardTabs.map((board) => {
-                  const boardCount = allTickets.filter(
-                    (ticket) => ticket.boardId === board.id,
-                  ).length;
-                  const isActive = selectedBoardId === board.id;
-
-                  return (
-                    <button
-                      key={board.id}
-                      onClick={() => setSelectedBoardId(board.id)}
-                      className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-cortex-blue text-white"
-                          : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      {board.name}
-                      <span className="ml-2 text-xs opacity-80">{boardCount}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <select
-                  value={filter}
-                  onChange={(event) => handleFilterChange(event.target.value)}
-                  className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option value="all">All Tickets</option>
-                  <option value="status">By Status</option>
-                  <option value="priority">By Priority</option>
-                  <option value="sla">By SLA</option>
-                </select>
-
-                <label className="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600 dark:border-slate-700 dark:text-slate-400">
-                  <span>Show</span>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <select
-                    value={pageSize}
-                    onChange={(event) => handlePageSizeChange(event.target.value)}
-                    style={{ colorScheme: theme === "dark" ? "dark" : "light" }}
-                    className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-900 shadow-none focus:border-cortex-blue focus:ring-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option === "all" ? "All" : option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                {filter === "sla" ? (
-                  <select
-                    value={filterValue}
-                    onChange={(event) => handleFilterValueChange(event.target.value)}
+                    value={filter}
+                    onChange={(event) => handleFilterChange(event.target.value)}
                     className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   >
-                    <option value="">Select SLA state</option>
-                    {SLA_FILTER_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
+                    <option value="all">All Tickets</option>
+                    <option value="status">By Status</option>
+                    <option value="priority">By Priority</option>
+                    <option value="sla">By SLA</option>
+                  </select>
+
+                  <label className="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600 dark:border-slate-700 dark:text-slate-400">
+                    <span>Show</span>
+                    <select
+                      value={pageSize}
+                      onChange={(event) =>
+                        handlePageSizeChange(event.target.value)
+                      }
+                      style={{
+                        colorScheme: theme === "dark" ? "dark" : "light",
+                      }}
+                      className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-900 shadow-none focus:border-cortex-blue focus:ring-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      {PAGE_SIZE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option === "all" ? "All" : option}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {filter === "sla" ? (
+                    <select
+                      value={filterValue}
+                      onChange={(event) =>
+                        handleFilterValueChange(event.target.value)
+                      }
+                      className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      <option value="">Select SLA state</option>
+                      {SLA_FILTER_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  ) : filter !== "all" ? (
+                    <input
+                      type="text"
+                      placeholder={`Enter ${filter}...`}
+                      value={filterValue}
+                      onChange={(event) =>
+                        handleFilterValueChange(event.target.value)
+                      }
+                      className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                  ) : (
+                    <div className="hidden lg:block" />
+                  )}
+
+                  <select
+                    value={selectedSavedFilterId}
+                    onChange={(event) => applySavedFilter(event.target.value)}
+                    className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="">Saved Filters</option>
+                    {savedFilters.map((savedFilter) => (
+                      <option key={savedFilter.id} value={savedFilter.id}>
+                        {savedFilter.name}
                       </option>
                     ))}
                   </select>
-                ) : filter !== "all" ? (
+                </div>
+
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div
+                    className="flex shrink-0 gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 dark:border-slate-700 dark:bg-slate-800"
+                    role="group"
+                    aria-label="Ticket scope"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedSavedFilterId("");
+                        setMyTicketsOnly(false);
+                      }}
+                      className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                        !myTicketsOnly
+                          ? "bg-cortex-blue text-white"
+                          : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      All Tickets
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedSavedFilterId("");
+                        setMyTicketsOnly(true);
+                      }}
+                      className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                        myTicketsOnly
+                          ? "bg-cortex-blue text-white"
+                          : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      My Tickets
+                    </button>
+                  </div>
                   <input
                     type="text"
-                    placeholder={`Enter ${filter}...`}
-                    value={filterValue}
-                    onChange={(event) => handleFilterValueChange(event.target.value)}
-                    className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    placeholder="Search tickets..."
+                    value={searchQuery}
+                    onChange={(event) => handleSearchChange(event.target.value)}
+                    className="min-w-0 flex-1 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                   />
-                ) : (
-                  <div className="hidden lg:block" />
+                  <select
+                    aria-label="Sort tickets"
+                    value={ticketListSort}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (isTicketListSortOption(value)) {
+                        setSelectedSavedFilterId("");
+                        setTicketListSort(value);
+                      }
+                    }}
+                    className="w-full shrink-0 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm sm:w-52 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="newest-first">Newest first</option>
+                    <option value="oldest-first">Oldest first</option>
+                    <option value="priority-high-low">
+                      Priority (high → low)
+                    </option>
+                    <option value="priority-low-high">
+                      Priority (low → high)
+                    </option>
+                    <option value="due-soonest">Due soonest</option>
+                    <option value="most-overdue">Most overdue</option>
+                  </select>
+                </div>
+              </div>
+
+              {(loading || apiUnavailable) && <TicketGridSkeleton />}
+
+              {error && !apiUnavailable && (
+                <div className="bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 p-4 rounded">
+                  <p className="text-red-700 dark:text-red-300">{error}</p>
+                </div>
+              )}
+
+              {!loading &&
+                !apiUnavailable &&
+                !error &&
+                tickets.length === 0 && (
+                  <p className="text-gray-600 dark:text-slate-400 text-center">
+                    No tickets found
+                  </p>
                 )}
 
-                <select
-                  value={selectedSavedFilterId}
-                  onChange={(event) => applySavedFilter(event.target.value)}
-                  className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option value="">Saved Filters</option>
-                  {savedFilters.map((savedFilter) => (
-                    <option key={savedFilter.id} value={savedFilter.id}>
-                      {savedFilter.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!loading && !apiUnavailable && !error && tickets.length > 0 && (
+                <>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                    {pagedTickets.map((ticket) => (
+                      <TicketCard
+                        key={ticket.id}
+                        ticket={ticket}
+                        onClick={() => openTicket(ticket)}
+                      />
+                    ))}
+                  </div>
 
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div
-                  className="flex shrink-0 gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 dark:border-slate-700 dark:bg-slate-800"
-                  role="group"
-                  aria-label="Ticket scope"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedSavedFilterId("");
-                      setMyTicketsOnly(false);
-                    }}
-                    className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                      !myTicketsOnly
-                        ? "bg-cortex-blue text-white"
-                        : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    All Tickets
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedSavedFilterId("");
-                      setMyTicketsOnly(true);
-                    }}
-                    className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                      myTicketsOnly
-                        ? "bg-cortex-blue text-white"
-                        : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    My Tickets
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Search tickets..."
-                  value={searchQuery}
-                  onChange={(event) => handleSearchChange(event.target.value)}
-                  className="min-w-0 flex-1 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-                />
-                <select
-                  aria-label="Sort tickets"
-                  value={ticketListSort}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (isTicketListSortOption(value)) {
-                      setSelectedSavedFilterId("");
-                      setTicketListSort(value);
-                    }
-                  }}
-                  className="w-full shrink-0 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm sm:w-52 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option value="newest-first">Newest first</option>
-                  <option value="oldest-first">Oldest first</option>
-                  <option value="priority-high-low">Priority (high → low)</option>
-                  <option value="priority-low-high">Priority (low → high)</option>
-                  <option value="due-soonest">Due soonest</option>
-                  <option value="most-overdue">Most overdue</option>
-                </select>
-              </div>
-            </div>
-
-            {(loading || apiUnavailable) && <TicketGridSkeleton />}
-
-            {error && !apiUnavailable && (
-              <div className="bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 p-4 rounded">
-                <p className="text-red-700 dark:text-red-300">{error}</p>
-              </div>
-            )}
-
-            {!loading && !apiUnavailable && !error && tickets.length === 0 && (
-              <p className="text-gray-600 dark:text-slate-400 text-center">
-                No tickets found
-              </p>
-            )}
-
-            {!loading && !apiUnavailable && !error && tickets.length > 0 && (
-              <>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                  {pagedTickets.map((ticket) => (
-                    <TicketCard
-                      key={ticket.id}
-                      ticket={ticket}
-                      onClick={() => openTicket(ticket)}
-                    />
-                  ))}
-                </div>
-
-                <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-gray-600 dark:text-slate-400">
-                    Showing {showingStart}-{showingEnd} of {totalTickets} tickets
-                  </p>
-                  {pageSize !== "all" && totalPages > 1 && (
-                    <div className="flex items-center gap-3 sm:ml-auto">
-                      <p className="text-sm text-gray-600 dark:text-slate-400">
-                        Page {currentPage} of {totalPages}
-                      </p>
-                      <button
-                        onClick={() =>
-                          setCurrentPage((page) => Math.max(1, page - 1))
-                        }
-                        disabled={currentPage === 1}
-                        className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                      >
-                        Previous
-                      </button>
-                      <button
-                        onClick={() =>
-                          setCurrentPage((page) => Math.min(totalPages, page + 1))
-                        }
-                        disabled={currentPage === totalPages}
-                        className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </>
-        ) : activeView === "archived" && canViewArchived ? (
-          <ArchivedTicketsPage
-            tickets={archivedTickets}
-            loading={archivedLoading || apiUnavailable}
-            error={apiUnavailable ? null : archivedError}
-            highlightedTicketId={highlightedArchivedTicketId}
-            onRefresh={() => void loadArchivedTickets()}
-            canReactivate={canEditTicketsCap}
-            reactivatingTicketId={reactivatingArchivedTicketId}
-            onReactivate={handleReactivateArchivedTicket}
-          />
-        ) : activeView === "reports" && canViewReportsNav ? (
-          <ReportsPage
-            tickets={allTickets}
-            onlineUsers={onlineUsers}
-            customReports={customReports.filter((report) => report.isEnabled)}
-            customReportResult={customReportResult}
-            loading={loading || apiUnavailable}
-            onlineUsersLoading={onlineUsersLoading || apiUnavailable}
-            customReportLoading={customReportResultLoading || apiUnavailable}
-            error={apiUnavailable ? null : error}
-            onlineUsersError={apiUnavailable ? null : onlineUsersError}
-            customReportError={apiUnavailable ? null : customReportResultError}
-            showSlaLegend={showReportSlaLegend}
-            canViewOnlineUsers={canViewOnlineUsersReport}
-            canViewCustomReports={canViewReportsNav}
-            activeSection={activeReportSection}
-            onChangeSection={setActiveReportSection}
-            selectedCustomReportId={selectedCustomReportId}
-            onSelectCustomReport={setSelectedCustomReportId}
-            onToggleSlaLegend={() =>
-              setShowReportSlaLegend((currentValue) => !currentValue)
-            }
-            onRefresh={() => void loadAllTickets()}
-            onRefreshOnlineUsers={() => void loadOnlineUsers()}
-            onRefreshCustomReport={() => {
-              if (selectedCustomReportId !== null) {
-                void runCustomReport(selectedCustomReportId);
-              }
-            }}
-            onExportCsv={() => void exportReportCsv(false)}
-            onExportGoogleSheets={() => void exportReportCsv(true)}
-            onOpenTicket={openTicket}
-          />
-        ) : activeView === "jobs" && canManageJobsNav ? (
-          <JobsPage
-            jobs={jobs}
-            storedProcedures={storedProcedures}
-            loading={jobsLoading}
-            error={jobsError}
-            saving={jobsSaving}
-            runningJobId={runningJobId}
-            onRefresh={() => void loadJobs()}
-            onCreate={createScheduledJob}
-            onUpdate={updateScheduledJob}
-            onRunNow={runScheduledJobNow}
-          />
-        ) : activeView === "sla" && canManageConfiguration ? (
-          apiUnavailable ? (
-            <ConfigurationSkeleton />
-          ) : (
-            <ConfigurationPage
-              slaConfigurations={slaConfigurations}
-              slaError={slaError}
-              slaLoading={slaLoading}
-              slaSaving={slaSaving}
-              onSlaChange={handleSlaConfigurationChange}
-              onRefreshSla={() => void loadSlaConfigurations()}
-              onSaveSla={() => void saveSlaConfigurations()}
-              sessionConfiguration={sessionConfiguration}
-              sessionError={sessionError}
-              sessionLoading={sessionLoading}
-              sessionSaving={sessionSaving}
-              onSessionChange={handleSessionConfigurationChange}
-              onRefreshSession={() => void loadSessionConfiguration()}
-              onSaveSession={() => void saveSessionConfiguration()}
-              notificationChannelConfiguration={notificationChannelConfiguration}
-              notificationChannelError={notificationChannelError}
-              notificationChannelLoading={notificationChannelLoading}
-              notificationChannelSaving={notificationChannelSaving}
-              onNotificationChannelChange={
-                handleNotificationChannelConfigurationChange
-              }
-              onRefreshNotificationChannels={() =>
-                void loadNotificationChannelConfiguration()
-              }
-              onSaveNotificationChannels={() =>
-                void saveNotificationChannelConfiguration()
-              }
-              ticketBoards={ticketBoards}
-              ticketBoardError={ticketBoardError}
-              ticketBoardLoading={ticketBoardLoading}
-              ticketBoardSaving={ticketBoardSaving}
-              ticketBoardDeletingId={deletingTicketBoardId}
-              onRefreshTicketBoards={() => void loadTicketBoards()}
-              onCreateTicketBoard={createTicketBoard}
-              onUpdateTicketBoard={updateTicketBoard}
-              onDeleteTicketBoard={deleteTicketBoard}
-              ticketStatuses={ticketStatuses}
-              ticketStatusError={ticketStatusError}
-              ticketStatusLoading={ticketStatusLoading}
-              ticketStatusSaving={ticketStatusSaving}
-              ticketStatusDeletingId={deletingTicketStatusId}
-              onRefreshTicketStatuses={() => void loadTicketStatuses()}
-              onCreateTicketStatus={createTicketStatusDefinition}
-              onUpdateTicketStatus={updateTicketStatusDefinition}
-              onDeleteTicketStatus={deleteTicketStatusDefinition}
-              ticketRoutingRules={ticketRoutingRules}
-              selectedTicketRoutingRule={selectedTicketRoutingRule}
-              ticketRoutingError={ticketRoutingError}
-              ticketRoutingLoading={ticketRoutingLoading}
-              ticketRoutingSaving={ticketRoutingSaving}
-              ticketRoutingDeletingId={deletingTicketRoutingRuleId}
-              onRefreshTicketRouting={() => void loadTicketRoutingRules()}
-              onCreateTicketRoutingRule={createTicketRoutingRule}
-              onSelectTicketRoutingRule={selectTicketRoutingRule}
-              onTicketRoutingChange={handleTicketRoutingRuleChange}
-              onSaveTicketRoutingRule={saveTicketRoutingRule}
-              onDeleteTicketRoutingRule={deleteTicketRoutingRule}
-              archiveConfigurations={archiveConfigurations}
-              archiveConfiguration={archiveConfiguration}
-              archiveError={archiveError}
-              archiveLoading={archiveLoading}
-              archiveSaving={archiveSaving}
-              archiveDeletingId={deletingArchiveConfigurationId}
-              archiveRunning={archiveRunning}
-              onCreateArchivePolicy={createArchivePolicy}
-              onSelectArchivePolicy={selectArchivePolicy}
-              onArchiveChange={handleArchiveConfigurationChange}
-              onRefreshArchive={() => void loadArchiveConfigurations()}
-              onSaveArchive={() => void saveArchiveConfiguration()}
-              onDeleteArchive={() => void deleteArchiveConfiguration()}
-              onRunArchiveNow={() => void runArchiveNow()}
-              customReports={customReports}
-              databaseViews={databaseViews}
-              databaseViewsLoading={databaseViewsLoading}
-              customReportError={customReportsError}
-              customReportLoading={customReportsLoading}
-              customReportSaving={customReportsSaving}
-              customReportDeletingId={deletingCustomReportId}
-              onRefreshCustomReports={() => void loadCustomReportDefinitions()}
-              onCreateCustomReport={createCustomReport}
-              onUpdateCustomReport={updateCustomReport}
-              onDeleteCustomReport={deleteCustomReport}
-              storedProcedures={storedProcedures}
-              databaseStoredProcedures={databaseStoredProcedures}
-              databaseStoredProceduresLoading={databaseStoredProceduresLoading}
-              storedProcedureError={storedProcedureError}
-              storedProcedureLoading={storedProcedureLoading}
-              storedProcedureSaving={storedProcedureSaving}
-              storedProcedureDeletingId={deletingStoredProcedureId}
-              onRefreshStoredProcedures={() => void loadStoredProcedures()}
-              onCreateStoredProcedure={createStoredProcedureDefinition}
-              onUpdateStoredProcedure={updateStoredProcedureDefinition}
-              onDeleteStoredProcedure={deleteStoredProcedureDefinition}
-              canExportAdminLogs={isAdmin}
-              onExportAdminLogs={exportAdminLogsCsv}
-              canManageJobs={canManageJobsNav}
-              canManageReportDefinitions={canManageCustomReportDefinitions}
-              canViewUsers={canViewUsers}
-              onOpenJobs={() => setActiveView("jobs")}
-              onOpenUsers={() => setActiveView("users")}
+                  <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-gray-600 dark:text-slate-400">
+                      Showing {showingStart}-{showingEnd} of {totalTickets}{" "}
+                      tickets
+                    </p>
+                    {pageSize !== "all" && totalPages > 1 && (
+                      <div className="flex items-center gap-3 sm:ml-auto">
+                        <p className="text-sm text-gray-600 dark:text-slate-400">
+                          Page {currentPage} of {totalPages}
+                        </p>
+                        <button
+                          onClick={() =>
+                            setCurrentPage((page) => Math.max(1, page - 1))
+                          }
+                          disabled={currentPage === 1}
+                          className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          onClick={() =>
+                            setCurrentPage((page) =>
+                              Math.min(totalPages, page + 1),
+                            )
+                          }
+                          disabled={currentPage === totalPages}
+                          className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </>
+          ) : activeView === "archived" && canViewArchived ? (
+            <ArchivedTicketsPage
+              tickets={archivedTickets}
+              loading={archivedLoading || apiUnavailable}
+              error={apiUnavailable ? null : archivedError}
+              highlightedTicketId={highlightedArchivedTicketId}
+              onRefresh={() => void loadArchivedTickets()}
+              canReactivate={canEditTicketsCap}
+              reactivatingTicketId={reactivatingArchivedTicketId}
+              onReactivate={handleReactivateArchivedTicket}
             />
-          )
-        ) : activeView === "users" && canViewUsers ? (
-          <UsersPage
-            users={users}
-            loading={usersLoading || apiUnavailable}
-            error={apiUnavailable ? null : usersError}
-            canCreate={canCreateUsers}
-            canEdit={canEditUsers}
-            canDelete={canDeleteUsers}
-            currentUserId={currentUser?.id}
-            deletingUserId={deletingUserId}
-            onRefresh={() => void loadUsers()}
-            onCreate={openCreateUserModal}
-            onEdit={openAdminUserModal}
-            onDelete={(userRecord) => void deleteUserRecord(userRecord)}
-          />
-        ) : (
-          <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6">
-            <p className="text-gray-600 dark:text-slate-400">
-              You do not have permission to view this section.
-            </p>
-          </div>
-        )}
+          ) : activeView === "reports" && canViewReportsNav ? (
+            <ReportsPage
+              tickets={allTickets}
+              onlineUsers={onlineUsers}
+              customReports={customReports.filter((report) => report.isEnabled)}
+              customReportResult={customReportResult}
+              loading={loading || apiUnavailable}
+              onlineUsersLoading={onlineUsersLoading || apiUnavailable}
+              customReportLoading={customReportResultLoading || apiUnavailable}
+              error={apiUnavailable ? null : error}
+              onlineUsersError={apiUnavailable ? null : onlineUsersError}
+              customReportError={
+                apiUnavailable ? null : customReportResultError
+              }
+              showSlaLegend={showReportSlaLegend}
+              canViewOnlineUsers={canViewOnlineUsersReport}
+              canViewCustomReports={canViewReportsNav}
+              activeSection={activeReportSection}
+              onChangeSection={setActiveReportSection}
+              selectedCustomReportId={selectedCustomReportId}
+              onSelectCustomReport={setSelectedCustomReportId}
+              onToggleSlaLegend={() =>
+                setShowReportSlaLegend((currentValue) => !currentValue)
+              }
+              onRefresh={() => void loadAllTickets()}
+              onRefreshOnlineUsers={() => void loadOnlineUsers()}
+              onRefreshCustomReport={() => {
+                if (selectedCustomReportId !== null) {
+                  void runCustomReport(selectedCustomReportId);
+                }
+              }}
+              onExportCsv={() => void exportReportCsv(false)}
+              onExportGoogleSheets={() => void exportReportCsv(true)}
+              onOpenTicket={openTicket}
+            />
+          ) : activeView === "jobs" && canManageJobsNav ? (
+            <JobsPage
+              jobs={jobs}
+              storedProcedures={storedProcedures}
+              loading={jobsLoading}
+              error={jobsError}
+              saving={jobsSaving}
+              runningJobId={runningJobId}
+              onRefresh={() => void loadJobs()}
+              onCreate={createScheduledJob}
+              onUpdate={updateScheduledJob}
+              onRunNow={runScheduledJobNow}
+            />
+          ) : activeView === "sla" && canManageConfiguration ? (
+            apiUnavailable ? (
+              <ConfigurationSkeleton />
+            ) : (
+              <ConfigurationPage
+                slaConfigurations={slaConfigurations}
+                slaError={slaError}
+                slaLoading={slaLoading}
+                slaSaving={slaSaving}
+                onSlaChange={handleSlaConfigurationChange}
+                onRefreshSla={() => void loadSlaConfigurations()}
+                onSaveSla={() => void saveSlaConfigurations()}
+                sessionConfiguration={sessionConfiguration}
+                sessionError={sessionError}
+                sessionLoading={sessionLoading}
+                sessionSaving={sessionSaving}
+                onSessionChange={handleSessionConfigurationChange}
+                onRefreshSession={() => void loadSessionConfiguration()}
+                onSaveSession={() => void saveSessionConfiguration()}
+                notificationChannelConfiguration={
+                  notificationChannelConfiguration
+                }
+                notificationChannelError={notificationChannelError}
+                notificationChannelLoading={notificationChannelLoading}
+                notificationChannelSaving={notificationChannelSaving}
+                onNotificationChannelChange={
+                  handleNotificationChannelConfigurationChange
+                }
+                onRefreshNotificationChannels={() =>
+                  void loadNotificationChannelConfiguration()
+                }
+                onSaveNotificationChannels={() =>
+                  void saveNotificationChannelConfiguration()
+                }
+                ticketBoards={ticketBoards}
+                ticketBoardError={ticketBoardError}
+                ticketBoardLoading={ticketBoardLoading}
+                ticketBoardSaving={ticketBoardSaving}
+                ticketBoardDeletingId={deletingTicketBoardId}
+                onRefreshTicketBoards={() => void loadTicketBoards()}
+                onCreateTicketBoard={createTicketBoard}
+                onUpdateTicketBoard={updateTicketBoard}
+                onDeleteTicketBoard={deleteTicketBoard}
+                ticketStatuses={ticketStatuses}
+                ticketStatusError={ticketStatusError}
+                ticketStatusLoading={ticketStatusLoading}
+                ticketStatusSaving={ticketStatusSaving}
+                ticketStatusDeletingId={deletingTicketStatusId}
+                onRefreshTicketStatuses={() => void loadTicketStatuses()}
+                onCreateTicketStatus={createTicketStatusDefinition}
+                onUpdateTicketStatus={updateTicketStatusDefinition}
+                onDeleteTicketStatus={deleteTicketStatusDefinition}
+                ticketRoutingRules={ticketRoutingRules}
+                selectedTicketRoutingRule={selectedTicketRoutingRule}
+                ticketRoutingError={ticketRoutingError}
+                ticketRoutingLoading={ticketRoutingLoading}
+                ticketRoutingSaving={ticketRoutingSaving}
+                ticketRoutingDeletingId={deletingTicketRoutingRuleId}
+                onRefreshTicketRouting={() => void loadTicketRoutingRules()}
+                onCreateTicketRoutingRule={createTicketRoutingRule}
+                onSelectTicketRoutingRule={selectTicketRoutingRule}
+                onTicketRoutingChange={handleTicketRoutingRuleChange}
+                onSaveTicketRoutingRule={saveTicketRoutingRule}
+                onDeleteTicketRoutingRule={deleteTicketRoutingRule}
+                archiveConfigurations={archiveConfigurations}
+                archiveConfiguration={archiveConfiguration}
+                archiveError={archiveError}
+                archiveLoading={archiveLoading}
+                archiveSaving={archiveSaving}
+                archiveDeletingId={deletingArchiveConfigurationId}
+                archiveRunning={archiveRunning}
+                onCreateArchivePolicy={createArchivePolicy}
+                onSelectArchivePolicy={selectArchivePolicy}
+                onArchiveChange={handleArchiveConfigurationChange}
+                onRefreshArchive={() => void loadArchiveConfigurations()}
+                onSaveArchive={() => void saveArchiveConfiguration()}
+                onDeleteArchive={() => void deleteArchiveConfiguration()}
+                onRunArchiveNow={() => void runArchiveNow()}
+                customReports={customReports}
+                databaseViews={databaseViews}
+                databaseViewsLoading={databaseViewsLoading}
+                customReportError={customReportsError}
+                customReportLoading={customReportsLoading}
+                customReportSaving={customReportsSaving}
+                customReportDeletingId={deletingCustomReportId}
+                onRefreshCustomReports={() =>
+                  void loadCustomReportDefinitions()
+                }
+                onCreateCustomReport={createCustomReport}
+                onUpdateCustomReport={updateCustomReport}
+                onDeleteCustomReport={deleteCustomReport}
+                storedProcedures={storedProcedures}
+                databaseStoredProcedures={databaseStoredProcedures}
+                databaseStoredProceduresLoading={
+                  databaseStoredProceduresLoading
+                }
+                storedProcedureError={storedProcedureError}
+                storedProcedureLoading={storedProcedureLoading}
+                storedProcedureSaving={storedProcedureSaving}
+                storedProcedureDeletingId={deletingStoredProcedureId}
+                onRefreshStoredProcedures={() => void loadStoredProcedures()}
+                onCreateStoredProcedure={createStoredProcedureDefinition}
+                onUpdateStoredProcedure={updateStoredProcedureDefinition}
+                onDeleteStoredProcedure={deleteStoredProcedureDefinition}
+                canExportAdminLogs={isAdmin}
+                onExportAdminLogs={exportAdminLogsCsv}
+                canManageJobs={canManageJobsNav}
+                canManageReportDefinitions={canManageCustomReportDefinitions}
+                canViewUsers={canViewUsers}
+                onOpenJobs={() => setActiveView("jobs")}
+                onOpenUsers={() => setActiveView("users")}
+              />
+            )
+          ) : activeView === "users" && canViewUsers ? (
+            <UsersPage
+              users={users}
+              loading={usersLoading || apiUnavailable}
+              error={apiUnavailable ? null : usersError}
+              canCreate={canCreateUsers}
+              canEdit={canEditUsers}
+              canDelete={canDeleteUsers}
+              currentUserId={currentUser?.id}
+              deletingUserId={deletingUserId}
+              onRefresh={() => void loadUsers()}
+              onCreate={openCreateUserModal}
+              onEdit={openAdminUserModal}
+              onDelete={(userRecord) => void deleteUserRecord(userRecord)}
+            />
+          ) : (
+            <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6">
+              <p className="text-gray-600 dark:text-slate-400">
+                You do not have permission to view this section.
+              </p>
+            </div>
+          )}
         </main>
       </div>
 
@@ -3174,7 +3259,9 @@ function App() {
           }
           createdByDisplayName={
             selectedTicket.createdByDisplayName ??
-            (!selectedTicket.id ? currentUser?.displayName ?? user?.name ?? "" : "")
+            (!selectedTicket.id
+              ? (currentUser?.displayName ?? user?.name ?? "")
+              : "")
           }
         />
       )}
@@ -3236,7 +3323,9 @@ function App() {
       <SessionTimeoutModal
         state={sessionPromptState}
         remainingSeconds={sessionRemainingSeconds}
-        inactivityTimeoutMinutes={effectiveSessionConfiguration.inactivityTimeoutMinutes}
+        inactivityTimeoutMinutes={
+          effectiveSessionConfiguration.inactivityTimeoutMinutes
+        }
         onContinue={continueSessionAfterWarning}
         onReauthenticate={reauthenticateDueToInactivity}
       />
