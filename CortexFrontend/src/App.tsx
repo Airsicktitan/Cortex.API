@@ -90,6 +90,8 @@ import {
   TicketGridSkeleton,
 } from "./components/LoadingSkeletons";
 import { applyTheme, getPreferredTheme, type ThemeMode } from "./theme";
+import { useUsers } from "./hooks/useUsers";
+import { useConfiguration } from "./hooks/useConfiguration";
 import toast from "react-hot-toast";
 import {
   normalizeRoles,
@@ -689,114 +691,13 @@ function App() {
   const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const [slaConfigurations, setSlaConfigurations] = useState<SlaConfiguration[]>(
-    [],
-  );
-  const [slaLoading, setSlaLoading] = useState(false);
-  const [slaSaving, setSlaSaving] = useState(false);
-  const [slaError, setSlaError] = useState<string | null>(null);
-  const [sessionConfiguration, setSessionConfiguration] =
-    useState<SessionConfiguration | null>(null);
-  const [sessionLoadedOnce, setSessionLoadedOnce] = useState(false);
-  const [sessionLoading, setSessionLoading] = useState(false);
-  const [sessionSaving, setSessionSaving] = useState(false);
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const [notificationChannelConfiguration, setNotificationChannelConfiguration] =
-    useState<NotificationChannelConfiguration | null>(null);
-  const [notificationChannelsLoadedOnce, setNotificationChannelsLoadedOnce] =
-    useState(false);
-  const [notificationChannelLoading, setNotificationChannelLoading] =
-    useState(false);
-  const [notificationChannelSaving, setNotificationChannelSaving] =
-    useState(false);
-  const [notificationChannelError, setNotificationChannelError] =
-    useState<string | null>(null);
-  const [ticketBoards, setTicketBoards] = useState<TicketBoardDefinition[]>([]);
-  const [ticketBoardLoading, setTicketBoardLoading] = useState(false);
-  const [ticketBoardSaving, setTicketBoardSaving] = useState(false);
-  const [deletingTicketBoardId, setDeletingTicketBoardId] = useState<
-    number | null
-  >(null);
-  const [ticketBoardError, setTicketBoardError] = useState<string | null>(null);
+  // Configuration domain state is owned by useConfiguration (wired below after loadArchivedTickets).
+
   const [sessionPromptState, setSessionPromptState] =
     useState<SessionPromptState>(null);
   const [sessionRemainingSeconds, setSessionRemainingSeconds] = useState(
     DEFAULT_SESSION_CONFIGURATION.inactivityTimeoutMinutes * 60,
   );
-  const [ticketStatuses, setTicketStatuses] = useState<TicketStatusDefinition[]>(
-    [],
-  );
-  const [ticketStatusLoading, setTicketStatusLoading] = useState(false);
-  const [ticketStatusSaving, setTicketStatusSaving] = useState(false);
-  const [deletingTicketStatusId, setDeletingTicketStatusId] = useState<
-    number | null
-  >(null);
-  const [ticketStatusError, setTicketStatusError] = useState<string | null>(
-    null,
-  );
-  const [ticketRoutingRules, setTicketRoutingRules] = useState<TicketRoutingRule[]>(
-    [],
-  );
-  const [selectedTicketRoutingRule, setSelectedTicketRoutingRule] =
-    useState<TicketRoutingRule | null>(null);
-  const [ticketRoutingLoadedOnce, setTicketRoutingLoadedOnce] = useState(false);
-  const [ticketRoutingLoading, setTicketRoutingLoading] = useState(false);
-  const [ticketRoutingSaving, setTicketRoutingSaving] = useState(false);
-  const [deletingTicketRoutingRuleId, setDeletingTicketRoutingRuleId] =
-    useState<number | null>(null);
-  const [ticketRoutingError, setTicketRoutingError] = useState<string | null>(
-    null,
-  );
-  const [archiveConfigurations, setArchiveConfigurations] = useState<
-    ArchiveConfiguration[]
-  >([]);
-  const [archiveConfiguration, setArchiveConfiguration] =
-    useState<ArchiveConfiguration | null>(null);
-  const [archiveLoadedOnce, setArchiveLoadedOnce] = useState(false);
-  const [archiveLoading, setArchiveLoading] = useState(false);
-  const [archiveSaving, setArchiveSaving] = useState(false);
-  const [archiveRunning, setArchiveRunning] = useState(false);
-  const [deletingArchiveConfigurationId, setDeletingArchiveConfigurationId] =
-    useState<number | null>(null);
-  const [archiveError, setArchiveError] = useState<string | null>(null);
-  const [customReports, setCustomReports] = useState<CustomReportDefinition[]>([]);
-  const [databaseViews, setDatabaseViews] = useState<DatabaseViewDefinition[]>([]);
-  const [databaseViewsLoading, setDatabaseViewsLoading] = useState(false);
-  const [customReportsLoadedOnce, setCustomReportsLoadedOnce] = useState(false);
-  const [customReportsLoading, setCustomReportsLoading] = useState(false);
-  const [customReportsSaving, setCustomReportsSaving] = useState(false);
-  const [deletingCustomReportId, setDeletingCustomReportId] = useState<number | null>(
-    null,
-  );
-  const [customReportsError, setCustomReportsError] = useState<string | null>(null);
-  const [customReportResult, setCustomReportResult] =
-    useState<CustomReportResult | null>(null);
-  const [customReportResultLoading, setCustomReportResultLoading] =
-    useState(false);
-  const [customReportResultError, setCustomReportResultError] =
-    useState<string | null>(null);
-  const [storedProcedures, setStoredProcedures] = useState<
-    StoredProcedureDefinition[]
-  >([]);
-  const [databaseStoredProcedures, setDatabaseStoredProcedures] = useState<
-    DatabaseStoredProcedureDefinition[]
-  >([]);
-  const [databaseStoredProceduresLoading, setDatabaseStoredProceduresLoading] =
-    useState(false);
-  const [storedProcedureLoading, setStoredProcedureLoading] = useState(false);
-  const [storedProcedureSaving, setStoredProcedureSaving] = useState(false);
-  const [deletingStoredProcedureId, setDeletingStoredProcedureId] = useState<
-    number | null
-  >(null);
-  const [storedProcedureError, setStoredProcedureError] = useState<string | null>(
-    null,
-  );
-  const [jobs, setJobs] = useState<ScheduledJob[]>([]);
-  const [jobsLoading, setJobsLoading] = useState(false);
-  const [jobsLoaded, setJobsLoaded] = useState(false);
-  const [jobsSaving, setJobsSaving] = useState(false);
-  const [jobsError, setJobsError] = useState<string | null>(null);
-  const [runningJobId, setRunningJobId] = useState<number | null>(null);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsLoaded, setNotificationsLoaded] = useState(false);
@@ -808,41 +709,7 @@ function App() {
   );
   const [markingAllNotificationsRead, setMarkingAllNotificationsRead] =
     useState(false);
-  const [users, setUsers] = useState<UserRecord[]>([]);
-  const [usersLoading, setUsersLoading] = useState(false);
-  const [usersError, setUsersError] = useState<string | null>(null);
-  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
-  const [onlineUsersLoading, setOnlineUsersLoading] = useState(false);
-  const [onlineUsersError, setOnlineUsersError] = useState<string | null>(null);
-  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
-  const [createUserDraft, setCreateUserDraft] = useState<CreateUserInput>({
-    displayName: "",
-    nickName: "",
-    email: "",
-    password: "",
-    phoneNumber: "",
-    department: "",
-    role: "User",
-    isActive: true,
-    expiryDate: "",
-  });
-  const [createUserSaving, setCreateUserSaving] = useState(false);
-  const [editingAdminUser, setEditingAdminUser] = useState<UserRecord | null>(
-    null,
-  );
-  const [adminUserDraft, setAdminUserDraft] = useState<AdminUpdateUserInput>({});
-  const [adminAuth0Roles, setAdminAuth0Roles] = useState<Auth0RoleOption[]>([]);
-  const [availableAuth0Roles, setAvailableAuth0Roles] = useState<Auth0RoleOption[]>(
-    [],
-  );
-  const [adminRolesLoading, setAdminRolesLoading] = useState(false);
-  const [roleMutationLoading, setRoleMutationLoading] = useState(false);
-  const [adminAccessFeedback, setAdminAccessFeedback] = useState<string | null>(null);
-  const [adminAccessError, setAdminAccessError] = useState<string | null>(null);
-  const [adminUserSaving, setAdminUserSaving] = useState(false);
-  const [sessionRefreshInProgress, setSessionRefreshInProgress] = useState(false);
-  const [sessionRefreshNotice, setSessionRefreshNotice] = useState<string | null>(null);
-  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
+  // User management state is owned by useUsers (wired below after getApiToken).
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
@@ -873,19 +740,8 @@ function App() {
   const isDarkMode = theme === "dark";
   const isAccountExpired = isUserExpired(currentUser);
   const isAccountInactive = isUserInactive(currentUser);
-  const effectiveSessionConfiguration =
-    sessionConfiguration ?? DEFAULT_SESSION_CONFIGURATION;
-  const sessionTimeoutSeconds = Math.max(
-    60,
-    effectiveSessionConfiguration.inactivityTimeoutMinutes * 60,
-  );
-  const sessionWarningSeconds = Math.max(
-    0,
-    Math.min(
-      sessionTimeoutSeconds - 1,
-      effectiveSessionConfiguration.warningMinutes * 60,
-    ),
-  );
+  // effectiveSessionConfiguration, sessionTimeoutSeconds, sessionWarningSeconds
+  // are computed after useConfiguration (below) because they depend on sessionConfiguration.
   const savedFilterStorageKey = useMemo(() => {
     if (currentUser?.id) {
       return `cortex:saved-ticket-filters:${currentUser.id}`;
@@ -928,10 +784,7 @@ function App() {
   const canCreateUsers = canViewUsers;
   const canEditUsers = sessionUnlocked && canManageUsers(authRoles);
   const canDeleteUsers = sessionUnlocked && canManageUsers(authRoles);
-  const failedJobsCount = useMemo(
-    () => jobs.filter((job) => job.lastRunStatus === "Failed").length,
-    [jobs],
-  );
+  // failedJobsCount is computed after useConfiguration (below) because it depends on jobs.
   const activeViewLabel = APP_VIEW_LABELS[activeView];
   const navigationItems = useMemo(() => {
     const items: Array<{
@@ -1071,16 +924,8 @@ function App() {
     window.sessionStorage.removeItem(sessionReauthPendingStorageKey);
   }, [sessionLastActivityStorageKey, sessionReauthPendingStorageKey]);
 
-  const markSessionActivity = useCallback(
-    (timestamp = Date.now()) => {
-      sessionLastActivityAtRef.current = timestamp;
-      sessionPromptStateRef.current = null;
-      persistSessionLastActivity(timestamp);
-      setSessionRemainingSeconds(sessionTimeoutSeconds);
-      setSessionPromptState(null);
-    },
-    [persistSessionLastActivity, sessionTimeoutSeconds],
-  );
+  // markSessionActivity is defined after useConfiguration (below) because its dep array
+  // references sessionTimeoutSeconds which depends on sessionConfiguration from the hook.
 
   const performLogout = useCallback(() => {
     sessionPromptStateRef.current = null;
@@ -1162,38 +1007,10 @@ function App() {
     [getApiToken],
   );
 
-  const loadSlaConfigurations = useCallback(
-    async (providedToken?: string) => {
-      setSlaLoading(true);
-      setSlaError(null);
+  // loadSlaConfigurations and other configuration loaders live in useConfiguration.
 
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await slaService.getAll(token);
-        setSlaConfigurations(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load SLA settings", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setSlaError("You do not have permission to manage SLA settings.");
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setSlaError("Failed to load SLA settings.");
-        }
-      } finally {
-        setSlaLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const continueSessionAfterWarning = useCallback(() => {
-    markSessionActivity();
-  }, [markSessionActivity]);
+  // continueSessionAfterWarning is defined after useConfiguration (below) because its
+  // dep array references markSessionActivity which depends on sessionTimeoutSeconds.
 
   const reauthenticateDueToInactivity = useCallback(() => {
     sessionPromptStateRef.current = "expired";
@@ -1214,102 +1031,9 @@ function App() {
     });
   }, [loginWithRedirect, sessionReauthPendingStorageKey]);
 
-  const loadSessionConfiguration = useCallback(
-    async (providedToken?: string) => {
-      setSessionLoading(true);
-      setSessionError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await sessionConfigurationService.get(token);
-        setSessionConfiguration(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load session configuration", error);
-
-        if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setSessionError(
-            "You do not have permission to view session security settings.",
-          );
-        } else {
-          setApiUnavailable(false);
-          setSessionError("Failed to load session configuration.");
-        }
-      } finally {
-        setSessionLoadedOnce(true);
-        setSessionLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadNotificationChannelConfiguration = useCallback(
-    async (providedToken?: string) => {
-      setNotificationChannelLoading(true);
-      setNotificationChannelError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await notificationChannelConfigurationService.get(token);
-        setNotificationChannelConfiguration(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load notification channel configuration", error);
-
-        if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setNotificationChannelError(
-            "You do not have permission to view notification channel settings.",
-          );
-        } else {
-          setApiUnavailable(false);
-          setNotificationChannelError(
-            "Failed to load notification channel settings.",
-          );
-        }
-      } finally {
-        setNotificationChannelsLoadedOnce(true);
-        setNotificationChannelLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadTicketBoards = useCallback(
-    async (providedToken?: string) => {
-      setTicketBoardLoading(true);
-      setTicketBoardError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = sortTicketBoards(await ticketBoardService.getAll(token));
-        setTicketBoards(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load ticket boards", error);
-
-        if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setTicketBoardError("You do not have permission to view ticket boards.");
-        } else {
-          setApiUnavailable(false);
-          setTicketBoardError(
-            getUserFacingErrorMessage(error, "Failed to load ticket boards."),
-          );
-        }
-      } finally {
-        setTicketBoardLoading(false);
-      }
-    },
-    [getApiToken],
-  );
+  // loadSessionConfiguration, loadNotificationChannelConfiguration, loadTicketBoards,
+  // loadTicketStatuses, loadTicketRoutingRules, loadArchiveConfigurations,
+  // loadStoredProcedures, loadDatabaseStoredProcedures, loadJobs — all live in useConfiguration.
 
   const syncPresence = useCallback(
     async (providedToken?: string) => {
@@ -1353,222 +1077,8 @@ function App() {
     [isAuthenticated, syncPresence],
   );
 
-  const loadTicketStatuses = useCallback(
-    async (providedToken?: string) => {
-      setTicketStatusLoading(true);
-      setTicketStatusError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = sortTicketStatuses(await ticketStatusService.getAll(token));
-        setTicketStatuses(data);
-        setArchiveConfiguration((currentConfiguration) =>
-          currentConfiguration?.id === 0
-            ? {
-                ...currentConfiguration,
-                eligibleStatuses:
-                  currentConfiguration.eligibleStatuses.length > 0
-                    ? currentConfiguration.eligibleStatuses
-                    : getDefaultArchiveEligibleStatuses(data),
-              }
-            : currentConfiguration,
-        );
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load ticket statuses", error);
-
-        if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setTicketStatusError("Failed to load ticket statuses.");
-        }
-      } finally {
-        setTicketStatusLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadTicketRoutingRules = useCallback(
-    async (providedToken?: string) => {
-      setTicketRoutingLoading(true);
-      setTicketRoutingError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = sortTicketRoutingRules(
-          await ticketRoutingService.getAll(token),
-        );
-
-        setTicketRoutingRules(data);
-        setSelectedTicketRoutingRule((currentRule) => {
-          if (currentRule?.id === 0) {
-            return currentRule;
-          }
-
-          if (currentRule) {
-            const matchingRule = data.find((rule) => rule.id === currentRule.id);
-            if (matchingRule) {
-              return matchingRule;
-            }
-          }
-
-          return data[0] ?? null;
-        });
-        setTicketRoutingLoadedOnce(true);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load ticket routing rules", error);
-
-        if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setTicketRoutingError("Failed to load ticket routing rules.");
-        }
-      } finally {
-        setTicketRoutingLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadArchiveConfigurations = useCallback(
-    async (providedToken?: string) => {
-      setArchiveLoading(true);
-      setArchiveError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = sortArchiveConfigurations(
-          await archiveConfigurationService.getAll(token),
-        );
-
-        setArchiveConfigurations(data);
-        setArchiveConfiguration((currentConfiguration) => {
-          if (currentConfiguration?.id === 0) {
-            return currentConfiguration;
-          }
-
-          if (currentConfiguration) {
-            const matchingConfiguration = data.find(
-              (configuration) => configuration.id === currentConfiguration.id,
-            );
-
-            if (matchingConfiguration) {
-              return matchingConfiguration;
-            }
-          }
-
-          return data[0] ?? null;
-        });
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load archive configuration", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setArchiveError(
-            "You do not have permission to manage archive configuration.",
-          );
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setArchiveError("Failed to load archive configuration.");
-        }
-      } finally {
-        setArchiveLoadedOnce(true);
-        setArchiveLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadStoredProcedures = useCallback(
-    async (providedToken?: string) => {
-      setStoredProcedureLoading(true);
-      setStoredProcedureError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await storedProcedureService.getAll(token);
-        setStoredProcedures(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load stored procedures", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setStoredProcedureError(
-            "You do not have permission to manage stored procedures.",
-          );
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setStoredProcedureError("Failed to load stored procedures.");
-        }
-      } finally {
-        setStoredProcedureLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadDatabaseStoredProcedures = useCallback(
-    async (providedToken?: string) => {
-      setDatabaseStoredProceduresLoading(true);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data =
-          await storedProcedureService.getAvailableDatabaseProcedures(token);
-        setDatabaseStoredProcedures(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load database stored procedures", error);
-
-        if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        }
-      } finally {
-        setDatabaseStoredProceduresLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadJobs = useCallback(
-    async (providedToken?: string) => {
-      setJobsLoading(true);
-      setJobsError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await scheduledJobService.getAll(token);
-        setJobs(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load jobs", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setJobsError("You do not have permission to manage jobs.");
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setJobsError("Failed to load jobs.");
-        }
-      } finally {
-        setJobsLoaded(true);
-        setJobsLoading(false);
-      }
-    },
-    [getApiToken],
-  );
+  // loadTicketStatuses, loadTicketRoutingRules, loadArchiveConfigurations,
+  // loadStoredProcedures, loadDatabaseStoredProcedures, loadJobs — all in useConfiguration.
 
   const loadNotifications = useCallback(
     async (providedToken?: string, options?: { silent?: boolean }) => {
@@ -1608,217 +1118,6 @@ function App() {
     [getApiToken],
   );
 
-  const loadUsers = useCallback(
-    async (providedToken?: string) => {
-      setUsersLoading(true);
-      setUsersError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await userService.getAll(token);
-        setUsers(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load users", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setUsersError("You do not have permission to view users.");
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setUsersError("Failed to load users.");
-        }
-      } finally {
-        setUsersLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadOnlineUsers = useCallback(
-    async (providedToken?: string) => {
-      setOnlineUsersLoading(true);
-      setOnlineUsersError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await userService.getOnlineUsers(token);
-        setOnlineUsers(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load online users", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setOnlineUsersError(
-            "You do not have permission to view online users.",
-          );
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setOnlineUsersError("Failed to load online users.");
-        }
-      } finally {
-        setOnlineUsersLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadCustomReports = useCallback(
-    async (providedToken?: string) => {
-      setCustomReportsLoading(true);
-      setCustomReportsError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await customReportService.listRunnable(token);
-        setCustomReports(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load custom reports", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setCustomReportsError(
-            "You do not have permission to manage custom reports.",
-          );
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setCustomReportsError("Failed to load custom reports.");
-        }
-      } finally {
-        setCustomReportsLoadedOnce(true);
-        setCustomReportsLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  /** Settings/registry API (Developer+) — full definitions for Configuration workspace. */
-  const loadCustomReportDefinitions = useCallback(
-    async (providedToken?: string) => {
-      setCustomReportsLoading(true);
-      setCustomReportsError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await customReportService.getAll(token);
-        setCustomReports(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load custom report definitions", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setCustomReportsError(
-            "You do not have permission to manage custom report definitions.",
-          );
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setCustomReportsError("Failed to load custom reports.");
-        }
-      } finally {
-        setCustomReportsLoadedOnce(true);
-        setCustomReportsLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const loadDatabaseViews = useCallback(
-    async (providedToken?: string) => {
-      setDatabaseViewsLoading(true);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const data = await customReportService.getAvailableViews(token);
-        setDatabaseViews(data);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to load database views", error);
-
-        if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        }
-      } finally {
-        setDatabaseViewsLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
-  const exportReportCsv = useCallback(
-    async (googleSheetsCompatible = false) => {
-      try {
-        const token = await getApiToken();
-        await reportService.exportCsv(
-          token,
-          googleSheetsCompatible
-            ? "cortex-report-google-sheets.csv"
-            : "cortex-report.csv",
-        );
-      } catch (error) {
-        console.error("Failed to export report", error);
-        toast.error(getUserFacingErrorMessage(error, "Failed to export report"));
-      }
-    },
-    [getApiToken],
-  );
-
-  const exportAdminLogsCsv = useCallback(
-    async (fromUtcIso: string, toUtcIso: string) => {
-      const token = await getApiToken();
-      await reportService.exportAdminLogsCsv(
-        token,
-        fromUtcIso,
-        toUtcIso,
-        "cortex-request-logs.csv",
-      );
-    },
-    [getApiToken],
-  );
-
-  const runCustomReport = useCallback(
-    async (reportId: number, providedToken?: string) => {
-      setCustomReportResultLoading(true);
-      setCustomReportResultError(null);
-
-      try {
-        const token = providedToken ?? (await getApiToken());
-        const result = await customReportService.run(reportId, token);
-        setCustomReportResult(result);
-        setApiUnavailable(false);
-      } catch (error) {
-        console.error("Failed to run custom report", error);
-
-        if (isForbiddenError(error)) {
-          setApiUnavailable(false);
-          setCustomReportResultError(
-            "You do not have permission to run this custom report.",
-          );
-        } else if (isLikelyNetworkError(error)) {
-          setApiUnavailable(true);
-        } else {
-          setApiUnavailable(false);
-          setCustomReportResultError(
-            getUserFacingErrorMessage(error, "Unable to run this custom report."),
-          );
-        }
-      } finally {
-        setCustomReportResultLoading(false);
-      }
-    },
-    [getApiToken],
-  );
-
   const loadArchivedTickets = useCallback(
     async (providedToken?: string) => {
       setArchivedLoading(true);
@@ -1847,6 +1146,230 @@ function App() {
     },
     [getApiToken],
   );
+
+  // ── Configuration ────────────────────────────────────────────────────────
+  const {
+    slaConfigurations,
+    slaLoading,
+    slaSaving,
+    slaError,
+    loadSlaConfigurations,
+    handleSlaConfigurationChange,
+    saveSlaConfigurations,
+    sessionConfiguration,
+    sessionLoadedOnce,
+    sessionLoading,
+    sessionSaving,
+    sessionError,
+    loadSessionConfiguration,
+    handleSessionConfigurationChange,
+    saveSessionConfiguration,
+    notificationChannelConfiguration,
+    notificationChannelsLoadedOnce,
+    notificationChannelLoading,
+    notificationChannelSaving,
+    notificationChannelError,
+    loadNotificationChannelConfiguration,
+    handleNotificationChannelConfigurationChange,
+    saveNotificationChannelConfiguration,
+    ticketBoards,
+    ticketBoardLoading,
+    ticketBoardSaving,
+    deletingTicketBoardId,
+    ticketBoardError,
+    loadTicketBoards,
+    createTicketBoard,
+    updateTicketBoard,
+    deleteTicketBoard,
+    ticketStatuses,
+    ticketStatusLoading,
+    ticketStatusSaving,
+    deletingTicketStatusId,
+    ticketStatusError,
+    loadTicketStatuses,
+    createTicketStatusDefinition,
+    updateTicketStatusDefinition,
+    deleteTicketStatusDefinition,
+    ticketRoutingRules,
+    selectedTicketRoutingRule,
+    ticketRoutingLoadedOnce,
+    ticketRoutingLoading,
+    ticketRoutingSaving,
+    deletingTicketRoutingRuleId,
+    ticketRoutingError,
+    loadTicketRoutingRules,
+    handleTicketRoutingRuleChange,
+    createTicketRoutingRule,
+    selectTicketRoutingRule,
+    saveTicketRoutingRule,
+    deleteTicketRoutingRule,
+    archiveConfigurations,
+    archiveConfiguration,
+    archiveLoadedOnce,
+    archiveLoading,
+    archiveSaving,
+    archiveRunning,
+    deletingArchiveConfigurationId,
+    archiveError,
+    loadArchiveConfigurations,
+    handleArchiveConfigurationChange,
+    createArchivePolicy,
+    selectArchivePolicy,
+    saveArchiveConfiguration,
+    deleteArchiveConfiguration,
+    runArchiveNow,
+    customReports,
+    databaseViews,
+    databaseViewsLoading,
+    customReportsLoadedOnce,
+    customReportsLoading,
+    customReportsSaving,
+    deletingCustomReportId,
+    customReportsError,
+    customReportResult,
+    customReportResultLoading,
+    customReportResultError,
+    loadCustomReports,
+    loadCustomReportDefinitions,
+    loadDatabaseViews,
+    runCustomReport,
+    createCustomReport,
+    updateCustomReport,
+    deleteCustomReport,
+    exportReportCsv,
+    exportAdminLogsCsv,
+    storedProcedures,
+    databaseStoredProcedures,
+    databaseStoredProceduresLoading,
+    storedProcedureLoading,
+    storedProcedureSaving,
+    deletingStoredProcedureId,
+    storedProcedureError,
+    loadStoredProcedures,
+    loadDatabaseStoredProcedures,
+    createStoredProcedureDefinition,
+    updateStoredProcedureDefinition,
+    deleteStoredProcedureDefinition,
+    jobs,
+    jobsLoading,
+    jobsLoaded,
+    jobsSaving,
+    jobsError,
+    runningJobId,
+    loadJobs,
+    createScheduledJob,
+    updateScheduledJob,
+    runScheduledJobNow,
+    clearCustomReportResult,
+  } = useConfiguration({
+    getApiToken,
+    setApiUnavailable,
+    setAllTickets,
+    setArchivedTickets,
+    setSelectedTicket,
+    setSelectedBoardId,
+    refreshTicketsSilently,
+    loadArchivedTickets,
+    onActiveReportSectionChange: setActiveReportSection,
+    onSelectedCustomReportIdChange: setSelectedCustomReportId,
+  });
+
+  // These depend on values from useConfiguration and must come after it.
+  const effectiveSessionConfiguration =
+    sessionConfiguration ?? DEFAULT_SESSION_CONFIGURATION;
+  const sessionTimeoutSeconds = Math.max(
+    60,
+    effectiveSessionConfiguration.inactivityTimeoutMinutes * 60,
+  );
+  const sessionWarningSeconds = Math.max(
+    0,
+    Math.min(
+      sessionTimeoutSeconds - 1,
+      effectiveSessionConfiguration.warningMinutes * 60,
+    ),
+  );
+  const failedJobsCount = useMemo(
+    () => jobs.filter((job) => job.lastRunStatus === "Failed").length,
+    [jobs],
+  );
+  const markSessionActivity = useCallback(
+    (timestamp = Date.now()) => {
+      sessionLastActivityAtRef.current = timestamp;
+      sessionPromptStateRef.current = null;
+      persistSessionLastActivity(timestamp);
+      setSessionRemainingSeconds(sessionTimeoutSeconds);
+      setSessionPromptState(null);
+    },
+    [persistSessionLastActivity, sessionTimeoutSeconds],
+  );
+  const continueSessionAfterWarning = useCallback(() => {
+    markSessionActivity();
+  }, [markSessionActivity]);
+
+  // ── User management ───────────────────────────────────────────────────────
+  // redirectToLogin is a stable wrapper passed into the hook so it doesn't
+  // need to import Auth0 internals or API_AUTHORIZATION_PARAMS directly.
+  const redirectToLogin = useCallback(() => {
+    void loginWithRedirect({
+      authorizationParams: {
+        ...API_AUTHORIZATION_PARAMS,
+        prompt: "login",
+        max_age: 0,
+      },
+    });
+  }, [loginWithRedirect]);
+
+  const {
+    users,
+    usersLoading,
+    usersError,
+    onlineUsers,
+    onlineUsersLoading,
+    onlineUsersError,
+    isCreateUserModalOpen,
+    createUserDraft,
+    createUserSaving,
+    editingAdminUser,
+    adminUserDraft,
+    adminAuth0Roles,
+    availableAuth0Roles,
+    adminRolesLoading,
+    roleMutationLoading,
+    adminAccessFeedback,
+    adminAccessError,
+    adminUserSaving,
+    sessionRefreshInProgress,
+    sessionRefreshNotice,
+    deletingUserId,
+    loadUsers,
+    loadOnlineUsers,
+    openCreateUserModal,
+    closeCreateUserModal,
+    openAdminUserModal,
+    closeAdminUserModal,
+    handleAdminUserDraftChange,
+    handleCreateUserDraftChange,
+    saveAdminUser,
+    saveCreatedUser,
+    deleteUserRecord,
+    handleAddAuth0Role,
+    handleRemoveAuth0Role,
+    forceSessionRefreshForAuthChanges,
+    updateUserRecord,
+  } = useUsers({
+    getApiToken,
+    getFreshApiToken,
+    currentUser,
+    auth0Sub: user?.sub,
+    setCurrentUser,
+    setApiUnavailable,
+    canEditUsers,
+    canManageJobsNav,
+    redirectToLogin,
+    loadJobs, // comes from useConfiguration
+  });
+
+  // loadCustomReports through runCustomReport — all in useConfiguration.
 
   const refreshTicketDataFromRealtime = useCallback(
     async (providedToken?: string) => {
@@ -2527,7 +2050,7 @@ function App() {
     const enabledReports = customReports.filter((report) => report.isEnabled);
     if (enabledReports.length === 0) {
       setSelectedCustomReportId(null);
-      setCustomReportResult(null);
+      clearCustomReportResult();
       return;
     }
 
@@ -2812,1055 +2335,7 @@ function App() {
     }
   };
 
-  const handleSlaConfigurationChange = (
-    priority: string,
-    field: "targetHours" | "warningHours",
-    value: number,
-  ) => {
-    setSlaConfigurations((prev) =>
-      prev.map((configuration) =>
-        configuration.priority === priority
-          ? {
-              ...configuration,
-              [field]: Number.isNaN(value) ? 0 : value,
-            }
-          : configuration,
-      ),
-    );
-  };
-
-  const saveSlaConfigurations = async () => {
-    try {
-      setSlaSaving(true);
-      setSlaError(null);
-
-      const token = await getApiToken();
-      const savedConfigurations = await slaService.update(slaConfigurations, token);
-
-      setSlaConfigurations(savedConfigurations);
-      toast.success("SLA settings saved");
-      await refreshTicketsSilently(token);
-    } catch (error) {
-      console.error("Failed to save SLA settings", error);
-
-      setSlaError(
-        getUserFacingErrorMessage(error, "Failed to save SLA settings."),
-      );
-
-      toast.error("Failed to save SLA settings");
-    } finally {
-      setSlaSaving(false);
-    }
-  };
-
-  const handleSessionConfigurationChange = <
-    K extends keyof SessionConfiguration,
-  >(
-    field: K,
-    value: SessionConfiguration[K],
-  ) => {
-    setSessionConfiguration((currentConfiguration) =>
-      currentConfiguration
-        ? {
-            ...currentConfiguration,
-            [field]:
-              typeof value === "number"
-                ? Number.isNaN(value)
-                  ? 0
-                  : value
-                : value,
-          }
-        : currentConfiguration,
-    );
-  };
-
-  const handleNotificationChannelConfigurationChange = <
-    K extends keyof NotificationChannelConfiguration,
-  >(
-    field: K,
-    value: NotificationChannelConfiguration[K],
-  ) => {
-    setNotificationChannelConfiguration((currentConfiguration) =>
-      currentConfiguration
-        ? {
-            ...currentConfiguration,
-            [field]: value,
-          }
-        : currentConfiguration,
-    );
-  };
-
-  const saveSessionConfiguration = async () => {
-    if (!sessionConfiguration) {
-      return;
-    }
-
-    try {
-      setSessionSaving(true);
-      setSessionError(null);
-
-      const token = await getApiToken();
-      const savedConfiguration = await sessionConfigurationService.update(
-        sessionConfiguration,
-        token,
-      );
-
-      setSessionConfiguration(savedConfiguration);
-      toast.success("Session security policy saved");
-    } catch (error) {
-      console.error("Failed to save session configuration", error);
-
-      setSessionError(
-        getUserFacingErrorMessage(error, "Failed to save session configuration."),
-      );
-
-      toast.error("Failed to save session policy");
-    } finally {
-      setSessionSaving(false);
-    }
-  };
-
-  const saveNotificationChannelConfiguration = async () => {
-    if (!notificationChannelConfiguration) {
-      return;
-    }
-
-    try {
-      setNotificationChannelSaving(true);
-      setNotificationChannelError(null);
-
-      const token = await getApiToken();
-      const savedConfiguration =
-        await notificationChannelConfigurationService.update(
-          notificationChannelConfiguration,
-          token,
-        );
-
-      setNotificationChannelConfiguration(savedConfiguration);
-      toast.success("Notification channels saved");
-    } catch (error) {
-      console.error("Failed to save notification channel configuration", error);
-
-      setNotificationChannelError(
-        getUserFacingErrorMessage(
-          error,
-          "Failed to save notification channel settings.",
-        ),
-      );
-
-      toast.error("Failed to save notification channel settings");
-    } finally {
-      setNotificationChannelSaving(false);
-    }
-  };
-
-  const createTicketBoard = async (
-    definition: UpsertTicketBoardDefinitionInput,
-  ) => {
-    try {
-      setTicketBoardSaving(true);
-      setTicketBoardError(null);
-
-      const token = await getApiToken();
-      const createdDefinition = await ticketBoardService.create(definition, token);
-
-      setTicketBoards((currentDefinitions) =>
-        sortTicketBoards([...currentDefinitions, createdDefinition]),
-      );
-      toast.success("Ticket board created");
-    } catch (error) {
-      console.error("Failed to create ticket board", error);
-
-      setTicketBoardError(
-        getUserFacingErrorMessage(error, "Failed to create ticket board."),
-      );
-
-      toast.error("Failed to create ticket board");
-      throw error;
-    } finally {
-      setTicketBoardSaving(false);
-    }
-  };
-
-  const updateTicketBoard = async (
-    id: number,
-    definition: UpsertTicketBoardDefinitionInput,
-  ) => {
-    try {
-      setTicketBoardSaving(true);
-      setTicketBoardError(null);
-
-      const existingDefinition = ticketBoards.find(
-        (currentDefinition) => currentDefinition.id === id,
-      );
-      const token = await getApiToken();
-      const updatedDefinition = await ticketBoardService.update(id, definition, token);
-
-      setTicketBoards((currentDefinitions) =>
-        sortTicketBoards(
-          currentDefinitions.map((currentDefinition) =>
-            currentDefinition.id === updatedDefinition.id
-              ? updatedDefinition
-              : currentDefinition,
-          ),
-        ),
-      );
-      setAllTickets((currentTickets) =>
-        currentTickets.map((ticket) =>
-          ticket.boardId === id
-            ? {
-                ...ticket,
-                boardId: updatedDefinition.id,
-                boardName: updatedDefinition.name,
-                storyPoints: updatedDefinition.requiresStoryPoints
-                  ? ticket.storyPoints ?? 1
-                  : undefined,
-              }
-            : ticket,
-        ),
-      );
-      setArchivedTickets((currentTickets) =>
-        currentTickets.map((ticket) =>
-          ticket.boardId === id
-            ? {
-                ...ticket,
-                boardId: updatedDefinition.id,
-                boardName: updatedDefinition.name,
-                storyPoints: updatedDefinition.requiresStoryPoints
-                  ? ticket.storyPoints ?? 1
-                  : undefined,
-              }
-            : ticket,
-        ),
-      );
-      setSelectedTicket((currentTicket) =>
-        currentTicket && currentTicket.boardId === id
-          ? {
-              ...currentTicket,
-              boardId: updatedDefinition.id,
-              boardName: updatedDefinition.name,
-              storyPoints: updatedDefinition.requiresStoryPoints
-                ? currentTicket.storyPoints ?? 1
-                : undefined,
-            }
-          : currentTicket,
-      );
-
-      if (
-        selectedBoardId !== "all" &&
-        selectedBoardId === id &&
-        !updatedDefinition.isEnabled &&
-        existingDefinition?.isEnabled
-      ) {
-        setSelectedBoardId("all");
-      }
-
-      toast.success("Ticket board updated");
-    } catch (error) {
-      console.error("Failed to update ticket board", error);
-
-      setTicketBoardError(
-        getUserFacingErrorMessage(error, "Failed to update ticket board."),
-      );
-
-      toast.error("Failed to update ticket board");
-      throw error;
-    } finally {
-      setTicketBoardSaving(false);
-    }
-  };
-
-  const deleteTicketBoard = async (id: number) => {
-    try {
-      setDeletingTicketBoardId(id);
-      setTicketBoardError(null);
-
-      const token = await getApiToken();
-      await ticketBoardService.delete(id, token);
-
-      setTicketBoards((currentDefinitions) =>
-        currentDefinitions.filter((currentDefinition) => currentDefinition.id !== id),
-      );
-      if (selectedBoardId === id) {
-        setSelectedBoardId("all");
-      }
-
-      toast.success("Ticket board deleted");
-    } catch (error) {
-      console.error("Failed to delete ticket board", error);
-
-      setTicketBoardError(
-        getUserFacingErrorMessage(error, "Failed to delete ticket board."),
-      );
-
-      toast.error("Failed to delete ticket board");
-      throw error;
-    } finally {
-      setDeletingTicketBoardId(null);
-    }
-  };
-
-  const createTicketStatusDefinition = async (
-    definition: UpsertTicketStatusDefinitionInput,
-  ) => {
-    try {
-      setTicketStatusSaving(true);
-      setTicketStatusError(null);
-
-      const token = await getApiToken();
-      const createdDefinition = await ticketStatusService.create(definition, token);
-
-      setTicketStatuses((currentDefinitions) =>
-        sortTicketStatuses([...currentDefinitions, createdDefinition]),
-      );
-      toast.success("Ticket status created");
-    } catch (error) {
-      console.error("Failed to create ticket status", error);
-
-      setTicketStatusError(
-        getUserFacingErrorMessage(error, "Failed to create ticket status."),
-      );
-
-      toast.error("Failed to create ticket status");
-      throw error;
-    } finally {
-      setTicketStatusSaving(false);
-    }
-  };
-
-  const updateTicketStatusDefinition = async (
-    id: number,
-    definition: UpsertTicketStatusDefinitionInput,
-  ) => {
-    try {
-      setTicketStatusSaving(true);
-      setTicketStatusError(null);
-
-      const existingDefinition = ticketStatuses.find(
-        (currentDefinition) => currentDefinition.id === id,
-      );
-      const token = await getApiToken();
-      const updatedDefinition = await ticketStatusService.update(id, definition, token);
-
-      setTicketStatuses((currentDefinitions) =>
-        sortTicketStatuses(
-          currentDefinitions.map((currentDefinition) =>
-            currentDefinition.id === updatedDefinition.id
-              ? updatedDefinition
-              : currentDefinition,
-          ),
-        ),
-      );
-      setArchiveConfigurations((currentConfigurations) =>
-        currentConfigurations.map((configuration) => ({
-          ...configuration,
-          eligibleStatuses: configuration.eligibleStatuses.map((statusName) =>
-            statusName === existingDefinition?.name ? updatedDefinition.name : statusName,
-          ),
-        })),
-      );
-      setArchiveConfiguration((currentConfiguration) =>
-        currentConfiguration
-          ? {
-              ...currentConfiguration,
-              eligibleStatuses: currentConfiguration.eligibleStatuses.map(
-                (statusName) =>
-                  statusName === existingDefinition?.name ? updatedDefinition.name : statusName,
-              ),
-            }
-          : currentConfiguration,
-      );
-      setAllTickets((currentTickets) =>
-        currentTickets.map((ticket) =>
-          ticket.status === existingDefinition?.name
-            ? { ...ticket, status: updatedDefinition.name }
-            : ticket,
-        ),
-      );
-      setArchivedTickets((currentTickets) =>
-        currentTickets.map((ticket) =>
-          ticket.status === existingDefinition?.name
-            ? { ...ticket, status: updatedDefinition.name }
-            : ticket,
-        ),
-      );
-      setSelectedTicket((currentTicket) =>
-        currentTicket && currentTicket.status === existingDefinition?.name
-          ? { ...currentTicket, status: updatedDefinition.name }
-          : currentTicket,
-      );
-      toast.success("Ticket status updated");
-    } catch (error) {
-      console.error("Failed to update ticket status", error);
-
-      setTicketStatusError(
-        getUserFacingErrorMessage(error, "Failed to update ticket status."),
-      );
-
-      toast.error("Failed to update ticket status");
-      throw error;
-    } finally {
-      setTicketStatusSaving(false);
-    }
-  };
-
-  const deleteTicketStatusDefinition = async (id: number) => {
-    try {
-      setDeletingTicketStatusId(id);
-      setTicketStatusError(null);
-
-      const token = await getApiToken();
-      await ticketStatusService.delete(id, token);
-
-      setTicketStatuses((currentDefinitions) =>
-        currentDefinitions.filter((currentDefinition) => currentDefinition.id !== id),
-      );
-      toast.success("Ticket status deleted");
-    } catch (error) {
-      console.error("Failed to delete ticket status", error);
-
-      setTicketStatusError(
-        getUserFacingErrorMessage(error, "Failed to delete ticket status."),
-      );
-
-      toast.error("Failed to delete ticket status");
-      throw error;
-    } finally {
-      setDeletingTicketStatusId(null);
-    }
-  };
-
-  const handleTicketRoutingRuleChange = <
-    K extends keyof TicketRoutingRule,
-  >(
-    field: K,
-    value: TicketRoutingRule[K],
-  ) => {
-    setSelectedTicketRoutingRule((currentRule) =>
-      currentRule
-        ? {
-            ...currentRule,
-            [field]: value,
-          }
-        : currentRule,
-    );
-  };
-
-  const createTicketRoutingRule = () => {
-    setTicketRoutingError(null);
-    setSelectedTicketRoutingRule(createDraftTicketRoutingRule());
-  };
-
-  const selectTicketRoutingRule = (id: number) => {
-    const selectedRule = ticketRoutingRules.find((rule) => rule.id === id);
-    if (!selectedRule) {
-      return;
-    }
-
-    setTicketRoutingError(null);
-    setSelectedTicketRoutingRule(selectedRule);
-  };
-
-  const saveTicketRoutingRule = async () => {
-    if (!selectedTicketRoutingRule) {
-      return;
-    }
-
-    try {
-      setTicketRoutingSaving(true);
-      setTicketRoutingError(null);
-
-      const payload: UpsertTicketRoutingRuleInput = {
-        department: selectedTicketRoutingRule.department.trim() || undefined,
-        titleContains: selectedTicketRoutingRule.titleContains.trim() || undefined,
-        synitiOwner: selectedTicketRoutingRule.synitiOwner.trim() || undefined,
-        businessOwner:
-          selectedTicketRoutingRule.businessOwner.trim() || undefined,
-        isEnabled: selectedTicketRoutingRule.isEnabled,
-      };
-
-      const token = await getApiToken();
-      const isNewRule = selectedTicketRoutingRule.id === 0;
-      const savedRule = isNewRule
-        ? await ticketRoutingService.create(payload, token)
-        : await ticketRoutingService.update(selectedTicketRoutingRule.id, payload, token);
-
-      setTicketRoutingRules((currentRules) =>
-        sortTicketRoutingRules(
-          isNewRule
-            ? [...currentRules, savedRule]
-            : currentRules.map((rule) =>
-                rule.id === savedRule.id ? savedRule : rule,
-              ),
-        ),
-      );
-      setSelectedTicketRoutingRule(savedRule);
-      setTicketRoutingLoadedOnce(true);
-      toast.success(isNewRule ? "Ticket routing rule created" : "Ticket routing rule saved");
-    } catch (error) {
-      console.error("Failed to save ticket routing rule", error);
-
-      setTicketRoutingError(
-        getUserFacingErrorMessage(error, "Failed to save ticket routing rule."),
-      );
-
-      toast.error("Failed to save ticket routing rule");
-      throw error;
-    } finally {
-      setTicketRoutingSaving(false);
-    }
-  };
-
-  const deleteTicketRoutingRule = async () => {
-    if (!selectedTicketRoutingRule || selectedTicketRoutingRule.id === 0) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Delete the routing rule for ${selectedTicketRoutingRule.department}?`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      setDeletingTicketRoutingRuleId(selectedTicketRoutingRule.id);
-      setTicketRoutingError(null);
-
-      const token = await getApiToken();
-      await ticketRoutingService.delete(selectedTicketRoutingRule.id, token);
-
-      setTicketRoutingRules((currentRules) =>
-        currentRules.filter((rule) => rule.id !== selectedTicketRoutingRule.id),
-      );
-      setSelectedTicketRoutingRule((currentRule) => {
-        if (currentRule?.id !== selectedTicketRoutingRule.id) {
-          return currentRule;
-        }
-
-        const remainingRules = ticketRoutingRules.filter(
-          (rule) => rule.id !== selectedTicketRoutingRule.id,
-        );
-        return remainingRules[0] ?? null;
-      });
-      toast.success("Ticket routing rule deleted");
-    } catch (error) {
-      console.error("Failed to delete ticket routing rule", error);
-
-      setTicketRoutingError(
-        getUserFacingErrorMessage(error, "Failed to delete ticket routing rule."),
-      );
-
-      toast.error("Failed to delete ticket routing rule");
-      throw error;
-    } finally {
-      setDeletingTicketRoutingRuleId(null);
-    }
-  };
-
-  const createCustomReport = async (
-    definition: UpsertCustomReportDefinitionInput,
-  ) => {
-    try {
-      setCustomReportsSaving(true);
-      setCustomReportsError(null);
-
-      const token = await getApiToken();
-      const createdDefinition = await customReportService.create(definition, token);
-
-      setCustomReports((currentReports) =>
-        [...currentReports, createdDefinition].sort((left, right) =>
-          left.name.localeCompare(right.name),
-        ),
-      );
-
-      if (createdDefinition.isEnabled) {
-        setActiveReportSection("custom");
-        setSelectedCustomReportId(createdDefinition.id);
-      }
-
-      await loadDatabaseViews(token);
-
-      toast.success("Custom report created");
-    } catch (error) {
-      console.error("Failed to create custom report", error);
-
-      setCustomReportsError(
-        getUserFacingErrorMessage(error, "Failed to create custom report."),
-      );
-
-      toast.error("Failed to create custom report");
-      throw error;
-    } finally {
-      setCustomReportsSaving(false);
-    }
-  };
-
-  const updateCustomReport = async (
-    id: number,
-    definition: UpsertCustomReportDefinitionInput,
-  ) => {
-    try {
-      setCustomReportsSaving(true);
-      setCustomReportsError(null);
-
-      const token = await getApiToken();
-      const updatedDefinition = await customReportService.update(id, definition, token);
-
-      setCustomReports((currentReports) =>
-        currentReports
-          .map((report) => (report.id === updatedDefinition.id ? updatedDefinition : report))
-          .sort((left, right) => left.name.localeCompare(right.name)),
-      );
-
-      if (!updatedDefinition.isEnabled && selectedCustomReportId === updatedDefinition.id) {
-        setActiveReportSection("sla");
-        setSelectedCustomReportId(null);
-        setCustomReportResult(null);
-      } else if (selectedCustomReportId === updatedDefinition.id) {
-        await runCustomReport(updatedDefinition.id, token);
-      }
-
-      await loadDatabaseViews(token);
-
-      toast.success("Custom report updated");
-    } catch (error) {
-      console.error("Failed to update custom report", error);
-
-      setCustomReportsError(
-        getUserFacingErrorMessage(error, "Failed to update custom report."),
-      );
-
-      toast.error("Failed to update custom report");
-      throw error;
-    } finally {
-      setCustomReportsSaving(false);
-    }
-  };
-
-  const deleteCustomReport = async (id: number) => {
-    try {
-      setDeletingCustomReportId(id);
-      setCustomReportsError(null);
-
-      const token = await getApiToken();
-      await customReportService.delete(id, token);
-
-      const remainingReports = customReports.filter((report) => report.id !== id);
-      const remainingEnabledReports = remainingReports.filter((report) => report.isEnabled);
-
-      setCustomReports(remainingReports);
-
-      if (selectedCustomReportId === id) {
-        setCustomReportResult(null);
-
-        if (activeReportSection === "custom" && remainingEnabledReports.length > 0) {
-          setSelectedCustomReportId(remainingEnabledReports[0].id);
-        } else {
-          setSelectedCustomReportId(null);
-
-          if (activeReportSection === "custom") {
-            setActiveReportSection("sla");
-          }
-        }
-      }
-
-      await loadDatabaseViews(token);
-
-      toast.success("Custom report deleted");
-    } catch (error) {
-      console.error("Failed to delete custom report", error);
-
-      setCustomReportsError(
-        getUserFacingErrorMessage(error, "Failed to delete custom report."),
-      );
-
-      toast.error("Failed to delete custom report");
-      throw error;
-    } finally {
-      setDeletingCustomReportId(null);
-    }
-  };
-
-  const handleArchiveConfigurationChange = <
-    K extends keyof ArchiveConfiguration,
-  >(
-    field: K,
-    value: ArchiveConfiguration[K],
-  ) => {
-    setArchiveConfiguration((currentConfiguration) =>
-      currentConfiguration
-        ? {
-            ...currentConfiguration,
-            [field]:
-              field === "archiveAfterDays" && typeof value === "number"
-                ? Number.isNaN(value)
-                  ? 0
-                  : value
-                : value,
-          }
-        : currentConfiguration,
-    );
-  };
-
-  const createArchivePolicy = () => {
-    setArchiveError(null);
-    setArchiveConfiguration(createDraftArchiveConfiguration(ticketStatuses));
-  };
-
-  const selectArchivePolicy = (id: number) => {
-    const selectedConfiguration = archiveConfigurations.find(
-      (configuration) => configuration.id === id,
-    );
-
-    if (!selectedConfiguration) {
-      return;
-    }
-
-    setArchiveError(null);
-    setArchiveConfiguration(selectedConfiguration);
-  };
-
-  const saveArchiveConfiguration = async () => {
-    if (!archiveConfiguration) {
-      return;
-    }
-
-    try {
-      setArchiveSaving(true);
-      setArchiveError(null);
-
-      const token = await getApiToken();
-      const isNewConfiguration = archiveConfiguration.id === 0;
-      const savedConfiguration = isNewConfiguration
-        ? await archiveConfigurationService.create(archiveConfiguration, token)
-        : await archiveConfigurationService.update(
-            archiveConfiguration.id,
-            archiveConfiguration,
-            token,
-          );
-
-      setArchiveConfigurations((currentConfigurations) =>
-        sortArchiveConfigurations(
-          isNewConfiguration
-            ? [...currentConfigurations, savedConfiguration]
-            : currentConfigurations.map((configuration) =>
-                configuration.id === savedConfiguration.id
-                  ? savedConfiguration
-                  : configuration,
-              ),
-        ),
-      );
-      setArchiveConfiguration(savedConfiguration);
-      toast.success(
-        isNewConfiguration
-          ? "Archive policy created"
-          : "Archive policy saved",
-      );
-    } catch (error) {
-      console.error("Failed to save archive configuration", error);
-
-      setArchiveError(
-        getUserFacingErrorMessage(error, "Failed to save archive configuration."),
-      );
-
-      toast.error("Failed to save archive configuration");
-    } finally {
-      setArchiveSaving(false);
-    }
-  };
-
-  const deleteArchiveConfiguration = async () => {
-    if (!archiveConfiguration || archiveConfiguration.id === 0) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Delete archive policy #${archiveConfiguration.id}?`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      setDeletingArchiveConfigurationId(archiveConfiguration.id);
-      setArchiveError(null);
-
-      const token = await getApiToken();
-      await archiveConfigurationService.delete(archiveConfiguration.id, token);
-
-      const remainingConfigurations = archiveConfigurations.filter(
-        (configuration) => configuration.id !== archiveConfiguration.id,
-      );
-
-      setArchiveConfigurations(remainingConfigurations);
-      setArchiveConfiguration(remainingConfigurations[0] ?? null);
-      toast.success("Archive policy deleted");
-    } catch (error) {
-      console.error("Failed to delete archive configuration", error);
-
-      setArchiveError(
-        getUserFacingErrorMessage(error, "Failed to delete archive configuration."),
-      );
-
-      toast.error("Failed to delete archive configuration");
-    } finally {
-      setDeletingArchiveConfigurationId(null);
-    }
-  };
-
-  const runArchiveNow = async () => {
-    try {
-      setArchiveRunning(true);
-      setArchiveError(null);
-
-      const token = await getApiToken();
-      const result = await archiveConfigurationService.runNow(token);
-
-      await Promise.all([
-        refreshTicketsSilently(token),
-        loadArchivedTickets(token),
-      ]);
-
-      toast.success(
-        result.archivedTicketCount === 1
-          ? "Archived 1 ticket"
-          : `Archived ${result.archivedTicketCount} tickets`,
-      );
-    } catch (error) {
-      console.error("Failed to archive eligible tickets", error);
-
-      setArchiveError(
-        getUserFacingErrorMessage(error, "Failed to archive eligible tickets."),
-      );
-
-      toast.error("Failed to archive eligible tickets");
-    } finally {
-      setArchiveRunning(false);
-    }
-  };
-
-  const createStoredProcedureDefinition = async (
-    definition: UpsertStoredProcedureDefinitionInput,
-  ) => {
-    try {
-      setStoredProcedureSaving(true);
-      setStoredProcedureError(null);
-
-      const token = await getApiToken();
-      const createdDefinition = await storedProcedureService.create(definition, token);
-
-      setStoredProcedures((currentDefinitions) =>
-        [...currentDefinitions, createdDefinition].sort((left, right) =>
-          left.name.localeCompare(right.name),
-        ),
-      );
-      await loadDatabaseStoredProcedures(token);
-      toast.success("Stored procedure created");
-    } catch (error) {
-      console.error("Failed to create stored procedure", error);
-
-      setStoredProcedureError(
-        getUserFacingErrorMessage(error, "Failed to create stored procedure."),
-      );
-
-      toast.error("Failed to create stored procedure");
-      throw error;
-    } finally {
-      setStoredProcedureSaving(false);
-    }
-  };
-
-  const updateStoredProcedureDefinition = async (
-    id: number,
-    definition: UpsertStoredProcedureDefinitionInput,
-  ) => {
-    try {
-      setStoredProcedureSaving(true);
-      setStoredProcedureError(null);
-
-      const token = await getApiToken();
-      const updatedDefinition = await storedProcedureService.update(
-        id,
-        definition,
-        token,
-      );
-
-      setStoredProcedures((currentDefinitions) =>
-        currentDefinitions
-          .map((currentDefinition) =>
-            currentDefinition.id === updatedDefinition.id
-              ? updatedDefinition
-              : currentDefinition,
-          )
-          .sort((left, right) => left.name.localeCompare(right.name)),
-      );
-      setJobs((currentJobs) =>
-        currentJobs.map((currentJob) =>
-          currentJob.storedProcedureDefinitionId === updatedDefinition.id
-            ? {
-                ...currentJob,
-                storedProcedureName: updatedDefinition.name,
-              }
-            : currentJob,
-        ),
-      );
-      await loadDatabaseStoredProcedures(token);
-      toast.success("Stored procedure updated");
-    } catch (error) {
-      console.error("Failed to update stored procedure", error);
-
-      setStoredProcedureError(
-        getUserFacingErrorMessage(error, "Failed to update stored procedure."),
-      );
-
-      toast.error("Failed to update stored procedure");
-      throw error;
-    } finally {
-      setStoredProcedureSaving(false);
-    }
-  };
-
-  const deleteStoredProcedureDefinition = async (id: number) => {
-    try {
-      setDeletingStoredProcedureId(id);
-      setStoredProcedureError(null);
-
-      const token = await getApiToken();
-      await storedProcedureService.delete(id, token);
-
-      setStoredProcedures((currentDefinitions) =>
-        currentDefinitions.filter((currentDefinition) => currentDefinition.id !== id),
-      );
-
-      setJobs((currentJobs) =>
-        currentJobs.map((currentJob) =>
-          currentJob.storedProcedureDefinitionId === id
-            ? {
-                ...currentJob,
-                storedProcedureDefinitionId: undefined,
-                storedProcedureName: undefined,
-                isEnabled: false,
-                nextRunDateUtc: undefined,
-                lastRunStatus: "Failed",
-                lastRunMessage:
-                  "Stored procedure was deleted. Select a replacement procedure before re-enabling this job.",
-              }
-            : currentJob,
-        ),
-      );
-
-      void loadJobs(token);
-      await loadDatabaseStoredProcedures(token);
-
-      toast.success("Stored procedure deleted");
-    } catch (error) {
-      console.error("Failed to delete stored procedure", error);
-
-      setStoredProcedureError(
-        getUserFacingErrorMessage(error, "Failed to delete stored procedure."),
-      );
-
-      toast.error("Failed to delete stored procedure");
-      throw error;
-    } finally {
-      setDeletingStoredProcedureId(null);
-    }
-  };
-
-  const createScheduledJob = async (job: UpsertScheduledJobInput) => {
-    try {
-      setJobsSaving(true);
-      setJobsError(null);
-
-      const token = await getApiToken();
-      const createdJob = await scheduledJobService.create(job, token);
-
-      setJobs((currentJobs) =>
-        [...currentJobs, createdJob].sort((left, right) =>
-          left.name.localeCompare(right.name),
-        ),
-      );
-      toast.success("Job created");
-    } catch (error) {
-      console.error("Failed to create job", error);
-
-      setJobsError(getUserFacingErrorMessage(error, "Failed to create job."));
-
-      toast.error("Failed to create job");
-      throw error;
-    } finally {
-      setJobsSaving(false);
-    }
-  };
-
-  const updateScheduledJob = async (
-    id: number,
-    job: UpsertScheduledJobInput,
-  ) => {
-    try {
-      setJobsSaving(true);
-      setJobsError(null);
-
-      const token = await getApiToken();
-      const updatedJob = await scheduledJobService.update(id, job, token);
-
-      setJobs((currentJobs) =>
-        currentJobs
-          .map((currentJob) =>
-            currentJob.id === updatedJob.id ? updatedJob : currentJob,
-          )
-          .sort((left, right) => left.name.localeCompare(right.name)),
-      );
-      toast.success("Job updated");
-    } catch (error) {
-      console.error("Failed to update job", error);
-
-      setJobsError(getUserFacingErrorMessage(error, "Failed to update job."));
-
-      toast.error("Failed to update job");
-      throw error;
-    } finally {
-      setJobsSaving(false);
-    }
-  };
-
-  const runScheduledJobNow = async (id: number) => {
-    try {
-      setRunningJobId(id);
-      setJobsError(null);
-
-      const token = await getApiToken();
-      const updatedJob = await scheduledJobService.runNow(id, token);
-
-      setJobs((currentJobs) =>
-        currentJobs
-          .map((currentJob) =>
-            currentJob.id === updatedJob.id ? updatedJob : currentJob,
-          )
-          .sort((left, right) => left.name.localeCompare(right.name)),
-      );
-
-      await Promise.all([
-        refreshTicketsSilently(token),
-        loadArchivedTickets(token),
-      ]);
-
-      toast.success("Job ran successfully");
-    } catch (error) {
-      console.error("Failed to run job", error);
-
-      setJobsError(getUserFacingErrorMessage(error, "Failed to run job."));
-
-      toast.error("Failed to run job");
-      throw error;
-    } finally {
-      setRunningJobId(null);
-    }
-  };
-
+  // handleSlaConfigurationChange through runScheduledJobNow — all in useConfiguration.
   const requestDeleteTicket = (ticket: Ticket) => {
     setTicketToDelete(ticket);
   };
@@ -4322,73 +2797,8 @@ function App() {
     setIsProfileModalOpen(false);
   };
 
-  const openCreateUserModal = () => {
-    setCreateUserDraft({
-      displayName: "",
-      nickName: "",
-      email: "",
-      password: "",
-      phoneNumber: "",
-      department: "",
-      role: "User",
-      isActive: true,
-      expiryDate: "",
-    });
-    setIsCreateUserModalOpen(true);
-  };
-
-  const closeCreateUserModal = () => {
-    setIsCreateUserModalOpen(false);
-  };
-
-  const openAdminUserModal = (selectedUser: UserRecord) => {
-    setEditingAdminUser(selectedUser);
-    setAdminUserDraft({
-      nickName: selectedUser.nickName ?? "",
-      phoneNumber: selectedUser.phoneNumber ?? "",
-      department: selectedUser.department ?? "",
-      assignmentNotificationChannel:
-        selectedUser.assignmentNotificationChannel ?? "",
-      slaRiskNotificationChannel: selectedUser.slaRiskNotificationChannel ?? "",
-      isActive: selectedUser.isActive,
-      expiryDate: selectedUser.expiryDate ?? "",
-    });
-    setAdminAccessFeedback(null);
-    setAdminAccessError(null);
-    setAdminAuth0Roles([]);
-    setAvailableAuth0Roles([]);
-    setAdminRolesLoading(true);
-
-    void (async () => {
-      try {
-        const token = await getApiToken();
-        const [detail, catalog] = await Promise.all([
-          selectedUser.auth0Id
-            ? userService.getUserAuth0Roles(selectedUser.id, token)
-            : Promise.resolve({ roles: [] as Auth0RoleOption[] }),
-          userService.getAvailableAuth0Roles(token),
-        ]);
-        setAdminAuth0Roles(detail.roles);
-        setAvailableAuth0Roles(catalog);
-      } catch (error) {
-        console.error("Failed to load Auth0 roles", error);
-        setAdminAccessError(
-          getUserFacingErrorMessage(error, "Could not load Auth0 roles."),
-        );
-      } finally {
-        setAdminRolesLoading(false);
-      }
-    })();
-  };
-
-  const closeAdminUserModal = () => {
-    setEditingAdminUser(null);
-    setAdminUserDraft({});
-    setAdminAuth0Roles([]);
-    setAvailableAuth0Roles([]);
-    setAdminAccessFeedback(null);
-    setAdminAccessError(null);
-  };
+  // openCreateUserModal, closeCreateUserModal, openAdminUserModal,
+  // closeAdminUserModal — all live in useUsers, destructured above.
 
   const handleProfileDraftChange = (
     field: keyof UpdateUserProfileInput,
@@ -4400,155 +2810,9 @@ function App() {
     }));
   };
 
-  const handleAdminUserDraftChange = (
-    field: keyof AdminUpdateUserInput,
-    value: string | boolean,
-  ) => {
-    setAdminUserDraft((currentDraft) => ({
-      ...currentDraft,
-      [field]: value,
-    }));
-  };
-
-  const refreshSessionAfterSelfRoleChange = useCallback(
-    async (updatedUser: UserRecord) => {
-      const isCurrentUser =
-        (currentUser?.id != null && updatedUser.id === currentUser.id) ||
-        (Boolean(user?.sub) &&
-          Boolean(updatedUser.auth0Id) &&
-          user?.sub === updatedUser.auth0Id);
-      if (!isCurrentUser) {
-        return;
-      }
-
-      setSessionRefreshInProgress(true);
-      setSessionRefreshNotice(null);
-
-      try {
-        const freshToken = await getFreshApiToken();
-        const refreshedUser = await userService.getCurrentUser(freshToken);
-        setCurrentUser(refreshedUser);
-
-        const expectedRoles = normalizeRoles(updatedUser.roles, updatedUser.role);
-        const refreshedRoles = normalizeRoles(refreshedUser.roles, refreshedUser.role);
-        const claimsAreFresh =
-          expectedRoles.length === refreshedRoles.length &&
-          expectedRoles.every((value, index) => value === refreshedRoles[index]);
-
-        if (!claimsAreFresh) {
-          setSessionRefreshNotice(
-            "Your access changed. Refresh your session to apply updated navigation and permissions.",
-          );
-          return;
-        }
-
-        setSessionRefreshNotice(null);
-      } catch (error) {
-        console.warn("Failed to refresh session after role update", error);
-        setSessionRefreshNotice(
-          "Your access changed. Refresh your session to apply updated navigation and permissions.",
-        );
-      } finally {
-        setSessionRefreshInProgress(false);
-      }
-    },
-    [currentUser?.id, getFreshApiToken, user?.sub],
-  );
-
-  const forceSessionRefreshForAuthChanges = useCallback(() => {
-    setSessionRefreshNotice(null);
-    void loginWithRedirect({
-      authorizationParams: {
-        ...API_AUTHORIZATION_PARAMS,
-        prompt: "login",
-        max_age: 0,
-      },
-    });
-  }, [loginWithRedirect]);
-
-  const handleAddAuth0Role = async (roleName: string) => {
-    if (!editingAdminUser?.auth0Id || !canEditUsers) return;
-
-    setRoleMutationLoading(true);
-    setAdminAccessError(null);
-    try {
-      const token = await getApiToken();
-      const updated = await userService.mutateUserAuth0Role(
-        editingAdminUser.id,
-        { action: "add", roleName },
-        token,
-      );
-      setUsers((list) =>
-        list.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
-      );
-      setEditingAdminUser((prev) =>
-        prev && prev.id === updated.id ? { ...prev, ...updated } : prev,
-      );
-      setCurrentUser((existingUser) =>
-        existingUser && existingUser.id === updated.id
-          ? { ...existingUser, ...updated }
-          : existingUser,
-      );
-      const detail = await userService.getUserAuth0Roles(editingAdminUser.id, token);
-      setAdminAuth0Roles(detail.roles);
-      await refreshSessionAfterSelfRoleChange(updated);
-      toast.success(`Role "${roleName}" added`);
-    } catch (error) {
-      console.error("Failed to add role", error);
-      const message = getUserFacingErrorMessage(error, "Failed to add role");
-      setAdminAccessError(message);
-      toast.error(message);
-    } finally {
-      setRoleMutationLoading(false);
-    }
-  };
-
-  const handleRemoveAuth0Role = async (roleName: string) => {
-    if (!editingAdminUser?.auth0Id || !canEditUsers) return;
-
-    setRoleMutationLoading(true);
-    setAdminAccessError(null);
-    try {
-      const token = await getApiToken();
-      const updated = await userService.mutateUserAuth0Role(
-        editingAdminUser.id,
-        { action: "remove", roleName },
-        token,
-      );
-      setUsers((list) =>
-        list.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
-      );
-      setEditingAdminUser((prev) =>
-        prev && prev.id === updated.id ? { ...prev, ...updated } : prev,
-      );
-      setCurrentUser((existingUser) =>
-        existingUser && existingUser.id === updated.id
-          ? { ...existingUser, ...updated }
-          : existingUser,
-      );
-      const detail = await userService.getUserAuth0Roles(editingAdminUser.id, token);
-      setAdminAuth0Roles(detail.roles);
-      await refreshSessionAfterSelfRoleChange(updated);
-      toast.success(`Role "${roleName}" removed`);
-    } catch (error) {
-      console.error("Failed to remove role", error);
-      const message = getUserFacingErrorMessage(error, "Failed to remove role");
-      setAdminAccessError(message);
-      toast.error(message);
-    } finally {
-      setRoleMutationLoading(false);
-    }
-  };
-
-  const handleCreateUserDraftChange = (
-    field: keyof CreateUserInput,
-    value: string | boolean,
-  ) => {
-    setCreateUserDraft((currentDraft) => ({
-      ...currentDraft,
-      [field]: value,
-    }));
-  };
+  // handleAdminUserDraftChange, refreshSessionAfterSelfRoleChange,
+  // forceSessionRefreshForAuthChanges, handleAddAuth0Role, handleRemoveAuth0Role,
+  // handleCreateUserDraftChange — all live in useUsers, destructured above.
 
   const saveProfile = async () => {
     if (!currentUser) return;
@@ -4559,13 +2823,7 @@ function App() {
       const updatedUser = await userService.updateProfile(profileDraft, token);
 
       setCurrentUser(updatedUser);
-      setUsers((currentUsers) =>
-        currentUsers.map((userRecord) =>
-          userRecord.id === updatedUser.id
-            ? { ...userRecord, ...updatedUser }
-            : userRecord,
-        ),
-      );
+      updateUserRecord(updatedUser);
       setIsProfileModalOpen(false);
       toast.success("Profile updated");
     } catch (error) {
@@ -4576,123 +2834,7 @@ function App() {
     }
   };
 
-  const saveAdminUser = async () => {
-    if (!editingAdminUser) return;
-
-    try {
-      setAdminUserSaving(true);
-      setAdminAccessFeedback(null);
-      setAdminAccessError(null);
-      const token = await getApiToken();
-      const payload: AdminUpdateUserInput = {
-        ...adminUserDraft,
-        expiryDate: adminUserDraft.expiryDate?.trim()
-          ? adminUserDraft.expiryDate
-          : null,
-      };
-      const updatedUser = await userService.updateUser(
-        editingAdminUser.id,
-        payload,
-        token,
-      );
-
-      setUsers((currentUsers) =>
-        currentUsers.map((userRecord) =>
-          userRecord.id === updatedUser.id ? { ...userRecord, ...updatedUser } : userRecord,
-        ),
-      );
-      setCurrentUser((existingUser) =>
-        existingUser && existingUser.id === updatedUser.id
-          ? { ...existingUser, ...updatedUser }
-          : existingUser,
-      );
-
-      setAdminAccessFeedback("User saved.");
-      closeAdminUserModal();
-      toast.success("User updated");
-    } catch (error) {
-      console.error("Failed to update user", error);
-      const message = getUserFacingErrorMessage(error, "Failed to update user access");
-      setAdminAccessError(message);
-      toast.error(message);
-    } finally {
-      setAdminUserSaving(false);
-    }
-  };
-
-  const saveCreatedUser = async () => {
-    try {
-      setCreateUserSaving(true);
-      const token = await getApiToken();
-      const payload: CreateUserInput = {
-        ...createUserDraft,
-        displayName: createUserDraft.displayName.trim(),
-        email: createUserDraft.email.trim(),
-        password: createUserDraft.password,
-        nickName: createUserDraft.nickName?.trim() || undefined,
-        phoneNumber: createUserDraft.phoneNumber?.trim() || undefined,
-        department: createUserDraft.department?.trim() || undefined,
-        expiryDate: createUserDraft.expiryDate?.trim()
-          ? createUserDraft.expiryDate
-          : null,
-      };
-
-      const createdUser = await userService.createUser(payload, token);
-      setUsers((currentUsers) =>
-        [...currentUsers, createdUser].sort((left, right) =>
-          (left.displayName ?? left.email).localeCompare(
-            right.displayName ?? right.email,
-          ),
-        ),
-      );
-      closeCreateUserModal();
-      toast.success("User created");
-    } catch (error) {
-      console.error("Failed to create user", error);
-      toast.error(getUserFacingErrorMessage(error, "Failed to create user"));
-    } finally {
-      setCreateUserSaving(false);
-    }
-  };
-
-  const deleteUserRecord = async (selectedUser: UserRecord) => {
-    const userLabel = selectedUser.displayName || selectedUser.email;
-    const confirmed = window.confirm(
-      `Delete "${userLabel}"? This removes the local user record, deletes the linked Auth0 account when configured, reassigns historical references to the legacy fallback user, and disables any jobs that ran as this user.`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      setDeletingUserId(selectedUser.id);
-      const token = await getApiToken();
-      await userService.deleteUser(selectedUser.id, token);
-
-      setUsers((currentUsers) =>
-        currentUsers.filter((userRecord) => userRecord.id !== selectedUser.id),
-      );
-      setOnlineUsers((currentUsers) =>
-        currentUsers.filter((userRecord) => userRecord.id !== selectedUser.id),
-      );
-
-      if (editingAdminUser?.id === selectedUser.id) {
-        closeAdminUserModal();
-      }
-
-      if (canManageJobsNav) {
-        void loadJobs(token);
-      }
-
-      toast.success("User deleted");
-    } catch (error) {
-      console.error("Failed to delete user", error);
-      toast.error(getUserFacingErrorMessage(error, "Failed to delete user"));
-    } finally {
-      setDeletingUserId(null);
-    }
-  };
+  // saveAdminUser, saveCreatedUser, deleteUserRecord — all live in useUsers, destructured above.
 
   if (isLoading) {
     return (

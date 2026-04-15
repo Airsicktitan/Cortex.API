@@ -97,7 +97,7 @@ public class Auth0UserRoleSyncService(
                     {
                         client_id = _options.ManagementClientId,
                         client_secret = _options.ManagementClientSecret,
-                        audience = $"https://{_options.Domain}/api/v2/",
+                        audience = _options.ResolveManagementApiAudience(),
                         grant_type = "client_credentials"
                     },
                     JsonOptions),

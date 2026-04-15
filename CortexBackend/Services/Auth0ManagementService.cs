@@ -260,24 +260,14 @@ public class Auth0ManagementService(
         }
     }
 
-    /// <summary>
-    /// Resolves the Management API audience for M2M tokens. Never uses <see cref="Auth0ManagementOptions.Audience"/> (Cortex API JWT audience).
-    /// </summary>
     private string GetManagementApiAudience()
     {
-        if (!string.IsNullOrWhiteSpace(_options.ManagementApiAudience))
-        {
-            var trimmed = _options.ManagementApiAudience.Trim();
-            return trimmed.EndsWith('/') ? trimmed : trimmed + "/";
-        }
-
-        var domain = _options.Domain?.Trim().TrimEnd('/');
-        if (string.IsNullOrEmpty(domain))
+        if (string.IsNullOrWhiteSpace(_options.Domain))
         {
             throw new InvalidOperationException("Auth0:Domain is required for Management API audience.");
         }
 
-        return $"https://{domain}/api/v2/";
+        return _options.ResolveManagementApiAudience();
     }
 
     private async Task<string> GetManagementTokenAsync(CancellationToken cancellationToken)

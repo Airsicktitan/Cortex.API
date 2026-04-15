@@ -17,7 +17,6 @@ using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("AzureCortexDb")
-    ?? builder.Configuration.GetConnectionString("AzureCortexDB")
     ?? builder.Configuration.GetConnectionString("CortexDB")
     ?? throw new InvalidOperationException(
         "Connection string 'AzureCortexDb' is not configured. Set ConnectionStrings:AzureCortexDb or use CortexDB as a fallback.");
@@ -167,14 +166,40 @@ builder.Services.AddSwaggerGen(options =>
 
 });
 
-// Add CORS for React Frontend
+// Add CORS for React Frontend.
+// Non-development environments must have AllowedOrigins configured — startup fails if absent.
+// Set via Azure Container Apps environment variable:
+//   AllowedOrigins__0=https://cortex-frontend.<env>.azurecontainerapps.io
+// Read and validate here (builder phase) so the failure is eager, not on the first request.
+var allowedOrigins = builder.Configuration
+    .GetSection("AllowedOrigins")
+    .Get<string[]>();
+
+if (allowedOrigins is not { Length: > 0 } && !builder.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException(
+        "AllowedOrigins must be configured in non-development environments. " +
+        "Set AllowedOrigins__0 (and additional entries as needed) via the " +
+        "Azure Container Apps environment variables.");
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        if (allowedOrigins is { Length: > 0 })
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+        else
+        {
+            // Development only — AllowedOrigins is not set.
+            policy.AllowAnyOrigin()
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
     });
 });
 
@@ -236,27 +261,40 @@ var startupLogger = app.Services
     .CreateLogger("Auth0Management");
 if (string.IsNullOrWhiteSpace(auth0ManagementOptions.ManagementClientSecret))
 {
-    startupLogger.LogWarning(
-        "Auth0:ManagementClientSecret is blank at startup. Auth0 Management API (roles, user provisioning) will fail until the secret is set in configuration or user secrets.");
+    if (app.Environment.IsDevelopment())
+    {
+        startupLogger.LogWarning(
+            "Auth0:ManagementClientSecret is not configured. User creation, role assignment, and Auth0 role sync " +
+            "will fail at runtime. Set Auth0__ManagementClientSecret before using admin management features.");
+    }
+    else
+    {
+        throw new InvalidOperationException(
+            "Auth0:ManagementClientSecret is required in non-development environments. " +
+            "Set this value via the Azure Container Apps environment variable Auth0__ManagementClientSecret.");
+    }
 }
 
 app.UseStructuredRequestLogging();
 app.UseExceptionHandler();
 
-// Enable Swagger in Dev or Production, probably want to lock this down later
-app.UseSwagger();
-app.UseSwaggerUI(options =>
+// Swagger is disabled in Production. Available in Development and Staging only.
+if (!app.Environment.IsProduction())
 {
-    options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
-    options.RoutePrefix = "swagger";
-    options.OAuthClientId(builder.Configuration["Auth0:ClientId"]);
-    options.OAuthUsePkce(); // Use PKCE for enhanced security in Swagger UI
-    options.OAuthAdditionalQueryStringParams(new Dictionary<string, string>
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
     {
-        { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty },
-        { "connection", "Username-Password-Authentication" }
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "CORTEX API v1");
+        options.RoutePrefix = "swagger";
+        options.OAuthClientId(builder.Configuration["Auth0:ClientId"]);
+        options.OAuthUsePkce(); // Use PKCE for enhanced security in Swagger UI
+        options.OAuthAdditionalQueryStringParams(new Dictionary<string, string>
+        {
+            { "audience", builder.Configuration["Auth0:Audience"] ?? string.Empty },
+            { "connection", "Username-Password-Authentication" }
+        });
     });
-});
+}
 
 app.UseCors();
 

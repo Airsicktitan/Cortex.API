@@ -85,18 +85,13 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 
     public async Task<string> GetNextTicketIdAsync()
     {
-        var activeIds = _context.Tickets.Select(ticket => ticket.Id);
-        var archivedIds = _context.ArchivedTickets.Select(ticket => ticket.Id);
-        var knownIds = await activeIds.Concat(archivedIds).ToListAsync();
+        // NEXT VALUE FOR is atomic at the database level — safe under concurrent inserts.
+        // The sequence is seeded above the current max by migration AddTicketIdSequence.
+        var nextId = await _context.Database
+            .SqlQueryRaw<long>("SELECT NEXT VALUE FOR dbo.TicketIdSequence AS [Value]")
+            .SingleAsync();
 
-        var nextNumber = knownIds
-            .Select(ParseTicketNumber)
-            .Where(number => number.HasValue)
-            .Select(number => number!.Value)
-            .DefaultIfEmpty(0)
-            .Max() + 1;
-
-        return nextNumber.ToString(CultureInfo.InvariantCulture);
+        return nextId.ToString(CultureInfo.InvariantCulture);
     }
 
     public async Task<bool> ArchiveTicketAsync(string id, int archivedBy)
@@ -219,33 +214,6 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
     public async Task SaveChangesAsync()
     {
         await _context.SaveChangesAsync();
-    }
-
-    private static int? ParseTicketNumber(string? rawId)
-    {
-        if (string.IsNullOrWhiteSpace(rawId))
-        {
-            return null;
-        }
-
-        var trimmed = rawId.Trim();
-        if (int.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out var numericId))
-        {
-            return numericId;
-        }
-
-        const string legacyPrefix = "TICKET-";
-        if (trimmed.StartsWith(legacyPrefix, StringComparison.OrdinalIgnoreCase)
-            && int.TryParse(
-                trimmed[legacyPrefix.Length..],
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
-                out numericId))
-        {
-            return numericId;
-        }
-
-        return null;
     }
 
     private static bool IsLegacyPlaceholderAttachment(ArchivedTicketAttachment attachment)
