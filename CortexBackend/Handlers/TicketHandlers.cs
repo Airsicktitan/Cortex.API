@@ -347,6 +347,8 @@ public static class TicketHandlers
     {
         try
         {
+            ValidateUpdateTicketRequest(request);
+
             var existing = await repo.GetTicketByIdAsync(id);
             var currentUser = await userContext.GetCurrentUserAsync();
 
@@ -355,11 +357,14 @@ public static class TicketHandlers
 
             var originalTicket = CloneTicket(existing);
 
-            if (!string.IsNullOrWhiteSpace(request.Status)
-                && !string.Equals(request.Status, existing.Status, StringComparison.OrdinalIgnoreCase))
-            {
-                await ticketStatusService.EnsureSelectableStatusAsync(request.Status);
-            }
+            var resolvedTitle = request.Title is null ? existing.Title : request.Title.Trim();
+            var resolvedDescription = request.Description is null ? existing.Description : request.Description.Trim();
+            var resolvedPriority = request.Priority is null ? existing.Priority : NormalizePriority(request.Priority);
+
+            var resolvedStatus = await ResolveStatusForUpdateAsync(
+                ticketStatusService,
+                request.Status,
+                existing.Status);
 
             var targetBoard = await ResolveBoardForUpdateAsync(
                 ticketBoardService,
@@ -371,10 +376,10 @@ public static class TicketHandlers
                 request.StoryPoints,
                 existing.StoryPoints);
 
-            existing.Title = request.Title ?? existing.Title;
-            existing.Description = request.Description ?? existing.Description;
-            existing.Status = request.Status ?? existing.Status;
-            existing.Priority = request.Priority ?? existing.Priority;
+            existing.Title = resolvedTitle;
+            existing.Description = resolvedDescription;
+            existing.Status = resolvedStatus;
+            existing.Priority = resolvedPriority;
             existing.BoardId = targetBoard.Id;
             existing.StoryPoints = storyPoints;
             existing.SynitiOwner = request.SynitiOwner ?? existing.SynitiOwner;
@@ -685,6 +690,45 @@ public static class TicketHandlers
         }
     }
 
+    private static void ValidateUpdateTicketRequest(UpdateTicketRequest request)
+    {
+        if (request.Title is not null)
+        {
+            if (string.IsNullOrWhiteSpace(request.Title))
+            {
+                throw new ArgumentException("Title cannot be empty.");
+            }
+
+            if (request.Title.Trim().Length > MaxTitleLength)
+            {
+                throw new ArgumentException($"Title must be {MaxTitleLength} characters or fewer.");
+            }
+        }
+
+        if (request.Description is not null)
+        {
+            if (string.IsNullOrWhiteSpace(request.Description))
+            {
+                throw new ArgumentException("Description cannot be empty.");
+            }
+
+            if (request.Description.Trim().Length > MaxDescriptionLength)
+            {
+                throw new ArgumentException($"Description must be {MaxDescriptionLength} characters or fewer.");
+            }
+        }
+
+        if (request.Priority is not null && string.IsNullOrWhiteSpace(request.Priority))
+        {
+            throw new ArgumentException("Priority cannot be empty.");
+        }
+
+        if (request.Status is not null && string.IsNullOrWhiteSpace(request.Status))
+        {
+            throw new ArgumentException("Status cannot be empty.");
+        }
+    }
+
     private static string NormalizePriority(string priority)
     {
         var normalizedPriority = AllowedPriorities.FirstOrDefault(candidate =>
@@ -764,15 +808,40 @@ public static class TicketHandlers
         var board = await ticketBoardService.GetByIdAsync(boardId.Value);
         if (board is null)
         {
-            return await ticketBoardService.GetDefaultCreateBoardAsync();
+            throw new ArgumentException("BoardId must reference a configured ticket board.");
         }
 
         if (!board.IsEnabled && board.Id != existingBoardId)
         {
-            return await ticketBoardService.GetDefaultCreateBoardAsync();
+            throw new ArgumentException("BoardId must reference an enabled ticket board.");
         }
 
         return board;
+    }
+
+    private static async Task<string> ResolveStatusForUpdateAsync(
+        ITicketStatusService ticketStatusService,
+        string? requestedStatus,
+        string existingStatus)
+    {
+        if (requestedStatus is null)
+        {
+            return existingStatus;
+        }
+
+        var trimmedStatus = requestedStatus.Trim();
+        if (string.Equals(trimmedStatus, existingStatus, StringComparison.OrdinalIgnoreCase))
+        {
+            return existingStatus;
+        }
+
+        await ticketStatusService.EnsureSelectableStatusAsync(trimmedStatus);
+
+        var enabledStatuses = await ticketStatusService.GetEnabledAsync();
+        var matchedStatus = enabledStatuses.FirstOrDefault(definition =>
+            string.Equals(definition.Name, trimmedStatus, StringComparison.OrdinalIgnoreCase));
+
+        return matchedStatus?.Name ?? trimmedStatus;
     }
 
     private static async Task<TicketBoardDefinition> GetExistingBoardAsync(

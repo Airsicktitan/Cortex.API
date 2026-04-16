@@ -2,10 +2,15 @@ import { useState } from "react";
 
 interface AddCommentProps {
   onAdd: (body: string) => Promise<void>;
+  onTyping?: () => void;
   disabled?: boolean;
 }
 
-export default function AddComment({ onAdd, disabled = false }: AddCommentProps) {
+export default function AddComment({
+  onAdd,
+  onTyping,
+  disabled = false,
+}: AddCommentProps) {
   const [body, setBody] = useState("");
   const [posting, setPosting] = useState(false);
 
@@ -24,7 +29,10 @@ export default function AddComment({ onAdd, disabled = false }: AddCommentProps)
   };
 
   return (
-    <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/70">
+    <div
+      data-comment-composer="true"
+      className="space-y-2 rounded-md border border-gray-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/70"
+    >
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Add Comment
@@ -37,7 +45,13 @@ export default function AddComment({ onAdd, disabled = false }: AddCommentProps)
       </div>
       <textarea
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => {
+          const nextBody = e.target.value;
+          setBody(nextBody);
+          if (nextBody.trim().length > 0 && !disabled && !posting) {
+            onTyping?.();
+          }
+        }}
         rows={3}
         placeholder="Write a comment…"
         disabled={posting || disabled}
@@ -45,6 +59,7 @@ export default function AddComment({ onAdd, disabled = false }: AddCommentProps)
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
+            e.stopPropagation();
             submit();
           }
         }}

@@ -87,11 +87,34 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
     {
         // NEXT VALUE FOR is atomic at the database level — safe under concurrent inserts.
         // The sequence is seeded above the current max by migration AddTicketIdSequence.
-        var nextId = await _context.Database
-            .SqlQueryRaw<long>("SELECT NEXT VALUE FOR dbo.TicketIdSequence AS [Value]")
-            .SingleAsync();
+        var connection = _context.Database.GetDbConnection();
+        var shouldCloseConnection = connection.State != System.Data.ConnectionState.Open;
+        if (shouldCloseConnection)
+        {
+            await connection.OpenAsync();
+        }
 
-        return nextId.ToString(CultureInfo.InvariantCulture);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT NEXT VALUE FOR dbo.TicketIdSequence";
+
+            var result = await command.ExecuteScalarAsync();
+            if (result is null || result is DBNull)
+            {
+                throw new InvalidOperationException("Failed to get next ticket sequence value.");
+            }
+
+            var nextId = Convert.ToInt64(result, CultureInfo.InvariantCulture);
+            return nextId.ToString(CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            if (shouldCloseConnection)
+            {
+                await connection.CloseAsync();
+            }
+        }
     }
 
     public async Task<bool> ArchiveTicketAsync(string id, int archivedBy)

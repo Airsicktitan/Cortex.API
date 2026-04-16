@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import type { Ticket } from "./types/ticket";
 import type { UserNotification } from "./types/notification";
@@ -23,7 +16,6 @@ import {
 } from "./services/api";
 import { notificationService } from "./services/notificationService";
 import { realtimeService } from "./services/realtimeService";
-import TicketCard from "./components/TicketCard";
 import TicketModal from "./components/TicketModal";
 import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
 import DashboardPage from "./components/DashboardPage";
@@ -38,14 +30,14 @@ import AdminUserEditModal from "./components/AdminUserEditModal";
 import AdminUserCreateModal from "./components/AdminUserCreateModal";
 import SaveTicketFilterModal from "./components/SaveTicketFilterModal";
 import NotificationPanel from "./components/NotificationPanel";
-import {
-  ConfigurationSkeleton,
-  TicketGridSkeleton,
-} from "./components/LoadingSkeletons";
+import { ConfigurationSkeleton } from "./components/LoadingSkeletons";
+import AppSidebar from "./components/AppSidebar";
+import TicketsContainer from "./components/TicketsContainer";
 import { applyTheme, getPreferredTheme, type ThemeMode } from "./theme";
 import { useUsers } from "./hooks/useUsers";
 import { useConfiguration } from "./hooks/useConfiguration";
 import { useTickets } from "./hooks/useTickets";
+import { useSavedFilters } from "./hooks/useSavedFilters";
 import toast from "react-hot-toast";
 import {
   normalizeRoles,
@@ -70,8 +62,6 @@ const SESSION_REAUTH_PENDING_STORAGE_KEY_PREFIX =
 const SIDEBAR_MIN_WIDTH = 232;
 const SIDEBAR_MAX_WIDTH = 440;
 const SIDEBAR_DEFAULT_WIDTH = 296;
-const REALTIME_REFRESH_DEBOUNCE_MS = 500;
-const TICKET_AUTO_REFRESH_INTERVAL_MS = 15000;
 const DEFAULT_SESSION_CONFIGURATION: SessionConfiguration = {
   inactivityTimeoutMinutes: 10,
   warningMinutes: 1,
@@ -95,7 +85,6 @@ const APP_VIEW_LABELS: Record<AppView, string> = {
   users: "Users",
 };
 
-type FilterOption = "all" | "status" | "priority" | "sla";
 type AppView =
   | "dashboard"
   | "tickets"
@@ -105,19 +94,8 @@ type AppView =
   | "jobs"
   | "users";
 type ReportSection = "sla" | "online-users" | "custom";
-type PageSizeOption = 10 | 25 | 50 | "all";
 type SessionPromptState = "warning" | "expired" | null;
-type SavedTicketFilter = {
-  id: string;
-  name: string;
-  filter: FilterOption;
-  filterValue: string;
-  searchQuery: string;
-  pageSize: PageSizeOption;
-};
 
-const SLA_FILTER_OPTIONS = ["Breached", "At Risk", "Met"] as const;
-const PAGE_SIZE_OPTIONS: ReadonlyArray<PageSizeOption> = [10, 25, 50, "all"];
 const DEFAULT_TICKET_STATUS_NAMES = [
   "New",
   "In Progress",
@@ -191,103 +169,6 @@ function getInitialSidebarWidth() {
   }
 
   return clampSidebarWidth(storedValue);
-}
-
-function normalize(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function isFilterOption(value: string): value is FilterOption {
-  return (
-    value === "all" ||
-    value === "status" ||
-    value === "priority" ||
-    value === "sla"
-  );
-}
-
-function isPageSizeOption(value: unknown): value is PageSizeOption {
-  return value === "all" || value === 10 || value === 25 || value === 50;
-}
-
-function createSavedFilterId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function parseSavedFilters(rawValue: string | null): SavedTicketFilter[] {
-  if (!rawValue) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(rawValue) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.flatMap((item) => {
-      if (typeof item !== "object" || item === null) {
-        return [];
-      }
-
-      const candidate = item as Partial<SavedTicketFilter>;
-      const filterOption = candidate.filter;
-      const pageSizeValue =
-        candidate.pageSize === "all" ? "all" : Number(candidate.pageSize ?? 0);
-
-      if (
-        typeof candidate.id !== "string" ||
-        typeof candidate.name !== "string" ||
-        typeof filterOption !== "string" ||
-        !isFilterOption(filterOption) ||
-        !isPageSizeOption(pageSizeValue)
-      ) {
-        return [];
-      }
-
-      return [
-        {
-          id: candidate.id,
-          name: candidate.name,
-          filter: filterOption,
-          filterValue:
-            typeof candidate.filterValue === "string"
-              ? candidate.filterValue
-              : "",
-          searchQuery:
-            typeof candidate.searchQuery === "string"
-              ? candidate.searchQuery
-              : "",
-          pageSize: pageSizeValue,
-        },
-      ];
-    });
-  } catch {
-    return [];
-  }
-}
-
-type TicketListSortOption =
-  | "newest-first"
-  | "oldest-first"
-  | "priority-high-low"
-  | "priority-low-high"
-  | "due-soonest"
-  | "most-overdue";
-
-function isTicketListSortOption(value: string): value is TicketListSortOption {
-  return (
-    value === "newest-first" ||
-    value === "oldest-first" ||
-    value === "priority-high-low" ||
-    value === "priority-low-high" ||
-    value === "due-soonest" ||
-    value === "most-overdue"
-  );
 }
 
 function isConsentRequiredError(error: unknown) {
@@ -408,10 +289,6 @@ function App() {
   const [selectedCustomReportId, setSelectedCustomReportId] = useState<
     number | null
   >(null);
-  const [savedFilters, setSavedFilters] = useState<SavedTicketFilter[]>([]);
-  const [selectedSavedFilterId, setSelectedSavedFilterId] = useState("");
-  const [isSaveFilterModalOpen, setIsSaveFilterModalOpen] = useState(false);
-  const [savedFilterName, setSavedFilterName] = useState("");
   const [latestRealtimeEvent, setLatestRealtimeEvent] =
     useState<RealtimeEvent | null>(null);
 
@@ -441,22 +318,18 @@ function App() {
   // User management state is owned by useUsers (wired below after getApiToken).
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
-  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileDraft, setProfileDraft] = useState<UpdateUserProfileInput>({});
   const appMenuRef = useRef<HTMLDivElement | null>(null);
-  const sidebarResizeStartXRef = useRef(0);
-  const sidebarResizeStartWidthRef = useRef(sidebarWidth);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const notificationPanelRef = useRef<HTMLDivElement | null>(null);
   const sessionPromptStateRef = useRef<SessionPromptState>(null);
   const sessionLastActivityAtRef = useRef(Date.now());
   const lastPresenceSyncAtRef = useRef(0);
   const presenceSyncInFlightRef = useRef(false);
-  const realtimeRefreshTimerRef = useRef<number | null>(null);
 
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
@@ -697,6 +570,7 @@ function App() {
     setTicketToDelete,
     deleting,
     refreshTicketsSilently,
+    reconcileTicketByIdSilently,
     loadAllTickets,
     loadArchivedTickets,
     tickets,
@@ -725,6 +599,35 @@ function App() {
     isConsentRequiredError,
     isForbiddenError,
     isLikelyNetworkError,
+  });
+
+  const {
+    savedFilters,
+    selectedSavedFilterId,
+    setSelectedSavedFilterId,
+    isSaveFilterModalOpen,
+    savedFilterName,
+    setSavedFilterName,
+    handleFilterChange,
+    handleFilterValueChange,
+    handleSearchChange,
+    handlePageSizeChange,
+    openSaveFilterModal,
+    closeSaveFilterModal,
+    saveCurrentFilter,
+    applySavedFilter,
+    clearTicketFilters,
+    deleteSavedFilter,
+  } = useSavedFilters({
+    storageKey: savedFilterStorageKey,
+    filter,
+    filterValue,
+    searchQuery,
+    pageSize,
+    setFilter,
+    setFilterValue,
+    setSearchQuery,
+    setPageSize,
   });
 
   // loadSlaConfigurations and other configuration loaders live in useConfiguration.
@@ -1064,42 +967,6 @@ function App() {
 
   // loadCustomReports through runCustomReport — all in useConfiguration.
 
-  const refreshTicketDataFromRealtime = useCallback(
-    async (providedToken?: string) => {
-      const token = providedToken ?? (await getApiToken());
-      await Promise.allSettled([
-        loadAllTickets(token),
-        loadArchivedTickets(token),
-      ]);
-    },
-    [getApiToken, loadAllTickets, loadArchivedTickets],
-  );
-
-  const scheduleRealtimeTicketRefresh = useCallback(
-    (event: RealtimeEvent, providedToken?: string) => {
-      if (!event?.eventType || typeof event.eventType !== "string") {
-        return;
-      }
-
-      if (
-        !event.eventType.startsWith("ticket.") &&
-        !event.eventType.startsWith("comment.") &&
-        !event.eventType.startsWith("attachment.")
-      ) {
-        return;
-      }
-
-      if (realtimeRefreshTimerRef.current !== null) {
-        window.clearTimeout(realtimeRefreshTimerRef.current);
-      }
-
-      realtimeRefreshTimerRef.current = window.setTimeout(() => {
-        realtimeRefreshTimerRef.current = null;
-        void refreshTicketDataFromRealtime(providedToken);
-      }, REALTIME_REFRESH_DEBOUNCE_MS);
-    },
-    [refreshTicketDataFromRealtime],
-  );
 
   useEffect(() => {
     applyTheme(theme);
@@ -1110,22 +977,6 @@ function App() {
   }, [sessionPromptState]);
 
   useEffect(() => {
-    setSavedFilters(
-      parseSavedFilters(window.localStorage.getItem(savedFilterStorageKey)),
-    );
-    setSelectedSavedFilterId("");
-  }, [savedFilterStorageKey]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      savedFilterStorageKey,
-      JSON.stringify(savedFilters),
-    );
-  }, [savedFilters, savedFilterStorageKey]);
-
-  useEffect(() => {
-    sidebarResizeStartWidthRef.current = sidebarWidth;
-
     window.localStorage.setItem(
       SIDEBAR_WIDTH_STORAGE_KEY,
       String(clampSidebarWidth(sidebarWidth)),
@@ -1140,64 +991,6 @@ function App() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (realtimeRefreshTimerRef.current !== null) {
-        window.clearTimeout(realtimeRefreshTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (
-      !isAuthenticated ||
-      !bootstrapComplete ||
-      needsConsent ||
-      !canViewTicketSections ||
-      activeView !== "tickets"
-    ) {
-      return;
-    }
-
-    const isUserInteractingWithForm = () => {
-      if (typeof document === "undefined") {
-        return false;
-      }
-
-      const activeElement = document.activeElement as HTMLElement | null;
-      if (!activeElement) {
-        return false;
-      }
-
-      if (activeElement.isContentEditable) {
-        return true;
-      }
-
-      return ["INPUT", "TEXTAREA", "SELECT"].includes(activeElement.tagName);
-    };
-
-    const intervalId = window.setInterval(() => {
-      if (loading || isModalOpen || isUserInteractingWithForm()) {
-        return;
-      }
-
-      void refreshTicketsSilently();
-    }, TICKET_AUTO_REFRESH_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [
-    activeView,
-    canViewTicketSections,
-    isAuthenticated,
-    isModalOpen,
-    loading,
-    needsConsent,
-    bootstrapComplete,
-    refreshTicketsSilently,
-  ]);
 
   useEffect(() => {
     if (
@@ -1229,7 +1022,13 @@ function App() {
           return;
         }
 
-        scheduleRealtimeTicketRefresh(event);
+        if (
+          event.eventType.startsWith("ticket.") &&
+          typeof event.ticketId === "string" &&
+          event.ticketId.trim().length > 0
+        ) {
+          void reconcileTicketByIdSilently(event.ticketId);
+        }
       },
       onError: (error) => {
         console.error("Realtime connection issue", error);
@@ -1247,7 +1046,7 @@ function App() {
     loadNotifications,
     needsConsent,
     bootstrapComplete,
-    scheduleRealtimeTicketRefresh,
+    reconcileTicketByIdSilently,
   ]);
 
   useEffect(() => {
@@ -1412,37 +1211,6 @@ function App() {
     isLoading,
     syncPresenceIfDue,
   ]);
-
-  useEffect(() => {
-    if (!isSidebarResizing) {
-      return;
-    }
-
-    const handlePointerMove = (event: MouseEvent) => {
-      const nextWidth =
-        sidebarResizeStartWidthRef.current +
-        (event.clientX - sidebarResizeStartXRef.current);
-
-      setSidebarWidth(clampSidebarWidth(nextWidth));
-    };
-
-    const handlePointerUp = () => {
-      setIsSidebarResizing(false);
-    };
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    window.addEventListener("mousemove", handlePointerMove);
-    window.addEventListener("mouseup", handlePointerUp);
-
-    return () => {
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.removeEventListener("mousemove", handlePointerMove);
-      window.removeEventListener("mouseup", handlePointerUp);
-    };
-  }, [isSidebarResizing]);
 
   useEffect(() => {
     if (isLoading || !isAuthenticated) return;
@@ -2021,137 +1789,6 @@ function App() {
     }
   };
 
-  const beginSidebarResize = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    sidebarResizeStartXRef.current = event.clientX;
-    sidebarResizeStartWidthRef.current = sidebarWidth;
-    setIsSidebarResizing(true);
-  };
-
-  const handleFilterChange = (value: string) => {
-    setSelectedSavedFilterId("");
-    setFilter(isFilterOption(value) ? value : "all");
-    setFilterValue("");
-  };
-
-  const handleFilterValueChange = (value: string) => {
-    setSelectedSavedFilterId("");
-    setFilterValue(value);
-  };
-
-  const handleSearchChange = (value: string) => {
-    setSelectedSavedFilterId("");
-    setSearchQuery(value);
-  };
-
-  const handlePageSizeChange = (value: string) => {
-    setSelectedSavedFilterId("");
-    if (value === "all") {
-      setPageSize("all");
-      return;
-    }
-
-    const nextPageSize = Number(value);
-    if (nextPageSize === 10 || nextPageSize === 25 || nextPageSize === 50) {
-      setPageSize(nextPageSize);
-    }
-  };
-
-  const openSaveFilterModal = () => {
-    const existingFilter = savedFilters.find(
-      (savedFilter) => savedFilter.id === selectedSavedFilterId,
-    );
-
-    setSavedFilterName(existingFilter?.name ?? "My Ticket View");
-    setIsSaveFilterModalOpen(true);
-  };
-
-  const closeSaveFilterModal = () => {
-    setIsSaveFilterModalOpen(false);
-    setSavedFilterName("");
-  };
-
-  const saveCurrentFilter = () => {
-    const trimmedName = savedFilterName.trim();
-    if (!trimmedName) {
-      return;
-    }
-
-    const existingFilter = savedFilters.find(
-      (savedFilter) => normalize(savedFilter.name) === normalize(trimmedName),
-    );
-    const savedFilterId = existingFilter?.id ?? createSavedFilterId();
-    const nextSavedFilter: SavedTicketFilter = {
-      id: savedFilterId,
-      name: trimmedName,
-      filter,
-      filterValue,
-      searchQuery,
-      pageSize,
-    };
-
-    setSavedFilters((currentFilters) => [
-      nextSavedFilter,
-      ...currentFilters.filter(
-        (savedFilter) => savedFilter.id !== savedFilterId,
-      ),
-    ]);
-    setSelectedSavedFilterId(savedFilterId);
-    closeSaveFilterModal();
-    toast.success(
-      existingFilter ? "Saved filter updated" : "Saved filter saved",
-    );
-  };
-
-  const applySavedFilter = (savedFilterId: string) => {
-    setSelectedSavedFilterId(savedFilterId);
-
-    if (!savedFilterId) {
-      return;
-    }
-
-    const savedFilter = savedFilters.find(
-      (filterEntry) => filterEntry.id === savedFilterId,
-    );
-    if (!savedFilter) {
-      return;
-    }
-
-    setFilter(savedFilter.filter);
-    setFilterValue(savedFilter.filterValue);
-    setSearchQuery(savedFilter.searchQuery);
-    setPageSize(savedFilter.pageSize);
-  };
-
-  const clearTicketFilters = () => {
-    setSelectedSavedFilterId("");
-    setFilter("all");
-    setFilterValue("");
-    setSearchQuery("");
-    setPageSize(10);
-  };
-
-  const deleteSavedFilter = () => {
-    if (!selectedSavedFilterId) {
-      return;
-    }
-
-    const filterToDelete = savedFilters.find(
-      (savedFilter) => savedFilter.id === selectedSavedFilterId,
-    );
-
-    setSavedFilters((currentFilters) =>
-      currentFilters.filter(
-        (savedFilter) => savedFilter.id !== selectedSavedFilterId,
-      ),
-    );
-    setSelectedSavedFilterId("");
-    toast.success(
-      filterToDelete
-        ? `Removed "${filterToDelete.name}"`
-        : "Saved filter removed",
-    );
-  };
-
   const toggleTheme = () => {
     setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
   };
@@ -2661,77 +2298,15 @@ function App() {
       </header>
 
       <div className="mx-auto flex w-full max-w-[2200px] flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:gap-8 2xl:px-8">
-        <aside
-          className="relative hidden shrink-0 lg:block"
-          style={{ width: `${sidebarWidth}px` }}
-        >
-          <div className="sticky top-8 flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
-            <div className="border-b border-gray-100 px-5 py-5 dark:border-slate-800">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-slate-400">
-                Navigation
-              </p>
-              <h3 className="mt-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
-                Workspace
-              </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Move between ticket operations, reporting, and admin controls.
-              </p>
-            </div>
-
-            <nav className="flex-1 overflow-y-auto px-3 py-4">
-              <div className="space-y-2">
-                {navigationItems.map((item) => {
-                  const isActive = item.view === activeView;
-
-                  return (
-                    <button
-                      key={item.view}
-                      onClick={() => handleViewChange(item.view)}
-                      className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
-                        isActive
-                          ? "border-cortex-blue bg-cortex-blue-soft text-cortex-ink shadow-sm dark:border-cortex-blue dark:bg-cortex-blue/20 dark:text-slate-100"
-                          : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:bg-slate-900"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium">{item.label}</span>
-                        {isActive && (
-                          <span className="text-xs font-semibold uppercase tracking-wide text-cortex-blue dark:text-cortex-cyan">
-                            Active
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                        {item.description}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            </nav>
-
-            <div className="border-t border-gray-100 px-5 py-4 dark:border-slate-800">
-              <p className="text-xs text-gray-500 dark:text-slate-400">
-                Drag the right edge to resize the menu.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              aria-label="Resize sidebar"
-              onMouseDown={beginSidebarResize}
-              className="absolute inset-y-0 -right-2 hidden w-4 cursor-col-resize items-center justify-center lg:flex"
-            >
-              <span
-                className={`block h-20 w-1 rounded-full transition-colors ${
-                  isSidebarResizing
-                    ? "bg-cortex-blue"
-                    : "bg-gray-300 dark:bg-slate-700"
-                }`}
-              />
-            </button>
-          </div>
-        </aside>
+        <AppSidebar
+          width={sidebarWidth}
+          activeView={activeView}
+          navigationItems={navigationItems}
+          onViewChange={handleViewChange}
+          onResize={(nextWidth) =>
+            setSidebarWidth(clampSidebarWidth(nextWidth))
+          }
+        />
 
         <main className="min-w-0 flex-1">
           {activeView === "dashboard" && canViewDashboard ? (
@@ -2743,292 +2318,50 @@ function App() {
               onOpenTicket={openTicket}
             />
           ) : activeView === "tickets" ? (
-            <>
-              <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-                      Ticket Filters
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-slate-400">
-                      Search, narrow, and save ticket views without crowding the
-                      header.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={openSaveFilterModal}
-                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                      Save Filter
-                    </button>
-
-                    {selectedSavedFilterId && (
-                      <button
-                        onClick={deleteSavedFilter}
-                        className="inline-flex items-center rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30"
-                      >
-                        Delete Saved
-                      </button>
-                    )}
-
-                    <button
-                      onClick={clearTicketFilters}
-                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setSelectedBoardId("all")}
-                    className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                      selectedBoardId === "all"
-                        ? "bg-cortex-blue text-white"
-                        : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    All Boards
-                    <span className="ml-2 text-xs opacity-80">
-                      {allTickets.length}
-                    </span>
-                  </button>
-                  {boardTabs.map((board) => {
-                    const boardCount = allTickets.filter(
-                      (ticket) => ticket.boardId === board.id,
-                    ).length;
-                    const isActive = selectedBoardId === board.id;
-
-                    return (
-                      <button
-                        key={board.id}
-                        onClick={() => setSelectedBoardId(board.id)}
-                        className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                          isActive
-                            ? "bg-cortex-blue text-white"
-                            : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                        }`}
-                      >
-                        {board.name}
-                        <span className="ml-2 text-xs opacity-80">
-                          {boardCount}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <select
-                    value={filter}
-                    onChange={(event) => handleFilterChange(event.target.value)}
-                    className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  >
-                    <option value="all">All Tickets</option>
-                    <option value="status">By Status</option>
-                    <option value="priority">By Priority</option>
-                    <option value="sla">By SLA</option>
-                  </select>
-
-                  <label className="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600 dark:border-slate-700 dark:text-slate-400">
-                    <span>Show</span>
-                    <select
-                      value={pageSize}
-                      onChange={(event) =>
-                        handlePageSizeChange(event.target.value)
-                      }
-                      style={{
-                        colorScheme: theme === "dark" ? "dark" : "light",
-                      }}
-                      className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-900 shadow-none focus:border-cortex-blue focus:ring-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                    >
-                      {PAGE_SIZE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option === "all" ? "All" : option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  {filter === "sla" ? (
-                    <select
-                      value={filterValue}
-                      onChange={(event) =>
-                        handleFilterValueChange(event.target.value)
-                      }
-                      className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                    >
-                      <option value="">Select SLA state</option>
-                      {SLA_FILTER_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  ) : filter !== "all" ? (
-                    <input
-                      type="text"
-                      placeholder={`Enter ${filter}...`}
-                      value={filterValue}
-                      onChange={(event) =>
-                        handleFilterValueChange(event.target.value)
-                      }
-                      className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-                    />
-                  ) : (
-                    <div className="hidden lg:block" />
-                  )}
-
-                  <select
-                    value={selectedSavedFilterId}
-                    onChange={(event) => applySavedFilter(event.target.value)}
-                    className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  >
-                    <option value="">Saved Filters</option>
-                    {savedFilters.map((savedFilter) => (
-                      <option key={savedFilter.id} value={savedFilter.id}>
-                        {savedFilter.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <div
-                    className="flex shrink-0 gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 dark:border-slate-700 dark:bg-slate-800"
-                    role="group"
-                    aria-label="Ticket scope"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedSavedFilterId("");
-                        setMyTicketsOnly(false);
-                      }}
-                      className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                        !myTicketsOnly
-                          ? "bg-cortex-blue text-white"
-                          : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      All Tickets
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedSavedFilterId("");
-                        setMyTicketsOnly(true);
-                      }}
-                      className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                        myTicketsOnly
-                          ? "bg-cortex-blue text-white"
-                          : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      My Tickets
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Search tickets..."
-                    value={searchQuery}
-                    onChange={(event) => handleSearchChange(event.target.value)}
-                    className="min-w-0 flex-1 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-                  />
-                  <select
-                    aria-label="Sort tickets"
-                    value={ticketListSort}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      if (isTicketListSortOption(value)) {
-                        setSelectedSavedFilterId("");
-                        setTicketListSort(value);
-                      }
-                    }}
-                    className="w-full shrink-0 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm sm:w-52 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  >
-                    <option value="newest-first">Newest first</option>
-                    <option value="oldest-first">Oldest first</option>
-                    <option value="priority-high-low">
-                      Priority (high → low)
-                    </option>
-                    <option value="priority-low-high">
-                      Priority (low → high)
-                    </option>
-                    <option value="due-soonest">Due soonest</option>
-                    <option value="most-overdue">Most overdue</option>
-                  </select>
-                </div>
-              </div>
-
-              {(loading || apiUnavailable) && <TicketGridSkeleton />}
-
-              {error && !apiUnavailable && (
-                <div className="bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 p-4 rounded">
-                  <p className="text-red-700 dark:text-red-300">{error}</p>
-                </div>
-              )}
-
-              {!loading &&
-                !apiUnavailable &&
-                !error &&
-                tickets.length === 0 && (
-                  <p className="text-gray-600 dark:text-slate-400 text-center">
-                    No tickets found
-                  </p>
-                )}
-
-              {!loading && !apiUnavailable && !error && tickets.length > 0 && (
-                <>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                    {pagedTickets.map((ticket) => (
-                      <TicketCard
-                        key={ticket.id}
-                        ticket={ticket}
-                        onClick={() => openTicket(ticket)}
-                      />
-                    ))}
-                  </div>
-
-                  <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-gray-600 dark:text-slate-400">
-                      Showing {showingStart}-{showingEnd} of {totalTickets}{" "}
-                      tickets
-                    </p>
-                    {pageSize !== "all" && totalPages > 1 && (
-                      <div className="flex items-center gap-3 sm:ml-auto">
-                        <p className="text-sm text-gray-600 dark:text-slate-400">
-                          Page {currentPage} of {totalPages}
-                        </p>
-                        <button
-                          onClick={() =>
-                            setCurrentPage((page) => Math.max(1, page - 1))
-                          }
-                          disabled={currentPage === 1}
-                          className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                        >
-                          Previous
-                        </button>
-                        <button
-                          onClick={() =>
-                            setCurrentPage((page) =>
-                              Math.min(totalPages, page + 1),
-                            )
-                          }
-                          disabled={currentPage === totalPages}
-                          className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </>
+            <TicketsContainer
+              theme={theme}
+              isAuthenticated={isAuthenticated}
+              bootstrapComplete={bootstrapComplete}
+              needsConsent={needsConsent}
+              canViewTicketSections={canViewTicketSections}
+              boardTabs={boardTabs}
+              allTickets={allTickets}
+              loading={loading}
+              apiUnavailable={apiUnavailable}
+              error={error}
+              savedFilters={savedFilters}
+              selectedSavedFilterId={selectedSavedFilterId}
+              setSelectedSavedFilterId={setSelectedSavedFilterId}
+              openSaveFilterModal={openSaveFilterModal}
+              deleteSavedFilter={deleteSavedFilter}
+              clearTicketFilters={clearTicketFilters}
+              applySavedFilter={applySavedFilter}
+              handleFilterChange={handleFilterChange}
+              handleFilterValueChange={handleFilterValueChange}
+              handleSearchChange={handleSearchChange}
+              handlePageSizeChange={handlePageSizeChange}
+              filter={filter}
+              filterValue={filterValue}
+              searchQuery={searchQuery}
+              pageSize={pageSize}
+              selectedBoardId={selectedBoardId}
+              setSelectedBoardId={setSelectedBoardId}
+              myTicketsOnly={myTicketsOnly}
+              setMyTicketsOnly={setMyTicketsOnly}
+              ticketListSort={ticketListSort}
+              setTicketListSort={setTicketListSort}
+              tickets={tickets}
+              pagedTickets={pagedTickets}
+              totalTickets={totalTickets}
+              totalPages={totalPages}
+              currentPage={currentPage}
+              setCurrentPage={setCurrentPage}
+              showingStart={showingStart}
+              showingEnd={showingEnd}
+              isModalOpen={isModalOpen}
+              refreshTicketsSilently={refreshTicketsSilently}
+              openTicket={openTicket}
+            />
           ) : activeView === "archived" && canViewArchived ? (
             <ArchivedTicketsPage
               tickets={archivedTickets}

@@ -36,6 +36,8 @@ import {
 const API_AUDIENCE = "https://cortex-api";
 const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 4000;
+const TYPING_PING_THROTTLE_MS = 2000;
+const TYPING_INDICATOR_TTL_MS = 5000;
 
 function formatFileSize(fileSize: number) {
   if (fileSize < 1024) {
@@ -51,6 +53,41 @@ function formatFileSize(fileSize: number) {
 
 function getQueuedAttachmentKey(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function reconcileCommentsById(
+  current: Comment[],
+  incoming: Comment[],
+): Comment[] {
+  if (incoming.length === 0) {
+    return current.length === 0 ? current : [];
+  }
+
+  const currentById = new Map(current.map((comment) => [comment.id, comment]));
+  let changed = incoming.length !== current.length;
+  const nextComments = incoming.map((incomingComment) => {
+    const existingComment = currentById.get(incomingComment.id);
+    if (!existingComment) {
+      changed = true;
+      return incomingComment;
+    }
+
+    if (
+      existingComment.body === incomingComment.body &&
+      existingComment.createdBy === incomingComment.createdBy &&
+      existingComment.createdByDisplayName ===
+        incomingComment.createdByDisplayName &&
+      existingComment.createdDate === incomingComment.createdDate &&
+      existingComment.lastModifiedDate === incomingComment.lastModifiedDate
+    ) {
+      return existingComment;
+    }
+
+    changed = true;
+    return incomingComment;
+  });
+
+  return changed ? nextComments : current;
 }
 
 interface TicketModalProps {
@@ -77,6 +114,11 @@ interface TicketModalProps {
 
 type CreateFormField = "title" | "description" | "priority" | "storyPoints";
 type CreateFormErrors = Partial<Record<CreateFormField, string>>;
+type TypingPresence = {
+  key: string;
+  displayName?: string;
+  expiresAt: number;
+};
 
 export default function TicketModal({
   ticket,
@@ -124,8 +166,12 @@ export default function TicketModal({
   const [attachmentActionId, setAttachmentActionId] = useState<number | null>(
     null,
   );
-  const [validationErrors, setValidationErrors] = useState<CreateFormErrors>({});
+  const [typingUsers, setTypingUsers] = useState<TypingPresence[]>([]);
+  const [validationErrors, setValidationErrors] = useState<CreateFormErrors>(
+    {},
+  );
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
+  const [isTicketDetailsOpen, setIsTicketDetailsOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -134,6 +180,11 @@ export default function TicketModal({
   // Used to prevent older comment fetches from overwriting newer ones
   const commentsLoadVersion = useRef(0);
   const attachmentsLoadVersion = useRef(0);
+  const lastTypingPingAtRef = useRef(0);
+  const pendingLocalCommentRef = useRef<{
+    id: string;
+    expiresAt: number;
+  } | null>(null);
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
     [currentUser?.roles, currentUser?.role],
@@ -165,8 +216,7 @@ export default function TicketModal({
     if (!trimmedDescription) {
       errors.description = "Description is required.";
     } else if (trimmedDescription.length > MAX_DESCRIPTION_LENGTH) {
-      errors.description =
-        `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`;
+      errors.description = `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`;
     }
 
     if (!trimmedPriority) {
@@ -178,12 +228,19 @@ export default function TicketModal({
     }
 
     return errors;
-  }, [description, priority, selectedBoardRequiresStoryPoints, storyPoints, title]);
+  }, [
+    description,
+    priority,
+    selectedBoardRequiresStoryPoints,
+    storyPoints,
+    title,
+  ]);
   const hasCreateValidationErrors = Object.keys(validationErrors).length > 0;
   const quickMoveBoards = useMemo(
     () =>
       ticketBoards.filter(
-        (board) => board.isEnabled && Boolean(ticket.id) && board.id !== boardId,
+        (board) =>
+          board.isEnabled && Boolean(ticket.id) && board.id !== boardId,
       ),
     [boardId, ticket.id, ticketBoards],
   );
@@ -229,7 +286,9 @@ export default function TicketModal({
     setStatus(ticket.id ? ticket.status : "New");
     setDepartment(ticket.department || currentUser?.department || "");
     setBoardId(defaultBoard?.id ?? 0);
-    setStoryPoints(ticket.storyPoints ?? (defaultBoard?.requiresStoryPoints ? 1 : ""));
+    setStoryPoints(
+      ticket.storyPoints ?? (defaultBoard?.requiresStoryPoints ? 1 : ""),
+    );
     setSynitiOwner(ticket.synitiOwner || "");
     setBusinessOwner(ticket.businessOwner || "");
     setChangeReason("");
@@ -237,6 +296,10 @@ export default function TicketModal({
     setIsAttachmentDropActive(false);
     setIsHistoryModalOpen(false);
     setIsActionMenuOpen(false);
+    setIsTicketDetailsOpen(false);
+    setTypingUsers([]);
+    lastTypingPingAtRef.current = 0;
+    pendingLocalCommentRef.current = null;
   }, [currentUser?.department, defaultBoard, ticket, isOpen]);
 
   useEffect(() => {
@@ -309,7 +372,9 @@ export default function TicketModal({
               : undefined,
           synitiOwner: synitiOwner || undefined,
           businessOwner: businessOwner || undefined,
-          changeReason: ticket.id ? changeReason.trim() || undefined : undefined,
+          changeReason: ticket.id
+            ? changeReason.trim() || undefined
+            : undefined,
         },
         queuedAttachments,
       );
@@ -349,6 +414,14 @@ export default function TicketModal({
         return;
       }
 
+      if (isTicketDetailsOpen) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setIsTicketDetailsOpen(false);
+        }
+        return;
+      }
+
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
@@ -357,6 +430,12 @@ export default function TicketModal({
 
       if (e.key === "Enter" && !e.shiftKey) {
         const active = document.activeElement;
+        const isCommentComposerFocused = Boolean(
+          active instanceof Element &&
+          active.closest('[data-comment-composer="true"]'),
+        );
+
+        if (isCommentComposerFocused) return;
         if (active?.tagName === "TEXTAREA") return;
         if (
           saving ||
@@ -380,6 +459,7 @@ export default function TicketModal({
     handleSave,
     isCreateMode,
     isHistoryModalOpen,
+    isTicketDetailsOpen,
     isOpen,
     onClose,
     selectedBoardRequiresStoryPoints,
@@ -420,7 +500,7 @@ export default function TicketModal({
 
       if (commentsLoadVersion.current !== myVersion) return;
 
-      setComments(data);
+      setComments((current) => reconcileCommentsById(current, data));
     } finally {
       if (commentsLoadVersion.current === myVersion) {
         setLoadingComments(false);
@@ -477,7 +557,72 @@ export default function TicketModal({
     }
 
     if (latestRealtimeEvent.eventType === "comment.created") {
+      const pending = pendingLocalCommentRef.current;
+
+      if (pending) {
+        const isExpired = Date.now() > pending.expiresAt;
+
+        if (!isExpired) {
+          if (
+            latestRealtimeEvent.entityId === pending.id ||
+            !latestRealtimeEvent.entityId
+          ) {
+            return;
+          }
+        } else {
+          pendingLocalCommentRef.current = null;
+        }
+      }
+
       void reloadComments();
+    }
+
+    if (latestRealtimeEvent.eventType === "comment.typing") {
+      const actorDisplayName = latestRealtimeEvent.actorDisplayName?.trim();
+      if (
+        actorDisplayName &&
+        currentUser?.displayName &&
+        actorDisplayName.localeCompare(
+          currentUser.displayName.trim(),
+          undefined,
+          {
+            sensitivity: "accent",
+          },
+        ) === 0
+      ) {
+        return;
+      }
+
+      const actorUserId = latestRealtimeEvent.actorUserId;
+      const actorKey =
+        typeof actorUserId === "number" && Number.isFinite(actorUserId)
+          ? `user:${actorUserId}`
+          : actorDisplayName
+            ? `name:${actorDisplayName.toLowerCase()}`
+            : "unknown";
+      const expiresAt = Date.now() + TYPING_INDICATOR_TTL_MS;
+
+      setTypingUsers((current) => {
+        const unexpired = current.filter(
+          (entry) => entry.expiresAt > Date.now(),
+        );
+        const existingIndex = unexpired.findIndex(
+          (entry) => entry.key === actorKey,
+        );
+        const nextEntry: TypingPresence = {
+          key: actorKey,
+          displayName: actorDisplayName,
+          expiresAt,
+        };
+
+        if (existingIndex >= 0) {
+          const next = [...unexpired];
+          next[existingIndex] = nextEntry;
+          return next;
+        }
+
+        return [...unexpired, nextEntry];
+      });
     }
 
     if (latestRealtimeEvent.eventType === "attachment.created") {
@@ -486,10 +631,27 @@ export default function TicketModal({
   }, [
     isOpen,
     latestRealtimeEvent,
+    currentUser?.displayName,
     reloadAttachments,
     reloadComments,
     ticket.id,
   ]);
+
+  useEffect(() => {
+    if (!isOpen || !ticket.id) {
+      setTypingUsers([]);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const now = Date.now();
+      setTypingUsers((current) =>
+        current.filter((entry) => entry.expiresAt > now),
+      );
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isOpen, ticket.id]);
 
   const queueAttachments = useCallback((selectedFiles: File[]) => {
     if (selectedFiles.length === 0) {
@@ -514,6 +676,25 @@ export default function TicketModal({
     });
   }, []);
 
+  const signalTyping = useCallback(async () => {
+    if (!ticket.id) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastTypingPingAtRef.current < TYPING_PING_THROTTLE_MS) {
+      return;
+    }
+    lastTypingPingAtRef.current = now;
+
+    try {
+      const token = await getApiToken();
+      await commentService.sendTyping(ticket.id, token);
+    } catch (error) {
+      console.error("Failed to send typing signal", error);
+    }
+  }, [getApiToken, ticket.id]);
+
   if (!isOpen) return null;
 
   const handleBoardSelectionChange = (nextBoardId: number) => {
@@ -521,7 +702,9 @@ export default function TicketModal({
     setBoardId(nextBoardId);
 
     if (nextBoard?.requiresStoryPoints) {
-      setStoryPoints((currentValue) => (currentValue === "" ? 1 : currentValue));
+      setStoryPoints((currentValue) =>
+        currentValue === "" ? 1 : currentValue,
+      );
       return;
     }
 
@@ -599,8 +782,21 @@ export default function TicketModal({
 
     try {
       const token = await getApiToken();
-      await commentService.create(ticket.id, body, token);
-      await reloadComments();
+      const createdComment = await commentService.create(
+        ticket.id,
+        body,
+        token,
+      );
+      pendingLocalCommentRef.current = {
+        id: String(createdComment.id),
+        expiresAt: Date.now() + 2000, // 2 second protection window
+      };
+      setComments((current) => {
+        if (current.some((comment) => comment.id === createdComment.id)) {
+          return current;
+        }
+        return [...current, createdComment];
+      });
     } catch (error) {
       console.error("Failed to add comment", error);
       toast.error(getUserFacingErrorMessage(error, "Failed to add comment"));
@@ -672,7 +868,9 @@ export default function TicketModal({
     } catch (error) {
       console.error("Failed to open attachment", error);
       previewWindow.close();
-      toast.error(getUserFacingErrorMessage(error, "Unable to open attachment."));
+      toast.error(
+        getUserFacingErrorMessage(error, "Unable to open attachment."),
+      );
     } finally {
       setAttachmentActionId(null);
     }
@@ -722,6 +920,17 @@ export default function TicketModal({
     "Unknown User";
   const hasPersistedSla = Boolean(ticket.id);
   const canManageComments = Boolean(ticket.id);
+  const activeTypingUsers = typingUsers.filter(
+    (typingUser) => typingUser.expiresAt > Date.now(),
+  );
+  const typingIndicatorText =
+    activeTypingUsers.length <= 0
+      ? null
+      : activeTypingUsers.length > 1
+        ? "Multiple users are typing"
+        : activeTypingUsers[0].displayName?.trim()
+          ? `${activeTypingUsers[0].displayName} is typing...`
+          : "Someone is typing...";
   const slaTooltip = buildSlaTooltip(ticket);
   const slaDisplayLabel = getSlaDisplayLabel(ticket);
   const slaBadgeClass = getSlaBadgeClass(slaDisplayLabel);
@@ -734,6 +943,100 @@ export default function TicketModal({
           ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200"
           : "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200";
 
+  const ticketDetailsBody = (
+    <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+          Created By
+        </p>
+        <p className="mt-1 text-gray-800 dark:text-slate-200">{createdByName}</p>
+      </div>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+          Created Date
+        </p>
+        <p className="mt-1 text-gray-800 dark:text-slate-200">
+          {new Date(ticket.createdDate).toLocaleDateString()}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+          Board
+        </p>
+        <p className="mt-1 text-gray-800 dark:text-slate-200">
+          {selectedBoard?.name ?? ticket.boardName ?? "Ticket"}
+        </p>
+      </div>
+      {selectedBoardRequiresStoryPoints && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+            Story Points
+          </p>
+          <p className="mt-1 text-gray-800 dark:text-slate-200">
+            {storyPoints === "" ? "—" : storyPoints}
+          </p>
+        </div>
+      )}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+          Syniti Owner
+        </p>
+        <p className="mt-1 text-gray-800 dark:text-slate-200">
+          {synitiOwner?.trim() || "Unassigned"}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+          Business Owner
+        </p>
+        <p className="mt-1 text-gray-800 dark:text-slate-200">
+          {businessOwner?.trim() || "Unassigned"}
+        </p>
+      </div>
+      {hasPersistedSla ? (
+        <>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+              SLA Status
+            </p>
+            <span
+              className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${slaBadgeClass}`}
+              title={slaTooltip}
+            >
+              {slaDisplayLabel}
+            </span>
+          </div>
+          <div title={slaTooltip}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+              SLA Deadline
+            </p>
+            <p className="mt-1 text-gray-800 dark:text-slate-200">
+              {new Date(ticket.slaTargetDate).toLocaleString()}
+            </p>
+          </div>
+          <div className="sm:col-span-2" title={slaTooltip}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+              SLA Tracking
+            </p>
+            <p className="mt-1 text-gray-700 dark:text-slate-300">
+              {formatSlaSummary(ticket)}
+            </p>
+          </div>
+          {ticket.slaCompletedDate && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                SLA Completed
+              </p>
+              <p className="mt-1 text-gray-800 dark:text-slate-200">
+                {new Date(ticket.slaCompletedDate).toLocaleString()}
+              </p>
+            </div>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
@@ -745,23 +1048,28 @@ export default function TicketModal({
       {/* Modal */}
       <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-4">
         <div
-          className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6"
+          className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-hidden rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6"
           tabIndex={-1}
         >
           <div
-            className={`grid gap-6 ${
-              canManageComments ? "grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px]" : "grid-cols-1"
+            className={`grid h-[calc(100dvh-6rem)] min-h-0 gap-6 ${
+              canManageComments
+                ? "grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px]"
+                : "grid-cols-1"
             }`}
           >
             {/* ================= LEFT PANEL ================= */}
-            <div className="min-w-0 space-y-6">
+            <div className="flex min-h-0 min-w-0 flex-col">
+              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
               {/* Header */}
               <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
                 <div className="min-w-0 flex-1">
                   <label className="block text-lg font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Enter Ticket Title
                     {isCreateMode && (
-                      <span className="ml-1 text-red-600 dark:text-red-400">*</span>
+                      <span className="ml-1 text-red-600 dark:text-red-400">
+                        *
+                      </span>
                     )}
                   </label>
                   <input
@@ -818,7 +1126,9 @@ export default function TicketModal({
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                   Description
                   {isCreateMode && (
-                    <span className="ml-1 text-red-600 dark:text-red-400">*</span>
+                    <span className="ml-1 text-red-600 dark:text-red-400">
+                      *
+                    </span>
                   )}
                 </label>
                 <textarea
@@ -863,7 +1173,9 @@ export default function TicketModal({
                   </label>
                   <select
                     value={boardId}
-                    onChange={(e) => handleBoardSelectionChange(Number(e.target.value))}
+                    onChange={(e) =>
+                      handleBoardSelectionChange(Number(e.target.value))
+                    }
                     className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
                     {ticketBoards.map((board) => (
@@ -908,7 +1220,9 @@ export default function TicketModal({
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Priority
                     {isCreateMode && (
-                      <span className="ml-1 text-red-600 dark:text-red-400">*</span>
+                      <span className="ml-1 text-red-600 dark:text-red-400">
+                        *
+                      </span>
                     )}
                   </label>
                   <select
@@ -1159,119 +1473,10 @@ export default function TicketModal({
                   )}
                 </div>
               </div>
-
-              {/* Metadata */}
-              <div className="rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/70">
-                <div className="mb-3 flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-gray-800 dark:text-slate-200">
-                    Ticket Details
-                  </h4>
-                </div>
-                <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                      Created By
-                    </p>
-                    <p className="mt-1 text-gray-800 dark:text-slate-200">{createdByName}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                      Created Date
-                    </p>
-                    <p className="mt-1 text-gray-800 dark:text-slate-200">
-                      {new Date(ticket.createdDate).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                      Board
-                    </p>
-                    <p className="mt-1 text-gray-800 dark:text-slate-200">
-                      {selectedBoard?.name ?? ticket.boardName ?? "Ticket"}
-                    </p>
-                  </div>
-                  {selectedBoardRequiresStoryPoints && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                        Story Points
-                      </p>
-                      <p className="mt-1 text-gray-800 dark:text-slate-200">
-                        {storyPoints === "" ? "—" : storyPoints}
-                      </p>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                      Syniti Owner
-                    </p>
-                    <p className="mt-1 text-gray-800 dark:text-slate-200">
-                      {synitiOwner?.trim() || "Unassigned"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                      Business Owner
-                    </p>
-                    <p className="mt-1 text-gray-800 dark:text-slate-200">
-                      {businessOwner?.trim() || "Unassigned"}
-                    </p>
-                  </div>
-                  {hasPersistedSla ? (
-                    <>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                          SLA Status
-                        </p>
-                        <span
-                          className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${slaBadgeClass}`}
-                          title={slaTooltip}
-                        >
-                          {slaDisplayLabel}
-                        </span>
-                      </div>
-                      <div title={slaTooltip}>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                          SLA Deadline
-                        </p>
-                        <p className="mt-1 text-gray-800 dark:text-slate-200">
-                          {new Date(ticket.slaTargetDate).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="sm:col-span-2" title={slaTooltip}>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                          SLA Tracking
-                        </p>
-                        <p className="mt-1 text-gray-700 dark:text-slate-300">
-                          {formatSlaSummary(ticket)}
-                        </p>
-                      </div>
-                      {ticket.slaCompletedDate && (
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                            SLA Completed
-                          </p>
-                          <p className="mt-1 text-gray-800 dark:text-slate-200">
-                            {new Date(ticket.slaCompletedDate).toLocaleString()}
-                          </p>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-gray-600 sm:col-span-2 dark:text-slate-400">
-                      SLA timing will be calculated after the ticket is created
-                      using the selected priority settings.
-                    </div>
-                  )}
-                  {!canManageComments && (
-                    <div className="text-gray-600 sm:col-span-2 dark:text-slate-400">
-                      Comments will be available after the ticket is created.
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* Actions */}
-              <div className="sticky bottom-0 flex flex-col gap-3 border-t border-gray-200 bg-white/95 pt-4 dark:border-slate-800 dark:bg-slate-900/95 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex shrink-0 flex-col gap-3 border-t border-gray-200 bg-white pt-4 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                   {ticket.id && (
                     <button
@@ -1283,68 +1488,82 @@ export default function TicketModal({
                     </button>
                   )}
 
-                  {ticket.id &&
-                    (quickMoveBoards.length > 0 ||
-                      canArchiveTicket ||
-                      canDeleteTicket) && (
-                      <div ref={actionMenuRef} className="relative">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setIsActionMenuOpen((current) => !current)
-                          }
-                          disabled={saving || archiving}
-                          className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                        >
-                          Actions ▾
-                        </button>
+                  {ticket.id && (
+                    <div ref={actionMenuRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setIsActionMenuOpen((current) => !current)
+                        }
+                        disabled={saving || archiving}
+                        className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        Actions ▴
+                      </button>
 
-                        {isActionMenuOpen && (
-                          <div className="absolute left-0 top-full z-20 mt-2 max-w-[min(16rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:left-auto sm:right-0">
-                            {quickMoveBoards.length > 0 && (
-                              <div className="border-b border-gray-100 px-2 py-2 dark:border-slate-800">
-                                {quickMoveBoards.map((board) => (
-                                  <button
-                                    key={board.id}
-                                    type="button"
-                                    onClick={() => void handleQuickMove(board)}
-                                    disabled={saving || archiving}
-                                    className="w-full rounded-md px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-200 dark:hover:bg-slate-800"
-                                  >
-                                    Move to {board.name}
-                                    {board.requiresStoryPoints
-                                      ? " (Story Points)"
-                                      : ""}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
+                      {isActionMenuOpen && (
+                        <div className="absolute bottom-full left-0 z-20 mb-2 max-w-[min(16rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:left-auto sm:right-0">
+                          {quickMoveBoards.length > 0 && (
+                            <div className="border-b border-gray-100 px-2 py-2 dark:border-slate-800">
+                              {quickMoveBoards.map((board) => (
+                                <button
+                                  key={board.id}
+                                  type="button"
+                                  onClick={() => void handleQuickMove(board)}
+                                  disabled={saving || archiving}
+                                  className="w-full rounded-md px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                  Move to {board.name}
+                                  {board.requiresStoryPoints
+                                    ? " (Story Points)"
+                                    : ""}
+                                </button>
+                              ))}
+                            </div>
+                          )}
 
-                            {canArchiveTicket && (
-                              <button
-                                type="button"
-                                onClick={() => void handleArchive()}
-                                disabled={saving || archiving}
-                                className="w-full px-4 py-3 text-left text-sm text-amber-700 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-amber-300 dark:hover:bg-amber-950/20"
-                              >
-                                {archiving ? "Archiving..." : "Archive"}
-                              </button>
-                            )}
+                          {canArchiveTicket && (
+                            <button
+                              type="button"
+                              onClick={() => void handleArchive()}
+                              disabled={saving || archiving}
+                              className="w-full px-4 py-3 text-left text-sm text-amber-700 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-amber-300 dark:hover:bg-amber-950/20"
+                            >
+                              {archiving ? "Archiving..." : "Archive"}
+                            </button>
+                          )}
 
-                            {canDeleteTicket && (
-                              <button
-                                type="button"
-                                onClick={handleDelete}
-                                disabled={saving || archiving}
-                                className="w-full px-4 py-3 text-left text-sm text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-300 dark:hover:bg-red-950/30"
-                              >
-                                Delete
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          {canDeleteTicket && (
+                            <button
+                              type="button"
+                              onClick={handleDelete}
+                              disabled={saving || archiving}
+                              className="w-full px-4 py-3 text-left text-sm text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-300 dark:hover:bg-red-950/30"
+                            >
+                              Delete
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsTicketDetailsOpen(true);
+                              setIsActionMenuOpen(false);
+                            }}
+                            className={`w-full px-4 py-3 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800 ${
+                              quickMoveBoards.length > 0 ||
+                              canArchiveTicket ||
+                              canDeleteTicket
+                                ? "border-t border-gray-100 dark:border-slate-800"
+                                : ""
+                            }`}
+                          >
+                            Ticket details
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
@@ -1383,7 +1602,7 @@ export default function TicketModal({
 
             {/* ================= RIGHT PANEL ================= */}
             {canManageComments && (
-              <div className="flex min-h-[min(50vh,28rem)] flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30 lg:min-h-[500px]">
+              <div className="flex min-h-0 h-full flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30">
                 <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-slate-800">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
                     Comments
@@ -1393,7 +1612,7 @@ export default function TicketModal({
                   </span>
                 </div>
 
-                <div className="flex-1 overflow-y-auto pr-1">
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                   {loadingComments ? (
                     <p className="text-sm text-gray-500 dark:text-slate-400">
                       Loading comments…
@@ -1404,8 +1623,16 @@ export default function TicketModal({
                 </div>
 
                 <div className="mt-3">
+                  {typingIndicatorText && (
+                    <p className="mb-2 text-xs text-gray-500 dark:text-slate-400">
+                      {typingIndicatorText}
+                    </p>
+                  )}
                   <AddComment
                     onAdd={addComment}
+                    onTyping={() => {
+                      void signalTyping();
+                    }}
                     disabled={!canCreateTickets(authRoles)}
                   />
                 </div>
@@ -1414,6 +1641,45 @@ export default function TicketModal({
           </div>
         </div>
       </div>
+
+      {ticket.id && isTicketDetailsOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50 dark:bg-black/60"
+            aria-hidden
+            onClick={() => setIsTicketDetailsOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ticket-details-dialog-title"
+            className="relative z-10 w-full max-w-lg overflow-hidden rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-800">
+              <h2
+                id="ticket-details-dialog-title"
+                className="text-base font-semibold text-gray-900 dark:text-slate-100"
+              >
+                Ticket Details
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsTicketDetailsOpen(false)}
+                className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                aria-label="Close ticket details"
+              >
+                <span className="text-lg leading-none" aria-hidden>
+                  ×
+                </span>
+              </button>
+            </div>
+            <div className="max-h-[min(70dvh,28rem)] overflow-y-auto p-4">
+              {ticketDetailsBody}
+            </div>
+          </div>
+        </div>
+      )}
 
       {ticket.id && (
         <TicketHistoryModal

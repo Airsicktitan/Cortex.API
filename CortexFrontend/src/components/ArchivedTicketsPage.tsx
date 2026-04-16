@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { ArchivedTicket } from "../types/archivedTicket";
+import ArchivedTicketModal from "./ArchivedTicketModal";
 import { ArchivedTicketsSkeleton } from "./LoadingSkeletons";
 
 interface ArchivedTicketsPageProps {
@@ -30,6 +32,10 @@ export default function ArchivedTicketsPage({
   reactivatingTicketId,
   onReactivate,
 }: ArchivedTicketsPageProps) {
+  const [selectedTicket, setSelectedTicket] = useState<ArchivedTicket | null>(
+    null,
+  );
+
   if (loading) {
     return <ArchivedTicketsSkeleton />;
   }
@@ -106,11 +112,12 @@ export default function ArchivedTicketsPage({
                   <tr
                     key={ticket.id}
                     id={`archived-ticket-${ticket.id}`}
+                    onClick={() => setSelectedTicket(ticket)}
                     className={`border-t text-gray-700 dark:text-slate-200 ${
                       highlightedTicketId === ticket.id
                         ? "border-cortex-cyan bg-cortex-blue-soft/50 dark:border-cortex-cyan dark:bg-cortex-blue/10"
                         : "border-gray-100 dark:border-slate-800"
-                    }`}
+                    } cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-slate-800/60`}
                   >
                     <td className="px-4 py-3 align-top">
                       <div>
@@ -160,7 +167,10 @@ export default function ArchivedTicketsPage({
                     {canReactivate && (
                       <td className="px-4 py-3 align-top">
                         <button
-                          onClick={() => void onReactivate(ticket)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void onReactivate(ticket);
+                          }}
                           disabled={reactivatingTicketId === ticket.id}
                           className="rounded-md bg-cortex-blue px-3 py-2 text-sm text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
                         >
@@ -177,6 +187,11 @@ export default function ArchivedTicketsPage({
           </div>
         )}
       </section>
+
+      <ArchivedTicketModal
+        ticket={selectedTicket}
+        onClose={() => setSelectedTicket(null)}
+      />
     </div>
   );
 }

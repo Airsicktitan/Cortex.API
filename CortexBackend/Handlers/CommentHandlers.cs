@@ -88,5 +88,36 @@ public static class CommentHandlers
             comment.ToResponse(mappingContext));
     }
 
+    public static async Task<IResult> SignalTyping(
+        string ticketId,
+        ITicketRepository ticketRepo,
+        ITicketVisibilityService ticketVisibilityService,
+        IUserContextService userContext,
+        IRealtimeEventService realtimeEventService)
+    {
+        var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var currentUser = await userContext.GetCurrentUserAsync();
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "comment.typing",
+            TicketId = ticketId,
+            ActorUserId = currentUser.Id,
+            ActorDisplayName = currentUser.DisplayName
+        });
+
+        return Results.Accepted();
+    }
+
     public record CreateCommentRequest(string Body);
 }

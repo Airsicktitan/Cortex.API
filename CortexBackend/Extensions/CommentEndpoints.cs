@@ -20,6 +20,11 @@ public static class CommentEndpoints
             .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
             .WithName("CreateComment")
             .Produces<Comment>(StatusCodes.Status201Created);
+
+        comments.MapPost("/typing", CommentHandlers.SignalTyping)
+            .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
+            .WithName("SignalCommentTyping")
+            .Produces(StatusCodes.Status202Accepted);
     }
 
     public record CreateCommentRequest(string Body, string? CreatedBy);

@@ -12,6 +12,7 @@ using Cortex.API.Data.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Cortex.API.Services;
 using Cortex.API.Authorization;
+using Cortex.API.Hubs;
 using System.Security.Claims;
 
 
@@ -174,6 +175,11 @@ builder.Services.AddSwaggerGen(options =>
 var allowedOrigins = builder.Configuration
     .GetSection("AllowedOrigins")
     .Get<string[]>();
+var defaultDevelopmentOrigins = new[]
+{
+    "http://localhost:5173",
+    "http://localhost:4173"
+};
 
 if (allowedOrigins is not { Length: > 0 } && !builder.Environment.IsDevelopment())
 {
@@ -191,14 +197,16 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(allowedOrigins)
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials();
         }
         else
         {
             // Development only — AllowedOrigins is not set.
-            policy.AllowAnyOrigin()
+            policy.WithOrigins(defaultDevelopmentOrigins)
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials();
         }
     });
 });
@@ -229,7 +237,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 var path = context.HttpContext.Request.Path;
 
                 if (!string.IsNullOrWhiteSpace(accessToken)
-                    && path.StartsWithSegments("/api/realtime"))
+                    && (path.StartsWithSegments("/api/realtime")
+                        || path.StartsWithSegments("/api/realtime/hub")))
                 {
                     context.Token = accessToken;
                 }
@@ -249,6 +258,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization(options => options.AddCortexPolicies());
+builder.Services.AddSignalR();
 
 // Build app
 var app = builder.Build();
@@ -336,6 +346,7 @@ app.MapTicketBoardEndpoints();
 app.MapScheduledJobEndpoints();
 app.MapNotificationEndpoints();
 app.MapRealtimeEndpoints();
+app.MapHub<RealtimeHub>("/api/realtime/hub").RequireAuthorization();
 
 if (app.Environment.IsDevelopment())
 {

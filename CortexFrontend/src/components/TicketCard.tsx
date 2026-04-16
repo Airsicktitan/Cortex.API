@@ -1,9 +1,7 @@
 import type { Ticket } from "../types/ticket";
 import {
   buildSlaTooltip,
-  formatSlaSummary,
   getSlaAccentClass,
-  getSlaBadgeClass,
   getSlaDisplayLabel,
 } from "../utils/ticketSla";
 
@@ -27,6 +25,85 @@ const statusColors = {
   Closed: "bg-gray-100 text-gray-800",
 };
 
+/** Native `title` tooltips become unwieldy for very long descriptions. */
+const DESCRIPTION_TITLE_MAX_LEN = 280;
+
+/** Compact duration for card timing tail (mirrors ticketSla formatDuration). */
+function formatDurationShort(totalMinutes: number): string {
+  const absoluteMinutes = Math.abs(totalMinutes);
+
+  if (absoluteMinutes === 0) {
+    return "0m";
+  }
+
+  if (absoluteMinutes < 60) {
+    return `${absoluteMinutes}m`;
+  }
+
+  if (absoluteMinutes < 24 * 60) {
+    const hours = Math.round((absoluteMinutes / 60) * 10) / 10;
+    return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
+  }
+
+  const days = Math.round((absoluteMinutes / (24 * 60)) * 10) / 10;
+  return Number.isInteger(days) ? `${days}d` : `${days.toFixed(1)}d`;
+}
+
+function formatDuePhrase(slaTargetDate: string): string {
+  const d = new Date(slaTargetDate);
+  const now = new Date();
+  const startOf = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const d0 = startOf(d);
+  const t0 = startOf(now);
+  const dayDiff = Math.round((d0 - t0) / 86_400_000);
+
+  if (dayDiff === 0) {
+    return "Due today";
+  }
+  if (dayDiff === 1) {
+    return "Due tomorrow";
+  }
+  if (dayDiff === -1) {
+    return "Due yesterday";
+  }
+
+  const withYear =
+    d.getFullYear() !== now.getFullYear()
+      ? ({ month: "short", day: "numeric", year: "numeric" } as const)
+      : ({ month: "short", day: "numeric" } as const);
+
+  return `Due ${d.toLocaleDateString(undefined, withYear)}`;
+}
+
+/** Second segment of the merged timing line (after ·). */
+function cardTimingTail(ticket: Ticket): string {
+  const label = getSlaDisplayLabel(ticket);
+  const minutes = ticket.slaRemainingMinutes;
+  const d = formatDurationShort(minutes);
+
+  switch (label) {
+    case "Resolved On Time":
+      return "Resolved on time";
+    case "Resolved Late":
+      return `${d} late`;
+    case "Overdue":
+      return `${d} late`;
+    case "At Risk":
+      return minutes > 0 ? `${d} remaining` : "At risk";
+    case "On Track":
+    default:
+      if (minutes > 0) {
+        return `${d} remaining`;
+      }
+      return "On track";
+  }
+}
+
+function mergedTimingLine(ticket: Ticket): string {
+  return `${formatDuePhrase(ticket.slaTargetDate)} · ${cardTimingTail(ticket)}`;
+}
+
 export default function TicketCard({ ticket, onClick }: TicketCardProps) {
   const priorityColor =
     priorityColors[ticket.priority as keyof typeof priorityColors] ||
@@ -34,77 +111,82 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
   const statusColor =
     statusColors[ticket.status as keyof typeof statusColors] ||
     "bg-gray-100 text-gray-800";
-  const slaDisplayLabel = getSlaDisplayLabel(ticket);
-  const slaAccentClass = getSlaAccentClass(slaDisplayLabel);
-  const slaBadgeClass = getSlaBadgeClass(slaDisplayLabel);
+  const slaAccentClass = getSlaAccentClass(getSlaDisplayLabel(ticket));
   const slaTooltip = buildSlaTooltip(ticket);
-  const dueDateLabel = new Date(ticket.slaTargetDate).toLocaleString();
   const chipBaseClass =
     "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium";
-  const ownerTextClass = "truncate text-xs text-gray-600 dark:text-slate-400";
+
+  const descriptionTitlePreview = (() => {
+    const raw = ticket.description?.trim();
+    if (!raw) {
+      return undefined;
+    }
+    if (raw.length <= DESCRIPTION_TITLE_MAX_LEN) {
+      return raw;
+    }
+    return `${raw.slice(0, DESCRIPTION_TITLE_MAX_LEN).trimEnd()}…`;
+  })();
 
   return (
     <div
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={
+        onClick ? `Open ticket ${ticket.id}: ${ticket.title}` : undefined
+      }
       onClick={onClick}
-      title={slaTooltip}
-      className={`cursor-pointer rounded-xl border-l-4 bg-white p-3.5 shadow-sm ring-1 ring-inset ring-gray-100 transition-shadow hover:shadow-md dark:bg-slate-900 dark:ring-slate-800 ${slaAccentClass}`}
+      onKeyDown={(e) => {
+        if (!onClick) {
+          return;
+        }
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={`cursor-pointer rounded-xl border border-gray-100 border-l-4 bg-white p-4 shadow-sm outline-none transition-all duration-150 ease-in-out hover:-translate-y-[2px] hover:border-gray-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-cortex-blue focus-visible:ring-offset-2 active:translate-y-0 active:shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 dark:focus-visible:ring-offset-slate-900 ${slaAccentClass}`}
     >
-      <div className="flex items-start justify-between gap-2 sm:gap-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="line-clamp-2 text-base font-semibold leading-5 text-gray-900 dark:text-slate-100">
-            {ticket.title}
-          </h3>
-          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">#{ticket.id}</p>
-        </div>
-        <div className="min-w-0 shrink-0 text-right">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
-            Due
-          </p>
-          <p className="truncate text-xs font-medium text-gray-700 dark:text-slate-300" title={dueDateLabel}>
-            {dueDateLabel}
-          </p>
-        </div>
+      <div className="min-w-0 text-left">
+        <h3
+          className="line-clamp-2 text-left text-base font-semibold leading-snug tracking-tight text-gray-900 dark:text-slate-100"
+          title={descriptionTitlePreview}
+        >
+          {ticket.title}
+        </h3>
+        <p className="mt-1 text-[11px] tabular-nums text-gray-400 dark:text-slate-500">
+          #{ticket.id}
+        </p>
       </div>
 
       <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
         <span className={`${chipBaseClass} border-transparent ${statusColor}`}>
           {ticket.status}
         </span>
-        <span className={`${chipBaseClass} ${priorityColor}`}>{ticket.priority}</span>
-        <span className={`${chipBaseClass} border-transparent bg-cortex-blue-soft text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100`}>
-          {ticket.boardName}
-        </span>
-        {ticket.storyPoints ? (
-          <span className={`${chipBaseClass} border-transparent bg-violet-100 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200`}>
-            {ticket.storyPoints} SP
-          </span>
-        ) : null}
-        <span className={`${chipBaseClass} border-transparent ${slaBadgeClass}`} title={slaTooltip}>
-          {slaDisplayLabel}
+        <span className={`${chipBaseClass} ${priorityColor}`}>
+          {ticket.priority}
         </span>
       </div>
 
-      <p className="mt-3 line-clamp-2 text-sm text-gray-600 dark:text-slate-300">
-        {ticket.description}
+      <p className="mt-3 text-left text-xs leading-snug text-gray-500 dark:text-slate-500">
+        {ticket.boardName}
+        {ticket.storyPoints ? ` · ${ticket.storyPoints} SP` : ""}
       </p>
 
-      <p className="mt-2 text-xs text-gray-500 dark:text-slate-400" title={slaTooltip}>
-        {formatSlaSummary(ticket)}
+      <p
+        className="mt-3 line-clamp-2 text-left text-xs leading-snug text-gray-500 dark:text-slate-500"
+        title={slaTooltip}
+      >
+        {mergedTimingLine(ticket)}
       </p>
 
-      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-gray-100 pt-2.5 text-xs dark:border-slate-800">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
-            Syniti Owner
-          </p>
-          <p className={ownerTextClass}>{ticket.synitiOwner || "Unassigned"}</p>
-        </div>
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
-            Business Owner
-          </p>
-          <p className={ownerTextClass}>{ticket.businessOwner || "Unassigned"}</p>
-        </div>
+      <div className="mt-3 space-y-1 border-t border-gray-100 pt-3 text-left text-[11px] leading-snug text-gray-600 dark:border-slate-800 dark:text-slate-400">
+        <p className="truncate" title={ticket.synitiOwner || "Unassigned"}>
+          <span className="text-gray-500 dark:text-slate-500">Syniti:</span>{" "}
+          {ticket.synitiOwner || "Unassigned"}
+        </p>
+        <p className="truncate" title={ticket.businessOwner || "Unassigned"}>
+          <span className="text-gray-500 dark:text-slate-500">Business:</span>{" "}
+          {ticket.businessOwner || "Unassigned"}
+        </p>
       </div>
     </div>
   );

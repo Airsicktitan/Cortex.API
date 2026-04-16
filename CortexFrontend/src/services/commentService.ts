@@ -33,4 +33,15 @@ export const commentService = {
     await ensureSuccess(res, "Failed to create comment");
     return res.json();
   },
+
+  async sendTyping(ticketId: string, token: string): Promise<void> {
+    const res = await fetch(`${API_BASE_URL}/tickets/${ticketId}/comments/typing`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    await ensureSuccess(res, "Failed to send typing signal");
+  },
 };

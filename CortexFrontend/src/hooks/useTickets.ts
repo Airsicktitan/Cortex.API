@@ -32,8 +32,19 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
-function normalize(value: string) {
+export function normalize(value: string) {
   return value.trim().toLowerCase();
+}
+
+export function isTicketListSortOption(value: string): value is TicketListSortOption {
+  return (
+    value === "newest-first" ||
+    value === "oldest-first" ||
+    value === "priority-high-low" ||
+    value === "priority-low-high" ||
+    value === "due-soonest" ||
+    value === "most-overdue"
+  );
 }
 
 function ticketMatchesSearch(ticket: Ticket, searchValue: string) {
@@ -195,6 +206,7 @@ export function useTickets({
   const [deleting, setDeleting] = useState(false);
   const ticketSilentRefreshInFlightRef = useRef(false);
   const ticketSilentRefreshRequestIdRef = useRef(0);
+  const ticketReconcileInFlightRef = useRef<Set<string>>(new Set());
 
   const refreshTicketsSilently = useCallback(
     async (providedToken?: string) => {
@@ -275,6 +287,60 @@ export function useTickets({
       setLoading,
       setNeedsConsent,
     ],
+  );
+
+  const reconcileTicketByIdSilently = useCallback(
+    async (ticketId: string, providedToken?: string) => {
+      const normalizedTicketId = ticketId.trim();
+      if (!normalizedTicketId) {
+        return;
+      }
+
+      if (ticketReconcileInFlightRef.current.has(normalizedTicketId)) {
+        return;
+      }
+
+      ticketReconcileInFlightRef.current.add(normalizedTicketId);
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const fetchedTicket = await ticketService.getById(normalizedTicketId, token);
+
+        setAllTickets((currentTickets) => {
+          const existingIndex = currentTickets.findIndex(
+            (ticket) => ticket.id === fetchedTicket.id,
+          );
+          if (existingIndex < 0) {
+            return [fetchedTicket, ...currentTickets];
+          }
+
+          const existingTicket = currentTickets[existingIndex];
+          if (existingTicket === fetchedTicket) {
+            return currentTickets;
+          }
+
+          const nextTickets = [...currentTickets];
+          nextTickets[existingIndex] = fetchedTicket;
+          return nextTickets;
+        });
+
+        setSelectedTicket((currentTicket) =>
+          currentTicket?.id === fetchedTicket.id ? fetchedTicket : currentTicket,
+        );
+        setApiUnavailable(false);
+      } catch (error) {
+        if (isForbiddenError(error) || (error instanceof Error && "status" in error && (error as { status?: number }).status === 404)) {
+          return;
+        }
+
+        console.error("Failed to reconcile ticket", error);
+        if (isLikelyNetworkError(error)) {
+          setApiUnavailable(true);
+        }
+      } finally {
+        ticketReconcileInFlightRef.current.delete(normalizedTicketId);
+      }
+    },
+    [getApiToken, isForbiddenError, isLikelyNetworkError, setApiUnavailable],
   );
 
   const loadArchivedTickets = useCallback(
@@ -625,6 +691,7 @@ export function useTickets({
     setTicketToDelete,
     deleting,
     refreshTicketsSilently,
+    reconcileTicketByIdSilently,
     loadAllTickets,
     loadArchivedTickets,
     tickets,
