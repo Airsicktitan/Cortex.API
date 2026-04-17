@@ -8,7 +8,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import type { Ticket, TicketMutationInput } from "../types/ticket";
+import type { Ticket, TicketMutationInput, TicketSaveOutcome } from "../types/ticket";
 import type { TicketAttachment } from "../types/attachment";
 import type { RealtimeEvent } from "../types/realtime";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
@@ -38,6 +38,8 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 4000;
 const TYPING_PING_THROTTLE_MS = 2000;
 const TYPING_INDICATOR_TTL_MS = 5000;
+/** Pixels from bottom to treat as "at bottom" for auto-scroll and new-comment handling */
+const COMMENT_THREAD_NEAR_BOTTOM_PX = 80;
 
 function formatFileSize(fileSize: number) {
   if (fileSize < 1024) {
@@ -122,7 +124,7 @@ interface TicketModalProps {
   onSave: (
     updatedTicket: TicketMutationInput,
     attachments: File[],
-  ) => Promise<void>;
+  ) => Promise<TicketSaveOutcome | void>;
   onArchive: (ticket: Ticket, changeReason?: string) => Promise<void>;
   onDelete: (ticket: Ticket) => void;
   currentUser: {
@@ -207,6 +209,12 @@ export default function TicketModal({
     id: string;
     expiresAt: number;
   } | null>(null);
+  const commentThreadScrollRef = useRef<HTMLDivElement | null>(null);
+  const commentThreadNearBottomRef = useRef(true);
+  const commentThreadOpenScrollPendingRef = useRef(false);
+  const commentThreadSendScrollPendingRef = useRef(false);
+  const prevCommentIdsSigRef = useRef<string>("");
+  const [pendingNewCommentsCount, setPendingNewCommentsCount] = useState(0);
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
     [currentUser?.roles, currentUser?.role],
@@ -380,7 +388,7 @@ export default function TicketModal({
 
     setSaving(true);
     try {
-      await onSave(
+      const outcome = await onSave(
         {
           title,
           description,
@@ -397,10 +405,13 @@ export default function TicketModal({
           changeReason: ticket.id
             ? changeReason.trim() || undefined
             : undefined,
+          concurrencyToken: ticket.id ? ticket.concurrencyToken : undefined,
         },
         queuedAttachments,
       );
-      onClose();
+      if (outcome !== "reloaded") {
+        onClose();
+      }
     } catch {
       // The parent save handler already surfaces the error to the user.
     } finally {
@@ -423,6 +434,7 @@ export default function TicketModal({
     synitiOwner,
     businessOwner,
     changeReason,
+    ticket.concurrencyToken,
     queuedAttachments,
     saving,
     validateCreateForm,
@@ -500,6 +512,14 @@ export default function TicketModal({
 
     // bump version so older requests can't win
     commentsLoadVersion.current += 1;
+
+    if (ticket.id) {
+      commentThreadOpenScrollPendingRef.current = true;
+      commentThreadSendScrollPendingRef.current = false;
+      prevCommentIdsSigRef.current = "";
+      commentThreadNearBottomRef.current = true;
+      setPendingNewCommentsCount(0);
+    }
   }, [isOpen, ticket.id]);
 
   useLayoutEffect(() => {
@@ -562,6 +582,72 @@ export default function TicketModal({
     if (!isOpen || !ticket.id) return;
     void reloadComments();
   }, [isOpen, reloadComments, ticket.id]);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !ticket.id || loadingComments) {
+      return;
+    }
+
+    const el = commentThreadScrollRef.current;
+    if (!el) {
+      return;
+    }
+
+    const captureCommentIdsSig = (list: Comment[]) =>
+      list
+        .map((c) => c.id)
+        .sort((a, b) => a - b)
+        .join(",");
+
+    const applyPrevSigFromComments = () => {
+      prevCommentIdsSigRef.current = captureCommentIdsSig(comments);
+    };
+
+    if (commentThreadSendScrollPendingRef.current) {
+      el.scrollTop = el.scrollHeight;
+      commentThreadNearBottomRef.current = true;
+      setPendingNewCommentsCount(0);
+      commentThreadSendScrollPendingRef.current = false;
+      applyPrevSigFromComments();
+      return;
+    }
+
+    if (commentThreadOpenScrollPendingRef.current) {
+      el.scrollTop = el.scrollHeight;
+      commentThreadNearBottomRef.current = true;
+      setPendingNewCommentsCount(0);
+      commentThreadOpenScrollPendingRef.current = false;
+      applyPrevSigFromComments();
+      return;
+    }
+
+    const prevSig = prevCommentIdsSigRef.current;
+    const nextSig = captureCommentIdsSig(comments);
+
+    if (prevSig === nextSig) {
+      return;
+    }
+
+    const prevIds = new Set(
+      prevSig
+        ? prevSig.split(",").map((id) => Number(id))
+        : [],
+    );
+    const added = comments.filter((c) => !prevIds.has(c.id));
+    applyPrevSigFromComments();
+
+    if (added.length === 0) {
+      return;
+    }
+
+    if (commentThreadNearBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+      commentThreadNearBottomRef.current = true;
+      setPendingNewCommentsCount(0);
+    } else {
+      setPendingNewCommentsCount((n) => n + added.length);
+    }
+  }, [comments, loadingComments, isOpen, ticket.id]);
 
   useEffect(() => {
     if (!isOpen || !ticket.id) return;
@@ -724,6 +810,30 @@ export default function TicketModal({
     }
   }, [getApiToken, ticket.id]);
 
+  const scrollCommentThreadToBottom = useCallback(() => {
+    const el = commentThreadScrollRef.current;
+    if (!el) {
+      return;
+    }
+    el.scrollTop = el.scrollHeight;
+    commentThreadNearBottomRef.current = true;
+    setPendingNewCommentsCount(0);
+  }, []);
+
+  const handleCommentThreadScroll = useCallback(() => {
+    const el = commentThreadScrollRef.current;
+    if (!el) {
+      return;
+    }
+    const distanceFromBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight;
+    const near = distanceFromBottom <= COMMENT_THREAD_NEAR_BOTTOM_PX;
+    commentThreadNearBottomRef.current = near;
+    if (near) {
+      setPendingNewCommentsCount(0);
+    }
+  }, []);
+
   if (!isOpen) return null;
 
   const handleBoardSelectionChange = (nextBoardId: number) => {
@@ -776,7 +886,7 @@ export default function TicketModal({
 
     try {
       setSaving(true);
-      await onSave(
+      const outcome = await onSave(
         {
           title,
           description,
@@ -788,9 +898,13 @@ export default function TicketModal({
           businessOwner: businessOwner || undefined,
           changeReason:
             changeReason.trim() || `Moved ticket to ${targetBoard.name}.`,
+          concurrencyToken: ticket.concurrencyToken,
         },
         queuedAttachments,
       );
+      if (outcome === "reloaded") {
+        return;
+      }
       onClose();
       toast.success(`Moved ticket to ${targetBoard.name}`);
     } catch (error) {
@@ -816,6 +930,7 @@ export default function TicketModal({
         body,
         token,
       );
+      commentThreadSendScrollPendingRef.current = true;
       pendingLocalCommentRef.current = {
         id: String(createdComment.id),
         expiresAt: Date.now() + 2000, // 2 second protection window
@@ -1641,13 +1756,31 @@ export default function TicketModal({
                   </span>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div
+                  ref={commentThreadScrollRef}
+                  onScroll={handleCommentThreadScroll}
+                  className="relative min-h-0 flex-1 overflow-y-auto pr-1"
+                >
                   {loadingComments ? (
                     <p className="text-sm text-gray-500 dark:text-slate-400">
                       Loading comments…
                     </p>
                   ) : (
                     <CommentList comments={comments} />
+                  )}
+                  {pendingNewCommentsCount > 0 && (
+                    <div className="sticky bottom-0 z-10 flex justify-center pt-2 pointer-events-none">
+                      <button
+                        type="button"
+                        onClick={scrollCommentThreadToBottom}
+                        className="pointer-events-auto rounded-full border border-cortex-blue/40 bg-white px-3 py-1.5 text-xs font-semibold text-cortex-blue shadow-sm transition-colors hover:bg-cortex-blue/10 dark:border-cortex-blue/50 dark:bg-slate-800 dark:text-cortex-blue dark:hover:bg-slate-700/80"
+                      >
+                        New comments
+                        {pendingNewCommentsCount > 1
+                          ? ` (${pendingNewCommentsCount})`
+                          : ""}
+                      </button>
+                    </div>
                   )}
                 </div>
 

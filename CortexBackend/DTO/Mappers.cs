@@ -135,7 +135,10 @@ public static class TicketResponseExtensions
             SlaCompletedDate = slaSnapshot.CompletedDateUtc,
             SlaStatus = slaSnapshot.Status,
             SlaRemainingMinutes = slaSnapshot.RemainingMinutes,
-            IsSlaBreached = slaSnapshot.IsBreached
+            IsSlaBreached = slaSnapshot.IsBreached,
+            ConcurrencyToken = ticket.RowVersion is { Length: > 0 }
+                ? Convert.ToBase64String(ticket.RowVersion)
+                : string.Empty
         };
     }
 }

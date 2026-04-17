@@ -63,6 +63,9 @@ public class CortexDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(t => t.BoardId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.Property(t => t.RowVersion)
+                .IsRowVersion();
         });
 
         modelBuilder.Entity<ArchivedTicket>(entity =>

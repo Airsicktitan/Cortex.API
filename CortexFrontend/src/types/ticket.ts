@@ -1,3 +1,6 @@
+/** Result of saving from the ticket modal (parent may keep the modal open after a conflict reload). */
+export type TicketSaveOutcome = "saved" | "reloaded";
+
 export interface Ticket {
   id: string;
   title: string;
@@ -26,6 +29,8 @@ export interface Ticket {
   slaStatus: string;
   slaRemainingMinutes: number;
   isSlaBreached: boolean;
+  /** Base64 row version from API; required when updating an existing ticket. */
+  concurrencyToken?: string;
 }
 
 export interface TicketMutationInput {
@@ -39,6 +44,7 @@ export interface TicketMutationInput {
   synitiOwner?: string;
   businessOwner?: string;
   changeReason?: string;
+  concurrencyToken?: string;
 }
 
 export interface CreateTicketInput extends Omit<TicketMutationInput, "status"> {

@@ -6,6 +6,7 @@ using Cortex.API.DTO;
 using Cortex.API.Services;
 using Cortex.API.Validation;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -363,6 +364,35 @@ public static class TicketHandlers
             if (existing is null)
                 return Results.NotFound();
 
+            if (string.IsNullOrWhiteSpace(request.ConcurrencyToken))
+            {
+                return Results.BadRequest(new
+                {
+                    message =
+                        "Concurrency token is required to update a ticket. Refresh the page and try again.",
+                });
+            }
+
+            byte[] incomingRowVersion;
+            try
+            {
+                incomingRowVersion = Convert.FromBase64String(request.ConcurrencyToken.Trim());
+            }
+            catch (FormatException)
+            {
+                return Results.BadRequest(new { message = "Invalid concurrency token." });
+            }
+
+            if (existing.RowVersion is not { Length: > 0 }
+                || !incomingRowVersion.AsSpan().SequenceEqual(existing.RowVersion))
+            {
+                return Results.Conflict(new
+                {
+                    message =
+                        "This ticket was updated elsewhere. Refresh the page to load the latest version before saving again.",
+                });
+            }
+
             var originalTicket = CloneTicket(existing);
 
             var resolvedTitle = request.Title is null ? existing.Title : request.Title.Trim();
@@ -396,7 +426,18 @@ public static class TicketHandlers
             existing.LastModifiedDate = DateTime.UtcNow;
 
             await repo.UpdateTicketAsync(existing);
-            await repo.SaveChangesAsync();
+            try
+            {
+                await repo.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Results.Conflict(new
+                {
+                    message =
+                        "This ticket was updated elsewhere. Refresh the page to load the latest version before saving again.",
+                });
+            }
 
             var updatedTicket = await repo.GetTicketByIdAsync(id);
 
@@ -685,7 +726,10 @@ public static class TicketHandlers
             CreatedBy = ticket.CreatedBy,
             CreatedDate = ticket.CreatedDate,
             LastModifiedBy = ticket.LastModifiedBy,
-            LastModifiedDate = ticket.LastModifiedDate
+            LastModifiedDate = ticket.LastModifiedDate,
+            RowVersion = ticket.RowVersion is { Length: > 0 }
+                ? (byte[])ticket.RowVersion.Clone()
+                : [],
         };
     }
 

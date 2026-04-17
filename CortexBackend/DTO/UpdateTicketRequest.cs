@@ -2,6 +2,9 @@ namespace Cortex.API.DTO;
 
 public class UpdateTicketRequest
 {
+    /// <summary>Required for updates: last known concurrency token from <see cref="TicketResponse.ConcurrencyToken"/>.</summary>
+    public string? ConcurrencyToken { get; set; }
+
     public string? Title { get; set; }
     public string? Description { get; set; }
     public string? Department { get; set; }

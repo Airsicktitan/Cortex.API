@@ -143,7 +143,7 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
           onClick();
         }
       }}
-      className={`cursor-pointer rounded-xl border border-gray-100 border-l-4 bg-white p-4 shadow-sm outline-none transition-all duration-150 ease-in-out hover:-translate-y-[2px] hover:border-gray-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-cortex-blue focus-visible:ring-offset-2 active:translate-y-0 active:shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-600 dark:focus-visible:ring-offset-slate-900 ${slaAccentClass}`}
+      className={`cursor-pointer rounded-xl border-l-4 border-t border-r border-b border-gray-100 bg-white p-4 shadow-sm outline-none transition-all duration-150 ease-in-out hover:-translate-y-[2px] hover:border-t-gray-300 hover:border-r-gray-300 hover:border-b-gray-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-cortex-blue focus-visible:ring-offset-2 active:translate-y-0 active:shadow-sm dark:border-t-slate-700 dark:border-r-slate-700 dark:border-b-slate-700 dark:bg-slate-900 dark:hover:border-t-slate-600 dark:hover:border-r-slate-600 dark:hover:border-b-slate-600 dark:focus-visible:ring-offset-slate-900 ${slaAccentClass}`}
     >
       <div className="min-w-0 text-left">
         <h3

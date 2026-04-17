@@ -21,12 +21,16 @@ type SlaLabelInput = Pick<
   "slaStatus" | "slaTargetDate" | "slaCompletedDate" | "slaRemainingMinutes" | "isSlaBreached"
 >;
 
+/** Left-edge accent for ticket cards: light + dark pairs so SLA state stays visible on slate backgrounds. */
 const slaAccentClasses: Record<SlaDisplayLabel, string> = {
-  "On Track": "border-l-green-500",
-  "At Risk": "border-l-yellow-400",
-  Overdue: "border-l-red-500",
-  "Resolved On Time": "border-l-emerald-500",
-  "Resolved Late": "border-l-rose-600",
+  "On Track":
+    "border-l-green-500 dark:border-l-emerald-400",
+  "At Risk":
+    "border-l-amber-500 dark:border-l-amber-400",
+  Overdue: "border-l-red-500 dark:border-l-red-400",
+  "Resolved On Time":
+    "border-l-emerald-600 dark:border-l-emerald-400",
+  "Resolved Late": "border-l-rose-600 dark:border-l-rose-400",
 };
 
 const slaBadgeClasses: Record<SlaDisplayLabel, string> = {
@@ -91,7 +95,10 @@ function normalizeSlaStyleKey(statusOrLabel: string): SlaDisplayLabel {
 }
 
 export function getSlaAccentClass(statusOrLabel: string) {
-  return slaAccentClasses[normalizeSlaStyleKey(statusOrLabel)] ?? "border-l-gray-300";
+  return (
+    slaAccentClasses[normalizeSlaStyleKey(statusOrLabel)] ??
+    "border-l-gray-300 dark:border-l-slate-500"
+  );
 }
 
 export function getSlaBadgeClass(statusOrLabel: string) {

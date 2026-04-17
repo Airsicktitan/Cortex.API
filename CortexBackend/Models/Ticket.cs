@@ -28,4 +28,8 @@ public class Ticket
 
     [JsonIgnore]
     public TicketBoardDefinition? BoardDefinition { get; set; }
+
+    /// <summary>SQL Server rowversion for optimistic concurrency (exposed via API as base64 on <c>TicketResponse</c>).</summary>
+    [JsonIgnore]
+    public byte[] RowVersion { get; set; } = [];
 }
