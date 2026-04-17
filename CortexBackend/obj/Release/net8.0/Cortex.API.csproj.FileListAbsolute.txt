@@ -146,3 +146,8 @@ C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.deps
 C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.runtimeconfig.json
 C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.dll
 C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.pdb
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Release\net8.0\Cortex.API.exe
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Release\net8.0\Microsoft.Extensions.Diagnostics.HealthChecks.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Release\net8.0\Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Release\net8.0\Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Release\net8.0\Microsoft.Extensions.Options.dll

@@ -90,6 +90,28 @@ function reconcileCommentsById(
   return changed ? nextComments : current;
 }
 
+function upsertCommentById(current: Comment[], incoming: Comment): Comment[] {
+  const existingIndex = current.findIndex((comment) => comment.id === incoming.id);
+  if (existingIndex < 0) {
+    return [...current, incoming];
+  }
+
+  const existingComment = current[existingIndex];
+  if (
+    existingComment.body === incoming.body &&
+    existingComment.createdBy === incoming.createdBy &&
+    existingComment.createdByDisplayName === incoming.createdByDisplayName &&
+    existingComment.createdDate === incoming.createdDate &&
+    existingComment.lastModifiedDate === incoming.lastModifiedDate
+  ) {
+    return current;
+  }
+
+  const nextComments = [...current];
+  nextComments[existingIndex] = incoming;
+  return nextComments;
+}
+
 interface TicketModalProps {
   ticket: Ticket;
   latestRealtimeEvent?: RealtimeEvent | null;
@@ -572,6 +594,13 @@ export default function TicketModal({
         } else {
           pendingLocalCommentRef.current = null;
         }
+      }
+
+      if (latestRealtimeEvent.comment) {
+        setComments((currentComments) =>
+          upsertCommentById(currentComments, latestRealtimeEvent.comment!),
+        );
+        return;
       }
 
       void reloadComments();

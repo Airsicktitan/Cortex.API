@@ -9,7 +9,9 @@ public class TicketArchivalService(
     IUserRepository userRepository,
     ITicketAuditService ticketAuditService,
     INotificationService notificationService,
-    IRealtimeEventService realtimeEventService) : ITicketArchivalService
+    IRealtimeEventService realtimeEventService,
+    IRealtimeAudienceResolver realtimeAudienceResolver,
+    IResponseMappingContextFactory mappingContextFactory) : ITicketArchivalService
 {
     private readonly ITicketRepository _ticketRepository = ticketRepository;
     private readonly IArchiveConfigurationService _archiveConfigurationService = archiveConfigurationService;
@@ -17,6 +19,8 @@ public class TicketArchivalService(
     private readonly ITicketAuditService _ticketAuditService = ticketAuditService;
     private readonly INotificationService _notificationService = notificationService;
     private readonly IRealtimeEventService _realtimeEventService = realtimeEventService;
+    private readonly IRealtimeAudienceResolver _realtimeAudienceResolver = realtimeAudienceResolver;
+    private readonly IResponseMappingContextFactory _mappingContextFactory = mappingContextFactory;
 
     public async Task<int> ArchiveEligibleTicketsAsync(int archivedBy)
     {
@@ -73,11 +77,26 @@ public class TicketArchivalService(
                         ticketIsArchived: true);
                 }
 
+                var archivedTicket = await _ticketRepository.GetArchivedTicketByIdAsync(ticketId);
+                if (archivedTicket is null)
+                {
+                    continue;
+                }
+
+                var mappingContext = await _mappingContextFactory.CreateAsync(
+                    [archivedTicket.CreatedBy, archivedTicket.ArchivedBy],
+                    null,
+                    [archivedTicket.BoardId]);
+                var archivedTicketResponse = archivedTicket.ToResponse(mappingContext);
+                var audienceUserIds = await _realtimeAudienceResolver.GetAudienceUserIdsAsync(archivedTicket);
+
                 await _realtimeEventService.PublishAsync(new RealtimeEventMessage
                 {
                     EventType = "ticket.archived",
                     TicketId = ticket.Id,
-                    EntityId = ticket.Id
+                    EntityId = ticket.Id,
+                    AudienceUserIds = audienceUserIds,
+                    ArchivedTicket = archivedTicketResponse
                 });
             }
         }

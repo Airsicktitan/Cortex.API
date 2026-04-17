@@ -13,9 +13,9 @@ public class RealtimeEventService(
 {
     private readonly IHubContext<RealtimeHub> _hubContext = hubContext;
     private readonly ILogger<RealtimeEventService> _logger = logger;
-    private readonly ConcurrentDictionary<Guid, Channel<RealtimeEventMessage>> _subscribers = new();
+    private readonly ConcurrentDictionary<Guid, RealtimeEventSubscriber> _subscribers = new();
 
-    public RealtimeEventSubscription Subscribe()
+    public RealtimeEventSubscription Subscribe(int userId)
     {
         var id = Guid.NewGuid();
         var channel = Channel.CreateUnbounded<RealtimeEventMessage>(
@@ -25,13 +25,13 @@ public class RealtimeEventService(
                 SingleWriter = false
             });
 
-        _subscribers[id] = channel;
+        _subscribers[id] = new RealtimeEventSubscriber(userId, channel);
 
         return new RealtimeEventSubscription(channel.Reader, () =>
         {
-            if (_subscribers.TryRemove(id, out var existingChannel))
+            if (_subscribers.TryRemove(id, out var existingSubscriber))
             {
-                existingChannel.Writer.TryComplete();
+                existingSubscriber.Channel.Writer.TryComplete();
             }
         });
     }
@@ -40,7 +40,18 @@ public class RealtimeEventService(
         RealtimeEventMessage message,
         CancellationToken cancellationToken = default)
     {
-        _ = BroadcastToHubBestEffortAsync(message, cancellationToken);
+        var audienceUserIds = ResolveAudienceUserIds(message);
+        if (audienceUserIds.Count == 0)
+        {
+            _logger.LogWarning(
+                "Dropping realtime event with no explicit audience. EventType={EventType} TicketId={TicketId} EntityId={EntityId}",
+                message.EventType,
+                message.TicketId,
+                message.EntityId);
+            return ValueTask.CompletedTask;
+        }
+
+        _ = BroadcastToHubBestEffortAsync(message, audienceUserIds, cancellationToken);
 
         foreach (var subscriber in _subscribers)
         {
@@ -49,10 +60,15 @@ public class RealtimeEventService(
                 break;
             }
 
-            if (!subscriber.Value.Writer.TryWrite(message) &&
+            if (!audienceUserIds.Contains(subscriber.Value.UserId))
+            {
+                continue;
+            }
+
+            if (!subscriber.Value.Channel.Writer.TryWrite(message) &&
                 _subscribers.TryRemove(subscriber.Key, out var staleChannel))
             {
-                staleChannel.Writer.TryComplete();
+                staleChannel.Channel.Writer.TryComplete();
             }
         }
 
@@ -61,12 +77,18 @@ public class RealtimeEventService(
 
     private async Task BroadcastToHubBestEffortAsync(
         RealtimeEventMessage message,
+        IReadOnlyCollection<int> audienceUserIds,
         CancellationToken cancellationToken)
     {
         try
         {
+            var audienceGroups = audienceUserIds
+                .Select(RealtimeHubGroups.ForUser)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
             await _hubContext.Clients
-                .All
+                .Groups(audienceGroups)
                 .SendAsync("realtime", message, cancellationToken);
         }
         catch (OperationCanceledException)
@@ -83,4 +105,16 @@ public class RealtimeEventService(
                 message.EntityId);
         }
     }
+
+    private static HashSet<int> ResolveAudienceUserIds(RealtimeEventMessage message)
+    {
+        var rawAudience = message.AudienceUserIds ?? message.RecipientUserIds ?? [];
+        return rawAudience
+            .Where(userId => userId > 0)
+            .ToHashSet();
+    }
+
+    private sealed record RealtimeEventSubscriber(
+        int UserId,
+        Channel<RealtimeEventMessage> Channel);
 }

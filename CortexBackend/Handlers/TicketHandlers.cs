@@ -23,13 +23,14 @@ public static class TicketHandlers
     private const int MaxDescriptionLength = 4000;
 
     public static async Task<IResult> GetAllTickets(
+        DateTimeOffset? sinceUtc,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
         IResponseMappingContextFactory mappingContextFactory)
     {
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
-        var tickets = await repo.GetAllTicketsAsync();
+        var tickets = await repo.GetAllTicketsAsync(sinceUtc?.UtcDateTime);
         var visibleTickets = tickets.Where(visibilityContext.CanView).ToList();
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
 
@@ -111,12 +112,13 @@ public static class TicketHandlers
     }
 
     public static async Task<IResult> GetArchivedTickets(
+        DateTimeOffset? sinceUtc,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
         IResponseMappingContextFactory mappingContextFactory)
     {
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
-        var archivedTickets = await repo.GetArchivedTicketsAsync();
+        var archivedTickets = await repo.GetArchivedTicketsAsync(sinceUtc?.UtcDateTime);
         var visibleTickets = archivedTickets.Where(ticket =>
             visibilityContext.CanView(ticket.CreatedBy, ticket.SynitiOwner, ticket.BusinessOwner)).ToList();
 
@@ -239,6 +241,7 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory,
         ILogger<TicketHandlersLogCategory> logger)
     {
@@ -290,6 +293,14 @@ public static class TicketHandlers
             if (createdTicket is null)
                 return Results.Problem("Ticket was created but could not be retrieved.");
 
+            var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                [createdTicket.CreatedBy],
+                null,
+                [createdTicket.BoardId]);
+            var createdTicketResponse = createdTicket.ToResponse(slaConfigurations, mappingContext);
+            var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(createdTicket);
+
             await ticketAuditService.RecordTicketCreatedAsync(
                 createdTicket,
                 currentUser,
@@ -301,7 +312,9 @@ public static class TicketHandlers
             {
                 EventType = "ticket.created",
                 TicketId = createdTicket.Id,
-                EntityId = createdTicket.Id
+                EntityId = createdTicket.Id,
+                AudienceUserIds = audienceUserIds,
+                Ticket = createdTicketResponse
             });
 
             LogTicketCreated(
@@ -311,15 +324,9 @@ public static class TicketHandlers
                 createdTicket.BoardId,
                 createdTicket.Status);
 
-            var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
-            var mappingContext = await mappingContextFactory.CreateAsync(
-                [createdTicket.CreatedBy],
-                null,
-                [createdTicket.BoardId]);
-
             return Results.Created(
                 $"/api/tickets/{createdTicket.Id}",
-                createdTicket.ToResponse(slaConfigurations, mappingContext));
+                createdTicketResponse);
         }
         catch (ArgumentException exception)
         {
@@ -342,6 +349,7 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory,
         ILogger<TicketHandlersLogCategory> logger)
     {
@@ -395,6 +403,18 @@ public static class TicketHandlers
             if (updatedTicket is null)
                 return Results.Problem("Ticket was updated but could not be retrieved.");
 
+            var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                [updatedTicket.CreatedBy],
+                null,
+                [updatedTicket.BoardId]);
+            var updatedTicketResponse = updatedTicket.ToResponse(slaConfigurations, mappingContext);
+            var originalAudienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(originalTicket);
+            var updatedAudienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(updatedTicket);
+            var removedAudienceUserIds = originalAudienceUserIds
+                .Except(updatedAudienceUserIds)
+                .ToArray();
+
             await ticketAuditService.RecordTicketUpdatedAsync(
                 originalTicket,
                 updatedTicket,
@@ -404,11 +424,24 @@ public static class TicketHandlers
                 originalTicket,
                 updatedTicket,
                 currentUser);
+            if (removedAudienceUserIds.Length > 0)
+            {
+                await realtimeEventService.PublishAsync(new RealtimeEventMessage
+                {
+                    EventType = "ticket.removed",
+                    TicketId = updatedTicket.Id,
+                    EntityId = updatedTicket.Id,
+                    AudienceUserIds = removedAudienceUserIds
+                });
+            }
+
             await realtimeEventService.PublishAsync(new RealtimeEventMessage
             {
                 EventType = "ticket.updated",
                 TicketId = updatedTicket.Id,
-                EntityId = updatedTicket.Id
+                EntityId = updatedTicket.Id,
+                AudienceUserIds = updatedAudienceUserIds,
+                Ticket = updatedTicketResponse
             });
 
             LogTicketUpdatedLifecycle(
@@ -417,13 +450,7 @@ public static class TicketHandlers
                 updatedTicket,
                 currentUser.Id);
 
-            var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
-            var mappingContext = await mappingContextFactory.CreateAsync(
-                [updatedTicket.CreatedBy],
-                null,
-                [updatedTicket.BoardId]);
-
-            return Results.Ok(updatedTicket.ToResponse(slaConfigurations, mappingContext));
+            return Results.Ok(updatedTicketResponse);
         }
         catch (ArgumentException exception)
         {
@@ -444,6 +471,7 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory)
     {
         var existing = await repo.GetTicketByIdAsync(id);
@@ -465,6 +493,19 @@ public static class TicketHandlers
             return Results.Problem("Ticket could not be archived.");
         }
 
+        var archivedTicket = await repo.GetArchivedTicketByIdAsync(id);
+        if (archivedTicket is null)
+        {
+            return Results.Problem("Ticket was archived but could not be retrieved.");
+        }
+
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            [archivedTicket.CreatedBy, archivedTicket.ArchivedBy],
+            null,
+            [archivedTicket.BoardId]);
+        var archivedTicketResponse = archivedTicket.ToResponse(mappingContext);
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(archivedTicket);
+
         await ticketAuditService.RecordTicketArchivedAsync(
             existing,
             currentUser,
@@ -477,21 +518,12 @@ public static class TicketHandlers
         {
             EventType = "ticket.archived",
             TicketId = existing.Id,
-            EntityId = existing.Id
+            EntityId = existing.Id,
+            AudienceUserIds = audienceUserIds,
+            ArchivedTicket = archivedTicketResponse
         });
 
-        var archivedTicket = await repo.GetArchivedTicketByIdAsync(id);
-        if (archivedTicket is null)
-        {
-            return Results.Problem("Ticket was archived but could not be retrieved.");
-        }
-
-        var mappingContext = await mappingContextFactory.CreateAsync(
-            [archivedTicket.CreatedBy, archivedTicket.ArchivedBy],
-            null,
-            [archivedTicket.BoardId]);
-
-        return Results.Ok(archivedTicket.ToResponse(mappingContext));
+        return Results.Ok(archivedTicketResponse);
     }
 
     public static async Task<IResult> ReactivateArchivedTicket(
@@ -504,6 +536,7 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory)
     {
         var archivedTicket = await repo.GetArchivedTicketByIdAsync(id);
@@ -541,6 +574,14 @@ public static class TicketHandlers
             return Results.Problem("Ticket was reactivated but could not be retrieved.");
         }
 
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            [restoredTicket.CreatedBy],
+            null,
+            [restoredTicket.BoardId]);
+        var restoredTicketResponse = restoredTicket.ToResponse(slaConfigurations, mappingContext);
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(restoredTicket);
+
         await ticketAuditService.RecordTicketReactivatedAsync(
             archivedTicket,
             restoredTicket,
@@ -555,16 +596,12 @@ public static class TicketHandlers
         {
             EventType = "ticket.reactivated",
             TicketId = restoredTicket.Id,
-            EntityId = restoredTicket.Id
+            EntityId = restoredTicket.Id,
+            AudienceUserIds = audienceUserIds,
+            Ticket = restoredTicketResponse
         });
 
-        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
-        var mappingContext = await mappingContextFactory.CreateAsync(
-            [restoredTicket.CreatedBy],
-            null,
-            [restoredTicket.BoardId]);
-
-        return Results.Ok(restoredTicket.ToResponse(slaConfigurations, mappingContext));
+        return Results.Ok(restoredTicketResponse);
     }
 
     public static async Task<IResult> DeleteTicket(string id, ITicketRepository repo)

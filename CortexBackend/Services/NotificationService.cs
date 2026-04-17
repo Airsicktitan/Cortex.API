@@ -268,13 +268,31 @@ public class NotificationService(
         await _notificationRepository.AddRangeAsync(notifications);
         await _notificationRepository.SaveChangesAsync();
 
-        await _realtimeEventService.PublishAsync(new RealtimeEventMessage
+        var notificationsByUserId = notifications
+            .GroupBy(notification => notification.UserId)
+            .ToList();
+
+        foreach (var notificationGroup in notificationsByUserId)
         {
-            EventType = "notification.created",
-            EntityId = notifications.Count.ToString(),
-            TicketId = notifications.Select(notification => notification.TicketId).FirstOrDefault(ticketId => !string.IsNullOrWhiteSpace(ticketId)),
-            RecipientUserIds = notifications.Select(notification => notification.UserId).Distinct().ToArray()
-        });
+            var userId = notificationGroup.Key;
+            var notificationResponses = notificationGroup
+                .OrderByDescending(notification => notification.CreatedDateUtc)
+                .Select(ToResponse)
+                .ToArray();
+
+            await _realtimeEventService.PublishAsync(new RealtimeEventMessage
+            {
+                EventType = "notification.created",
+                EntityId = notificationResponses.Length.ToString(),
+                TicketId = notificationResponses
+                    .Select(notification => notification.TicketId)
+                    .FirstOrDefault(ticketId => !string.IsNullOrWhiteSpace(ticketId)),
+                RecipientUserIds = [userId],
+                AudienceUserIds = [userId],
+                Notifications = notificationResponses,
+                UnreadCount = await _notificationRepository.GetUnreadCountAsync(userId)
+            });
+        }
 
         return notifications.Count;
     }

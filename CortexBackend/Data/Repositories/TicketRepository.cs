@@ -12,16 +12,40 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 { 
     private readonly CortexDbContext _context = context;
 
-    public async Task<IEnumerable<Ticket>> GetAllTicketsAsync()
+    public async Task<IEnumerable<Ticket>> GetAllTicketsAsync(DateTime? modifiedSinceUtc = null)
     {
-        return await _context.Tickets
-        .Include(t => t.BoardDefinition)
-        .ToListAsync();
+        var query = _context.Tickets
+            .AsNoTracking()
+            .Include(ticket => ticket.BoardDefinition)
+            .AsQueryable();
+
+        if (modifiedSinceUtc.HasValue)
+        {
+            var sinceUtc = DateTime.SpecifyKind(modifiedSinceUtc.Value, DateTimeKind.Utc);
+            query = query.Where(ticket =>
+                ticket.CreatedDate >= sinceUtc ||
+                (ticket.LastModifiedDate.HasValue && ticket.LastModifiedDate.Value >= sinceUtc));
+        }
+
+        return await query.ToListAsync();
     }
 
-    public async Task<IEnumerable<ArchivedTicket>> GetArchivedTicketsAsync()
+    public async Task<IEnumerable<ArchivedTicket>> GetArchivedTicketsAsync(DateTime? modifiedSinceUtc = null)
     {
-        return await _context.ArchivedTickets
+        var query = _context.ArchivedTickets
+            .AsNoTracking()
+            .Include(ticket => ticket.BoardDefinition)
+            .AsQueryable();
+
+        if (modifiedSinceUtc.HasValue)
+        {
+            var sinceUtc = DateTime.SpecifyKind(modifiedSinceUtc.Value, DateTimeKind.Utc);
+            query = query.Where(ticket =>
+                ticket.ArchivedDate >= sinceUtc ||
+                (ticket.LastModifiedDate.HasValue && ticket.LastModifiedDate.Value >= sinceUtc));
+        }
+
+        return await query
             .OrderByDescending(ticket => ticket.ArchivedDate)
             .ToListAsync();
     }

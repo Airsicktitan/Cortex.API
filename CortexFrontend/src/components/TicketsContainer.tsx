@@ -57,7 +57,7 @@ export type TicketsContainerProps = {
   showingStart: number;
   showingEnd: number;
   isModalOpen: boolean;
-  refreshTicketsSilently: (providedToken?: string) => Promise<void>;
+  syncTicketChangesSilently: (providedToken?: string) => Promise<void>;
   openTicket: (ticket: Ticket) => void;
 };
 
@@ -102,7 +102,7 @@ export default function TicketsContainer({
   showingStart,
   showingEnd,
   isModalOpen,
-  refreshTicketsSilently,
+  syncTicketChangesSilently,
   openTicket,
 }: TicketsContainerProps) {
   useEffect(() => {
@@ -137,7 +137,7 @@ export default function TicketsContainer({
         return;
       }
 
-      void refreshTicketsSilently();
+      void syncTicketChangesSilently();
     }, TICKET_AUTO_REFRESH_INTERVAL_MS);
 
     return () => {
@@ -150,7 +150,7 @@ export default function TicketsContainer({
     needsConsent,
     bootstrapComplete,
     canViewTicketSections,
-    refreshTicketsSilently,
+    syncTicketChangesSilently,
   ]);
 
   return (

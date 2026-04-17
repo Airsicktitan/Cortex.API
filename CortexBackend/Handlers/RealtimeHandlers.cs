@@ -9,7 +9,8 @@ public static class RealtimeHandlers
 
     public static async Task StreamEvents(
         HttpContext context,
-        IRealtimeEventService realtimeEventService)
+        IRealtimeEventService realtimeEventService,
+        IUserContextService userContextService)
     {
         context.Response.Headers.CacheControl = "no-cache";
         context.Response.Headers.Connection = "keep-alive";
@@ -19,7 +20,8 @@ public static class RealtimeHandlers
         await context.Response.WriteAsync(": connected\n\n", context.RequestAborted);
         await context.Response.Body.FlushAsync(context.RequestAborted);
 
-        using var subscription = realtimeEventService.Subscribe();
+        var currentUser = await userContextService.GetCurrentUserAsync();
+        using var subscription = realtimeEventService.Subscribe(currentUser.Id);
 
         try
         {

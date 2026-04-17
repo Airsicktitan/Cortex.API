@@ -27,6 +27,11 @@ type RealtimeEventLike = {
   actorUserId?: unknown;
   actorDisplayName?: unknown;
   recipientUserIds?: unknown;
+  ticket?: unknown;
+  archivedTicket?: unknown;
+  comment?: unknown;
+  notifications?: unknown;
+  unreadCount?: unknown;
   occurredDateUtc?: unknown;
   EventType?: unknown;
   TicketId?: unknown;
@@ -34,8 +39,24 @@ type RealtimeEventLike = {
   ActorUserId?: unknown;
   ActorDisplayName?: unknown;
   RecipientUserIds?: unknown;
+  Ticket?: unknown;
+  ArchivedTicket?: unknown;
+  Comment?: unknown;
+  Notifications?: unknown;
+  UnreadCount?: unknown;
   OccurredDateUtc?: unknown;
 };
+
+function normalizeObject<T extends object>(value: unknown): T | undefined {
+  return typeof value === "object" && value !== null ? (value as T) : undefined;
+}
+
+function normalizeObjectArray<T extends object>(value: unknown): T[] | undefined {
+  return Array.isArray(value) &&
+    value.every((entry) => typeof entry === "object" && entry !== null)
+    ? (value as T[])
+    : undefined;
+}
 
 function normalizeRealtimeEvent(value: unknown): RealtimeEvent | null {
   if (typeof value !== "object" || value === null) {
@@ -53,6 +74,13 @@ function normalizeRealtimeEvent(value: unknown): RealtimeEvent | null {
     candidate.actorDisplayName ?? candidate.ActorDisplayName;
   const recipientUserIdsRaw =
     candidate.recipientUserIds ?? candidate.RecipientUserIds;
+  const ticketRaw = candidate.ticket ?? candidate.Ticket;
+  const archivedTicketRaw =
+    candidate.archivedTicket ?? candidate.ArchivedTicket;
+  const commentRaw = candidate.comment ?? candidate.Comment;
+  const notificationsRaw =
+    candidate.notifications ?? candidate.Notifications;
+  const unreadCountRaw = candidate.unreadCount ?? candidate.UnreadCount;
 
   if (
     typeof eventTypeRaw !== "string" ||
@@ -91,6 +119,34 @@ function normalizeRealtimeEvent(value: unknown): RealtimeEvent | null {
     recipientUserIdsRaw.every((value) => typeof value === "number")
   ) {
     normalized.recipientUserIds = recipientUserIdsRaw;
+  }
+
+  const ticket = normalizeObject<NonNullable<RealtimeEvent["ticket"]>>(ticketRaw);
+  if (ticket) {
+    normalized.ticket = ticket;
+  }
+
+  const archivedTicket = normalizeObject<
+    NonNullable<RealtimeEvent["archivedTicket"]>
+  >(archivedTicketRaw);
+  if (archivedTicket) {
+    normalized.archivedTicket = archivedTicket;
+  }
+
+  const comment = normalizeObject<NonNullable<RealtimeEvent["comment"]>>(commentRaw);
+  if (comment) {
+    normalized.comment = comment;
+  }
+
+  const notifications = normalizeObjectArray<
+    NonNullable<RealtimeEvent["notifications"]>[number]
+  >(notificationsRaw);
+  if (notifications) {
+    normalized.notifications = notifications;
+  }
+
+  if (typeof unreadCountRaw === "number" && Number.isFinite(unreadCountRaw)) {
+    normalized.unreadCount = unreadCountRaw;
   }
 
   return normalized;

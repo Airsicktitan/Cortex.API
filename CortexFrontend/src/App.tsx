@@ -75,6 +75,31 @@ const SESSION_ACTIVITY_EVENTS: ReadonlyArray<keyof WindowEventMap> = [
   "focus",
 ];
 
+function mergeNotificationsById(
+  currentNotifications: UserNotification[],
+  incomingNotifications: UserNotification[],
+): UserNotification[] {
+  if (incomingNotifications.length === 0) {
+    return currentNotifications;
+  }
+
+  const notificationsById = new Map(
+    currentNotifications.map((notification) => [notification.id, notification]),
+  );
+
+  for (const notification of incomingNotifications) {
+    notificationsById.set(notification.id, notification);
+  }
+
+  return Array.from(notificationsById.values())
+    .sort(
+      (left, right) =>
+        new Date(right.createdDateUtc).getTime() -
+        new Date(left.createdDateUtc).getTime(),
+    )
+    .slice(0, 20);
+}
+
 const APP_VIEW_LABELS: Record<AppView, string> = {
   dashboard: "Dashboard",
   tickets: "Tickets",
@@ -570,7 +595,11 @@ function App() {
     setTicketToDelete,
     deleting,
     refreshTicketsSilently,
+    syncTicketChangesSilently,
     reconcileTicketByIdSilently,
+    upsertActiveTicketLocally,
+    applyArchivedTicketLocally,
+    removeTicketLocally,
     loadAllTickets,
     loadArchivedTickets,
     tickets,
@@ -1015,10 +1044,46 @@ function App() {
           const recipients = event.recipientUserIds ?? [];
           if (
             currentUser &&
-            (recipients.length === 0 || recipients.includes(currentUser.id))
+            recipients.includes(currentUser.id)
           ) {
-            void loadNotifications(undefined, { silent: true });
+            if (typeof event.unreadCount === "number") {
+              setNotificationUnreadCount(event.unreadCount);
+            }
+
+            if (event.notifications && event.notifications.length > 0) {
+              setNotifications((currentNotifications) =>
+                mergeNotificationsById(currentNotifications, event.notifications ?? []),
+              );
+              setNotificationsLoaded(true);
+              setNotificationsError(null);
+            } else {
+              void loadNotifications(undefined, { silent: true });
+            }
           }
+          return;
+        }
+
+        if (
+          (event.eventType === "ticket.created" ||
+            event.eventType === "ticket.updated" ||
+            event.eventType === "ticket.reactivated") &&
+          event.ticket
+        ) {
+          upsertActiveTicketLocally(event.ticket);
+          return;
+        }
+
+        if (event.eventType === "ticket.archived" && event.archivedTicket) {
+          applyArchivedTicketLocally(event.archivedTicket);
+          return;
+        }
+
+        if (
+          event.eventType === "ticket.removed" &&
+          typeof event.ticketId === "string" &&
+          event.ticketId.trim().length > 0
+        ) {
+          removeTicketLocally(event.ticketId);
           return;
         }
 
@@ -1046,6 +1111,9 @@ function App() {
     loadNotifications,
     needsConsent,
     bootstrapComplete,
+    upsertActiveTicketLocally,
+    applyArchivedTicketLocally,
+    removeTicketLocally,
     reconcileTicketByIdSilently,
   ]);
 
@@ -2359,7 +2427,7 @@ function App() {
               showingStart={showingStart}
               showingEnd={showingEnd}
               isModalOpen={isModalOpen}
-              refreshTicketsSilently={refreshTicketsSilently}
+              syncTicketChangesSilently={syncTicketChangesSilently}
               openTicket={openTicket}
             />
           ) : activeView === "archived" && canViewArchived ? (

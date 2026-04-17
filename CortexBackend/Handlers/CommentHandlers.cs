@@ -41,6 +41,7 @@ public static class CommentHandlers
         IUserContextService userContext,
         ITicketAuditService ticketAuditService,
         IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory)
     {
         var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
@@ -74,18 +75,21 @@ public static class CommentHandlers
 
         await commentRepo.SaveChangesAsync();
         await ticketAuditService.RecordCommentAddedAsync(comment, currentUser);
+        var mappingContext = await mappingContextFactory.CreateAsync([comment.CreatedBy]);
+        var commentResponse = comment.ToResponse(mappingContext);
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(ticket);
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
         {
             EventType = "comment.created",
             TicketId = ticketId,
-            EntityId = comment.Id.ToString()
+            EntityId = comment.Id.ToString(),
+            AudienceUserIds = audienceUserIds,
+            Comment = commentResponse
         });
-
-        var mappingContext = await mappingContextFactory.CreateAsync([comment.CreatedBy]);
 
         return Results.Created(
             $"/api/tickets/{ticketId}/comments/{comment.Id}",
-            comment.ToResponse(mappingContext));
+            commentResponse);
     }
 
     public static async Task<IResult> SignalTyping(
@@ -93,7 +97,8 @@ public static class CommentHandlers
         ITicketRepository ticketRepo,
         ITicketVisibilityService ticketVisibilityService,
         IUserContextService userContext,
-        IRealtimeEventService realtimeEventService)
+        IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver)
     {
         var ticket = await ticketRepo.GetTicketByIdAsync(ticketId);
         if (ticket is null)
@@ -108,12 +113,14 @@ public static class CommentHandlers
         }
 
         var currentUser = await userContext.GetCurrentUserAsync();
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(ticket);
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
         {
             EventType = "comment.typing",
             TicketId = ticketId,
             ActorUserId = currentUser.Id,
-            ActorDisplayName = currentUser.DisplayName
+            ActorDisplayName = currentUser.DisplayName,
+            AudienceUserIds = audienceUserIds
         });
 
         return Results.Accepted();

@@ -154,6 +154,22 @@ function sortTicketsForList(tickets: Ticket[], sort: TicketListSortOption): Tick
   }
 }
 
+function upsertById<T extends { id: string }>(current: T[], incoming: T): T[] {
+  const existingIndex = current.findIndex((item) => item.id === incoming.id);
+  if (existingIndex < 0) {
+    return [incoming, ...current];
+  }
+
+  const nextItems = [...current];
+  nextItems[existingIndex] = incoming;
+  return nextItems;
+}
+
+function removeById<T extends { id: string }>(current: T[], id: string): T[] {
+  const nextItems = current.filter((item) => item.id !== id);
+  return nextItems.length === current.length ? current : nextItems;
+}
+
 interface UseTicketsParams {
   getApiToken: (providedToken?: string) => Promise<string>;
   setApiUnavailable: Dispatch<SetStateAction<boolean>>;
@@ -207,6 +223,56 @@ export function useTickets({
   const ticketSilentRefreshInFlightRef = useRef(false);
   const ticketSilentRefreshRequestIdRef = useRef(0);
   const ticketReconcileInFlightRef = useRef<Set<string>>(new Set());
+  const ticketChangeSyncInFlightRef = useRef(false);
+  const lastTicketChangeSyncUtcRef = useRef<string | null>(null);
+  const lastTicketFullRefreshAtRef = useRef(0);
+
+  const upsertActiveTicketLocally = useCallback(
+    (incomingTicket: Ticket, options?: { syncSelectedTicket?: boolean }) => {
+      setAllTickets((currentTickets) => upsertById(currentTickets, incomingTicket));
+      setArchivedTickets((currentTickets) => removeById(currentTickets, incomingTicket.id));
+
+      if (options?.syncSelectedTicket === false || isModalOpen) {
+        return;
+      }
+
+      setSelectedTicket((currentTicket) =>
+        currentTicket?.id === incomingTicket.id ? incomingTicket : currentTicket,
+      );
+    },
+    [isModalOpen],
+  );
+
+  const applyArchivedTicketLocally = useCallback(
+    (incomingTicket: ArchivedTicket) => {
+      setAllTickets((currentTickets) => removeById(currentTickets, incomingTicket.id));
+      setArchivedTickets((currentTickets) => upsertById(currentTickets, incomingTicket));
+
+      if (selectedTicket?.id === incomingTicket.id) {
+        setIsModalOpen(false);
+        setSelectedTicket(null);
+      }
+    },
+    [selectedTicket],
+  );
+
+  const removeTicketLocally = useCallback(
+    (ticketId: string) => {
+      const normalizedTicketId = ticketId.trim();
+      if (!normalizedTicketId) {
+        return;
+      }
+
+      setAllTickets((currentTickets) => removeById(currentTickets, normalizedTicketId));
+      setArchivedTickets((currentTickets) => removeById(currentTickets, normalizedTicketId));
+
+      if (selectedTicket?.id === normalizedTicketId) {
+        setIsModalOpen(false);
+        setSelectedTicket(null);
+      }
+    },
+    [selectedTicket],
+  );
 
   const refreshTicketsSilently = useCallback(
     async (providedToken?: string) => {
@@ -216,6 +282,7 @@ export function useTickets({
 
       ticketSilentRefreshInFlightRef.current = true;
       const requestId = ++ticketSilentRefreshRequestIdRef.current;
+      const syncStartedAt = new Date().toISOString();
 
       try {
         const token = providedToken ?? (await getApiToken());
@@ -227,6 +294,8 @@ export function useTickets({
 
         setAllTickets(data);
         setApiUnavailable(false);
+        lastTicketChangeSyncUtcRef.current = syncStartedAt;
+        lastTicketFullRefreshAtRef.current = Date.now();
       } catch (error) {
         console.error("Failed to refresh tickets silently", error);
 
@@ -252,11 +321,14 @@ export function useTickets({
       setError(null);
 
       try {
+        const syncStartedAt = new Date().toISOString();
         const token = providedToken ?? (await getApiToken());
         const data = await ticketService.getAll(token);
         setAllTickets(data);
         setNeedsConsent(false);
         setApiUnavailable(false);
+        lastTicketChangeSyncUtcRef.current = syncStartedAt;
+        lastTicketFullRefreshAtRef.current = Date.now();
       } catch (error) {
         console.error("Failed to load tickets", error);
 
@@ -289,6 +361,97 @@ export function useTickets({
     ],
   );
 
+  const syncTicketChangesSilently = useCallback(
+    async (providedToken?: string) => {
+      if (ticketChangeSyncInFlightRef.current) {
+        return;
+      }
+
+      const sinceUtc = lastTicketChangeSyncUtcRef.current;
+      if (!sinceUtc) {
+        await refreshTicketsSilently(providedToken);
+        return;
+      }
+
+      if (Date.now() - lastTicketFullRefreshAtRef.current >= 60_000) {
+        await refreshTicketsSilently(providedToken);
+        return;
+      }
+
+      ticketChangeSyncInFlightRef.current = true;
+      const syncStartedAt = new Date().toISOString();
+
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const [updatedTickets, archivedTicketsDelta] = await Promise.all([
+          ticketService.getAll(token, { sinceUtc }),
+          ticketService.getArchived(token, { sinceUtc }),
+        ]);
+
+        const updatedTicketIds = new Set(updatedTickets.map((ticket) => ticket.id));
+        const archivedTicketIds = new Set(
+          archivedTicketsDelta.map((ticket) => ticket.id),
+        );
+
+        setAllTickets((currentTickets) => {
+          let nextTickets =
+            archivedTicketIds.size > 0
+              ? currentTickets.filter((ticket) => !archivedTicketIds.has(ticket.id))
+              : currentTickets;
+
+          for (const ticket of updatedTickets) {
+            nextTickets = upsertById(nextTickets, ticket);
+          }
+
+          return nextTickets;
+        });
+
+        setArchivedTickets((currentTickets) => {
+          let nextTickets =
+            updatedTicketIds.size > 0
+              ? currentTickets.filter((ticket) => !updatedTicketIds.has(ticket.id))
+              : currentTickets;
+
+          for (const ticket of archivedTicketsDelta) {
+            nextTickets = upsertById(nextTickets, ticket);
+          }
+
+          return nextTickets;
+        });
+
+        if (selectedTicket && archivedTicketIds.has(selectedTicket.id)) {
+          setIsModalOpen(false);
+          setSelectedTicket(null);
+        } else if (!isModalOpen && selectedTicket) {
+          const updatedSelectedTicket = updatedTickets.find(
+            (ticket) => ticket.id === selectedTicket.id,
+          );
+          if (updatedSelectedTicket) {
+            setSelectedTicket(updatedSelectedTicket);
+          }
+        }
+
+        setApiUnavailable(false);
+        lastTicketChangeSyncUtcRef.current = syncStartedAt;
+      } catch (error) {
+        console.error("Failed to sync ticket changes", error);
+        if (isLikelyNetworkError(error)) {
+          setApiUnavailable(true);
+        }
+      } finally {
+        ticketChangeSyncInFlightRef.current = false;
+      }
+    },
+    [
+      getApiToken,
+      isLikelyNetworkError,
+      isModalOpen,
+      refreshTicketsSilently,
+      selectedTicket,
+      setApiUnavailable,
+    ],
+  );
+
   const reconcileTicketByIdSilently = useCallback(
     async (ticketId: string, providedToken?: string) => {
       const normalizedTicketId = ticketId.trim();
@@ -304,31 +467,16 @@ export function useTickets({
       try {
         const token = providedToken ?? (await getApiToken());
         const fetchedTicket = await ticketService.getById(normalizedTicketId, token);
-
-        setAllTickets((currentTickets) => {
-          const existingIndex = currentTickets.findIndex(
-            (ticket) => ticket.id === fetchedTicket.id,
-          );
-          if (existingIndex < 0) {
-            return [fetchedTicket, ...currentTickets];
-          }
-
-          const existingTicket = currentTickets[existingIndex];
-          if (existingTicket === fetchedTicket) {
-            return currentTickets;
-          }
-
-          const nextTickets = [...currentTickets];
-          nextTickets[existingIndex] = fetchedTicket;
-          return nextTickets;
-        });
-
-        setSelectedTicket((currentTicket) =>
-          currentTicket?.id === fetchedTicket.id ? fetchedTicket : currentTicket,
-        );
+        upsertActiveTicketLocally(fetchedTicket);
         setApiUnavailable(false);
       } catch (error) {
-        if (isForbiddenError(error) || (error instanceof Error && "status" in error && (error as { status?: number }).status === 404)) {
+        if (
+          isForbiddenError(error) ||
+          (error instanceof Error &&
+            "status" in error &&
+            (error as { status?: number }).status === 404)
+        ) {
+          removeTicketLocally(normalizedTicketId);
           return;
         }
 
@@ -340,7 +488,14 @@ export function useTickets({
         ticketReconcileInFlightRef.current.delete(normalizedTicketId);
       }
     },
-    [getApiToken, isForbiddenError, isLikelyNetworkError, setApiUnavailable],
+    [
+      getApiToken,
+      isForbiddenError,
+      isLikelyNetworkError,
+      removeTicketLocally,
+      setApiUnavailable,
+      upsertActiveTicketLocally,
+    ],
   );
 
   const loadArchivedTickets = useCallback(
@@ -487,12 +642,10 @@ export function useTickets({
           };
 
           savedTicket = await ticketService.create(createPayload, token);
-          setAllTickets((prev) => [savedTicket, ...prev]);
+          upsertActiveTicketLocally(savedTicket, { syncSelectedTicket: false });
         } else {
           savedTicket = await ticketService.update(selectedTicket.id, updatedTicket, token);
-          setAllTickets((prev) =>
-            prev.map((ticket) => (ticket.id === savedTicket.id ? savedTicket : ticket)),
-          );
+          upsertActiveTicketLocally(savedTicket, { syncSelectedTicket: false });
         }
 
         if (attachments.length > 0) {
@@ -528,7 +681,7 @@ export function useTickets({
         throw error;
       }
     },
-    [getApiToken, selectedTicket],
+    [getApiToken, selectedTicket, upsertActiveTicketLocally],
   );
 
   const requestDeleteTicket = useCallback((ticket: Ticket) => {
@@ -567,13 +720,7 @@ export function useTickets({
           token,
         );
 
-        setAllTickets((currentTickets) =>
-          currentTickets.filter((currentTicket) => currentTicket.id !== ticket.id),
-        );
-        setArchivedTickets((currentTickets) => [
-          archivedTicket,
-          ...currentTickets.filter((currentTicket) => currentTicket.id !== ticket.id),
-        ]);
+        applyArchivedTicketLocally(archivedTicket);
 
         setIsModalOpen(false);
         setSelectedTicket(null);
@@ -584,7 +731,7 @@ export function useTickets({
         throw error;
       }
     },
-    [getApiToken],
+    [applyArchivedTicketLocally, getApiToken],
   );
 
   const handleReactivateArchivedTicket = useCallback(
@@ -598,13 +745,7 @@ export function useTickets({
         const token = await getApiToken();
         const restoredTicket = await ticketService.reactivateArchived(ticket.id, token);
 
-        setArchivedTickets((currentTickets) =>
-          currentTickets.filter((currentTicket) => currentTicket.id !== ticket.id),
-        );
-        setAllTickets((currentTickets) => [
-          restoredTicket,
-          ...currentTickets.filter((currentTicket) => currentTicket.id !== ticket.id),
-        ]);
+        upsertActiveTicketLocally(restoredTicket, { syncSelectedTicket: false });
 
         toast.success(
           restoredTicket.status !== ticket.status
@@ -618,7 +759,7 @@ export function useTickets({
         setReactivatingArchivedTicketId(null);
       }
     },
-    [getApiToken],
+    [getApiToken, upsertActiveTicketLocally],
   );
 
   const closeModal = useCallback(() => {
@@ -691,7 +832,11 @@ export function useTickets({
     setTicketToDelete,
     deleting,
     refreshTicketsSilently,
+    syncTicketChangesSilently,
     reconcileTicketByIdSilently,
+    upsertActiveTicketLocally,
+    applyArchivedTicketLocally,
+    removeTicketLocally,
     loadAllTickets,
     loadArchivedTickets,
     tickets,

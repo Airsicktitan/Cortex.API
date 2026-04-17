@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Cortex.API.DTO;
 
 public class RealtimeEventMessage
@@ -8,5 +10,13 @@ public class RealtimeEventMessage
     public int? ActorUserId { get; init; }
     public string? ActorDisplayName { get; init; }
     public int[]? RecipientUserIds { get; init; }
+    public TicketResponse? Ticket { get; init; }
+    public ArchivedTicketResponse? ArchivedTicket { get; init; }
+    public CommentResponse? Comment { get; init; }
+    public NotificationResponse[]? Notifications { get; init; }
+    public int? UnreadCount { get; init; }
     public DateTime OccurredDateUtc { get; init; } = DateTime.UtcNow;
+
+    [JsonIgnore]
+    public int[]? AudienceUserIds { get; init; }
 }

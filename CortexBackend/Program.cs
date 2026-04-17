@@ -100,6 +100,7 @@ builder.Services.AddScoped<ITicketVisibilityService, TicketVisibilityService>();
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
 builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabilityService>();
 builder.Services.AddScoped<IResponseMappingContextFactory, ResponseMappingContextFactory>();
+builder.Services.AddScoped<IRealtimeAudienceResolver, RealtimeAudienceResolver>();
 builder.Services.AddHttpClient<INotificationDeliveryService, NotificationDeliveryService>();
 builder.Services.Configure<EmailNotificationOptions>(builder.Configuration.GetSection("Notifications:Email"));
 builder.Services.Configure<TeamsNotificationOptions>(builder.Configuration.GetSection("Notifications:Teams"));
@@ -258,6 +259,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization(options => options.AddCortexPolicies());
+// TODO: Add Azure SignalR Service or a Redis backplane before relying on multi-replica delivery.
 builder.Services.AddSignalR();
 
 // Build app

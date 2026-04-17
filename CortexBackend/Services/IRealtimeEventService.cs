@@ -5,7 +5,7 @@ namespace Cortex.API.Services;
 
 public interface IRealtimeEventService
 {
-    RealtimeEventSubscription Subscribe();
+    RealtimeEventSubscription Subscribe(int userId);
     ValueTask PublishAsync(RealtimeEventMessage message, CancellationToken cancellationToken = default);
 }
 

@@ -16,6 +16,21 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
+type TicketListQueryOptions = {
+  sinceUtc?: string;
+};
+
+function withTicketQuery(path: string, options?: TicketListQueryOptions) {
+  if (!options?.sinceUtc) {
+    return path;
+  }
+
+  const searchParams = new URLSearchParams({
+    sinceUtc: options.sinceUtc,
+  });
+  return `${path}?${searchParams.toString()}`;
+}
+
 const authHeaders = (token: string, includeJson = false): HeadersInit => ({
   ...(includeJson ? { "Content-Type": "application/json" } : {}),
   Authorization: `Bearer ${token}`,
@@ -142,8 +157,8 @@ export const ticketService = {
   },
 
   // Get all tickets
-  async getAll(token: string): Promise<Ticket[]> {
-    const response = await fetch(`${API_BASE_URL}/tickets`, {
+  async getAll(token: string, options?: TicketListQueryOptions): Promise<Ticket[]> {
+    const response = await fetch(withTicketQuery(`${API_BASE_URL}/tickets`, options), {
       headers: authHeaders(token),
     });
 
@@ -184,10 +199,16 @@ export const ticketService = {
     return response.json();
   },
 
-  async getArchived(token: string): Promise<ArchivedTicket[]> {
-    const response = await fetch(`${API_BASE_URL}/tickets/archived`, {
+  async getArchived(
+    token: string,
+    options?: TicketListQueryOptions,
+  ): Promise<ArchivedTicket[]> {
+    const response = await fetch(
+      withTicketQuery(`${API_BASE_URL}/tickets/archived`, options),
+      {
       headers: authHeaders(token),
-    });
+      },
+    );
 
     await ensureSuccess(response, "Failed to fetch archived tickets");
     return response.json();

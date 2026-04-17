@@ -44,6 +44,7 @@ public static class TicketAttachmentHandlers
         IUserContextService userContext,
         ITicketAuditService ticketAuditService,
         IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory)
     {
         var ticket = await ticketRepository.GetTicketByIdAsync(ticketId);
@@ -114,11 +115,13 @@ public static class TicketAttachmentHandlers
             ticketId,
             attachments,
             currentUser);
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(ticket);
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
         {
             EventType = "attachment.created",
             TicketId = ticketId,
-            EntityId = string.Join(",", attachments.Select(attachment => attachment.Id))
+            EntityId = string.Join(",", attachments.Select(attachment => attachment.Id)),
+            AudienceUserIds = audienceUserIds
         });
 
         var mappingContext = await mappingContextFactory.CreateAsync(
