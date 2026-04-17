@@ -26,6 +26,11 @@ import {
   getSlaBadgeClass,
   getSlaDisplayLabel,
 } from "../utils/ticketSla";
+import {
+  formatDisplayDateTime,
+  formatDisplayValue,
+  formatTicketIdentifier,
+} from "../utils/presentation";
 import toast from "react-hot-toast";
 import {
   normalizeRoles,
@@ -943,7 +948,7 @@ export default function TicketModal({
       });
     } catch (error) {
       console.error("Failed to add comment", error);
-      toast.error(getUserFacingErrorMessage(error, "Failed to add comment"));
+      toast.error(getUserFacingErrorMessage(error, "Unable to add comment"));
       throw error;
     }
   };
@@ -1093,14 +1098,16 @@ export default function TicketModal({
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Created By
         </p>
-        <p className="mt-1 text-gray-800 dark:text-slate-200">{createdByName}</p>
+        <p className="mt-1 text-gray-800 dark:text-slate-200">
+          {formatDisplayValue(createdByName)}
+        </p>
       </div>
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Created Date
         </p>
         <p className="mt-1 text-gray-800 dark:text-slate-200">
-          {new Date(ticket.createdDate).toLocaleDateString()}
+          {formatDisplayDateTime(ticket.createdDate)}
         </p>
       </div>
       <div>
@@ -1108,7 +1115,7 @@ export default function TicketModal({
           Board
         </p>
         <p className="mt-1 text-gray-800 dark:text-slate-200">
-          {selectedBoard?.name ?? ticket.boardName ?? "Ticket"}
+          {formatDisplayValue(selectedBoard?.name ?? ticket.boardName)}
         </p>
       </div>
       {selectedBoardRequiresStoryPoints && (
@@ -1126,7 +1133,7 @@ export default function TicketModal({
           Syniti Owner
         </p>
         <p className="mt-1 text-gray-800 dark:text-slate-200">
-          {synitiOwner?.trim() || "Unassigned"}
+          {formatDisplayValue(synitiOwner)}
         </p>
       </div>
       <div>
@@ -1134,7 +1141,7 @@ export default function TicketModal({
           Business Owner
         </p>
         <p className="mt-1 text-gray-800 dark:text-slate-200">
-          {businessOwner?.trim() || "Unassigned"}
+          {formatDisplayValue(businessOwner)}
         </p>
       </div>
       {hasPersistedSla ? (
@@ -1155,7 +1162,7 @@ export default function TicketModal({
               SLA Deadline
             </p>
             <p className="mt-1 text-gray-800 dark:text-slate-200">
-              {new Date(ticket.slaTargetDate).toLocaleString()}
+              {formatDisplayDateTime(ticket.slaTargetDate)}
             </p>
           </div>
           <div className="sm:col-span-2" title={slaTooltip}>
@@ -1172,7 +1179,7 @@ export default function TicketModal({
                 SLA Completed
               </p>
               <p className="mt-1 text-gray-800 dark:text-slate-200">
-                {new Date(ticket.slaCompletedDate).toLocaleString()}
+                {formatDisplayDateTime(ticket.slaCompletedDate)}
               </p>
             </div>
           )}
@@ -1182,7 +1189,7 @@ export default function TicketModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="scroll-surface fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
@@ -1204,7 +1211,7 @@ export default function TicketModal({
           >
             {/* ================= LEFT PANEL ================= */}
             <div className="flex min-h-0 min-w-0 flex-col">
-              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
+              <div className="scroll-surface min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
               {/* Header */}
               <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
                 <div className="min-w-0 flex-1">
@@ -1231,7 +1238,7 @@ export default function TicketModal({
                     </p>
                   )}
                   <p className="text-sm text-gray-500 dark:text-slate-400">
-                    {ticket.id}
+                    {formatTicketIdentifier(ticket.id)}
                   </p>
                   {ticket.id && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1759,7 +1766,7 @@ export default function TicketModal({
                 <div
                   ref={commentThreadScrollRef}
                   onScroll={handleCommentThreadScroll}
-                  className="relative min-h-0 flex-1 overflow-y-auto pr-1"
+                  className="scroll-surface relative min-h-0 flex-1 overflow-y-auto pr-1"
                 >
                   {loadingComments ? (
                     <p className="text-sm text-gray-500 dark:text-slate-400">
@@ -1836,7 +1843,7 @@ export default function TicketModal({
                 </span>
               </button>
             </div>
-            <div className="max-h-[min(70dvh,28rem)] overflow-y-auto p-4">
+            <div className="scroll-surface max-h-[min(70dvh,28rem)] overflow-y-auto p-4">
               {ticketDetailsBody}
             </div>
           </div>

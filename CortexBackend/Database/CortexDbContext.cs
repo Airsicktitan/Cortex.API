@@ -26,7 +26,10 @@ public class CortexDbContext : DbContext
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<StoredProcedureDefinition> StoredProcedureDefinitions => Set<StoredProcedureDefinition>();
     public DbSet<TicketStatusDefinition> TicketStatusDefinitions => Set<TicketStatusDefinition>();
+    public DbSet<RoleDefinition> RoleDefinitions => Set<RoleDefinition>();
     public DbSet<TicketRoutingRule> TicketRoutingRules => Set<TicketRoutingRule>();
+    public DbSet<TicketRoutingDecision> TicketRoutingDecisions => Set<TicketRoutingDecision>();
+    public DbSet<TicketRoutingOverride> TicketRoutingOverrides => Set<TicketRoutingOverride>();
     public DbSet<TicketBoardDefinition> TicketBoardDefinitions => Set<TicketBoardDefinition>();
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
@@ -279,9 +282,48 @@ public class CortexDbContext : DbContext
                 .IsUnique();
         });
 
+        modelBuilder.Entity<RoleDefinition>(entity =>
+        {
+            entity.HasKey(definition => definition.Id);
+
+            entity.Property(definition => definition.Name)
+                .IsRequired()
+                .HasMaxLength(120);
+
+            entity.Property(definition => definition.Description)
+                .HasMaxLength(500);
+
+            entity.Property(definition => definition.PermissionsJson)
+                .IsRequired();
+
+            entity.Property(definition => definition.IsEnabled)
+                .IsRequired();
+
+            entity.HasIndex(definition => definition.Name)
+                .IsUnique();
+        });
+
         modelBuilder.Entity<TicketRoutingRule>(entity =>
         {
             entity.HasKey(rule => rule.Id);
+
+            entity.Property(rule => rule.BoardId)
+                .HasMaxLength(100);
+
+            entity.Property(rule => rule.Priority)
+                .HasMaxLength(50);
+
+            entity.Property(rule => rule.RequesterDepartment)
+                .HasMaxLength(120);
+
+            entity.Property(rule => rule.RequesterRole)
+                .HasMaxLength(80);
+
+            entity.Property(rule => rule.RulePriority)
+                .IsRequired();
+
+            entity.Property(rule => rule.Weight)
+                .IsRequired();
 
             entity.Property(rule => rule.Department)
                 .HasMaxLength(120);
@@ -300,7 +342,70 @@ public class CortexDbContext : DbContext
 
             entity.HasIndex(rule => rule.Department);
             entity.HasIndex(rule => rule.TitleContains);
+            entity.HasIndex(rule => rule.BoardId);
+            entity.HasIndex(rule => rule.Priority);
+            entity.HasIndex(rule => rule.RequesterDepartment);
+            entity.HasIndex(rule => rule.RequesterRole);
             entity.HasIndex(rule => new { rule.Department, rule.TitleContains });
+        });
+
+        modelBuilder.Entity<TicketRoutingDecision>(entity =>
+        {
+            entity.HasKey(decision => decision.Id);
+            entity.Property(decision => decision.TicketId)
+                .IsRequired()
+                .HasMaxLength(450);
+            entity.Property(decision => decision.ExplanationJson)
+                .IsRequired();
+            entity.Property(decision => decision.ExplanationText)
+                .IsRequired()
+                .HasMaxLength(2000);
+            entity.Property(decision => decision.TieBreakKey)
+                .IsRequired()
+                .HasMaxLength(300);
+            entity.Property(decision => decision.EngineVersion)
+                .IsRequired()
+                .HasMaxLength(80);
+            entity.Property(decision => decision.OutcomeType)
+                .HasConversion<string>()
+                .HasMaxLength(20);
+            entity.Property(decision => decision.ConfidenceLevel)
+                .HasConversion<string>()
+                .HasMaxLength(20);
+            entity.Property(decision => decision.NoMatchReason)
+                .HasConversion<string>()
+                .HasMaxLength(30);
+            entity.HasIndex(decision => new { decision.TicketId, decision.CreatedDateUtc });
+            entity.HasOne<Ticket>()
+                .WithMany()
+                .HasForeignKey(decision => decision.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(decision => decision.MatchedRule)
+                .WithMany()
+                .HasForeignKey(decision => decision.MatchedRuleId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<TicketRoutingOverride>(entity =>
+        {
+            entity.HasKey(@override => @override.Id);
+            entity.Property(@override => @override.TicketId)
+                .IsRequired()
+                .HasMaxLength(450);
+            entity.Property(@override => @override.OverrideReasonType)
+                .HasConversion<string>()
+                .HasMaxLength(40);
+            entity.Property(@override => @override.OverrideReasonText)
+                .HasMaxLength(1000);
+            entity.HasIndex(@override => new { @override.TicketId, @override.CreatedDateUtc });
+            entity.HasOne<Ticket>()
+                .WithMany()
+                .HasForeignKey(@override => @override.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(@override => @override.OverriddenByUser)
+                .WithMany()
+                .HasForeignKey(@override => @override.OverriddenByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<TicketBoardDefinition>(entity =>

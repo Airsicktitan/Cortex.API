@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Cortex.API.ExceptionHandling;
 using Cortex.API.Extensions;
@@ -24,7 +25,18 @@ var connectionString = builder.Configuration.GetConnectionString("AzureCortexDb"
         "Connection string 'AzureCortexDb' is not configured. Set ConnectionStrings:AzureCortexDb or use CortexDB as a fallback.");
 
 builder.Services.AddDbContext<CortexDbContext>(options =>
-    options.UseSqlServer(connectionString));
+    options.UseSqlServer(
+            connectionString,
+            sqlServerOptions =>
+            {
+                // Handles transient connection failures (for example, sleeping SQL instances waking up).
+                sqlServerOptions.EnableRetryOnFailure(
+                    maxRetryCount: 6,
+                    maxRetryDelay: TimeSpan.FromSeconds(10),
+                    errorNumbersToAdd: null);
+            })
+        .ConfigureWarnings(warnings =>
+            warnings.Log(CoreEventId.ExecutionStrategyRetrying)));
 
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
@@ -75,6 +87,7 @@ builder.Services.AddScoped<ISlaConfigurationRepository, SlaConfigurationReposito
 builder.Services.AddScoped<IArchiveConfigurationRepository, ArchiveConfigurationRepository>();
 builder.Services.AddScoped<ISessionConfigurationRepository, SessionConfigurationRepository>();
 builder.Services.AddScoped<INotificationChannelConfigurationRepository, NotificationChannelConfigurationRepository>();
+builder.Services.AddScoped<IRoleDefinitionRepository, RoleDefinitionRepository>();
 builder.Services.AddScoped<IReportDefinitionRepository, ReportDefinitionRepository>();
 builder.Services.AddScoped<IStoredProcedureDefinitionRepository, StoredProcedureDefinitionRepository>();
 builder.Services.AddScoped<ITicketStatusDefinitionRepository, TicketStatusDefinitionRepository>();
@@ -89,6 +102,7 @@ builder.Services.AddScoped<IArchiveConfigurationService, ArchiveConfigurationSer
 builder.Services.AddScoped<IArchiveAutomationService, ArchiveAutomationService>();
 builder.Services.AddScoped<ISessionConfigurationService, SessionConfigurationService>();
 builder.Services.AddScoped<INotificationChannelConfigurationService, NotificationChannelConfigurationService>();
+builder.Services.AddScoped<IRoleDefinitionService, RoleDefinitionService>();
 builder.Services.AddScoped<IReportDefinitionService, ReportDefinitionService>();
 builder.Services.AddScoped<IStoredProcedureDefinitionService, StoredProcedureDefinitionService>();
 builder.Services.AddScoped<ITicketStatusService, TicketStatusService>();
@@ -370,6 +384,7 @@ app.MapSlaConfigurationEndpoints();
 app.MapArchiveConfigurationEndpoints();
 app.MapSessionConfigurationEndpoints();
 app.MapNotificationChannelConfigurationEndpoints();
+app.MapRoleDefinitionEndpoints();
 app.MapReportDefinitionEndpoints();
 app.MapAdminLogEndpoints();
 app.MapStoredProcedureDefinitionEndpoints();
@@ -384,8 +399,21 @@ app.MapHub<RealtimeHub>("/api/realtime/hub").RequireAuthorization();
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
+    var dbStartupLogger = scope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Startup");
     var db = scope.ServiceProvider.GetRequiredService<CortexDbContext>();
-    db.Database.Migrate();
+    try
+    {
+        db.Database.Migrate();
+    }
+    catch (Exception exception)
+    {
+        dbStartupLogger.LogWarning(
+            exception,
+            "Database migration failed during startup. SQL may be waking up or temporarily unavailable.");
+        throw;
+    }
 }
 
 using (var scope = app.Services.CreateScope())

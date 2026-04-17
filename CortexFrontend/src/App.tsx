@@ -46,6 +46,7 @@ import {
   canAccessConfig,
   canViewReports,
   canManageJobs,
+  canViewJobActivity,
   canManageReportDefinitions,
   canCreateTickets,
   canEditTickets,
@@ -109,6 +110,8 @@ const APP_VIEW_LABELS: Record<AppView, string> = {
   jobs: "Jobs",
   users: "Users",
 };
+
+type NavigationGroup = "workspace" | "admin";
 
 type AppView =
   | "dashboard"
@@ -316,6 +319,11 @@ function App() {
   >(null);
   const [latestRealtimeEvent, setLatestRealtimeEvent] =
     useState<RealtimeEvent | null>(null);
+  const [realtimeStatus, setRealtimeStatus] = useState<
+    "connected" | "reconnecting" | "offline"
+  >("offline");
+  const [realtimeReconnectKey, setRealtimeReconnectKey] = useState(0);
+  const [isStatusTooltipVisible, setIsStatusTooltipVisible] = useState(false);
 
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const [needsConsent, setNeedsConsent] = useState(false);
@@ -351,10 +359,13 @@ function App() {
   const appMenuRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const notificationPanelRef = useRef<HTMLDivElement | null>(null);
+  const statusTooltipShowTimerRef = useRef<number | null>(null);
+  const statusTooltipHideTimerRef = useRef<number | null>(null);
   const sessionPromptStateRef = useRef<SessionPromptState>(null);
   const sessionLastActivityAtRef = useRef(Date.now());
   const lastPresenceSyncAtRef = useRef(0);
   const presenceSyncInFlightRef = useRef(false);
+  const recoveryProbeInFlightRef = useRef(false);
 
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
@@ -407,6 +418,7 @@ function App() {
   const canViewArchived = canViewTicketSections;
   const canManageConfiguration = sessionUnlocked && canAccessConfig(authRoles);
   const canManageJobsNav = sessionUnlocked && canManageJobs(authRoles);
+  const canViewJobActivityNav = sessionUnlocked && canViewJobActivity(authRoles);
   const canViewUsers = sessionUnlocked && canManageUsers(authRoles);
   const canCreateUsers = canViewUsers;
   const canEditUsers = sessionUnlocked && canManageUsers(authRoles);
@@ -416,48 +428,56 @@ function App() {
   const navigationItems = useMemo(() => {
     const items: Array<{
       view: AppView;
+      group: NavigationGroup;
       label: string;
       description: string;
       enabled: boolean;
     }> = [
       {
         view: "dashboard",
+        group: "workspace",
         label: "Dashboard",
         description: "See queue health and quick operational summaries.",
         enabled: canViewDashboard,
       },
       {
         view: "tickets",
+        group: "workspace",
         label: "Tickets",
         description: "Browse and manage the active ticket queue.",
         enabled: canViewTicketSections,
       },
       {
         view: "archived",
+        group: "workspace",
         label: "Archived Tickets",
         description: "Review tickets moved out of the active queue.",
         enabled: canViewArchived,
       },
       {
         view: "reports",
+        group: "workspace",
         label: "Reports",
         description: "Drill into SLA trends and detailed reporting.",
         enabled: canViewReportsNav,
       },
       {
         view: "jobs",
-        label: "Jobs",
-        description: "Create and manage background automation jobs.",
-        enabled: canManageJobsNav,
+        group: "workspace",
+        label: "Job Activity",
+        description: "Monitor system automation runs and latest outcomes.",
+        enabled: canViewJobActivityNav,
       },
       {
         view: "sla",
+        group: "admin",
         label: "Configuration",
-        description: "Manage SLA rules and archive policy.",
+        description: "Configure system setup and policy definitions.",
         enabled: canManageConfiguration,
       },
       {
         view: "users",
+        group: "admin",
         label: "Users",
         description: "Manage the registered user directory.",
         enabled: canViewUsers,
@@ -467,6 +487,7 @@ function App() {
     return items.filter((item) => item.enabled);
   }, [
     canManageJobsNav,
+    canViewJobActivityNav,
     canManageConfiguration,
     canViewArchived,
     canViewDashboard,
@@ -483,10 +504,10 @@ function App() {
       view === "tickets" ||
       view === "archived" ||
       (view === "reports" && canViewReportsNav) ||
-      (view === "jobs" && canManageJobsNav) ||
+      (view === "jobs" && canViewJobActivityNav) ||
       (view === "sla" && canManageConfiguration) ||
       (view === "users" && canViewUsers),
-    [canManageConfiguration, canManageJobsNav, canViewReportsNav, canViewUsers],
+    [canManageConfiguration, canViewJobActivityNav, canViewReportsNav, canViewUsers],
   );
 
   const getFallbackView = useCallback((): AppView => {
@@ -496,7 +517,7 @@ function App() {
     if (canViewReportsNav) {
       return "reports";
     }
-    if (canManageJobsNav) {
+    if (canViewJobActivityNav) {
       return "jobs";
     }
     if (canManageConfiguration) {
@@ -509,7 +530,7 @@ function App() {
     return "dashboard";
   }, [
     canManageConfiguration,
-    canManageJobsNav,
+    canViewJobActivityNav,
     canViewReportsNav,
     canViewTicketSections,
     canViewUsers,
@@ -585,9 +606,13 @@ function App() {
     setSelectedTicket,
     isModalOpen,
     archivedTickets,
+    archivedSearchQuery,
+    setArchivedSearchQuery,
     archivedTicketsForView,
     setArchivedTickets,
     archivedLoading,
+    archivedLoadingMore,
+    archivedHasMore,
     archivedError,
     highlightedArchivedTicketId,
     setHighlightedArchivedTicketId,
@@ -633,6 +658,14 @@ function App() {
 
   const ticketModalOpenRef = useRef(false);
   const selectedTicketIdRef = useRef<string | undefined>(undefined);
+  const currentUserRef = useRef(currentUser);
+  const loadNotificationsRef = useRef<
+    (token?: string, options?: { silent?: boolean }) => Promise<void>
+  >(async () => {});
+  const upsertActiveTicketLocallyRef = useRef(upsertActiveTicketLocally);
+  const applyArchivedTicketLocallyRef = useRef(applyArchivedTicketLocally);
+  const removeTicketLocallyRef = useRef(removeTicketLocally);
+  const reconcileTicketByIdSilentlyRef = useRef(reconcileTicketByIdSilently);
   ticketModalOpenRef.current = isModalOpen;
   selectedTicketIdRef.current = selectedTicket?.id;
 
@@ -767,7 +800,7 @@ function App() {
           );
         } else {
           setApiUnavailable(false);
-          setNotificationsError("Failed to load notifications.");
+          setNotificationsError("Unable to load notifications.");
         }
       } finally {
         if (!silent) {
@@ -834,6 +867,19 @@ function App() {
     selectTicketRoutingRule,
     saveTicketRoutingRule,
     deleteTicketRoutingRule,
+    roleDefinitions,
+    selectedRoleDefinition,
+    rolePermissionOptions,
+    roleDefinitionLoading,
+    roleDefinitionSaving,
+    roleDefinitionDeletingId,
+    roleDefinitionError,
+    loadRoleDefinitions,
+    handleRoleDefinitionChange,
+    createRoleDefinition,
+    selectRoleDefinition,
+    saveRoleDefinition,
+    deleteRoleDefinition,
     archiveConfigurations,
     archiveConfiguration,
     archiveLoadedOnce,
@@ -952,6 +998,11 @@ function App() {
 
   const {
     users,
+    usersSearchQuery,
+    setUsersSearchQuery,
+    usersVisible,
+    usersHasMore,
+    loadMoreUsers,
     usersLoading,
     usersError,
     onlineUsers,
@@ -1012,6 +1063,30 @@ function App() {
   }, [sessionPromptState]);
 
   useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  useEffect(() => {
+    loadNotificationsRef.current = loadNotifications;
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    upsertActiveTicketLocallyRef.current = upsertActiveTicketLocally;
+  }, [upsertActiveTicketLocally]);
+
+  useEffect(() => {
+    applyArchivedTicketLocallyRef.current = applyArchivedTicketLocally;
+  }, [applyArchivedTicketLocally]);
+
+  useEffect(() => {
+    removeTicketLocallyRef.current = removeTicketLocally;
+  }, [removeTicketLocally]);
+
+  useEffect(() => {
+    reconcileTicketByIdSilentlyRef.current = reconcileTicketByIdSilently;
+  }, [reconcileTicketByIdSilently]);
+
+  useEffect(() => {
     window.localStorage.setItem(
       SIDEBAR_WIDTH_STORAGE_KEY,
       String(clampSidebarWidth(sidebarWidth)),
@@ -1048,22 +1123,39 @@ function App() {
 
         if (event.eventType === "notification.created") {
           const recipients = event.recipientUserIds ?? [];
+          const activeUser = currentUserRef.current;
           if (
-            currentUser &&
-            recipients.includes(currentUser.id)
+            activeUser &&
+            recipients.includes(activeUser.id)
           ) {
             if (typeof event.unreadCount === "number") {
               setNotificationUnreadCount(event.unreadCount);
             }
 
             if (event.notifications && event.notifications.length > 0) {
+              const assignmentNotifications = event.notifications.filter(
+                (notification) => notification.eventType === "ticket.assignment",
+              );
+              const routingNotifications = event.notifications.filter(
+                (notification) => notification.eventType === "ticket.routed",
+              );
+              for (const notification of assignmentNotifications) {
+                toast.success(notification.title, {
+                  id: `assignment-notification-${notification.id}`,
+                });
+              }
+              for (const notification of routingNotifications) {
+                toast(notification.title, {
+                  id: `routing-notification-${notification.id}`,
+                });
+              }
               setNotifications((currentNotifications) =>
                 mergeNotificationsById(currentNotifications, event.notifications ?? []),
               );
               setNotificationsLoaded(true);
               setNotificationsError(null);
             } else {
-              void loadNotifications(undefined, { silent: true });
+              void loadNotificationsRef.current(undefined, { silent: true });
             }
           }
           return;
@@ -1075,12 +1167,24 @@ function App() {
             event.eventType === "ticket.reactivated") &&
           event.ticket
         ) {
-          upsertActiveTicketLocally(event.ticket);
+          upsertActiveTicketLocallyRef.current(event.ticket);
+          if (event.eventType === "ticket.updated") {
+            toast("Ticket assignment or routing updated.", {
+              id: `ticket-updated-${event.ticket.id}`,
+            });
+          }
+          return;
+        }
+
+        if (event.eventType === "ticket.routed" && event.ticket) {
+          toast("Routing recommendation applied.", {
+            id: `ticket-routed-${event.ticket.id}`,
+          });
           return;
         }
 
         if (event.eventType === "ticket.archived" && event.archivedTicket) {
-          applyArchivedTicketLocally(event.archivedTicket);
+          applyArchivedTicketLocallyRef.current(event.archivedTicket);
           return;
         }
 
@@ -1093,7 +1197,7 @@ function App() {
           const hadTicketOpenInModal =
             ticketModalOpenRef.current &&
             selectedTicketIdRef.current === deletedId;
-          removeTicketLocally(deletedId);
+          removeTicketLocallyRef.current(deletedId);
           if (hadTicketOpenInModal) {
             toast("This ticket was deleted.", {
               id: `ticket-deleted-${deletedId}`,
@@ -1107,7 +1211,7 @@ function App() {
           typeof event.ticketId === "string" &&
           event.ticketId.trim().length > 0
         ) {
-          removeTicketLocally(event.ticketId);
+          removeTicketLocallyRef.current(event.ticketId);
           return;
         }
 
@@ -1116,11 +1220,14 @@ function App() {
           typeof event.ticketId === "string" &&
           event.ticketId.trim().length > 0
         ) {
-          void reconcileTicketByIdSilently(event.ticketId);
+          void reconcileTicketByIdSilentlyRef.current(event.ticketId);
         }
       },
       onError: (error) => {
         console.error("Realtime connection issue", error);
+      },
+      onStatusChange: (status) => {
+        setRealtimeStatus(status);
       },
     });
 
@@ -1129,16 +1236,11 @@ function App() {
     };
   }, [
     canViewTicketSections,
-    currentUser,
     getApiToken,
     isAuthenticated,
-    loadNotifications,
     needsConsent,
     bootstrapComplete,
-    upsertActiveTicketLocally,
-    applyArchivedTicketLocally,
-    removeTicketLocally,
-    reconcileTicketByIdSilently,
+    realtimeReconnectKey,
   ]);
 
   useEffect(() => {
@@ -1166,6 +1268,144 @@ function App() {
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [isAppMenuOpen, isNotificationPanelOpen, isUserMenuOpen]);
+
+  const recoverAfterBackendAvailable = useCallback(
+    async (token: string) => {
+      if (canViewTicketSections) {
+        await loadAllTickets(token);
+      }
+
+      void loadTicketBoards(token);
+      void loadSessionConfiguration(token);
+      void loadNotifications(token, { silent: true });
+
+      if (activeView === "archived") {
+        await loadArchivedTickets(token, { fullCatalog: true });
+      } else if (activeView === "users" && canViewUsers) {
+        await loadUsers(token);
+      } else if (activeView === "jobs" && canViewJobActivityNav) {
+        await loadJobs(token);
+      } else if (activeView === "reports" && canViewReportsNav) {
+        void loadOnlineUsers(token);
+        void loadCustomReports(token);
+      }
+    },
+    [
+      activeView,
+      canViewJobActivityNav,
+      canViewReportsNav,
+      canViewTicketSections,
+      canViewUsers,
+      loadAllTickets,
+      loadArchivedTickets,
+      loadCustomReports,
+      loadJobs,
+      loadNotifications,
+      loadOnlineUsers,
+      loadSessionConfiguration,
+      loadTicketBoards,
+      loadUsers,
+    ],
+  );
+
+  useEffect(() => {
+    if (
+      !apiUnavailable ||
+      !isAuthenticated ||
+      isLoading ||
+      needsConsent ||
+      !bootstrapComplete
+    ) {
+      return;
+    }
+
+    let stopped = false;
+    let timerId: number | null = null;
+    let attempts = 0;
+
+    const scheduleNextProbe = (delayMs: number) => {
+      if (stopped) {
+        return;
+      }
+      timerId = window.setTimeout(() => {
+        void probeRecovery();
+      }, delayMs);
+    };
+
+    const probeRecovery = async () => {
+      if (stopped || recoveryProbeInFlightRef.current) {
+        return;
+      }
+
+      recoveryProbeInFlightRef.current = true;
+      attempts += 1;
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: API_AUTHORIZATION_PARAMS,
+        });
+        await loadBootstrapCurrentUser(token);
+        await recoverAfterBackendAvailable(token);
+
+        if (stopped) {
+          return;
+        }
+
+        setApiUnavailable(false);
+        setError(null);
+        if (realtimeStatus !== "connected") {
+          setRealtimeReconnectKey((current) => current + 1);
+        }
+      } catch (recoveryError) {
+        if (stopped) {
+          return;
+        }
+
+        if (isForbiddenError(recoveryError)) {
+          setApiUnavailable(false);
+          setError("You do not have permission to view tickets.");
+          return;
+        }
+
+        if (!isLikelyNetworkError(recoveryError)) {
+          console.warn("Backend recovery probe failed", recoveryError);
+        }
+
+        const delayMs = Math.min(30000, 2000 * 2 ** Math.min(attempts, 4));
+        scheduleNextProbe(delayMs);
+      } finally {
+        recoveryProbeInFlightRef.current = false;
+      }
+    };
+
+    scheduleNextProbe(1500);
+
+    return () => {
+      stopped = true;
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+    };
+  }, [
+    apiUnavailable,
+    bootstrapComplete,
+    getAccessTokenSilently,
+    isAuthenticated,
+    isLoading,
+    needsConsent,
+    realtimeStatus,
+    recoverAfterBackendAvailable,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (statusTooltipShowTimerRef.current !== null) {
+        window.clearTimeout(statusTooltipShowTimerRef.current);
+      }
+      if (statusTooltipHideTimerRef.current !== null) {
+        window.clearTimeout(statusTooltipHideTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (
@@ -1408,6 +1648,7 @@ function App() {
       (slaConfigurations.length > 0 &&
         ticketStatuses.length > 0 &&
         ticketRoutingLoadedOnce &&
+        roleDefinitions.length > 0 &&
         sessionLoadedOnce &&
         notificationChannelsLoadedOnce &&
         archiveLoadedOnce &&
@@ -1429,6 +1670,10 @@ function App() {
 
     if (!ticketRoutingLoadedOnce) {
       void loadTicketRoutingRules();
+    }
+
+    if (roleDefinitions.length === 0) {
+      void loadRoleDefinitions();
     }
 
     if (!sessionLoadedOnce) {
@@ -1474,18 +1719,20 @@ function App() {
     loadSessionConfiguration,
     loadStoredProcedures,
     loadTicketRoutingRules,
+    loadRoleDefinitions,
     loadTicketStatuses,
     loadSlaConfigurations,
     notificationChannelsLoadedOnce,
     sessionLoadedOnce,
     slaConfigurations.length,
     storedProcedures.length,
+    roleDefinitions.length,
     ticketRoutingLoadedOnce,
     ticketStatuses.length,
   ]);
 
   useEffect(() => {
-    if (activeView !== "jobs" || !canManageJobsNav) {
+    if (activeView !== "jobs" || !canViewJobActivityNav) {
       return;
     }
 
@@ -1498,7 +1745,7 @@ function App() {
     }
   }, [
     activeView,
-    canManageJobsNav,
+    canViewJobActivityNav,
     jobsLoaded,
     loadJobs,
     loadStoredProcedures,
@@ -1506,12 +1753,12 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!canManageJobsNav || jobsLoaded || jobsLoading) {
+    if (!canViewJobActivityNav || jobsLoaded || jobsLoading) {
       return;
     }
 
     void loadJobs();
-  }, [canManageJobsNav, jobsLoaded, jobsLoading, loadJobs]);
+  }, [canViewJobActivityNav, jobsLoaded, jobsLoading, loadJobs]);
 
   useEffect(() => {
     if (
@@ -1717,9 +1964,9 @@ function App() {
         setApiUnavailable(true);
       } else {
         setApiUnavailable(false);
-        setError("Failed to grant CORTEX API access.");
+        setError("Unable to grant CORTEX API access.");
         toast.error(
-          getUserFacingErrorMessage(error, "Failed to grant CORTEX API access"),
+          getUserFacingErrorMessage(error, "Unable to grant CORTEX API access"),
         );
       }
     } finally {
@@ -1828,10 +2075,10 @@ function App() {
       setNotificationsError(
         getUserFacingErrorMessage(
           error,
-          "Failed to mark notifications as read.",
+          "Unable to mark notifications as read.",
         ),
       );
-      toast.error("Failed to mark notifications as read");
+      toast.error("Unable to mark notifications as read");
     } finally {
       setMarkingAllNotificationsRead(false);
     }
@@ -1874,9 +2121,9 @@ function App() {
     } catch (error) {
       console.error("Failed to open notification", error);
       setNotificationsError(
-        getUserFacingErrorMessage(error, "Failed to open notification."),
+        getUserFacingErrorMessage(error, "Unable to open notification."),
       );
-      toast.error("Failed to open notification");
+      toast.error("Unable to open notification");
     } finally {
       setMarkingNotificationId(null);
     }
@@ -1952,7 +2199,7 @@ function App() {
       setIsProfileModalOpen(true);
     } catch (error) {
       console.error("Failed to load profile", error);
-      toast.error(getUserFacingErrorMessage(error, "Failed to load profile"));
+      toast.error(getUserFacingErrorMessage(error, "Unable to load profile"));
     } finally {
       setProfileLoading(false);
     }
@@ -1993,7 +2240,7 @@ function App() {
       toast.success("Profile updated");
     } catch (error) {
       console.error("Failed to update profile", error);
-      toast.error(getUserFacingErrorMessage(error, "Failed to update profile"));
+      toast.error(getUserFacingErrorMessage(error, "Unable to update profile"));
     } finally {
       setProfileSaving(false);
     }
@@ -2100,6 +2347,62 @@ function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <div
+                className={`relative inline-flex items-center gap-2 rounded-full transition-colors ${
+                  realtimeStatus === "connected"
+                    ? "px-1 py-1"
+                    : realtimeStatus === "reconnecting"
+                      ? "bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                      : "bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950/30 dark:text-red-300"
+                }`}
+                onMouseEnter={() => {
+                  if (statusTooltipHideTimerRef.current !== null) {
+                    window.clearTimeout(statusTooltipHideTimerRef.current);
+                    statusTooltipHideTimerRef.current = null;
+                  }
+                  if (statusTooltipShowTimerRef.current !== null) {
+                    window.clearTimeout(statusTooltipShowTimerRef.current);
+                  }
+                  statusTooltipShowTimerRef.current = window.setTimeout(() => {
+                    setIsStatusTooltipVisible(true);
+                    statusTooltipShowTimerRef.current = null;
+                  }, 25);
+                }}
+                onMouseLeave={() => {
+                  if (statusTooltipShowTimerRef.current !== null) {
+                    window.clearTimeout(statusTooltipShowTimerRef.current);
+                    statusTooltipShowTimerRef.current = null;
+                  }
+                  if (statusTooltipHideTimerRef.current !== null) {
+                    window.clearTimeout(statusTooltipHideTimerRef.current);
+                  }
+                  statusTooltipHideTimerRef.current = window.setTimeout(() => {
+                    setIsStatusTooltipVisible(false);
+                    statusTooltipHideTimerRef.current = null;
+                  }, 80);
+                }}
+              >
+                <span
+                  className={`inline-block h-2.5 w-2.5 rounded-full ${
+                    realtimeStatus === "connected"
+                      ? "bg-emerald-500"
+                      : realtimeStatus === "reconnecting"
+                        ? "bg-amber-500"
+                        : "bg-red-500"
+                  }`}
+                />
+                {realtimeStatus === "reconnecting" ? "Reconnecting..." : null}
+                {realtimeStatus === "offline" ? "Offline" : null}
+                {isStatusTooltipVisible ? (
+                  <span className="pointer-events-none absolute -bottom-9 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-[11px] font-medium text-white shadow-sm dark:bg-slate-100 dark:text-slate-900">
+                    {realtimeStatus === "connected"
+                      ? "Online"
+                      : realtimeStatus === "reconnecting"
+                        ? "Trying to reconnect to live updates"
+                        : "Live updates are paused. Changes may be out of date."}
+                  </span>
+                ) : null}
+              </div>
               <div ref={appMenuRef} className="relative lg:hidden">
                 <button
                   onClick={toggleAppMenu}
@@ -2138,31 +2441,43 @@ function App() {
                       </p>
                     </div>
 
-                    {navigationItems.map((item) => {
-                      const isActive = item.view === activeView;
+                    {(["workspace", "admin"] as const).map((group) => {
+                      const items = navigationItems.filter((item) => item.group === group);
+                      if (items.length === 0) return null;
 
                       return (
-                        <button
-                          key={item.view}
-                          onClick={() => handleViewChange(item.view)}
-                          className={`w-full px-4 py-3 text-left transition-colors ${
-                            isActive
-                              ? "bg-cortex-blue-soft text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100"
-                              : "text-gray-700 hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-4">
-                            <span className="font-medium">{item.label}</span>
-                            {isActive && (
-                              <span className="text-xs font-semibold uppercase tracking-wide text-cortex-blue dark:text-cortex-cyan">
-                                Active
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                            {item.description}
+                        <section key={group} className="border-t border-gray-100 dark:border-slate-800">
+                          <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-slate-400">
+                            {group === "workspace" ? "Workspace" : "Admin"}
                           </p>
-                        </button>
+                          {items.map((item) => {
+                            const isActive = item.view === activeView;
+
+                            return (
+                              <button
+                                key={item.view}
+                                onClick={() => handleViewChange(item.view)}
+                                className={`w-full px-4 py-3 text-left transition-colors ${
+                                  isActive
+                                    ? "bg-cortex-blue-soft text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100"
+                                    : "text-gray-700 hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-4">
+                                  <span className="font-medium">{item.label}</span>
+                                  {isActive && (
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-cortex-blue dark:text-cortex-cyan">
+                                      Active
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                  {item.description}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </section>
                       );
                     })}
                   </div>
@@ -2458,10 +2773,16 @@ function App() {
           ) : activeView === "archived" && canViewArchived ? (
             <ArchivedTicketsPage
               tickets={archivedTicketsForView}
+              totalTickets={archivedTicketsForView.length}
+              searchQuery={archivedSearchQuery}
+              onSearchQueryChange={setArchivedSearchQuery}
               loading={archivedLoading || apiUnavailable}
               error={apiUnavailable ? null : archivedError}
               highlightedTicketId={highlightedArchivedTicketId}
               onRefresh={() => void loadArchivedTickets()}
+              onLoadMore={() => void loadArchivedTickets(undefined, { append: true })}
+              hasMore={archivedHasMore}
+              loadingMore={archivedLoadingMore}
               canReactivate={canEditTicketsCap}
               reactivatingTicketId={reactivatingArchivedTicketId}
               onReactivate={handleReactivateArchivedTicket}
@@ -2501,17 +2822,15 @@ function App() {
               onExportGoogleSheets={() => void exportReportCsv(true)}
               onOpenTicket={openTicket}
             />
-          ) : activeView === "jobs" && canManageJobsNav ? (
+          ) : activeView === "jobs" && canViewJobActivityNav ? (
             <JobsPage
               jobs={jobs}
-              storedProcedures={storedProcedures}
               loading={jobsLoading}
               error={jobsError}
-              saving={jobsSaving}
               runningJobId={runningJobId}
+              canViewSensitiveDetails={canManageJobsNav}
+              canRetryNow={canManageJobsNav}
               onRefresh={() => void loadJobs()}
-              onCreate={createScheduledJob}
-              onUpdate={updateScheduledJob}
               onRunNow={runScheduledJobNow}
             />
           ) : activeView === "sla" && canManageConfiguration ? (
@@ -2578,6 +2897,19 @@ function App() {
                 onTicketRoutingChange={handleTicketRoutingRuleChange}
                 onSaveTicketRoutingRule={saveTicketRoutingRule}
                 onDeleteTicketRoutingRule={deleteTicketRoutingRule}
+                roleDefinitions={roleDefinitions}
+                selectedRoleDefinition={selectedRoleDefinition}
+                rolePermissionOptions={rolePermissionOptions}
+                roleDefinitionError={roleDefinitionError}
+                roleDefinitionLoading={roleDefinitionLoading}
+                roleDefinitionSaving={roleDefinitionSaving}
+                roleDefinitionDeletingId={roleDefinitionDeletingId}
+                onRefreshRoleDefinitions={() => void loadRoleDefinitions()}
+                onCreateRoleDefinition={createRoleDefinition}
+                onSelectRoleDefinition={selectRoleDefinition}
+                onRoleDefinitionChange={handleRoleDefinitionChange}
+                onSaveRoleDefinition={saveRoleDefinition}
+                onDeleteRoleDefinition={deleteRoleDefinition}
                 archiveConfigurations={archiveConfigurations}
                 archiveConfiguration={archiveConfiguration}
                 archiveError={archiveError}
@@ -2621,15 +2953,29 @@ function App() {
                 canExportAdminLogs={isAdmin}
                 onExportAdminLogs={exportAdminLogsCsv}
                 canManageJobs={canManageJobsNav}
+                jobs={jobs}
+                jobsLoading={jobsLoading}
+                jobsError={jobsError}
+                jobsSaving={jobsSaving}
+                runningJobId={runningJobId}
+                onRefreshJobs={() => void loadJobs()}
+                onCreateScheduledJob={createScheduledJob}
+                onUpdateScheduledJob={updateScheduledJob}
+                onRunScheduledJobNow={runScheduledJobNow}
                 canManageReportDefinitions={canManageCustomReportDefinitions}
-                canViewUsers={canViewUsers}
                 onOpenJobs={() => setActiveView("jobs")}
                 onOpenUsers={() => setActiveView("users")}
               />
             )
           ) : activeView === "users" && canViewUsers ? (
             <UsersPage
-              users={users}
+              users={usersVisible}
+              totalUsers={users.length}
+              searchQuery={usersSearchQuery}
+              onSearchQueryChange={setUsersSearchQuery}
+              hasMore={usersHasMore}
+              loadingMore={false}
+              onLoadMore={loadMoreUsers}
               loading={usersLoading || apiUnavailable}
               error={apiUnavailable ? null : usersError}
               canCreate={canCreateUsers}

@@ -8,6 +8,8 @@ import type {
 import type { NotificationChannelConfiguration } from "../types/notificationChannelConfiguration";
 import type { SessionConfiguration } from "../types/sessionConfiguration";
 import type { SlaConfiguration } from "../types/sla";
+import type { RoleDefinition } from "../types/roleDefinition";
+import type { ScheduledJob, UpsertScheduledJobInput } from "../types/scheduledJob";
 import type {
   DatabaseStoredProcedureDefinition,
   StoredProcedureDefinition,
@@ -25,7 +27,9 @@ import type { TicketRoutingRule } from "../types/ticketRouting";
 import ArchivePolicySection from "./ArchivePolicySection";
 import CustomReportRegistrySection from "./CustomReportRegistrySection";
 import NotificationChannelSection from "./NotificationChannelSection";
+import ScheduledJobAdminSection from "./ScheduledJobAdminSection";
 import StoredProcedureRegistrySection from "./StoredProcedureRegistrySection";
+import RoleDefinitionSection from "./RoleDefinitionSection";
 import TicketBoardRegistrySection from "./TicketBoardRegistrySection";
 import TicketRoutingSection from "./TicketRoutingSection";
 import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
@@ -105,6 +109,22 @@ interface ConfigurationPageProps {
   ) => void;
   onSaveTicketRoutingRule: () => Promise<void>;
   onDeleteTicketRoutingRule: () => Promise<void>;
+  roleDefinitions: RoleDefinition[];
+  selectedRoleDefinition: RoleDefinition | null;
+  rolePermissionOptions: string[];
+  roleDefinitionError: string | null;
+  roleDefinitionLoading: boolean;
+  roleDefinitionSaving: boolean;
+  roleDefinitionDeletingId: number | null;
+  onRefreshRoleDefinitions: () => void;
+  onCreateRoleDefinition: () => void;
+  onSelectRoleDefinition: (id: number) => void;
+  onRoleDefinitionChange: <K extends keyof RoleDefinition>(
+    field: K,
+    value: RoleDefinition[K],
+  ) => void;
+  onSaveRoleDefinition: () => Promise<void>;
+  onDeleteRoleDefinition: () => Promise<void>;
   archiveConfigurations: ArchiveConfiguration[];
   archiveConfiguration: ArchiveConfiguration | null;
   archiveError: string | null;
@@ -157,16 +177,29 @@ interface ConfigurationPageProps {
   canExportAdminLogs: boolean;
   onExportAdminLogs: (fromUtcIso: string, toUtcIso: string) => Promise<void>;
   canManageJobs: boolean;
+  jobs: ScheduledJob[];
+  jobsLoading: boolean;
+  jobsError: string | null;
+  jobsSaving: boolean;
+  runningJobId: number | null;
+  onRefreshJobs: () => void;
+  onCreateScheduledJob: (job: UpsertScheduledJobInput) => Promise<void>;
+  onUpdateScheduledJob: (
+    id: number,
+    job: UpsertScheduledJobInput,
+  ) => Promise<void>;
+  onRunScheduledJobNow: (id: number) => Promise<void>;
   /** Developer+ — custom SQL report definitions and database views. */
   canManageReportDefinitions: boolean;
-  canViewUsers: boolean;
   onOpenJobs: () => void;
-  onOpenUsers: () => void;
+  onOpenUsers?: () => void;
 }
 
 type ConfigSection =
   | "general"
   | "boards"
+  | "statuses"
+  | "routing"
   | "roles"
   | "notifications"
   | "jobs"
@@ -230,6 +263,19 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     onTicketRoutingChange,
     onSaveTicketRoutingRule,
     onDeleteTicketRoutingRule,
+    roleDefinitions,
+    selectedRoleDefinition,
+    rolePermissionOptions,
+    roleDefinitionError,
+    roleDefinitionLoading,
+    roleDefinitionSaving,
+    roleDefinitionDeletingId,
+    onRefreshRoleDefinitions,
+    onCreateRoleDefinition,
+    onSelectRoleDefinition,
+    onRoleDefinitionChange,
+    onSaveRoleDefinition,
+    onDeleteRoleDefinition,
     archiveConfigurations,
     archiveConfiguration,
     archiveError,
@@ -269,8 +315,16 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     canExportAdminLogs,
     onExportAdminLogs,
     canManageJobs,
+    jobs,
+    jobsLoading,
+    jobsError,
+    jobsSaving,
+    runningJobId,
+    onRefreshJobs,
+    onCreateScheduledJob,
+    onUpdateScheduledJob,
+    onRunScheduledJobNow,
     canManageReportDefinitions,
-    canViewUsers,
     onOpenJobs,
     onOpenUsers,
   } = props;
@@ -293,13 +347,23 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
   const [logExportSuccess, setLogExportSuccess] = useState<string | null>(null);
 
   const navItems: Array<{ id: ConfigSection; label: string; description: string }> = [
-    { id: "general", label: "General", description: "SLA, session, and archive policy" },
-    { id: "boards", label: "Boards", description: "Boards, statuses, and routing" },
-    { id: "roles", label: "User roles", description: "User administration access" },
-    { id: "notifications", label: "Notifications", description: "Delivery channels and defaults" },
-    { id: "jobs", label: "Scheduled Jobs", description: "Operational automation jobs" },
-    { id: "reports", label: "Reports", description: "Custom reports and procedures" },
-    { id: "logs", label: "Log Export", description: "Admin request log downloads" },
+    { id: "general", label: "General", description: "SLA, session, and archive policy setup" },
+    { id: "boards", label: "Boards", description: "Ticket board setup and behavior" },
+    { id: "statuses", label: "Statuses", description: "Define workflow stages for tickets" },
+    { id: "routing", label: "Routing", description: "Automatically assign tickets based on structured rules and ownership logic." },
+    {
+      id: "roles",
+      label: "User roles",
+      description: "Define roles and permissions. Assign users in the Users section.",
+    },
+    { id: "notifications", label: "Notifications", description: "Notification policy and delivery defaults" },
+    {
+      id: "jobs",
+      label: "Scheduled Jobs",
+      description: "Configure automation. Monitor execution in Job Activity.",
+    },
+    { id: "reports", label: "Reports", description: "Report definitions and procedure setup" },
+    { id: "logs", label: "Log Export", description: "Administrative request log export" },
   ];
 
   const handleExportLogs = async () => {
@@ -335,19 +399,19 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
       <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Configuration</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-          Manage admin settings with section-based navigation.
+          Define system setup, policy, and behavior by section.
         </p>
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="grid gap-0 lg:grid-cols-[280px_1fr]">
           <aside className="border-b border-gray-100 p-4 dark:border-slate-800 lg:border-b-0 lg:border-r">
-            <nav className="space-y-2">
+            <nav className="space-y-3">
               {navItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
-                  className={`w-full rounded-md border px-3 py-3 text-left transition-colors ${
+                  className={`w-full rounded-md border px-4 py-3 text-left transition-colors ${
                     activeSection === item.id
                       ? "border-cortex-blue bg-cortex-blue-soft text-cortex-ink dark:border-cortex-blue dark:bg-cortex-blue/20 dark:text-slate-100"
                       : "border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -444,42 +508,73 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                   onUpdate={onUpdateTicketBoard}
                   onDelete={onDeleteTicketBoard}
                 />
-                <TicketStatusRegistrySection
-                  statuses={ticketStatuses}
-                  loading={ticketStatusLoading}
-                  error={ticketStatusError}
-                  saving={ticketStatusSaving}
-                  deletingId={ticketStatusDeletingId}
-                  onRefresh={onRefreshTicketStatuses}
-                  onCreate={onCreateTicketStatus}
-                  onUpdate={onUpdateTicketStatus}
-                  onDelete={onDeleteTicketStatus}
-                />
-                <TicketRoutingSection
-                  rules={ticketRoutingRules}
-                  selectedRule={selectedTicketRoutingRule}
-                  loading={ticketRoutingLoading}
-                  saving={ticketRoutingSaving}
-                  deletingId={ticketRoutingDeletingId}
-                  error={ticketRoutingError}
-                  onRefresh={onRefreshTicketRouting}
-                  onNew={onCreateTicketRoutingRule}
-                  onSelect={onSelectTicketRoutingRule}
-                  onChange={onTicketRoutingChange}
-                  onSave={() => void onSaveTicketRoutingRule()}
-                  onDelete={() => void onDeleteTicketRoutingRule()}
-                />
               </div>
             )}
 
+            {activeSection === "statuses" && (
+              <TicketStatusRegistrySection
+                statuses={ticketStatuses}
+                loading={ticketStatusLoading}
+                error={ticketStatusError}
+                saving={ticketStatusSaving}
+                deletingId={ticketStatusDeletingId}
+                onRefresh={onRefreshTicketStatuses}
+                onCreate={onCreateTicketStatus}
+                onUpdate={onUpdateTicketStatus}
+                onDelete={onDeleteTicketStatus}
+              />
+            )}
+
+            {activeSection === "routing" && (
+              <TicketRoutingSection
+                rules={ticketRoutingRules}
+                boards={ticketBoards}
+                selectedRule={selectedTicketRoutingRule}
+                loading={ticketRoutingLoading}
+                saving={ticketRoutingSaving}
+                deletingId={ticketRoutingDeletingId}
+                error={ticketRoutingError}
+                onRefresh={onRefreshTicketRouting}
+                onNew={onCreateTicketRoutingRule}
+                onSelect={onSelectTicketRoutingRule}
+                onChange={onTicketRoutingChange}
+                onSave={() => void onSaveTicketRoutingRule()}
+                onDelete={() => void onDeleteTicketRoutingRule()}
+              />
+            )}
+
             {activeSection === "roles" && (
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">User roles</h3>
-                <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">Manage admin and developer user access from the Users workspace.</p>
-                <div className="mt-4">
-                  <button onClick={onOpenUsers} disabled={!canViewUsers} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">Open Users Management</button>
-                </div>
-              </section>
+              <div className="space-y-4">
+                <RoleDefinitionSection
+                  roles={roleDefinitions}
+                  selectedRole={selectedRoleDefinition}
+                  permissions={rolePermissionOptions}
+                  loading={roleDefinitionLoading}
+                  saving={roleDefinitionSaving}
+                  deletingId={roleDefinitionDeletingId}
+                  error={roleDefinitionError}
+                  onRefresh={onRefreshRoleDefinitions}
+                  onNew={onCreateRoleDefinition}
+                  onSelect={onSelectRoleDefinition}
+                  onChange={onRoleDefinitionChange}
+                  onSave={onSaveRoleDefinition}
+                  onDelete={onDeleteRoleDefinition}
+                />
+                <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+                  <p className="text-sm text-gray-500 dark:text-slate-400">
+                    Users are assigned roles in the Users section.
+                  </p>
+                  {onOpenUsers && (
+                    <button
+                      type="button"
+                      onClick={onOpenUsers}
+                      className="mt-3 inline-flex text-sm text-cortex-blue hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan dark:hover:text-cortex-blue"
+                    >
+                      Open Users
+                    </button>
+                  )}
+                </section>
+              </div>
             )}
 
             {activeSection === "notifications" && (
@@ -495,13 +590,34 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
             )}
 
             {activeSection === "jobs" && (
-              <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Scheduled Jobs</h3>
-                <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">Create and manage operational jobs from the Jobs workspace.</p>
-                <div className="mt-4">
-                  <button onClick={onOpenJobs} disabled={!canManageJobs} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">Open Scheduled Jobs</button>
-                </div>
-              </section>
+              <div className="space-y-4">
+                <ScheduledJobAdminSection
+                  jobs={jobs}
+                  storedProcedures={storedProcedures}
+                  loading={jobsLoading}
+                  error={jobsError}
+                  saving={jobsSaving}
+                  runningJobId={runningJobId}
+                  onRefresh={onRefreshJobs}
+                  onCreate={onCreateScheduledJob}
+                  onUpdate={onUpdateScheduledJob}
+                  onRunNow={onRunScheduledJobNow}
+                />
+                {onOpenJobs && canManageJobs && (
+                  <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+                    <p className="text-sm text-gray-500 dark:text-slate-400">
+                      Job Activity provides monitoring for recent job runs and outcomes.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onOpenJobs}
+                      className="mt-3 inline-flex text-sm text-cortex-blue hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan dark:hover:text-cortex-blue"
+                    >
+                      Open Job Activity
+                    </button>
+                  </section>
+                )}
+              </div>
             )}
 
             {activeSection === "reports" && (

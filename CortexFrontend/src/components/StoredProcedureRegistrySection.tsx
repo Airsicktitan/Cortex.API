@@ -400,7 +400,7 @@ export default function StoredProcedureRegistrySection({
                 Use an existing SQL stored procedure as the starting point for the registry.
               </p>
 
-              <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+              <div className="scroll-surface mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
                 {databaseStoredProceduresLoading ? (
                   <p className="text-sm text-gray-500 dark:text-slate-400">
                     Loading database stored procedures...

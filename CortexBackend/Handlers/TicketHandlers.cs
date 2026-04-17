@@ -8,6 +8,7 @@ using Cortex.API.Validation;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 
 /// <summary>
 /// Defines all ticket-related API handlers for CORTEX.
@@ -257,6 +258,33 @@ public static class TicketHandlers
         return Results.Ok(history.Select(entry => entry.ToResponse(mappingContext)));
     }
 
+    public static async Task<IResult> GetLatestRoutingDecision(
+        string id,
+        ITicketRepository repo,
+        ITicketVisibilityService ticketVisibilityService,
+        ITicketRoutingRuleService ticketRoutingRuleService)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id);
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var decision = await ticketRoutingRuleService.GetLatestDecisionAsync(id);
+        var @override = await ticketRoutingRuleService.GetLatestOverrideAsync(id);
+        return Results.Ok(new TicketRoutingLatestResponse
+        {
+            Decision = decision?.ToResponse(),
+            Override = @override?.ToResponse()
+        });
+    }
+
     public static async Task<IResult> GetArchivedTickets(
         DateTimeOffset? sinceUtc,
         int? boardId,
@@ -462,6 +490,7 @@ public static class TicketHandlers
         CreateTicketRequest request,
         ITicketRepository repo,
         IUserContextService userContext,
+        IUserRepository userRepository,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketBoardService ticketBoardService,
@@ -481,22 +510,26 @@ public static class TicketHandlers
             var currentUser = await userContext.GetCurrentUserAsync();
             var createStatus = "New";
             var normalizedPriority = NormalizePriority(request.Priority!);
-            var routingDepartment = NormalizeOptionalValue(request.Department)
-                ?? NormalizeOptionalValue(currentUser.Department);
-            var routingResolution = await ticketRoutingRuleService.ResolveOwnersAsync(
-                routingDepartment,
-                request.Title);
-            var resolvedSynitiOwner = NormalizeOptionalValue(request.SynitiOwner)
-                ?? routingResolution.SynitiOwner;
-            var resolvedBusinessOwner = NormalizeOptionalValue(request.BusinessOwner)
-                ?? routingResolution.BusinessOwner
-                ?? GetDefaultBusinessOwner(currentUser);
 
             var selectedBoard = await ResolveBoardForCreateAsync(ticketBoardService, request.BoardId);
             var storyPoints = ResolveStoryPoints(
                 selectedBoard,
                 request.StoryPoints,
                 null);
+            var routingFactors = BuildRoutingFactors(
+                boardId: selectedBoard.Id,
+                priority: normalizedPriority,
+                requesterDepartment: currentUser.Department,
+                requesterRole: currentUser.Role,
+                legacyDepartment: request.Department ?? currentUser.Department,
+                legacyTitle: request.Title);
+            var routingDecision = await ticketRoutingRuleService.EvaluateAsync(routingFactors);
+            var manualSynitiOwner = NormalizeOptionalValue(request.SynitiOwner);
+            var manualBusinessOwner = NormalizeOptionalValue(request.BusinessOwner);
+            var resolvedSynitiOwner = manualSynitiOwner ?? routingDecision.RecommendedSynitiOwner;
+            var resolvedBusinessOwner = manualBusinessOwner
+                ?? routingDecision.RecommendedBusinessOwner
+                ?? GetDefaultBusinessOwner(currentUser);
 
             var ticket = new Ticket
             {
@@ -521,6 +554,24 @@ public static class TicketHandlers
             if (createdTicket is null)
                 return Results.Problem("Ticket was created but could not be retrieved.");
 
+            await ticketRoutingRuleService.RecordDecisionAsync(createdTicket.Id, routingDecision);
+            if (HasOwnerOverride(
+                    routingDecision.RecommendedSynitiOwner,
+                    routingDecision.RecommendedBusinessOwner,
+                    resolvedSynitiOwner,
+                    resolvedBusinessOwner))
+            {
+                await ticketRoutingRuleService.RecordOverrideAsync(
+                    ticketId: createdTicket.Id,
+                    overriddenByUserId: currentUser.Id,
+                    previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
+                    previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
+                    newSynitiOwner: resolvedSynitiOwner,
+                    newBusinessOwner: resolvedBusinessOwner,
+                    reasonType: ParseOverrideReasonType(request.ChangeReason),
+                    reasonText: request.ChangeReason);
+            }
+
             var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
             var mappingContext = await mappingContextFactory.CreateAsync(
                 [createdTicket.CreatedBy],
@@ -539,6 +590,14 @@ public static class TicketHandlers
             await realtimeEventService.PublishAsync(new RealtimeEventMessage
             {
                 EventType = "ticket.created",
+                TicketId = createdTicket.Id,
+                EntityId = createdTicket.Id,
+                AudienceUserIds = audienceUserIds,
+                Ticket = createdTicketResponse
+            });
+            await realtimeEventService.PublishAsync(new RealtimeEventMessage
+            {
+                EventType = "ticket.routed",
                 TicketId = createdTicket.Id,
                 EntityId = createdTicket.Id,
                 AudienceUserIds = audienceUserIds,
@@ -571,9 +630,11 @@ public static class TicketHandlers
         UpdateTicketRequest request,
         ITicketRepository repo,
         IUserContextService userContext,
+        IUserRepository userRepository,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketBoardService ticketBoardService,
+        ITicketRoutingRuleService ticketRoutingRuleService,
         ITicketAuditService ticketAuditService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
@@ -635,6 +696,27 @@ public static class TicketHandlers
                 ticketBoardService,
                 request.BoardId,
                 existing.BoardId);
+            var ticketRequester = await userRepository.GetByIdAsync(existing.CreatedBy);
+            var requesterDepartment = ticketRequester?.Department;
+            var requesterRole = ticketRequester?.Role;
+            var legacyDepartment = request.Department ?? requesterDepartment;
+            var routingFactorsChanged =
+                targetBoard.Id != existing.BoardId
+                || !string.Equals(resolvedPriority, existing.Priority, StringComparison.OrdinalIgnoreCase)
+                || request.Department is not null;
+            RoutingDecisionResult? routingDecision = null;
+            if (routingFactorsChanged)
+            {
+                routingDecision = await ticketRoutingRuleService.EvaluateAsync(
+                    BuildRoutingFactors(
+                        boardId: targetBoard.Id,
+                        priority: resolvedPriority,
+                        requesterDepartment: requesterDepartment,
+                        requesterRole: requesterRole,
+                        legacyDepartment: legacyDepartment,
+                        legacyTitle: resolvedTitle));
+                await ticketRoutingRuleService.RecordDecisionAsync(existing.Id, routingDecision);
+            }
 
             var storyPoints = ResolveStoryPoints(
                 targetBoard,
@@ -647,8 +729,36 @@ public static class TicketHandlers
             existing.Priority = resolvedPriority;
             existing.BoardId = targetBoard.Id;
             existing.StoryPoints = storyPoints;
-            existing.SynitiOwner = request.SynitiOwner ?? existing.SynitiOwner;
-            existing.BusinessOwner = request.BusinessOwner ?? existing.BusinessOwner;
+            var resolvedSynitiOwner = request.SynitiOwner ?? existing.SynitiOwner;
+            var resolvedBusinessOwner = request.BusinessOwner ?? existing.BusinessOwner;
+            if (routingDecision is not null
+                && request.SynitiOwner is null
+                && request.BusinessOwner is null)
+            {
+                resolvedSynitiOwner = existing.SynitiOwner;
+                resolvedBusinessOwner = existing.BusinessOwner;
+            }
+
+            if (routingDecision is not null
+                && HasOwnerOverride(
+                    routingDecision.RecommendedSynitiOwner,
+                    routingDecision.RecommendedBusinessOwner,
+                    resolvedSynitiOwner,
+                    resolvedBusinessOwner))
+            {
+                await ticketRoutingRuleService.RecordOverrideAsync(
+                    ticketId: existing.Id,
+                    overriddenByUserId: currentUser.Id,
+                    previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
+                    previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
+                    newSynitiOwner: resolvedSynitiOwner,
+                    newBusinessOwner: resolvedBusinessOwner,
+                    reasonType: ParseOverrideReasonType(request.ChangeReason),
+                    reasonText: request.ChangeReason);
+            }
+
+            existing.SynitiOwner = resolvedSynitiOwner;
+            existing.BusinessOwner = resolvedBusinessOwner;
             existing.LastModifiedBy = currentUser.Id;
             existing.LastModifiedDate = DateTime.UtcNow;
 
@@ -711,6 +821,17 @@ public static class TicketHandlers
                 AudienceUserIds = updatedAudienceUserIds,
                 Ticket = updatedTicketResponse
             });
+            if (routingFactorsChanged)
+            {
+                await realtimeEventService.PublishAsync(new RealtimeEventMessage
+                {
+                    EventType = "ticket.routed",
+                    TicketId = updatedTicket.Id,
+                    EntityId = updatedTicket.Id,
+                    AudienceUserIds = updatedAudienceUserIds,
+                    Ticket = updatedTicketResponse
+                });
+            }
 
             LogTicketUpdatedLifecycle(
                 logger,
@@ -992,6 +1113,60 @@ public static class TicketHandlers
     private static string? NormalizeOptionalValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static RoutingFactors BuildRoutingFactors(
+        int boardId,
+        string priority,
+        string? requesterDepartment,
+        string? requesterRole,
+        string? legacyDepartment,
+        string? legacyTitle)
+    {
+        return new RoutingFactors(
+            BoardId: boardId.ToString(CultureInfo.InvariantCulture),
+            Priority: NormalizeOptionalValue(priority),
+            RequesterDepartment: NormalizeOptionalValue(requesterDepartment),
+            RequesterRole: NormalizeOptionalValue(requesterRole),
+            LegacyDepartment: NormalizeOptionalValue(legacyDepartment),
+            LegacyTitle: NormalizeOptionalValue(legacyTitle));
+    }
+
+    private static bool HasOwnerOverride(
+        string? recommendedSynitiOwner,
+        string? recommendedBusinessOwner,
+        string? chosenSynitiOwner,
+        string? chosenBusinessOwner)
+    {
+        return !OwnerFieldsEqual(recommendedSynitiOwner, chosenSynitiOwner)
+            || !OwnerFieldsEqual(recommendedBusinessOwner, chosenBusinessOwner);
+    }
+
+    private static RoutingOverrideReasonType ParseOverrideReasonType(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return RoutingOverrideReasonType.ManualAssignment;
+        }
+
+        var normalized = reason.Trim().ToLowerInvariant();
+        if (normalized.Contains("workload", StringComparison.Ordinal))
+        {
+            return RoutingOverrideReasonType.WorkloadAdjustment;
+        }
+
+        if (normalized.Contains("escalat", StringComparison.Ordinal))
+        {
+            return RoutingOverrideReasonType.Escalation;
+        }
+
+        if (normalized.Contains("incorrect", StringComparison.Ordinal)
+            || normalized.Contains("wrong", StringComparison.Ordinal))
+        {
+            return RoutingOverrideReasonType.IncorrectRouting;
+        }
+
+        return RoutingOverrideReasonType.Other;
     }
 
     private static void ValidateCreateTicketRequest(CreateTicketRequest request)

@@ -1,6 +1,7 @@
 using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Services;
+using Microsoft.AspNetCore.Http;
 
 namespace Cortex.API.Handlers;
 
@@ -8,14 +9,18 @@ public static class ScheduledJobHandlers
 {
     public static async Task<IResult> GetScheduledJobs(
         IScheduledJobService service,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        HttpContext httpContext)
     {
         var jobs = (await service.GetAllAsync()).ToList();
+        var canViewSensitiveDetails =
+            httpContext.User.IsInRole(Auth0Roles.Admin) ||
+            httpContext.User.IsInRole(Auth0Roles.Developer);
         var mappingContext = await mappingContextFactory.CreateAsync(
             jobs.Select(job => job.RunAsUserId),
             jobs.Where(job => job.StoredProcedureDefinitionId.HasValue)
                 .Select(job => job.StoredProcedureDefinitionId!.Value));
-        return Results.Ok(jobs.Select(job => job.ToResponse(mappingContext)));
+        return Results.Ok(jobs.Select(job => job.ToResponse(mappingContext, canViewSensitiveDetails)));
     }
 
     public static async Task<IResult> CreateScheduledJob(

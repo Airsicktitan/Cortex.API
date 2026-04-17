@@ -1,7 +1,12 @@
+import { useState } from "react";
 import type { TicketRoutingRule } from "../types/ticketRouting";
+import type { TicketBoardDefinition } from "../types/ticketBoard";
+
+const PRIORITY_OPTIONS = ["Critical", "High", "Medium", "Low"] as const;
 
 interface TicketRoutingSectionProps {
   rules: TicketRoutingRule[];
+  boards: TicketBoardDefinition[];
   selectedRule: TicketRoutingRule | null;
   loading: boolean;
   saving: boolean;
@@ -18,7 +23,10 @@ interface TicketRoutingSectionProps {
   onDelete: () => void;
 }
 
-function describeRule(rule: TicketRoutingRule) {
+function describeRule(
+  rule: TicketRoutingRule,
+  boardNameById: Map<string, string>,
+) {
   const criteria: string[] = [];
   const assignments: string[] = [];
 
@@ -26,8 +34,21 @@ function describeRule(rule: TicketRoutingRule) {
     criteria.push(`Title contains "${rule.titleContains}"`);
   }
 
-  if (rule.department.trim()) {
-    criteria.push(`Department: ${rule.department}`);
+  if (rule.boardId.trim()) {
+    const boardName = boardNameById.get(rule.boardId.trim()) ?? `Board #${rule.boardId}`;
+    criteria.push(`Board: ${boardName}`);
+  }
+
+  if (rule.priority.trim()) {
+    criteria.push(`Priority: ${rule.priority}`);
+  }
+
+  if (rule.requesterDepartment.trim()) {
+    criteria.push(`Requester dept: ${rule.requesterDepartment}`);
+  }
+
+  if (rule.requesterRole.trim()) {
+    criteria.push(`Requester role: ${rule.requesterRole}`);
   }
 
   if (rule.synitiOwner.trim()) {
@@ -38,11 +59,12 @@ function describeRule(rule: TicketRoutingRule) {
     assignments.push(`Business: ${rule.businessOwner}`);
   }
 
-  return `${criteria.join(" + ") || "No match criteria"} -> ${assignments.join(" | ") || "No assignments"}`;
+  return `P${rule.rulePriority}/W${rule.weight} :: ${criteria.join(" + ") || "No match criteria"} -> ${assignments.join(" | ") || "No assignments"}`;
 }
 
 export default function TicketRoutingSection({
   rules,
+  boards,
   selectedRule,
   loading,
   saving,
@@ -57,6 +79,10 @@ export default function TicketRoutingSection({
 }: TicketRoutingSectionProps) {
   const isBusy = saving || deletingId !== null;
   const isNewRule = selectedRule?.id === 0;
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const boardNameById = new Map(
+    boards.map((board) => [String(board.id), board.name]),
+  );
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -67,7 +93,7 @@ export default function TicketRoutingSection({
               Ticket Routing
             </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-              Match on ticket title phrases, routing department, or both while still allowing manual ticket overrides.
+              Deterministic routing uses structured factors plus explicit rule precedence.
             </p>
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
               New tickets default the business owner to the requester and only use auto-routing when the owner fields are left blank.
@@ -128,10 +154,10 @@ export default function TicketRoutingSection({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-medium text-gray-900 dark:text-slate-100">
-                          {rule.department}
+                          Rule #{rule.id} (P{rule.rulePriority}, W{rule.weight})
                         </p>
                         <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
-                          {describeRule(rule)}
+                          {describeRule(rule, boardNameById)}
                         </p>
                       </div>
                       <span
@@ -158,68 +184,175 @@ export default function TicketRoutingSection({
                 </h4>
 
                 <div className="mt-4 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                      Title contains
-                    </label>
-                    <input
-                      type="text"
-                      value={selectedRule.titleContains}
-                      onChange={(event) => onChange("titleContains", event.target.value)}
-                      className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      placeholder="User locked out"
-                    />
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Match a phrase in the ticket title. Matching is case-insensitive.
-                    </p>
+                  <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70">
+                    <h5 className="text-sm font-semibold text-gray-800 dark:text-slate-200">
+                      When a ticket matches:
+                    </h5>
+
+                    <div className="mt-3 grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Board
+                        </label>
+                        <select
+                          value={selectedRule.boardId}
+                          onChange={(event) => onChange("boardId", event.target.value)}
+                          className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        >
+                          <option value="">Any board</option>
+                          {boards.map((board) => (
+                            <option key={board.id} value={String(board.id)}>
+                              {board.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Priority
+                        </label>
+                        <select
+                          value={selectedRule.priority}
+                          onChange={(event) => onChange("priority", event.target.value)}
+                          className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        >
+                          <option value="">Any priority</option>
+                          {PRIORITY_OPTIONS.map((priority) => (
+                            <option key={priority} value={priority}>
+                              {priority}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Requester department
+                        </label>
+                        <input
+                          type="text"
+                          value={selectedRule.requesterDepartment}
+                          onChange={(event) =>
+                            onChange("requesterDepartment", event.target.value)
+                          }
+                          className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          placeholder="Finance"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Requester role
+                        </label>
+                        <input
+                          type="text"
+                          value={selectedRule.requesterRole}
+                          onChange={(event) => onChange("requesterRole", event.target.value)}
+                          className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          placeholder="BusinessManager"
+                        />
+                      </div>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                      Routing department
-                    </label>
-                    <input
-                      type="text"
-                      value={selectedRule.department}
-                      onChange={(event) => onChange("department", event.target.value)}
-                      className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      placeholder="Finance"
-                    />
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Optional exact department match. Leave blank for title-only routing.
-                    </p>
+                  <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70">
+                    <h5 className="text-sm font-semibold text-gray-800 dark:text-slate-200">
+                      Route it to:
+                    </h5>
+
+                    <div className="mt-3 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Syniti owner
+                        </label>
+                        <input
+                          type="text"
+                          value={selectedRule.synitiOwner}
+                          onChange={(event) => onChange("synitiOwner", event.target.value)}
+                          className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          placeholder="Syniti Team Member"
+                        />
+                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                          Optional. Leave blank if this rule should only set the business owner.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Business owner
+                        </label>
+                        <input
+                          type="text"
+                          value={selectedRule.businessOwner}
+                          onChange={(event) => onChange("businessOwner", event.target.value)}
+                          className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          placeholder="Business Lead"
+                        />
+                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                          Optional. Leave blank to keep the requester as the business owner.
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                      Syniti owner
-                    </label>
-                    <input
-                      type="text"
-                      value={selectedRule.synitiOwner}
-                      onChange={(event) => onChange("synitiOwner", event.target.value)}
-                      className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      placeholder="Syniti Team Member"
-                    />
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Optional. Leave blank if this rule should only set the business owner.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                      Business owner
-                    </label>
-                    <input
-                      type="text"
-                      value={selectedRule.businessOwner}
-                      onChange={(event) => onChange("businessOwner", event.target.value)}
-                      className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      placeholder="Business Lead"
-                    />
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Optional. Leave blank to keep the requester as the business owner.
-                    </p>
+                  <div className="rounded-lg border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/70">
+                    <button
+                      type="button"
+                      onClick={() => setIsAdvancedOpen((current) => !current)}
+                      className="flex w-full items-center justify-between px-4 py-3 text-left"
+                    >
+                      <h5 className="text-sm font-semibold text-gray-800 dark:text-slate-200">
+                        Rule behavior (advanced)
+                      </h5>
+                      <span className="text-xs text-gray-500 dark:text-slate-400">
+                        {isAdvancedOpen ? "Hide" : "Show"}
+                      </span>
+                    </button>
+                    {isAdvancedOpen && (
+                      <div className="border-t border-gray-200 px-4 py-3 dark:border-slate-700">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 dark:text-slate-400">
+                              Rule Priority (higher runs first)
+                              <span
+                                className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
+                                title="When multiple rules match, the rule with the highest Rule Priority wins first."
+                              >
+                                ?
+                              </span>
+                            </label>
+                            <input
+                              type="number"
+                              value={selectedRule.rulePriority}
+                              onChange={(event) =>
+                                onChange("rulePriority", Number(event.target.value) || 0)
+                              }
+                              className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 dark:text-slate-400">
+                              Weight
+                              <span
+                                className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
+                                title="Secondary tie-breaker when Rule Priority is the same. Higher weight wins."
+                              >
+                                ?
+                              </span>
+                            </label>
+                            <input
+                              type="number"
+                              value={selectedRule.weight}
+                              onChange={(event) =>
+                                onChange("weight", Number(event.target.value) || 0)
+                              }
+                              className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900/60">
@@ -241,10 +374,13 @@ export default function TicketRoutingSection({
 
                   <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70">
                     <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
-                      {(selectedRule.department.trim() || selectedRule.titleContains.trim()) &&
+                      {(selectedRule.boardId.trim() ||
+                        selectedRule.priority.trim() ||
+                        selectedRule.requesterDepartment.trim() ||
+                        selectedRule.requesterRole.trim()) &&
                       (selectedRule.synitiOwner.trim() || selectedRule.businessOwner.trim())
-                        ? describeRule(selectedRule)
-                        : "Add at least one match condition and one owner assignment to save this rule."}
+                        ? describeRule(selectedRule, boardNameById)
+                        : "Define at least one condition and who the ticket should be routed to."}
                     </p>
                   </div>
 
@@ -253,8 +389,12 @@ export default function TicketRoutingSection({
                       onClick={onSave}
                       disabled={
                         isBusy ||
-                        (!selectedRule.department.trim() &&
-                          !selectedRule.titleContains.trim()) ||
+                        selectedRule.rulePriority < 0 ||
+                        selectedRule.weight < 0 ||
+                        (!selectedRule.boardId.trim() &&
+                          !selectedRule.priority.trim() &&
+                          !selectedRule.requesterDepartment.trim() &&
+                          !selectedRule.requesterRole.trim()) ||
                         (!selectedRule.synitiOwner.trim() &&
                           !selectedRule.businessOwner.trim())
                       }

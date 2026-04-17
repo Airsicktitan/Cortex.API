@@ -18,9 +18,24 @@ public class TicketAttachmentRepository(CortexDbContext context)
             .ToListAsync();
     }
 
+    public async Task<IEnumerable<ArchivedTicketAttachment>> GetArchivedByTicketIdAsync(string ticketId)
+    {
+        return await _context.ArchivedTicketAttachments
+            .Where(attachment => attachment.TicketId == ticketId)
+            .OrderByDescending(attachment => attachment.UploadedDate)
+            .ThenByDescending(attachment => attachment.Id)
+            .ToListAsync();
+    }
+
     public async Task<TicketAttachment?> GetByIdAsync(int id)
     {
         return await _context.TicketAttachments
+            .FirstOrDefaultAsync(attachment => attachment.Id == id);
+    }
+
+    public async Task<ArchivedTicketAttachment?> GetArchivedByIdAsync(int id)
+    {
+        return await _context.ArchivedTicketAttachments
             .FirstOrDefaultAsync(attachment => attachment.Id == id);
     }
 

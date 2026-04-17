@@ -387,7 +387,7 @@ export default function CustomReportRegistrySection({
                 Use an existing SQL view as the starting point for a registered report.
               </p>
 
-              <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+              <div className="scroll-surface mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
                 {databaseViewsLoading ? (
                   <p className="text-sm text-gray-500 dark:text-slate-400">
                     Loading database views...

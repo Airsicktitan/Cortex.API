@@ -4,6 +4,10 @@ import {
   getSlaAccentClass,
   getSlaDisplayLabel,
 } from "../utils/ticketSla";
+import {
+  formatDisplayValue,
+  formatTicketIdentifier,
+} from "../utils/presentation";
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -153,7 +157,7 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
           {ticket.title}
         </h3>
         <p className="mt-1 text-[11px] tabular-nums text-gray-400 dark:text-slate-500">
-          #{ticket.id}
+          #{formatTicketIdentifier(ticket.id)}
         </p>
       </div>
 
@@ -167,8 +171,10 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
       </div>
 
       <p className="mt-3 text-left text-xs leading-snug text-gray-500 dark:text-slate-500">
-        {ticket.boardName}
-        {ticket.storyPoints ? ` · ${ticket.storyPoints} SP` : ""}
+        {formatDisplayValue(ticket.boardName)}
+        {ticket.storyPoints !== undefined && ticket.storyPoints !== null
+          ? ` · ${ticket.storyPoints} SP`
+          : ""}
       </p>
 
       <p
@@ -179,13 +185,13 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
       </p>
 
       <div className="mt-3 space-y-1 border-t border-gray-100 pt-3 text-left text-[11px] leading-snug text-gray-600 dark:border-slate-800 dark:text-slate-400">
-        <p className="truncate" title={ticket.synitiOwner || "Unassigned"}>
+        <p className="truncate" title={formatDisplayValue(ticket.synitiOwner)}>
           <span className="text-gray-500 dark:text-slate-500">Syniti:</span>{" "}
-          {ticket.synitiOwner || "Unassigned"}
+          {formatDisplayValue(ticket.synitiOwner)}
         </p>
-        <p className="truncate" title={ticket.businessOwner || "Unassigned"}>
+        <p className="truncate" title={formatDisplayValue(ticket.businessOwner)}>
           <span className="text-gray-500 dark:text-slate-500">Business:</span>{" "}
-          {ticket.businessOwner || "Unassigned"}
+          {formatDisplayValue(ticket.businessOwner)}
         </p>
       </div>
     </div>

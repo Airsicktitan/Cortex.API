@@ -14,6 +14,9 @@ interface RealtimeConnectionOptions {
   getToken: () => Promise<string>;
   onEvent: (event: RealtimeEvent) => void;
   onError?: (error: unknown) => void;
+  onStatusChange?: (
+    status: "connected" | "reconnecting" | "offline",
+  ) => void;
 }
 
 interface RealtimeConnection {
@@ -170,6 +173,7 @@ export const realtimeService = {
       if (isClosed || reconnectTimer !== null) {
         return;
       }
+      options.onStatusChange?.("reconnecting");
 
       const delayMs = Math.min(15000, 2000 * Math.max(1, reconnectAttempt));
       reconnectTimer = window.setTimeout(() => {
@@ -210,6 +214,7 @@ export const realtimeService = {
 
         connection.onreconnected(() => {
           reconnectAttempt = 0;
+          options.onStatusChange?.("connected");
         });
 
         connection.onclose((error) => {
@@ -221,6 +226,7 @@ export const realtimeService = {
           if (error) {
             options.onError?.(error);
           }
+          options.onStatusChange?.("offline");
           scheduleReconnect();
         });
 
@@ -233,6 +239,7 @@ export const realtimeService = {
 
         currentConnection = connection;
         reconnectAttempt = 0;
+        options.onStatusChange?.("connected");
       } catch (error) {
         if (currentConnection?.state === HubConnectionState.Connected) {
           await currentConnection.stop();
@@ -240,6 +247,7 @@ export const realtimeService = {
         currentConnection = null;
         reconnectAttempt += 1;
         options.onError?.(error);
+        options.onStatusChange?.("offline");
         scheduleReconnect();
       }
     };
@@ -255,6 +263,7 @@ export const realtimeService = {
         if (connection) {
           void connection.stop();
         }
+        options.onStatusChange?.("offline");
       },
     };
   },

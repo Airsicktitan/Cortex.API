@@ -1,6 +1,7 @@
 import type { CreateUserInput } from "../types/user";
 import { AUTH0_ROLES } from "../utils/role";
 import PhoneNumberInput from "./PhoneNumberInput";
+import { humanizeEnumLabel } from "../utils/presentation";
 
 interface AdminUserCreateModalProps {
   isOpen: boolean;
@@ -55,7 +56,7 @@ export default function AdminUserCreateModal({
     : BASE_ROLE_OPTIONS;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="scroll-surface fixed inset-0 z-50 overflow-y-auto">
       <div
         className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
         onClick={onClose}
@@ -166,7 +167,7 @@ export default function AdminUserCreateModal({
               >
                 {roleOptions.map((role) => (
                   <option key={role} value={role}>
-                    {role}
+                    {humanizeEnumLabel(role)}
                   </option>
                 ))}
               </select>

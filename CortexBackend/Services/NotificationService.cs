@@ -12,7 +12,8 @@ public class NotificationService(
     ISlaConfigurationService slaConfigurationService,
     INotificationChannelConfigurationService notificationChannelConfigurationService,
     INotificationDeliveryService notificationDeliveryService,
-    IRealtimeEventService realtimeEventService) : INotificationService
+    IRealtimeEventService realtimeEventService,
+    ILogger<NotificationService> logger) : INotificationService
 {
     private readonly INotificationRepository _notificationRepository = notificationRepository;
     private readonly IUserRepository _userRepository = userRepository;
@@ -23,6 +24,7 @@ public class NotificationService(
     private readonly INotificationDeliveryService _notificationDeliveryService =
         notificationDeliveryService;
     private readonly IRealtimeEventService _realtimeEventService = realtimeEventService;
+    private readonly ILogger<NotificationService> _logger = logger;
 
     public async Task<NotificationFeedResponse> GetFeedAsync(int userId, int take = 20)
     {
@@ -91,8 +93,8 @@ public class NotificationService(
         var aliases = BuildUserAliasLookup(users);
         var assignments = new Dictionary<int, AssignmentNotificationState>();
 
-        AddAssignment(assignments, aliases, actor, originalTicket.SynitiOwner, updatedTicket.SynitiOwner, "Syniti Owner");
-        AddAssignment(assignments, aliases, actor, originalTicket.BusinessOwner, updatedTicket.BusinessOwner, "Business Owner");
+        AddAssignment(assignments, aliases, actor, originalTicket.SynitiOwner, updatedTicket.SynitiOwner, "Syniti Owner", updatedTicket.Id);
+        AddAssignment(assignments, aliases, actor, originalTicket.BusinessOwner, updatedTicket.BusinessOwner, "Business Owner", updatedTicket.Id);
 
         if (assignments.Count == 0)
         {
@@ -366,13 +368,14 @@ public class NotificationService(
         return aliases;
     }
 
-    private static void AddAssignment(
+    private void AddAssignment(
         IDictionary<int, AssignmentNotificationState> assignments,
         IReadOnlyDictionary<string, User> aliases,
         User actor,
         string? previousOwner,
         string? nextOwner,
-        string roleLabel)
+        string roleLabel,
+        string ticketId)
     {
         var previousNormalized = NormalizeOwner(previousOwner);
         var nextNormalized = NormalizeOwner(nextOwner);
@@ -386,6 +389,11 @@ public class NotificationService(
         var resolvedUser = ResolveOwnerUser(nextOwner, aliases);
         if (resolvedUser is null)
         {
+            _logger.LogWarning(
+                "Assignment notification skipped: could not resolve owner alias '{Owner}' for ticket {TicketId} role {RoleLabel}.",
+                nextOwner,
+                ticketId,
+                roleLabel);
             return;
         }
 

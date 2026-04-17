@@ -130,7 +130,7 @@ export function canEditTickets(roles: string[] | undefined): boolean {
 }
 
 export function canManageUsers(roles: string[] | undefined): boolean {
-  return isAdmin(roles);
+  return hasElevatedAccess(roles);
 }
 
 export function canAccessConfig(roles: string[] | undefined): boolean {
@@ -143,6 +143,10 @@ export function canViewReports(roles: string[] | undefined): boolean {
 
 export function canManageJobs(roles: string[] | undefined): boolean {
   return hasElevatedAccess(roles);
+}
+
+export function canViewJobActivity(roles: string[] | undefined): boolean {
+  return hasBusinessAccess(roles);
 }
 
 /** Manage custom report *definitions* (settings API) — Developer+. */

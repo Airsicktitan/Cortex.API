@@ -99,6 +99,26 @@ public static class CommentMappings
             LastModifiedDate = comment.LastModifiedDate
         };
     }
+
+    public static CommentResponse ToResponse(
+        this ArchivedComment comment,
+        ResponseMappingContext? mappingContext = null)
+    {
+        var context = mappingContext ?? ResponseMappingContext.Empty;
+
+        return new CommentResponse
+        {
+            Id = comment.Id,
+            TicketId = comment.TicketId,
+            Body = comment.Body,
+            CreatedBy = comment.CreatedBy,
+            CreatedByDisplayName = context.ResolveUserDisplayName(
+                comment.CreatedBy,
+                comment.CreatedByUser),
+            CreatedDate = comment.CreatedDate,
+            LastModifiedDate = comment.LastModifiedDate
+        };
+    }
 }
 
 public static class TicketResponseExtensions
@@ -253,6 +273,27 @@ public static class TicketAttachmentMappings
             UploadedDate = attachment.UploadedDate
         };
     }
+
+    public static TicketAttachmentResponse ToResponse(
+        this ArchivedTicketAttachment attachment,
+        ResponseMappingContext? mappingContext = null)
+    {
+        var context = mappingContext ?? ResponseMappingContext.Empty;
+
+        return new TicketAttachmentResponse
+        {
+            Id = attachment.Id,
+            TicketId = attachment.TicketId,
+            FileName = attachment.FileName,
+            ContentType = attachment.ContentType,
+            FileSize = attachment.FileSize,
+            UploadedBy = attachment.UploadedBy,
+            UploadedByDisplayName = context.ResolveUserDisplayName(
+                attachment.UploadedBy,
+                attachment.UploadedByUser),
+            UploadedDate = attachment.UploadedDate
+        };
+    }
 }
 
 public static class SlaConfigurationMappings
@@ -288,6 +329,12 @@ public static class TicketRoutingRuleMappings
         return new TicketRoutingRuleResponse
         {
             Id = rule.Id,
+            BoardId = rule.BoardId ?? string.Empty,
+            Priority = rule.Priority ?? string.Empty,
+            RequesterDepartment = rule.RequesterDepartment ?? string.Empty,
+            RequesterRole = rule.RequesterRole ?? string.Empty,
+            RulePriority = rule.RulePriority,
+            Weight = rule.Weight,
             Department = rule.Department ?? string.Empty,
             TitleContains = rule.TitleContains ?? string.Empty,
             SynitiOwner = rule.SynitiOwner ?? string.Empty,
@@ -295,6 +342,47 @@ public static class TicketRoutingRuleMappings
             IsEnabled = rule.IsEnabled,
             CreatedDateUtc = rule.CreatedDateUtc,
             LastModifiedDateUtc = rule.LastModifiedDateUtc
+        };
+    }
+}
+
+public static class TicketRoutingDecisionMappings
+{
+    public static TicketRoutingDecisionResponse ToResponse(this TicketRoutingDecision decision)
+    {
+        return new TicketRoutingDecisionResponse
+        {
+            Id = decision.Id,
+            TicketId = decision.TicketId,
+            MatchedRuleId = decision.MatchedRuleId,
+            OutcomeType = decision.OutcomeType.ToString(),
+            ConfidenceLevel = decision.ConfidenceLevel.ToString(),
+            NoMatchReason = decision.NoMatchReason?.ToString(),
+            ChosenSynitiOwner = decision.ChosenSynitiOwner ?? string.Empty,
+            ChosenBusinessOwner = decision.ChosenBusinessOwner ?? string.Empty,
+            PrecedenceScore = decision.PrecedenceScore,
+            TieBreakKey = decision.TieBreakKey,
+            ExplanationJson = decision.ExplanationJson,
+            ExplanationText = decision.ExplanationText,
+            EngineVersion = decision.EngineVersion,
+            CreatedDateUtc = decision.CreatedDateUtc
+        };
+    }
+
+    public static TicketRoutingOverrideResponse ToResponse(this TicketRoutingOverride @override)
+    {
+        return new TicketRoutingOverrideResponse
+        {
+            Id = @override.Id,
+            TicketId = @override.TicketId,
+            OverriddenByUserId = @override.OverriddenByUserId,
+            PreviousSynitiOwner = @override.PreviousSynitiOwner ?? string.Empty,
+            PreviousBusinessOwner = @override.PreviousBusinessOwner ?? string.Empty,
+            NewSynitiOwner = @override.NewSynitiOwner ?? string.Empty,
+            NewBusinessOwner = @override.NewBusinessOwner ?? string.Empty,
+            OverrideReasonType = @override.OverrideReasonType.ToString(),
+            OverrideReasonText = @override.OverrideReasonText ?? string.Empty,
+            CreatedDateUtc = @override.CreatedDateUtc
         };
     }
 }
@@ -308,6 +396,23 @@ public static class TicketStatusDefinitionMappings
             Id = definition.Id,
             Name = definition.Name,
             Description = definition.Description,
+            IsEnabled = definition.IsEnabled,
+            CreatedDateUtc = definition.CreatedDateUtc.ToString("O"),
+            LastModifiedDateUtc = definition.LastModifiedDateUtc?.ToString("O")
+        };
+    }
+}
+
+public static class RoleDefinitionMappings
+{
+    public static RoleDefinitionResponse ToResponse(this RoleDefinition definition)
+    {
+        return new RoleDefinitionResponse
+        {
+            Id = definition.Id,
+            Name = definition.Name,
+            Description = definition.Description,
+            Permissions = definition.Permissions,
             IsEnabled = definition.IsEnabled,
             CreatedDateUtc = definition.CreatedDateUtc.ToString("O"),
             LastModifiedDateUtc = definition.LastModifiedDateUtc?.ToString("O")
@@ -404,7 +509,8 @@ public static class ScheduledJobMappings
 {
     public static ScheduledJobResponse ToResponse(
         this ScheduledJob job,
-        ResponseMappingContext? mappingContext = null)
+        ResponseMappingContext? mappingContext = null,
+        bool includeSensitiveDetails = true)
     {
         var context = mappingContext ?? ResponseMappingContext.Empty;
 
@@ -420,16 +526,18 @@ public static class ScheduledJobMappings
             StoredProcedureName = context.ResolveStoredProcedureLabel(
                 job.StoredProcedureDefinitionId,
                 job.StoredProcedureDefinition),
-            RunAsUserId = job.RunAsUserId,
-            RunAsDisplayName = context.ResolveUserDisplayName(
-                job.RunAsUserId,
-                job.RunAsUser),
+            RunAsUserId = includeSensitiveDetails ? job.RunAsUserId : 0,
+            RunAsDisplayName = includeSensitiveDetails
+                ? context.ResolveUserDisplayName(
+                    job.RunAsUserId,
+                    job.RunAsUser)
+                : "Restricted",
             CreatedDateUtc = job.CreatedDateUtc,
             LastModifiedDateUtc = job.LastModifiedDateUtc,
             LastRunDateUtc = job.LastRunDateUtc,
             NextRunDateUtc = job.NextRunDateUtc,
             LastRunStatus = job.LastRunStatus,
-            LastRunMessage = job.LastRunMessage
+            LastRunMessage = includeSensitiveDetails ? job.LastRunMessage : null
         };
     }
 }

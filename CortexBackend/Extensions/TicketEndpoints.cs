@@ -34,6 +34,11 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        tickets.MapGet("/{id}/routing/latest", TicketHandlers.GetLatestRoutingDecision)
+            .WithName("GetLatestTicketRoutingDecision")
+            .Produces<TicketRoutingLatestResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         tickets.MapGet("/status/{status}", TicketHandlers.GetTicketsByStatus)
             .WithName("GetTicketsByStatus")
             .Produces<List<Ticket>>(StatusCodes.Status200OK)

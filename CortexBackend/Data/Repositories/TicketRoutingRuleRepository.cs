@@ -11,7 +11,14 @@ public class TicketRoutingRuleRepository(CortexDbContext context) : ITicketRouti
     public async Task<List<TicketRoutingRule>> GetAllAsync()
     {
         return await _context.TicketRoutingRules
-            .OrderBy(rule => rule.Department)
+            .AsNoTracking()
+            .OrderByDescending(rule => rule.RulePriority)
+            .ThenByDescending(rule => rule.Weight)
+            .ThenBy(rule => rule.BoardId)
+            .ThenBy(rule => rule.Priority)
+            .ThenBy(rule => rule.RequesterDepartment)
+            .ThenBy(rule => rule.RequesterRole)
+            .ThenBy(rule => rule.Department)
             .ThenBy(rule => rule.Id)
             .ToListAsync();
     }

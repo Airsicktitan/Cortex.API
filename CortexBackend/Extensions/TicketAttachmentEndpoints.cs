@@ -29,5 +29,19 @@ public static class TicketAttachmentEndpoints
             .WithName("DownloadTicketAttachment")
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
+
+        var archivedAttachments = app.MapGroup("/api/tickets/archived/{ticketId}/attachments")
+            .RequireAuthorization()
+            .WithTags("Ticket Attachments");
+
+        archivedAttachments.MapGet("/", TicketAttachmentHandlers.GetArchivedAttachments)
+            .WithName("GetArchivedTicketAttachments")
+            .Produces<List<TicketAttachmentResponse>>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
+        archivedAttachments.MapGet("/{attachmentId:int}/download", TicketAttachmentHandlers.DownloadArchivedAttachment)
+            .WithName("DownloadArchivedTicketAttachment")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
     }
 }

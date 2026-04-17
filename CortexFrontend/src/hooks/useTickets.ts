@@ -205,6 +205,8 @@ export function useTickets({
   isForbiddenError,
   isLikelyNetworkError,
 }: UseTicketsParams) {
+  const ARCHIVED_PAGE_SIZE = 50;
+  const ARCHIVED_CACHE_TTL_MS = 5 * 60 * 1000;
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
   const [serverTicketListMeta, setServerTicketListMeta] = useState<{
     totalCount: number;
@@ -224,7 +226,11 @@ export function useTickets({
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [archivedTickets, setArchivedTickets] = useState<ArchivedTicket[]>([]);
+  const [archivedSearchQuery, setArchivedSearchQuery] = useState("");
+  const debouncedArchivedSearchQuery = useDebouncedValue(archivedSearchQuery, 250);
   const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archivedLoadingMore, setArchivedLoadingMore] = useState(false);
+  const [archivedHasMore, setArchivedHasMore] = useState(false);
   const [archivedError, setArchivedError] = useState<string | null>(null);
   const [highlightedArchivedTicketId, setHighlightedArchivedTicketId] =
     useState<string | null>(null);
@@ -239,6 +245,17 @@ export function useTickets({
   const lastTicketChangeSyncUtcRef = useRef<string | null>(null);
   const lastTicketFullRefreshAtRef = useRef(0);
   const previousSelectedBoardIdRef = useRef<number | "all">(selectedBoardId);
+  const archivedCacheRef = useRef<
+    Map<
+      string,
+      {
+        items: ArchivedTicket[];
+        page: number;
+        totalPages: number;
+        fetchedAt: number;
+      }
+    >
+  >(new Map());
   const ticketsLoadedRef = useRef(false);
   const skipNextServerPagingEffectRef = useRef(false);
 
@@ -604,9 +621,14 @@ export function useTickets({
   const loadArchivedTickets = useCallback(
     async (
       providedToken?: string,
-      options?: { fullCatalog?: boolean },
+      options?: { fullCatalog?: boolean; append?: boolean; forceRefresh?: boolean },
     ) => {
-      setArchivedLoading(true);
+      const append = options?.append === true;
+      if (append) {
+        setArchivedLoadingMore(true);
+      } else {
+        setArchivedLoading(true);
+      }
       setArchivedError(null);
 
       try {
@@ -614,21 +636,51 @@ export function useTickets({
         const fullCatalog = options?.fullCatalog === true;
         const boardScope =
           fullCatalog || selectedBoardId === "all" ? undefined : selectedBoardId;
+        const scopeKey = boardScope === undefined ? "all" : `board:${boardScope}`;
+        const cached = archivedCacheRef.current.get(scopeKey);
+        const cacheIsValid =
+          cached &&
+          Date.now() - cached.fetchedAt < ARCHIVED_CACHE_TTL_MS &&
+          options?.forceRefresh !== true;
+
+        if (!append && cacheIsValid) {
+          setArchivedTickets(cached.items);
+          setArchivedHasMore(cached.page < cached.totalPages);
+          setApiUnavailable(false);
+          return;
+        }
+
+        const nextPage = append ? (cached?.page ?? 0) + 1 : 1;
+        if (append && cached && cached.page >= cached.totalPages) {
+          setArchivedHasMore(false);
+          return;
+        }
+
         const requestOptions: TicketListQueryOptions = {
-          unpaged: true,
+          page: nextPage,
+          pageSize: ARCHIVED_PAGE_SIZE,
           ...(boardScope !== undefined ? { boardId: boardScope } : {}),
         };
         const data = await ticketService.getArchived(token, requestOptions);
-        const items = data.items;
+        const mergedItems = append
+          ? [...(cached?.items ?? []), ...data.items]
+          : data.items;
+        const dedupedItems = Array.from(
+          new Map(mergedItems.map((ticket) => [ticket.id, ticket])).values(),
+        ).sort(
+          (left, right) =>
+            parseTicketTime(right.archivedDate) - parseTicketTime(left.archivedDate),
+        );
 
-        if (boardScope === undefined) {
-          setArchivedTickets(items);
-        } else {
-          setArchivedTickets((prev) => {
-            const others = prev.filter((ticket) => ticket.boardId !== boardScope);
-            return [...others, ...items];
-          });
-        }
+        archivedCacheRef.current.set(scopeKey, {
+          items: dedupedItems,
+          page: data.page,
+          totalPages: data.totalPages,
+          fetchedAt: Date.now(),
+        });
+
+        setArchivedTickets(dedupedItems);
+        setArchivedHasMore(data.page < data.totalPages);
         setApiUnavailable(false);
       } catch (error) {
         console.error("Failed to load archived tickets", error);
@@ -643,27 +695,58 @@ export function useTickets({
           setArchivedError("Failed to load archived tickets.");
         }
       } finally {
-        setArchivedLoading(false);
+        if (append) {
+          setArchivedLoadingMore(false);
+        } else {
+          setArchivedLoading(false);
+        }
       }
     },
-    [getApiToken, isForbiddenError, isLikelyNetworkError, selectedBoardId, setApiUnavailable],
+    [
+      getApiToken,
+      isForbiddenError,
+      isLikelyNetworkError,
+      selectedBoardId,
+      setApiUnavailable,
+    ],
   );
 
   useEffect(() => {
     const previous = previousSelectedBoardIdRef.current;
     previousSelectedBoardIdRef.current = selectedBoardId;
-    if (typeof previous === "number" && selectedBoardId === "all") {
+    if (previous !== selectedBoardId) {
       void loadArchivedTickets();
     }
   }, [loadArchivedTickets, selectedBoardId]);
 
   const archivedTicketsForView = useMemo(() => {
-    if (selectedBoardId === "all") {
-      return archivedTickets;
+    const boardScoped =
+      selectedBoardId === "all"
+        ? archivedTickets
+        : archivedTickets.filter((ticket) => ticket.boardId === selectedBoardId);
+
+    const search = normalize(debouncedArchivedSearchQuery);
+    if (!search) {
+      return boardScoped;
     }
 
-    return archivedTickets.filter((ticket) => ticket.boardId === selectedBoardId);
-  }, [archivedTickets, selectedBoardId]);
+    return boardScoped.filter((ticket) => {
+      const haystack = [
+        ticket.id,
+        ticket.title,
+        ticket.status,
+        ticket.priority,
+        ticket.boardName,
+        ticket.synitiOwner,
+        ticket.businessOwner,
+        ticket.archivedByDisplayName,
+        ticket.createdByDisplayName,
+      ]
+        .map((value) => normalize(String(value ?? "")))
+        .join(" ");
+      return haystack.includes(search);
+    });
+  }, [archivedTickets, debouncedArchivedSearchQuery, selectedBoardId]);
 
   useEffect(() => {
     if (!useServerDrivenPaging || !ticketsLoadedRef.current) {
@@ -1049,9 +1132,13 @@ export function useTickets({
     isModalOpen,
     setIsModalOpen,
     archivedTickets,
+    archivedSearchQuery,
+    setArchivedSearchQuery,
     archivedTicketsForView,
     setArchivedTickets,
     archivedLoading,
+    archivedLoadingMore,
+    archivedHasMore,
     archivedError,
     highlightedArchivedTicketId,
     setHighlightedArchivedTicketId,

@@ -21,6 +21,12 @@ public static class TicketRoutingRuleHandlers
         {
             var rule = new TicketRoutingRule
             {
+                BoardId = request.BoardId,
+                Priority = request.Priority,
+                RequesterDepartment = request.RequesterDepartment,
+                RequesterRole = request.RequesterRole,
+                RulePriority = request.RulePriority,
+                Weight = request.Weight,
                 Department = request.Department,
                 TitleContains = request.TitleContains,
                 SynitiOwner = request.SynitiOwner,
@@ -46,6 +52,12 @@ public static class TicketRoutingRuleHandlers
         {
             var rule = new TicketRoutingRule
             {
+                BoardId = request.BoardId,
+                Priority = request.Priority,
+                RequesterDepartment = request.RequesterDepartment,
+                RequesterRole = request.RequesterRole,
+                RulePriority = request.RulePriority,
+                Weight = request.Weight,
                 Department = request.Department,
                 TitleContains = request.TitleContains,
                 SynitiOwner = request.SynitiOwner,

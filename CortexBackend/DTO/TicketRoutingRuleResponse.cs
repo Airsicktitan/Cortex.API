@@ -3,6 +3,12 @@ namespace Cortex.API.DTO;
 public class TicketRoutingRuleResponse
 {
     public int Id { get; set; }
+    public string BoardId { get; set; } = string.Empty;
+    public string Priority { get; set; } = string.Empty;
+    public string RequesterDepartment { get; set; } = string.Empty;
+    public string RequesterRole { get; set; } = string.Empty;
+    public int RulePriority { get; set; }
+    public int Weight { get; set; }
     public string Department { get; set; } = string.Empty;
     public string TitleContains { get; set; } = string.Empty;
     public string SynitiOwner { get; set; } = string.Empty;

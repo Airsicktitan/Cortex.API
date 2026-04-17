@@ -17,6 +17,14 @@ public class CommentRepository(CortexDbContext context) : ICommentRepository
             .ToListAsync();
     }
 
+    public async Task<IEnumerable<ArchivedComment>> GetArchivedCommentsByTicketIdAsync(string ticketId)
+    {
+        return await _context.ArchivedComments
+            .Where(c => c.TicketId == ticketId)
+            .OrderBy(c => c.CreatedDate)
+            .ToListAsync();
+    }
+
     public async Task<Comment> CreateCommentAsync(Comment comment)
     {
         await _context.Comments.AddAsync(comment);

@@ -16,22 +16,22 @@ public static class UserEndpoints
             .WithTags("Users");
 
         users.MapGet("/", UserHandlers.GetUsers)
-            .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("GetUsers")
             .Produces<List<AdminUserResponse>>(StatusCodes.Status200OK);
 
         users.MapGet("/available-roles", UserHandlers.GetAvailableAuth0Roles)
-            .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("GetAvailableAuth0Roles")
             .Produces<List<Auth0RoleDto>>(StatusCodes.Status200OK);
 
         users.MapGet("/{id:int}/roles", UserHandlers.GetUserAuth0Roles)
-            .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("GetUserAuth0Roles")
             .Produces<UserAuth0RolesResponse>(StatusCodes.Status200OK);
 
         users.MapPost("/{id:int}/roles/mutation", UserHandlers.MutateUserAuth0Role)
-            .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("MutateUserAuth0Role")
             .Accepts<UserRoleMutationRequest>("application/json")
             .Produces<AdminUserResponse>(StatusCodes.Status200OK);
@@ -42,19 +42,19 @@ public static class UserEndpoints
             .Produces<List<OnlineUserResponse>>(StatusCodes.Status200OK);
 
         users.MapPost("/", UserHandlers.CreateUser)
-            .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("CreateUser")
             .Accepts<CreateUserRequest>("application/json")
             .Produces<AdminUserResponse>(StatusCodes.Status201Created);
 
         users.MapPut("/{id:int}", UserHandlers.UpdateUser)
-            .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("UpdateUser")
             .Accepts<AdminUpdateUserRequest>("application/json")
             .Produces<AdminUserResponse>(StatusCodes.Status200OK);
 
         users.MapDelete("/{id:int}", UserHandlers.DeleteUser)
-            .RequireAuthorization(CortexAuthorizationExtensions.AdminOnly)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("DeleteUser")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest)

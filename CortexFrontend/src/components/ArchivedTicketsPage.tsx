@@ -1,39 +1,63 @@
-import { useState } from "react";
+import { useCallback, useState, type UIEvent } from "react";
 import type { ArchivedTicket } from "../types/archivedTicket";
 import ArchivedTicketModal from "./ArchivedTicketModal";
 import { ArchivedTicketsSkeleton } from "./LoadingSkeletons";
+import {
+  formatDisplayDateTime,
+  formatDisplayValue,
+  formatTicketIdentifier,
+} from "../utils/presentation";
 
 interface ArchivedTicketsPageProps {
   tickets: ArchivedTicket[];
+  totalTickets: number;
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
   loading: boolean;
   error: string | null;
   highlightedTicketId?: string | null;
   onRefresh: () => void;
+  onLoadMore: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
   canReactivate: boolean;
   reactivatingTicketId: string | null;
   onReactivate: (ticket: ArchivedTicket) => Promise<void>;
 }
 
-function formatDateTime(value?: string) {
-  return value ? new Date(value).toLocaleString() : "—";
-}
-
-function formatValue(value?: string) {
-  return value && value.trim() ? value : "—";
-}
-
 export default function ArchivedTicketsPage({
   tickets,
+  totalTickets,
+  searchQuery,
+  onSearchQueryChange,
   loading,
   error,
   highlightedTicketId,
   onRefresh,
+  onLoadMore,
+  hasMore,
+  loadingMore,
   canReactivate,
   reactivatingTicketId,
   onReactivate,
 }: ArchivedTicketsPageProps) {
   const [selectedTicket, setSelectedTicket] = useState<ArchivedTicket | null>(
     null,
+  );
+
+  const handleContainerScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      if (!hasMore || loadingMore || loading) {
+        return;
+      }
+
+      const target = event.currentTarget;
+      const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+      if (remaining < 220) {
+        onLoadMore();
+      }
+    },
+    [hasMore, loading, loadingMore, onLoadMore],
   );
 
   if (loading) {
@@ -63,7 +87,7 @@ export default function ArchivedTicketsPage({
 
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 dark:text-slate-400">
-              {tickets.length} archived ticket{tickets.length === 1 ? "" : "s"}
+              {totalTickets} archived ticket{totalTickets === 1 ? "" : "s"}
             </span>
             <button
               onClick={onRefresh}
@@ -82,12 +106,24 @@ export default function ArchivedTicketsPage({
       )}
 
       <section className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-gray-100 px-4 py-3 dark:border-slate-800">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            placeholder="Search archived tickets"
+            className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          />
+        </div>
         {tickets.length === 0 ? (
           <div className="px-6 py-12 text-center text-gray-500 dark:text-slate-400">
             No archived tickets found.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="scroll-surface max-h-[70vh] overflow-auto"
+            onScroll={handleContainerScroll}
+          >
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-left text-gray-600 dark:bg-slate-800/80 dark:text-slate-300">
                 <tr>
@@ -122,19 +158,19 @@ export default function ArchivedTicketsPage({
                     <td className="px-4 py-3 align-top">
                       <div>
                         <p className="font-medium text-gray-900 dark:text-slate-100">
-                          {ticket.id}
+                          {formatTicketIdentifier(ticket.id)}
                         </p>
                         <p className="max-w-xs truncate text-gray-500 dark:text-slate-400">
                           {ticket.title}
                         </p>
                       </div>
                     </td>
-                    <td className="px-4 py-3 align-top">{formatValue(ticket.status)}</td>
-                    <td className="px-4 py-3 align-top">{formatValue(ticket.priority)}</td>
+                    <td className="px-4 py-3 align-top">{formatDisplayValue(ticket.status)}</td>
+                    <td className="px-4 py-3 align-top">{formatDisplayValue(ticket.priority)}</td>
                     <td className="px-4 py-3 align-top">
                       <div>
-                        <p>{formatValue(ticket.boardName)}</p>
-                        {ticket.storyPoints ? (
+                        <p>{formatDisplayValue(ticket.boardName)}</p>
+                        {ticket.storyPoints !== undefined && ticket.storyPoints !== null ? (
                           <p className="text-xs text-gray-500 dark:text-slate-400">
                             {ticket.storyPoints} story point
                             {ticket.storyPoints === 1 ? "" : "s"}
@@ -143,24 +179,24 @@ export default function ArchivedTicketsPage({
                       </div>
                     </td>
                     <td className="px-4 py-3 align-top">
-                      {formatValue(ticket.synitiOwner)}
+                      {formatDisplayValue(ticket.synitiOwner)}
                     </td>
                     <td className="px-4 py-3 align-top">
-                      {formatValue(ticket.businessOwner)}
+                      {formatDisplayValue(ticket.businessOwner)}
                     </td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
                       <div>
-                        <p>{formatDateTime(ticket.createdDate)}</p>
+                        <p>{formatDisplayDateTime(ticket.createdDate)}</p>
                         <p className="text-xs text-gray-500 dark:text-slate-400">
                           {ticket.createdByDisplayName}
                         </p>
                       </div>
                     </td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
-                      {formatDateTime(ticket.archivedDate)}
+                      {formatDisplayDateTime(ticket.archivedDate)}
                     </td>
                     <td className="px-4 py-3 align-top">
-                      {formatValue(ticket.archivedByDisplayName)}
+                      {formatDisplayValue(ticket.archivedByDisplayName)}
                     </td>
                     <td className="px-4 py-3 align-top">{ticket.commentCount}</td>
                     <td className="px-4 py-3 align-top">{ticket.attachmentCount}</td>
@@ -184,6 +220,11 @@ export default function ArchivedTicketsPage({
                 ))}
               </tbody>
             </table>
+            {loadingMore && (
+              <div className="sticky bottom-0 border-t border-gray-200 bg-white/95 px-4 py-3 text-center text-sm text-gray-500 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 dark:text-slate-300">
+                Loading more archived tickets...
+              </div>
+            )}
           </div>
         )}
       </section>

@@ -53,3 +53,15 @@ html.dark body {
   background: linear-gradient(135deg, #0f2429 0%, #17343a 100%);
   color: #e5e7eb;
 }
+
+/* Standard contained-surface scrolling without visible default scrollbars. */
+.scroll-surface {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+
+.scroll-surface::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

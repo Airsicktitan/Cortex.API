@@ -346,6 +346,44 @@ namespace Cortex.API.Migrations
                     b.ToTable("ReportDefinitions");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.RoleDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastModifiedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("PermissionsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("RoleDefinitions");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.ScheduledJob", b =>
                 {
                     b.Property<int>("Id")
@@ -741,6 +779,125 @@ namespace Cortex.API.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.TicketRoutingDecision", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChosenBusinessOwner")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ChosenSynitiOwner")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ConfidenceLevel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("CreatedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EngineVersion")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("ExplanationJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ExplanationText")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int?>("MatchedRuleId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NoMatchReason")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("OutcomeType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int>("PrecedenceScore")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("TieBreakKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MatchedRuleId");
+
+                    b.HasIndex("TicketId", "CreatedDateUtc");
+
+                    b.ToTable("TicketRoutingDecisions");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.TicketRoutingOverride", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("NewBusinessOwner")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NewSynitiOwner")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("OverriddenByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("OverrideReasonText")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("OverrideReasonType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("PreviousBusinessOwner")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PreviousSynitiOwner")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OverriddenByUserId");
+
+                    b.HasIndex("TicketId", "CreatedDateUtc");
+
+                    b.ToTable("TicketRoutingOverrides");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.TicketRoutingRule", b =>
                 {
                     b.Property<int>("Id")
@@ -748,6 +905,10 @@ namespace Cortex.API.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BoardId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("BusinessOwner")
                         .HasMaxLength(200)
@@ -766,6 +927,21 @@ namespace Cortex.API.Migrations
                     b.Property<DateTime?>("LastModifiedDateUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Priority")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("RequesterDepartment")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("RequesterRole")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<int>("RulePriority")
+                        .HasColumnType("int");
+
                     b.Property<string>("SynitiOwner")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
@@ -774,9 +950,20 @@ namespace Cortex.API.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("Weight")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
+                    b.HasIndex("BoardId");
+
                     b.HasIndex("Department");
+
+                    b.HasIndex("Priority");
+
+                    b.HasIndex("RequesterDepartment");
+
+                    b.HasIndex("RequesterRole");
 
                     b.HasIndex("TitleContains");
 
@@ -1123,6 +1310,39 @@ namespace Cortex.API.Migrations
                         .IsRequired();
 
                     b.Navigation("TicketAuditEntry");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.TicketRoutingDecision", b =>
+                {
+                    b.HasOne("Cortex.API.Models.TicketRoutingRule", "MatchedRule")
+                        .WithMany()
+                        .HasForeignKey("MatchedRuleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Cortex.API.Models.Ticket", null)
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MatchedRule");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.TicketRoutingOverride", b =>
+                {
+                    b.HasOne("Cortex.API.Models.User", "OverriddenByUser")
+                        .WithMany()
+                        .HasForeignKey("OverriddenByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Cortex.API.Models.Ticket", null)
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("OverriddenByUser");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.UserNotification", b =>

@@ -1,9 +1,21 @@
 import type { UserRecord } from "../types/user";
+import type { UIEvent } from "react";
 import { UsersSkeleton } from "./LoadingSkeletons";
 import { formatStoredPhoneNumber } from "../utils/phoneNumber";
+import {
+  formatDisplayDateTime,
+  formatDisplayValue,
+  humanizeEnumLabel,
+} from "../utils/presentation";
 
 interface UsersPageProps {
   users: UserRecord[];
+  totalUsers: number;
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
   loading: boolean;
   error: string | null;
   canCreate: boolean;
@@ -15,18 +27,6 @@ interface UsersPageProps {
   onCreate: () => void;
   onEdit: (user: UserRecord) => void;
   onDelete: (user: UserRecord) => void;
-}
-
-function formatDate(value?: string) {
-  return value ? new Date(value).toLocaleString() : "—";
-}
-
-function formatDateOnly(value?: string) {
-  return value ? new Date(value).toLocaleDateString() : "—";
-}
-
-function formatValue(value?: string) {
-  return value && value.trim() ? value : "—";
 }
 
 function formatRolesDisplay(user: UserRecord) {
@@ -48,7 +48,7 @@ function formatRolesDisplay(user: UserRecord) {
           key={r}
           className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300"
         >
-          {r}
+          {humanizeEnumLabel(r)}
         </span>
       ))}
     </div>
@@ -57,6 +57,12 @@ function formatRolesDisplay(user: UserRecord) {
 
 export default function UsersPage({
   users,
+  totalUsers,
+  searchQuery,
+  onSearchQueryChange,
+  hasMore,
+  loadingMore,
+  onLoadMore,
   loading,
   error,
   canCreate,
@@ -69,6 +75,15 @@ export default function UsersPage({
   onEdit,
   onDelete,
 }: UsersPageProps) {
+  const handleContainerScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (!hasMore || loadingMore || loading) return;
+    const target = event.currentTarget;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining < 220) {
+      onLoadMore();
+    }
+  };
+
   if (loading) {
     return <UsersSkeleton />;
   }
@@ -89,7 +104,7 @@ export default function UsersPage({
 
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 dark:text-slate-400">
-              {users.length} user{users.length === 1 ? "" : "s"}
+              {totalUsers} user{totalUsers === 1 ? "" : "s"}
             </span>
             {canCreate && (
               <button
@@ -116,12 +131,24 @@ export default function UsersPage({
       )}
 
       <section className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 overflow-hidden">
+        <div className="border-b border-gray-100 px-4 py-3 dark:border-slate-800">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            placeholder="Search users"
+            className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          />
+        </div>
         {users.length === 0 ? (
           <div className="px-6 py-12 text-center text-gray-500 dark:text-slate-400">
             No users found.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            className="scroll-surface max-h-[70vh] overflow-auto"
+            onScroll={handleContainerScroll}
+          >
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 dark:bg-slate-800/80 text-left text-gray-600 dark:text-slate-300">
                 <tr>
@@ -148,17 +175,17 @@ export default function UsersPage({
                     className="border-t border-gray-100 dark:border-slate-800 text-gray-700 dark:text-slate-200"
                   >
                     <td className="px-4 py-3 align-top font-medium text-gray-900 dark:text-slate-100">
-                      {formatValue(user.displayName)}
+                      {formatDisplayValue(user.displayName)}
                     </td>
                     <td className="px-4 py-3 align-top">
-                      {formatValue(user.nickName)}
+                      {formatDisplayValue(user.nickName)}
                     </td>
-                    <td className="px-4 py-3 align-top">{formatValue(user.email)}</td>
+                    <td className="px-4 py-3 align-top">{formatDisplayValue(user.email)}</td>
                     <td className="px-4 py-3 align-top">
                       {formatStoredPhoneNumber(user.phoneNumber)}
                     </td>
                     <td className="px-4 py-3 align-top">
-                      {formatValue(user.department)}
+                      {formatDisplayValue(user.department)}
                     </td>
                     <td className="px-4 py-3 align-top">{formatRolesDisplay(user)}</td>
                     <td className="px-4 py-3 align-top">
@@ -173,16 +200,16 @@ export default function UsersPage({
                       </span>
                     </td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
-                      {formatDateOnly(user.createdDate)}
+                      {formatDisplayDateTime(user.createdDate)}
                     </td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
-                      {formatDateOnly(user.lastLoginDate)}
+                      {formatDisplayDateTime(user.lastLoginDate)}
                     </td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
-                      {formatDate(user.expiryDate)}
+                      {formatDisplayDateTime(user.expiryDate)}
                     </td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
-                      {formatDate(user.lastModifiedDate)}
+                      {formatDisplayDateTime(user.lastModifiedDate)}
                     </td>
                     {(canEdit || canDelete) && (
                       <td className="px-4 py-3 align-top">
@@ -213,6 +240,11 @@ export default function UsersPage({
                 ))}
               </tbody>
             </table>
+            {loadingMore && (
+              <div className="sticky bottom-0 border-t border-gray-200 bg-white/95 px-4 py-3 text-center text-sm text-gray-500 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 dark:text-slate-300">
+                Loading more users...
+              </div>
+            )}
           </div>
         )}
       </section>

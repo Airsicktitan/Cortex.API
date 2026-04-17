@@ -35,6 +35,34 @@ public static class TicketAttachmentHandlers
         return Results.Ok(attachments.Select(attachment => attachment.ToResponse(mappingContext)));
     }
 
+    public static async Task<IResult> GetArchivedAttachments(
+        string ticketId,
+        ITicketRepository ticketRepository,
+        ITicketAttachmentRepository attachmentRepository,
+        ITicketVisibilityService ticketVisibilityService,
+        IResponseMappingContextFactory mappingContextFactory)
+    {
+        var archivedTicket = await ticketRepository.GetArchivedTicketByIdAsync(ticketId);
+        if (archivedTicket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(
+                archivedTicket.CreatedBy,
+                archivedTicket.SynitiOwner,
+                archivedTicket.BusinessOwner))
+        {
+            return Results.NotFound();
+        }
+
+        var attachments = (await attachmentRepository.GetArchivedByTicketIdAsync(ticketId)).ToList();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            attachments.Select(attachment => attachment.UploadedBy));
+        return Results.Ok(attachments.Select(attachment => attachment.ToResponse(mappingContext)));
+    }
+
     public static async Task<IResult> UploadAttachments(
         string ticketId,
         HttpRequest request,
@@ -152,6 +180,41 @@ public static class TicketAttachmentHandlers
         }
 
         var attachment = await attachmentRepository.GetByIdAsync(attachmentId);
+        if (attachment is null || !string.Equals(attachment.TicketId, ticketId, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.NotFound();
+        }
+
+        return Results.File(
+            attachment.Content,
+            attachment.ContentType,
+            attachment.FileName,
+            enableRangeProcessing: true);
+    }
+
+    public static async Task<IResult> DownloadArchivedAttachment(
+        string ticketId,
+        int attachmentId,
+        ITicketRepository ticketRepository,
+        ITicketAttachmentRepository attachmentRepository,
+        ITicketVisibilityService ticketVisibilityService)
+    {
+        var archivedTicket = await ticketRepository.GetArchivedTicketByIdAsync(ticketId);
+        if (archivedTicket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(
+                archivedTicket.CreatedBy,
+                archivedTicket.SynitiOwner,
+                archivedTicket.BusinessOwner))
+        {
+            return Results.NotFound();
+        }
+
+        var attachment = await attachmentRepository.GetArchivedByIdAsync(attachmentId);
         if (attachment is null || !string.Equals(attachment.TicketId, ticketId, StringComparison.OrdinalIgnoreCase))
         {
             return Results.NotFound();

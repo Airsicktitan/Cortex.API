@@ -93,7 +93,7 @@ export default function NotificationPanel({
           No notifications yet.
         </div>
       ) : (
-        <div className="max-h-[26rem] overflow-y-auto bg-white dark:bg-slate-900">
+        <div className="scroll-surface max-h-[26rem] overflow-y-auto bg-white dark:bg-slate-900">
           <div className="divide-y divide-gray-100 dark:divide-slate-800">
             {notifications.map((notification) => (
               <button

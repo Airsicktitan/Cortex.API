@@ -24,6 +24,10 @@ import type { ScheduledJob, UpsertScheduledJobInput } from "../types/scheduledJo
 import type { SessionConfiguration } from "../types/sessionConfiguration";
 import type { SlaConfiguration } from "../types/sla";
 import type {
+  RoleDefinition,
+  UpsertRoleDefinitionInput,
+} from "../types/roleDefinition";
+import type {
   TicketBoardDefinition,
   UpsertTicketBoardDefinitionInput,
 } from "../types/ticketBoard";
@@ -58,6 +62,7 @@ import { storedProcedureService } from "../services/storedProcedureService";
 import { ticketBoardService } from "../services/ticketBoardService";
 import { ticketRoutingService } from "../services/ticketRoutingService";
 import { ticketStatusService } from "../services/ticketStatusService";
+import { roleDefinitionService } from "../services/roleDefinitionService";
 import toast from "react-hot-toast";
 
 // ── Pure helpers (duplicated from App.tsx to avoid coupling) ─────────────────
@@ -85,9 +90,9 @@ function sortTicketStatuses(
 function sortTicketRoutingRules(rules: TicketRoutingRule[]): TicketRoutingRule[] {
   return [...rules].sort((left, right) => {
     const leftKey =
-      `${left.titleContains}|${left.department}|${left.synitiOwner}|${left.businessOwner}`.toLowerCase();
+      `${left.rulePriority}|${left.weight}|${left.boardId}|${left.priority}|${left.requesterDepartment}|${left.requesterRole}|${left.titleContains}|${left.department}|${left.synitiOwner}|${left.businessOwner}`.toLowerCase();
     const rightKey =
-      `${right.titleContains}|${right.department}|${right.synitiOwner}|${right.businessOwner}`.toLowerCase();
+      `${right.rulePriority}|${right.weight}|${right.boardId}|${right.priority}|${right.requesterDepartment}|${right.requesterRole}|${right.titleContains}|${right.department}|${right.synitiOwner}|${right.businessOwner}`.toLowerCase();
     const keyComparison = leftKey.localeCompare(rightKey);
     return keyComparison !== 0 ? keyComparison : left.id - right.id;
   });
@@ -104,6 +109,21 @@ function sortArchiveConfigurations(
   });
 }
 
+function sortRoleDefinitions(definitions: RoleDefinition[]): RoleDefinition[] {
+  return [...definitions].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function createDraftRoleDefinition(): RoleDefinition {
+  return {
+    id: 0,
+    name: "",
+    description: "",
+    permissions: [],
+    isEnabled: true,
+    createdDateUtc: "",
+  };
+}
+
 function getDefaultArchiveEligibleStatuses(
   statuses: TicketStatusDefinition[],
 ): string[] {
@@ -115,6 +135,12 @@ function getDefaultArchiveEligibleStatuses(
 function createDraftTicketRoutingRule(): TicketRoutingRule {
   return {
     id: 0,
+    boardId: "",
+    priority: "",
+    requesterDepartment: "",
+    requesterRole: "",
+    rulePriority: 0,
+    weight: 0,
     department: "",
     titleContains: "",
     synitiOwner: "",
@@ -227,6 +253,18 @@ export function useConfiguration({
     number | null
   >(null);
   const [ticketRoutingError, setTicketRoutingError] = useState<string | null>(null);
+
+  // ── Role definitions ───────────────────────────────────────────────────────
+  const [roleDefinitions, setRoleDefinitions] = useState<RoleDefinition[]>([]);
+  const [selectedRoleDefinition, setSelectedRoleDefinition] =
+    useState<RoleDefinition | null>(null);
+  const [rolePermissionOptions, setRolePermissionOptions] = useState<string[]>([]);
+  const [roleDefinitionLoading, setRoleDefinitionLoading] = useState(false);
+  const [roleDefinitionSaving, setRoleDefinitionSaving] = useState(false);
+  const [roleDefinitionDeletingId, setRoleDefinitionDeletingId] = useState<number | null>(
+    null,
+  );
+  const [roleDefinitionError, setRoleDefinitionError] = useState<string | null>(null);
 
   // ── Archive configuration ─────────────────────────────────────────────────
   const [archiveConfigurations, setArchiveConfigurations] = useState<
@@ -469,6 +507,48 @@ export function useConfiguration({
         }
       } finally {
         setTicketRoutingLoading(false);
+      }
+    },
+    [getApiToken, setApiUnavailable],
+  );
+
+  const loadRoleDefinitions = useCallback(
+    async (providedToken?: string) => {
+      setRoleDefinitionLoading(true);
+      setRoleDefinitionError(null);
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const [roles, permissions] = await Promise.all([
+          roleDefinitionService.getAll(token),
+          roleDefinitionService.getPermissions(token),
+        ]);
+        const sorted = sortRoleDefinitions(roles);
+        setRoleDefinitions(sorted);
+        setRolePermissionOptions(permissions);
+        setSelectedRoleDefinition((currentRole) => {
+          if (currentRole?.id === 0) return currentRole;
+          if (currentRole) {
+            const matching = sorted.find((role) => role.id === currentRole.id);
+            if (matching) return matching;
+          }
+          return sorted[0] ?? null;
+        });
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to load role definitions", error);
+        if (isForbiddenError(error)) {
+          setApiUnavailable(false);
+          setRoleDefinitionError(
+            "You do not have permission to manage role definitions.",
+          );
+        } else if (isLikelyNetworkError(error)) {
+          setApiUnavailable(true);
+        } else {
+          setApiUnavailable(false);
+          setRoleDefinitionError("Failed to load role definitions.");
+        }
+      } finally {
+        setRoleDefinitionLoading(false);
       }
     },
     [getApiToken, setApiUnavailable],
@@ -1152,8 +1232,15 @@ export function useConfiguration({
       setTicketRoutingSaving(true);
       setTicketRoutingError(null);
       const payload: UpsertTicketRoutingRuleInput = {
-        department: selectedTicketRoutingRule.department.trim() || undefined,
-        titleContains: selectedTicketRoutingRule.titleContains.trim() || undefined,
+        boardId: selectedTicketRoutingRule.boardId.trim() || undefined,
+        priority: selectedTicketRoutingRule.priority.trim() || undefined,
+        requesterDepartment:
+          selectedTicketRoutingRule.requesterDepartment.trim() || undefined,
+        requesterRole: selectedTicketRoutingRule.requesterRole.trim() || undefined,
+        rulePriority: Number(selectedTicketRoutingRule.rulePriority) || 0,
+        weight: Number(selectedTicketRoutingRule.weight) || 0,
+        department: undefined,
+        titleContains: undefined,
         synitiOwner: selectedTicketRoutingRule.synitiOwner.trim() || undefined,
         businessOwner: selectedTicketRoutingRule.businessOwner.trim() || undefined,
         isEnabled: selectedTicketRoutingRule.isEnabled,
@@ -1194,7 +1281,7 @@ export function useConfiguration({
   const deleteTicketRoutingRule = useCallback(async () => {
     if (!selectedTicketRoutingRule || selectedTicketRoutingRule.id === 0) return;
     const confirmed = window.confirm(
-      `Delete the routing rule for ${selectedTicketRoutingRule.department}?`,
+      `Delete routing rule #${selectedTicketRoutingRule.id}?`,
     );
     if (!confirmed) return;
     try {
@@ -1224,6 +1311,106 @@ export function useConfiguration({
       setDeletingTicketRoutingRuleId(null);
     }
   }, [getApiToken, selectedTicketRoutingRule, ticketRoutingRules]);
+
+  // ── Role definition handlers ───────────────────────────────────────────────
+
+  const handleRoleDefinitionChange = useCallback(
+    <K extends keyof RoleDefinition>(field: K, value: RoleDefinition[K]) => {
+      setSelectedRoleDefinition((currentRole) =>
+        currentRole ? { ...currentRole, [field]: value } : currentRole,
+      );
+    },
+    [],
+  );
+
+  const createRoleDefinition = useCallback(() => {
+    setRoleDefinitionError(null);
+    setSelectedRoleDefinition(createDraftRoleDefinition());
+  }, []);
+
+  const selectRoleDefinition = useCallback(
+    (id: number) => {
+      const selectedRole = roleDefinitions.find((role) => role.id === id);
+      if (!selectedRole) return;
+      setRoleDefinitionError(null);
+      setSelectedRoleDefinition(selectedRole);
+    },
+    [roleDefinitions],
+  );
+
+  const saveRoleDefinition = useCallback(async () => {
+    if (!selectedRoleDefinition) return;
+    try {
+      setRoleDefinitionSaving(true);
+      setRoleDefinitionError(null);
+      const payload: UpsertRoleDefinitionInput = {
+        name: selectedRoleDefinition.name.trim(),
+        description: selectedRoleDefinition.description?.trim() || undefined,
+        permissions: selectedRoleDefinition.permissions,
+        isEnabled: selectedRoleDefinition.isEnabled,
+      };
+      const token = await getApiToken();
+      const isNewRole = selectedRoleDefinition.id === 0;
+      const savedRole = isNewRole
+        ? await roleDefinitionService.create(payload, token)
+        : await roleDefinitionService.update(selectedRoleDefinition.id, payload, token);
+
+      setRoleDefinitions((current) =>
+        sortRoleDefinitions(
+          isNewRole
+            ? [...current, savedRole]
+            : current.map((role) => (role.id === savedRole.id ? savedRole : role)),
+        ),
+      );
+      setSelectedRoleDefinition(savedRole);
+      toast.success(isNewRole ? "Role created" : "Role updated");
+    } catch (error) {
+      console.error("Failed to save role definition", error);
+      setRoleDefinitionError(
+        getUserFacingErrorMessage(error, "Failed to save role definition."),
+      );
+      toast.error("Failed to save role");
+      throw error;
+    } finally {
+      setRoleDefinitionSaving(false);
+    }
+  }, [getApiToken, selectedRoleDefinition]);
+
+  const deleteRoleDefinition = useCallback(async () => {
+    if (!selectedRoleDefinition || selectedRoleDefinition.id === 0) return;
+    const confirmed = window.confirm(
+      `Delete role "${selectedRoleDefinition.name}"?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setRoleDefinitionDeletingId(selectedRoleDefinition.id);
+      setRoleDefinitionError(null);
+      const token = await getApiToken();
+      await roleDefinitionService.delete(selectedRoleDefinition.id, token);
+
+      setRoleDefinitions((current) =>
+        current.filter((role) => role.id !== selectedRoleDefinition.id),
+      );
+      setSelectedRoleDefinition((currentRole) => {
+        if (currentRole?.id !== selectedRoleDefinition.id) return currentRole;
+        const remaining = roleDefinitions.filter(
+          (role) => role.id !== selectedRoleDefinition.id,
+        );
+        return remaining[0] ?? null;
+      });
+      toast.success("Role deleted");
+    } catch (error) {
+      console.error("Failed to delete role definition", error);
+      setRoleDefinitionError(
+        getUserFacingErrorMessage(error, "Failed to delete role definition."),
+      );
+      toast.error("Failed to delete role");
+      throw error;
+    } finally {
+      setRoleDefinitionDeletingId(null);
+    }
+  }, [getApiToken, roleDefinitions, selectedRoleDefinition]);
 
   // ── Archive configuration handlers ────────────────────────────────────────
 
@@ -1732,6 +1919,20 @@ export function useConfiguration({
     selectTicketRoutingRule,
     saveTicketRoutingRule,
     deleteTicketRoutingRule,
+    // Role definitions
+    roleDefinitions,
+    selectedRoleDefinition,
+    rolePermissionOptions,
+    roleDefinitionLoading,
+    roleDefinitionSaving,
+    roleDefinitionDeletingId,
+    roleDefinitionError,
+    loadRoleDefinitions,
+    handleRoleDefinitionChange,
+    createRoleDefinition,
+    selectRoleDefinition,
+    saveRoleDefinition,
+    deleteRoleDefinition,
     // Archive configuration
     archiveConfigurations,
     archiveConfiguration,

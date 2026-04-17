@@ -32,6 +32,34 @@ public static class CommentHandlers
         return Results.Ok(results.Select(comment => comment.ToResponse(mappingContext)));
     }
 
+    public static async Task<IResult> GetArchivedComment(
+        string ticketId,
+        ITicketRepository ticketRepo,
+        ITicketVisibilityService ticketVisibilityService,
+        ICommentRepository repo,
+        IResponseMappingContextFactory mappingContextFactory)
+    {
+        var archivedTicket = await ticketRepo.GetArchivedTicketByIdAsync(ticketId);
+        if (archivedTicket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(
+                archivedTicket.CreatedBy,
+                archivedTicket.SynitiOwner,
+                archivedTicket.BusinessOwner))
+        {
+            return Results.NotFound();
+        }
+
+        var results = (await repo.GetArchivedCommentsByTicketIdAsync(ticketId)).ToList();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            results.Select(comment => comment.CreatedBy));
+        return Results.Ok(results.Select(comment => comment.ToResponse(mappingContext)));
+    }
+
     public static async Task<IResult> CreateComment(
         string ticketId,
         CreateCommentRequest request,

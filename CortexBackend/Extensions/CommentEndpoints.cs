@@ -25,6 +25,14 @@ public static class CommentEndpoints
             .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
             .WithName("SignalCommentTyping")
             .Produces(StatusCodes.Status202Accepted);
+
+        var archivedComments = app.MapGroup("/api/tickets/archived/{ticketId}/comments")
+            .RequireAuthorization()
+            .WithTags("Comments");
+
+        archivedComments.MapGet("/", CommentHandlers.GetArchivedComment)
+            .WithName("GetAllArchivedComments")
+            .Produces<List<Comment>>(StatusCodes.Status200OK);
     }
 
     public record CreateCommentRequest(string Body, string? CreatedBy);

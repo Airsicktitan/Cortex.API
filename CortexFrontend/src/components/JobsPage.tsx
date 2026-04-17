@@ -1,35 +1,16 @@
-import { useMemo, useState } from "react";
-import type {
-  ScheduledJob,
-  ScheduledJobType,
-  UpsertScheduledJobInput,
-} from "../types/scheduledJob";
-import type { StoredProcedureDefinition } from "../types/storedProcedure";
+import { useMemo } from "react";
+import type { ScheduledJob } from "../types/scheduledJob";
+import { formatDisplayDateTime, formatDisplayValue } from "../utils/presentation";
 
 interface JobsPageProps {
   jobs: ScheduledJob[];
-  storedProcedures: StoredProcedureDefinition[];
   loading: boolean;
   error: string | null;
-  saving: boolean;
   runningJobId: number | null;
+  canViewSensitiveDetails: boolean;
+  canRetryNow: boolean;
   onRefresh: () => void;
-  onCreate: (job: UpsertScheduledJobInput) => Promise<void>;
-  onUpdate: (id: number, job: UpsertScheduledJobInput) => Promise<void>;
   onRunNow: (id: number) => Promise<void>;
-}
-
-const EMPTY_DRAFT: UpsertScheduledJobInput = {
-  name: "",
-  description: "",
-  jobType: "ArchiveEligibleTickets",
-  intervalMinutes: 60,
-  isEnabled: true,
-  storedProcedureDefinitionId: undefined,
-};
-
-function formatDateTime(value?: string) {
-  return value ? new Date(value).toLocaleString() : "—";
 }
 
 function formatInterval(intervalMinutes: number) {
@@ -136,18 +117,14 @@ function getFailureGuidance(job: ScheduledJob) {
 
 export default function JobsPage({
   jobs,
-  storedProcedures,
   loading,
   error,
-  saving,
   runningJobId,
+  canViewSensitiveDetails,
+  canRetryNow,
   onRefresh,
-  onCreate,
-  onUpdate,
   onRunNow,
 }: JobsPageProps) {
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [draft, setDraft] = useState<UpsertScheduledJobInput>(EMPTY_DRAFT);
   const failedJobs = useMemo(
     () =>
       jobs
@@ -165,97 +142,16 @@ export default function JobsPage({
     [jobs],
   );
 
-  const selectableStoredProcedures = useMemo(() => {
-    const selectedDefinition = storedProcedures.find(
-      (definition) => definition.id === draft.storedProcedureDefinitionId,
-    );
-
-    if (
-      selectedDefinition &&
-      !selectedDefinition.isEnabled &&
-      !storedProcedures.some(
-        (definition) =>
-          definition.id === selectedDefinition.id && definition.isEnabled,
-      )
-    ) {
-      return [selectedDefinition, ...storedProcedures.filter(
-        (definition) => definition.id !== selectedDefinition.id,
-      )];
-    }
-
-    return storedProcedures;
-  }, [draft.storedProcedureDefinitionId, storedProcedures]);
-
-  const saveLabel = useMemo(() => {
-    if (saving) {
-      return editingId ? "Saving..." : "Creating...";
-    }
-
-    return editingId ? "Save Job" : "Create Job";
-  }, [editingId, saving]);
-
-  const resetForm = () => {
-    setEditingId(null);
-    setDraft(EMPTY_DRAFT);
-  };
-
-  const startEdit = (job: ScheduledJob) => {
-    setEditingId(job.id);
-    setDraft({
-      name: job.name,
-      description: job.description ?? "",
-      jobType: job.jobType,
-      intervalMinutes: job.intervalMinutes,
-      isEnabled: job.isEnabled,
-      storedProcedureDefinitionId: job.storedProcedureDefinitionId,
-    });
-  };
-
-  const saveJob = async () => {
-    if (!draft.name.trim() || draft.intervalMinutes <= 0) {
-      return;
-    }
-
-    if (
-      draft.jobType === "RunStoredProcedure" &&
-      !draft.storedProcedureDefinitionId
-    ) {
-      return;
-    }
-
-    const payload: UpsertScheduledJobInput = {
-      ...draft,
-      name: draft.name.trim(),
-      description: draft.description?.trim() || undefined,
-      storedProcedureDefinitionId:
-        draft.jobType === "RunStoredProcedure"
-          ? draft.storedProcedureDefinitionId
-          : undefined,
-    };
-
-    if (editingId) {
-      await onUpdate(editingId, payload);
-    } else {
-      await onCreate(payload);
-    }
-
-    resetForm();
-  };
-
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
-              Jobs
+              Job Activity
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-              Create and manage the automated jobs that keep CORTEX running in the background.
-            </p>
-            <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-              Archive jobs use your archive policy. If you want browser tabs to auto-refresh,
-              that should be a separate UI polling feature rather than a backend scheduled job.
+              Monitor system automation activity. Job configuration is managed in Admin Configuration.
             </p>
           </div>
 
@@ -316,17 +212,11 @@ export default function JobsPage({
                       </div>
                       <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
                         {getJobTypeLabel(job)} · Last failed{" "}
-                        {formatDateTime(job.lastRunDateUtc)}
+                        {formatDisplayDateTime(job.lastRunDateUtc)}
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => startEdit(job)}
-                        className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                      >
-                        Edit Job
-                      </button>
+                    {canRetryNow && (
                       <button
                         onClick={() => void onRunNow(job.id)}
                         disabled={runningJobId === job.id}
@@ -334,7 +224,7 @@ export default function JobsPage({
                       >
                         {runningJobId === job.id ? "Running..." : "Retry Now"}
                       </button>
-                    </div>
+                    )}
                   </div>
 
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -345,9 +235,11 @@ export default function JobsPage({
                       <p className="mt-2 text-sm text-red-900 dark:text-red-100">
                         {guidance.whatWentWrong}
                       </p>
-                      <p className="mt-3 text-xs text-red-800/80 dark:text-red-200/80">
-                        Raw error: {job.lastRunMessage || "No failure message was captured."}
-                      </p>
+                      {canViewSensitiveDetails && (
+                        <p className="mt-3 text-xs text-red-800/80 dark:text-red-200/80">
+                          Raw error: {formatDisplayValue(job.lastRunMessage)}
+                        </p>
+                      )}
                     </div>
 
                     <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/30">
@@ -366,8 +258,7 @@ export default function JobsPage({
         </section>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
-        <section className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <section className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
           {loading ? (
             <div className="px-6 py-12 text-center text-gray-500 dark:text-slate-400">
               Loading jobs...
@@ -385,7 +276,9 @@ export default function JobsPage({
                     <th className="px-4 py-3 font-medium">Schedule</th>
                     <th className="px-4 py-3 font-medium">Next Run</th>
                     <th className="px-4 py-3 font-medium">Last Result</th>
-                    <th className="px-4 py-3 font-medium">Run As</th>
+                    {canViewSensitiveDetails && (
+                      <th className="px-4 py-3 font-medium">Run As</th>
+                    )}
                     <th className="px-4 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -425,7 +318,7 @@ export default function JobsPage({
                         Every {formatInterval(job.intervalMinutes)}
                       </td>
                       <td className="px-4 py-3 align-top whitespace-nowrap">
-                        {formatDateTime(job.nextRunDateUtc)}
+                        {formatDisplayDateTime(job.nextRunDateUtc)}
                       </td>
                       <td className="px-4 py-3 align-top">
                         <span
@@ -434,32 +327,35 @@ export default function JobsPage({
                           {job.lastRunStatus || "Never run"}
                         </span>
                         <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                          {formatDateTime(job.lastRunDateUtc)}
+                          {formatDisplayDateTime(job.lastRunDateUtc)}
                         </p>
-                        {job.lastRunMessage && (
+                        {canViewSensitiveDetails && job.lastRunMessage && (
                           <p className="mt-1 max-w-xs text-xs text-gray-500 dark:text-slate-400">
                             {job.lastRunMessage}
                           </p>
                         )}
                       </td>
-                      <td className="px-4 py-3 align-top whitespace-nowrap">
-                        {job.runAsDisplayName}
-                      </td>
+                      {canViewSensitiveDetails && (
+                        <td className="px-4 py-3 align-top whitespace-nowrap">
+                          {job.runAsDisplayName}
+                        </td>
+                      )}
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-col gap-2">
-                          <button
-                            onClick={() => startEdit(job)}
-                            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                          >
-                            Edit
-                          </button>
-                          <button
+                          {canRetryNow && (
+                            <button
                             onClick={() => void onRunNow(job.id)}
                             disabled={runningJobId === job.id}
                             className="rounded-md bg-cortex-blue px-3 py-2 text-sm text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
                           >
                             {runningJobId === job.id ? "Running..." : "Run Now"}
-                          </button>
+                            </button>
+                          )}
+                          {!canRetryNow && (
+                            <span className="text-xs text-gray-500 dark:text-slate-400">
+                              Monitoring only
+                            </span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -469,175 +365,6 @@ export default function JobsPage({
             </div>
           )}
         </section>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-                {editingId ? "Edit Job" : "Create Job"}
-              </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Jobs run on a repeating interval and store their last result.
-              </p>
-            </div>
-
-            <button
-              onClick={resetForm}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              Clear
-            </button>
-          </div>
-
-          <div className="mt-6 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                Job name
-              </label>
-              <input
-                type="text"
-                value={draft.name}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, name: event.target.value }))
-                }
-                className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                placeholder="Nightly archive job"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                Description
-              </label>
-              <textarea
-                value={draft.description ?? ""}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-                rows={3}
-                className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                placeholder="Optional details for other admins."
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Job type
-                </label>
-                <select
-                  value={draft.jobType}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      jobType: event.target.value as ScheduledJobType,
-                      storedProcedureDefinitionId:
-                        event.target.value === "RunStoredProcedure"
-                          ? current.storedProcedureDefinitionId
-                          : undefined,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                >
-                  <option value="ArchiveEligibleTickets">
-                    Archive Eligible Tickets
-                  </option>
-                  <option value="RunStoredProcedure">Run Stored Procedure</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Interval (minutes)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={draft.intervalMinutes}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      intervalMinutes: Number(event.target.value),
-                    }))
-                  }
-                  className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                />
-              </div>
-            </div>
-
-            {draft.jobType === "RunStoredProcedure" && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Stored procedure
-                </label>
-                <select
-                  value={draft.storedProcedureDefinitionId ?? ""}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      storedProcedureDefinitionId: event.target.value
-                        ? Number(event.target.value)
-                        : undefined,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                >
-                  <option value="">Select a stored procedure</option>
-                  {selectableStoredProcedures.map((definition) => (
-                    <option key={definition.id} value={definition.id}>
-                      {definition.name}
-                      {definition.isEnabled ? "" : " (Disabled)"}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                  Stored procedures are managed from the Configuration page.
-                </p>
-              </div>
-            )}
-
-            <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-950/40">
-              <input
-                type="checkbox"
-                checked={draft.isEnabled}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    isEnabled: event.target.checked,
-                  }))
-                }
-                className="mt-1 h-4 w-4"
-              />
-              <span>
-                <span className="block font-medium text-gray-900 dark:text-slate-100">
-                  Enabled
-                </span>
-                <span className="text-sm text-gray-500 dark:text-slate-400">
-                  Disabled jobs stay saved but won’t be executed by the scheduler.
-                </span>
-              </span>
-            </label>
-
-            <button
-              onClick={() => void saveJob()}
-              disabled={
-                saving ||
-                !draft.name.trim() ||
-                draft.intervalMinutes <= 0 ||
-                (draft.jobType === "RunStoredProcedure" &&
-                  !draft.storedProcedureDefinitionId)
-              }
-              className="w-full rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
-            >
-              {saveLabel}
-            </button>
-          </div>
-        </section>
-      </div>
     </div>
   );
 }

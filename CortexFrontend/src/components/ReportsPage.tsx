@@ -13,6 +13,11 @@ import {
   getSlaDisplayLabel,
   mapBackendSlaStatusToDisplayLabel,
 } from "../utils/ticketSla";
+import {
+  formatDisplayDateTime,
+  formatDisplayValue,
+  humanizeEnumLabel,
+} from "../utils/presentation";
 
 type ReportSection = "sla" | "online-users" | "custom";
 
@@ -67,12 +72,13 @@ function formatPercentage(count: number, total: number) {
   return `${Math.round((count / total) * 100)}%`;
 }
 
-function formatDateTime(value?: string) {
-  return value ? new Date(value).toLocaleString() : "—";
-}
-
 function getOwnerLabel(ticket: Ticket) {
-  return ticket.synitiOwner || ticket.businessOwner || "Unassigned";
+  const synitiOwner = formatDisplayValue(ticket.synitiOwner);
+  if (synitiOwner !== "—") {
+    return synitiOwner;
+  }
+
+  return formatDisplayValue(ticket.businessOwner);
 }
 
 function sortByUrgency(tickets: Ticket[]) {
@@ -161,7 +167,7 @@ function RiskTable({
                     </div>
                   </td>
                   <td className="px-4 py-3 align-top whitespace-nowrap">
-                    {formatDateTime(ticket.slaTargetDate)}
+                    {formatDisplayDateTime(ticket.slaTargetDate)}
                   </td>
                 </tr>
               ))}
@@ -187,8 +193,8 @@ function OnlineUsersReport({
   ).length;
   const departmentsRepresented = new Set(
     users
-      .map((user) => user.department?.trim())
-      .filter((department): department is string => Boolean(department)),
+      .map((user) => formatDisplayValue(user.department))
+      .filter((department): department is string => department !== "—"),
   ).size;
 
   return error ? (
@@ -296,16 +302,16 @@ function OnlineUsersReport({
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 align-top">{user.role}</td>
+                    <td className="px-4 py-3 align-top">{humanizeEnumLabel(user.role)}</td>
                     <td className="px-4 py-3 align-top">
-                      {user.department?.trim() || "—"}
+                      {formatDisplayValue(user.department)}
                     </td>
                     <td className="px-4 py-3 align-top">{user.email}</td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
-                      {formatDateTime(user.lastSeenDateUtc)}
+                      {formatDisplayDateTime(user.lastSeenDateUtc)}
                     </td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
-                      {formatDateTime(user.lastLoginDate)}
+                      {formatDisplayDateTime(user.lastLoginDate)}
                     </td>
                   </tr>
                 ))}
@@ -689,7 +695,7 @@ export default function ReportsPage({
           ) : (
             <div className="space-y-4 px-6 py-6">
               <div className="flex flex-col gap-2 text-sm text-gray-500 dark:text-slate-400">
-                <span>Generated {formatDateTime(customReportResult.generatedDateUtc)}</span>
+                <span>Generated {formatDisplayDateTime(customReportResult.generatedDateUtc)}</span>
                 {customReportResult.isTruncated && (
                   <span className="text-amber-700 dark:text-amber-300">
                     Showing the first 500 rows for performance.

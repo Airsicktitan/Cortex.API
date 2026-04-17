@@ -1,6 +1,11 @@
 import type { Ticket } from "../types/ticket";
 import { DashboardSkeleton } from "./LoadingSkeletons";
 import { formatSlaSummary, getSlaBadgeClass, getSlaDisplayLabel } from "../utils/ticketSla";
+import {
+  formatDisplayDateTime,
+  formatDisplayValue,
+  formatTicketIdentifier,
+} from "../utils/presentation";
 
 interface DashboardPageProps {
   tickets: Ticket[];
@@ -21,10 +26,6 @@ function isClosedTicket(ticket: Ticket) {
   return CLOSED_STATUSES.has(normalize(ticket.status));
 }
 
-function formatDateTime(value?: string) {
-  return value ? new Date(value).toLocaleString() : "—";
-}
-
 function formatPercentage(count: number, total: number) {
   if (total === 0) {
     return "0%";
@@ -34,8 +35,12 @@ function formatPercentage(count: number, total: number) {
 }
 
 function getOwnerLabel(ticket: Ticket) {
-  const owner = ticket.synitiOwner || ticket.businessOwner;
-  return owner?.trim() ? owner : "Unassigned";
+  const synitiOwner = formatDisplayValue(ticket.synitiOwner);
+  if (synitiOwner !== "—") {
+    return synitiOwner;
+  }
+
+  return formatDisplayValue(ticket.businessOwner);
 }
 
 function buildCounts(values: string[], preferredOrder?: string[]) {
@@ -226,7 +231,7 @@ function TicketTable({
                   <td className="px-4 py-3 align-top">
                     <div>
                       <p className="font-medium text-gray-900 dark:text-slate-100">
-                        {ticket.id}
+                        {formatTicketIdentifier(ticket.id)}
                       </p>
                       <p className="max-w-xs truncate text-gray-500 dark:text-slate-400">
                         {ticket.title}
@@ -276,7 +281,7 @@ export default function DashboardPage({
   const breachedTickets = activeTickets.filter((ticket) => ticket.slaStatus === "Breached");
   const atRiskTickets = activeTickets.filter((ticket) => ticket.slaStatus === "At Risk");
   const unassignedTickets = activeTickets.filter(
-    (ticket) => getOwnerLabel(ticket) === "Unassigned",
+    (ticket) => getOwnerLabel(ticket) === "—",
   );
 
   const statusBreakdown = buildCounts(tickets.map((ticket) => ticket.status));
@@ -386,7 +391,7 @@ export default function DashboardPage({
               tickets={attentionTickets}
               emptyMessage="No active tickets currently need urgent SLA attention."
               rightColumnLabel="Due"
-              renderRightColumn={(ticket) => formatDateTime(ticket.slaTargetDate)}
+              renderRightColumn={(ticket) => formatDisplayDateTime(ticket.slaTargetDate)}
               onOpenTicket={onOpenTicket}
             />
             <TicketTable
@@ -396,7 +401,7 @@ export default function DashboardPage({
               emptyMessage="No recently updated tickets found."
               rightColumnLabel="Updated"
               renderRightColumn={(ticket) =>
-                formatDateTime(ticket.lastModifiedDate ?? ticket.createdDate)
+                formatDisplayDateTime(ticket.lastModifiedDate ?? ticket.createdDate)
               }
               onOpenTicket={onOpenTicket}
             />

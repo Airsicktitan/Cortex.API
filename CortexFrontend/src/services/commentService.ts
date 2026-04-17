@@ -12,7 +12,19 @@ export const commentService = {
       },
     });
 
-    await ensureSuccess(res, "Failed to load comments");
+    await ensureSuccess(res, "Unable to load comments");
+    return res.json();
+  },
+
+  async getByArchivedTicket(ticketId: string, token: string): Promise<Comment[]> {
+    const res = await fetch(`${API_BASE_URL}/tickets/archived/${ticketId}/comments`, {
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    await ensureSuccess(res, "Unable to load archived comments");
     return res.json();
   },
 
@@ -30,7 +42,7 @@ export const commentService = {
       body: JSON.stringify({ body }),
     });
 
-    await ensureSuccess(res, "Failed to create comment");
+    await ensureSuccess(res, "Unable to add comment");
     return res.json();
   },
 
@@ -42,6 +54,6 @@ export const commentService = {
       },
     });
 
-    await ensureSuccess(res, "Failed to send typing signal");
+    await ensureSuccess(res, "Unable to send typing status");
   },
 };

@@ -84,7 +84,7 @@ export default function AdminUserEditModal({
   const noAuth0 = !user.auth0Id;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="scroll-surface fixed inset-0 z-50 overflow-y-auto">
       <div
         className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
         onClick={onClose}

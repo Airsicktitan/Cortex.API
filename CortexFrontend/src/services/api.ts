@@ -69,7 +69,7 @@ const authHeaders = (token: string, includeJson = false): HeadersInit => ({
 export const API_USER_MESSAGES = {
   generic: "Something went wrong. Please try again.",
   loadTickets: "Unable to load tickets",
-  saveChanges: "Failed to save changes",
+  saveChanges: "Unable to save changes",
 } as const;
 
 export class ApiError extends Error {
@@ -181,7 +181,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch current user");
+    await ensureSuccess(response, "Unable to load current user");
     return response.json();
   },
 
@@ -203,7 +203,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch ticket");
+    await ensureSuccess(response, "Unable to load ticket");
     return response.json();
   },
 
@@ -241,7 +241,7 @@ export const ticketService = {
       },
     );
 
-    await ensureSuccess(response, "Failed to fetch archived tickets");
+    await ensureSuccess(response, "Unable to load archived tickets");
     return response.json() as Promise<PagedArchivedTicketList>;
   },
 
@@ -250,7 +250,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch ticket history");
+    await ensureSuccess(response, "Unable to load ticket history");
     return response.json();
   },
 
@@ -296,7 +296,7 @@ export const ticketService = {
       body: JSON.stringify({}),
     });
 
-    await ensureSuccess(response, "Failed to archive ticket");
+    await ensureSuccess(response, "Unable to archive ticket");
     return response.json();
   },
 
@@ -313,7 +313,7 @@ export const ticketService = {
       }),
     });
 
-    await ensureSuccess(response, "Failed to archive ticket");
+    await ensureSuccess(response, "Unable to archive ticket");
     return response.json();
   },
 
@@ -326,7 +326,7 @@ export const ticketService = {
       },
     );
 
-    await ensureSuccess(response, "Failed to reactivate archived ticket");
+    await ensureSuccess(response, "Unable to reactivate archived ticket");
     return response.json();
   },
 
@@ -337,7 +337,7 @@ export const ticketService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to delete ticket");
+    await ensureSuccess(response, "Unable to delete ticket");
   },
 };
 
@@ -347,7 +347,7 @@ export const attachmentService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch attachments");
+    await ensureSuccess(response, "Unable to load attachments");
     return response.json();
   },
 
@@ -365,7 +365,7 @@ export const attachmentService = {
       body: formData,
     });
 
-    await ensureSuccess(response, "Failed to upload attachments");
+    await ensureSuccess(response, "Unable to upload attachments");
     return response.json();
   },
 
@@ -377,7 +377,35 @@ export const attachmentService = {
       },
     );
 
-    await ensureSuccess(response, "Failed to download attachment");
+    await ensureSuccess(response, "Unable to download attachment");
+    return response.blob();
+  },
+
+  async getByArchivedTicket(ticketId: string, token: string): Promise<TicketAttachment[]> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/archived/${ticketId}/attachments`,
+      {
+        headers: authHeaders(token),
+      },
+    );
+
+    await ensureSuccess(response, "Unable to load archived attachments");
+    return response.json();
+  },
+
+  async downloadArchived(
+    ticketId: string,
+    attachmentId: number,
+    token: string,
+  ): Promise<Blob> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/archived/${ticketId}/attachments/${attachmentId}/download`,
+      {
+        headers: authHeaders(token),
+      },
+    );
+
+    await ensureSuccess(response, "Unable to download archived attachment");
     return response.blob();
   },
 };
@@ -388,7 +416,7 @@ export const userService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch current user");
+    await ensureSuccess(response, "Unable to load current user");
     return response.json();
   },
 
@@ -397,7 +425,7 @@ export const userService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch users");
+    await ensureSuccess(response, "Unable to load users");
     return response.json();
   },
 
@@ -406,7 +434,7 @@ export const userService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to fetch online users");
+    await ensureSuccess(response, "Unable to load online users");
     return response.json();
   },
 
@@ -420,7 +448,7 @@ export const userService = {
       body: JSON.stringify(profile),
     });
 
-    await ensureSuccess(response, "Failed to update profile");
+    await ensureSuccess(response, "Unable to update profile");
     return response.json();
   },
 
@@ -430,7 +458,7 @@ export const userService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to update presence");
+    await ensureSuccess(response, "Unable to update presence");
   },
 
   async updateUser(
@@ -444,7 +472,7 @@ export const userService = {
       body: JSON.stringify(user),
     });
 
-    await ensureSuccess(response, "Failed to update user");
+    await ensureSuccess(response, "Unable to update user");
     return response.json();
   },
 
@@ -453,7 +481,7 @@ export const userService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to load Auth0 roles");
+    await ensureSuccess(response, "Unable to load Auth0 roles");
     return response.json();
   },
 
@@ -465,7 +493,7 @@ export const userService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to load user roles");
+    await ensureSuccess(response, "Unable to load user roles");
     return response.json();
   },
 
@@ -480,7 +508,7 @@ export const userService = {
       body: JSON.stringify(body),
     });
 
-    await ensureSuccess(response, "Failed to update user role");
+    await ensureSuccess(response, "Unable to update user role");
     return response.json();
   },
 
@@ -491,7 +519,7 @@ export const userService = {
       body: JSON.stringify(user),
     });
 
-    await ensureSuccess(response, "Failed to create user");
+    await ensureSuccess(response, "Unable to create user");
     return response.json();
   },
 
@@ -501,6 +529,6 @@ export const userService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Failed to delete user");
+    await ensureSuccess(response, "Unable to delete user");
   },
 };

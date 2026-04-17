@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { getUserFacingErrorMessage, ticketService } from "../services/api";
 import type { TicketAuditEntry } from "../types/ticketAudit";
+import { formatDisplayDateTime, formatDisplayValue } from "../utils/presentation";
 
 const API_AUDIENCE = "https://cortex-api";
 
@@ -9,10 +10,6 @@ interface TicketHistoryModalProps {
   ticketId: string;
   isOpen: boolean;
   onClose: () => void;
-}
-
-function formatValue(value?: string | null) {
-  return value && value.trim() ? value : "—";
 }
 
 function getActionBadgeClass(action: string) {
@@ -113,7 +110,7 @@ export default function TicketHistoryModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto">
+    <div className="scroll-surface fixed inset-0 z-[60] overflow-y-auto">
       <div
         className="fixed inset-0 bg-black/50 transition-opacity"
         onClick={onClose}
@@ -137,7 +134,7 @@ export default function TicketHistoryModal({
             </button>
           </div>
 
-          <div className="max-h-[calc(min(90dvh,85vh)-5.5rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+          <div className="scroll-surface max-h-[calc(min(90dvh,85vh)-5.5rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
             {loading ? (
               <div className="space-y-4">
                 {Array.from({ length: 4 }).map((_, index) => (
@@ -183,8 +180,8 @@ export default function TicketHistoryModal({
                           </span>
                         </div>
                         <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
-                          {entry.changedByDisplayName} ·{" "}
-                          {new Date(entry.changedDateUtc).toLocaleString()}
+                          {formatDisplayValue(entry.changedByDisplayName)} ·{" "}
+                          {formatDisplayDateTime(entry.changedDateUtc)}
                         </p>
                       </div>
                     </div>
@@ -215,10 +212,10 @@ export default function TicketHistoryModal({
                                   {change.fieldName}
                                 </td>
                                 <td className="px-4 py-3 align-top whitespace-pre-wrap break-words text-gray-500 dark:text-slate-400">
-                                  {formatValue(change.oldValue)}
+                                  {formatDisplayValue(change.oldValue)}
                                 </td>
                                 <td className="px-4 py-3 align-top whitespace-pre-wrap break-words">
-                                  {formatValue(change.newValue)}
+                                  {formatDisplayValue(change.newValue)}
                                 </td>
                               </tr>
                             ))}

@@ -9,7 +9,7 @@
  * users list stays consistent.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type {
   AdminUpdateUserInput,
@@ -61,8 +61,12 @@ export function useUsers({
   redirectToLogin,
   loadJobs,
 }: UseUsersParams) {
+  const USER_RENDER_PAGE_SIZE = 50;
   // ── User directory list ───────────────────────────────────────────────────
   const [users, setUsers] = useState<UserRecord[]>([]);
+  const [usersSearchQuery, setUsersSearchQuery] = useState("");
+  const [debouncedUsersSearchQuery, setDebouncedUsersSearchQuery] = useState("");
+  const [usersRenderedCount, setUsersRenderedCount] = useState(USER_RENDER_PAGE_SIZE);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
 
@@ -134,6 +138,51 @@ export function useUsers({
     },
     [getApiToken, setApiUnavailable],
   );
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedUsersSearchQuery(usersSearchQuery.trim().toLowerCase());
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [usersSearchQuery]);
+
+  useEffect(() => {
+    setUsersRenderedCount(USER_RENDER_PAGE_SIZE);
+  }, [debouncedUsersSearchQuery, users]);
+
+  const usersFiltered = useMemo(() => {
+    if (!debouncedUsersSearchQuery) {
+      return users;
+    }
+
+    return users.filter((user) => {
+      const haystack = [
+        user.displayName,
+        user.nickName,
+        user.email,
+        user.phoneNumber,
+        user.department,
+        user.role,
+        ...(user.roles ?? []),
+      ]
+        .map((value) => String(value ?? "").toLowerCase())
+        .join(" ");
+      return haystack.includes(debouncedUsersSearchQuery);
+    });
+  }, [debouncedUsersSearchQuery, users]);
+
+  const usersVisible = useMemo(
+    () => usersFiltered.slice(0, usersRenderedCount),
+    [usersFiltered, usersRenderedCount],
+  );
+
+  const usersHasMore = usersRenderedCount < usersFiltered.length;
+
+  const loadMoreUsers = useCallback(() => {
+    setUsersRenderedCount((current) =>
+      Math.min(current + USER_RENDER_PAGE_SIZE, usersFiltered.length),
+    );
+  }, [usersFiltered.length]);
 
   const loadOnlineUsers = useCallback(
     async (providedToken?: string) => {
@@ -570,6 +619,11 @@ export function useUsers({
   return {
     // State
     users,
+    usersSearchQuery,
+    setUsersSearchQuery,
+    usersVisible,
+    usersHasMore,
+    loadMoreUsers,
     usersLoading,
     usersError,
     onlineUsers,
