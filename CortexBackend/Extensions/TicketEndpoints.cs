@@ -20,6 +20,10 @@ public static class TicketEndpoints
             .WithName("GetArchivedTickets")
             .Produces<PagedArchivedTicketListResponse>(StatusCodes.Status200OK);
 
+        tickets.MapGet("/board-counts", TicketHandlers.GetTicketBoardCounts)
+            .WithName("GetTicketBoardCounts")
+            .Produces<List<TicketBoardCountResponse>>(StatusCodes.Status200OK);
+
         tickets.MapGet("/", TicketHandlers.GetAllTickets)
             .WithName("GetAllTickets")
             .Produces<PagedTicketListResponse>(StatusCodes.Status200OK);

@@ -76,6 +76,24 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         return (items, totalCount);
     }
 
+    public async Task<IReadOnlyDictionary<int, int>> GetActiveTicketBoardCountsAsync(
+        TicketVisibilityContext visibility,
+        CancellationToken cancellationToken = default)
+    {
+        var counts = await _context.Tickets
+            .AsNoTracking()
+            .WhereVisibleTo(visibility)
+            .GroupBy(ticket => ticket.BoardId)
+            .Select(group => new
+            {
+                BoardId = group.Key,
+                Count = group.Count()
+            })
+            .ToListAsync(cancellationToken);
+
+        return counts.ToDictionary(entry => entry.BoardId, entry => entry.Count);
+    }
+
     public async Task<IReadOnlyList<ArchivedTicket>> GetArchivedTicketsAsync(
         DateTime? modifiedSinceUtc = null,
         int? boardId = null,

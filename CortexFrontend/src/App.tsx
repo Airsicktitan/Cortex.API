@@ -29,8 +29,8 @@ import UserProfileModal from "./components/UserProfileModal";
 import AdminUserEditModal from "./components/AdminUserEditModal";
 import AdminUserCreateModal from "./components/AdminUserCreateModal";
 import SaveTicketFilterModal from "./components/SaveTicketFilterModal";
-import NotificationPanel from "./components/NotificationPanel";
 import { ConfigurationSkeleton } from "./components/LoadingSkeletons";
+import AppHeader from "./components/AppHeader";
 import AppSidebar from "./components/AppSidebar";
 import TicketsContainer from "./components/TicketsContainer";
 import { applyTheme, getPreferredTheme, type ThemeMode } from "./theme";
@@ -123,6 +123,12 @@ type AppView =
   | "users";
 type ReportSection = "sla" | "online-users" | "custom";
 type SessionPromptState = "warning" | "expired" | null;
+type NavigationItem = {
+  view: AppView;
+  group: NavigationGroup;
+  label: string;
+  description: string;
+};
 
 const DEFAULT_TICKET_STATUS_NAMES = [
   "New",
@@ -157,6 +163,50 @@ const DEFAULT_TICKET_BOARDS: ReadonlyArray<TicketBoardDefinition> = [
     createdDateUtc: "",
   },
 ] as const;
+const NAVIGATION_ITEM_DEFINITIONS: ReadonlyArray<NavigationItem> = [
+  {
+    view: "dashboard",
+    group: "workspace",
+    label: "Dashboard",
+    description: "See queue health and quick operational summaries.",
+  },
+  {
+    view: "tickets",
+    group: "workspace",
+    label: "Tickets",
+    description: "Browse and manage the active ticket queue.",
+  },
+  {
+    view: "archived",
+    group: "workspace",
+    label: "Archived Tickets",
+    description: "Review tickets moved out of the active queue.",
+  },
+  {
+    view: "reports",
+    group: "workspace",
+    label: "Reports",
+    description: "Drill into SLA trends and detailed reporting.",
+  },
+  {
+    view: "jobs",
+    group: "workspace",
+    label: "Job Activity",
+    description: "Monitor system automation runs and latest outcomes.",
+  },
+  {
+    view: "sla",
+    group: "admin",
+    label: "Configuration",
+    description: "Configure system setup and policy definitions.",
+  },
+  {
+    view: "users",
+    group: "admin",
+    label: "Users",
+    description: "Manage the registered user directory.",
+  },
+];
 
 function clampSidebarWidth(width: number) {
   const maxWidth =
@@ -168,6 +218,18 @@ function clampSidebarWidth(width: number) {
         );
 
   return Math.min(maxWidth, Math.max(SIDEBAR_MIN_WIDTH, width));
+}
+
+function useStableCallback<Args extends unknown[], ReturnValue>(
+  callback: (...args: Args) => ReturnValue,
+) {
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  return useCallback((...args: Args) => callbackRef.current(...args), []);
 }
 
 function readStoredTimestamp(storageKey: string) {
@@ -361,6 +423,7 @@ function App() {
   const notificationPanelRef = useRef<HTMLDivElement | null>(null);
   const statusTooltipShowTimerRef = useRef<number | null>(null);
   const statusTooltipHideTimerRef = useRef<number | null>(null);
+  const lastKnownAuthRolesRef = useRef<string[]>([]);
   const sessionPromptStateRef = useRef<SessionPromptState>(null);
   const sessionLastActivityAtRef = useRef(Date.now());
   const lastPresenceSyncAtRef = useRef(0);
@@ -371,8 +434,19 @@ function App() {
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
     [currentUser?.roles, currentUser?.role],
   );
+  const effectiveAuthRoles =
+    currentUser === null ? lastKnownAuthRolesRef.current : authRoles;
 
-  const isAdmin = useMemo(() => checkIsAdmin(authRoles), [authRoles]);
+  useEffect(() => {
+    if (authRoles.length > 0) {
+      lastKnownAuthRolesRef.current = authRoles;
+    }
+  }, [authRoles]);
+
+  const isAdmin = useMemo(
+    () => checkIsAdmin(effectiveAuthRoles),
+    [effectiveAuthRoles],
+  );
   const isDarkMode = theme === "dark";
   const isAccountExpired = isUserExpired(currentUser);
   const isAccountInactive = isUserInactive(currentUser);
@@ -404,95 +478,51 @@ function App() {
     [sessionStorageIdentity],
   );
 
-  const sessionUnlocked =
-    bootstrapComplete && !needsConsent && Boolean(currentUser);
+  const sessionUnlocked = bootstrapComplete && !needsConsent && isAuthenticated;
 
-  const canCreateTicketsCap = sessionUnlocked && canCreateTickets(authRoles);
-  const canEditTicketsCap = sessionUnlocked && canEditTickets(authRoles);
+  const canCreateTicketsCap =
+    sessionUnlocked && canCreateTickets(effectiveAuthRoles);
+  const canEditTicketsCap = sessionUnlocked && canEditTickets(effectiveAuthRoles);
   const canViewTicketSections = sessionUnlocked;
   const canViewDashboard = canViewTicketSections;
-  const canViewReportsNav = sessionUnlocked && canViewReports(authRoles);
+  const canViewReportsNav = sessionUnlocked && canViewReports(effectiveAuthRoles);
   const canViewOnlineUsersReport = canViewReportsNav;
   const canManageCustomReportDefinitions =
-    sessionUnlocked && canManageReportDefinitions(authRoles);
+    sessionUnlocked && canManageReportDefinitions(effectiveAuthRoles);
   const canViewArchived = canViewTicketSections;
-  const canManageConfiguration = sessionUnlocked && canAccessConfig(authRoles);
-  const canManageJobsNav = sessionUnlocked && canManageJobs(authRoles);
-  const canViewJobActivityNav = sessionUnlocked && canViewJobActivity(authRoles);
-  const canViewUsers = sessionUnlocked && canManageUsers(authRoles);
+  const canManageConfiguration =
+    sessionUnlocked && canAccessConfig(effectiveAuthRoles);
+  const canManageJobsNav = sessionUnlocked && canManageJobs(effectiveAuthRoles);
+  const canViewJobActivityNav =
+    sessionUnlocked && canViewJobActivity(effectiveAuthRoles);
+  const canViewUsers = sessionUnlocked && canManageUsers(effectiveAuthRoles);
   const canCreateUsers = canViewUsers;
-  const canEditUsers = sessionUnlocked && canManageUsers(authRoles);
-  const canDeleteUsers = sessionUnlocked && canManageUsers(authRoles);
+  const canEditUsers = sessionUnlocked && canManageUsers(effectiveAuthRoles);
+  const canDeleteUsers = sessionUnlocked && canManageUsers(effectiveAuthRoles);
   // failedJobsCount is computed after useConfiguration (below) because it depends on jobs.
   const activeViewLabel = APP_VIEW_LABELS[activeView];
-  const navigationItems = useMemo(() => {
-    const items: Array<{
-      view: AppView;
-      group: NavigationGroup;
-      label: string;
-      description: string;
-      enabled: boolean;
-    }> = [
-      {
-        view: "dashboard",
-        group: "workspace",
-        label: "Dashboard",
-        description: "See queue health and quick operational summaries.",
-        enabled: canViewDashboard,
-      },
-      {
-        view: "tickets",
-        group: "workspace",
-        label: "Tickets",
-        description: "Browse and manage the active ticket queue.",
-        enabled: canViewTicketSections,
-      },
-      {
-        view: "archived",
-        group: "workspace",
-        label: "Archived Tickets",
-        description: "Review tickets moved out of the active queue.",
-        enabled: canViewArchived,
-      },
-      {
-        view: "reports",
-        group: "workspace",
-        label: "Reports",
-        description: "Drill into SLA trends and detailed reporting.",
-        enabled: canViewReportsNav,
-      },
-      {
-        view: "jobs",
-        group: "workspace",
-        label: "Job Activity",
-        description: "Monitor system automation runs and latest outcomes.",
-        enabled: canViewJobActivityNav,
-      },
-      {
-        view: "sla",
-        group: "admin",
-        label: "Configuration",
-        description: "Configure system setup and policy definitions.",
-        enabled: canManageConfiguration,
-      },
-      {
-        view: "users",
-        group: "admin",
-        label: "Users",
-        description: "Manage the registered user directory.",
-        enabled: canViewUsers,
-      },
-    ];
 
-    return items.filter((item) => item.enabled);
+  const navigationItems = useMemo(() => {
+    const isEnabledByView: Record<AppView, boolean> = {
+      dashboard: canViewDashboard,
+      tickets: canViewTicketSections,
+      archived: canViewArchived,
+      reports: canViewReportsNav,
+      jobs: canViewJobActivityNav,
+      sla: canManageConfiguration,
+      users: canViewUsers,
+    };
+
+    return NAVIGATION_ITEM_DEFINITIONS.filter(
+      (item) => isEnabledByView[item.view],
+    );
   }, [
-    canManageJobsNav,
+    canViewDashboard,
+    canViewTicketSections,
+    canViewArchived,
+    canViewReportsNav,
     canViewJobActivityNav,
     canManageConfiguration,
-    canViewArchived,
-    canViewDashboard,
-    canViewReportsNav,
-    canViewTicketSections,
     canViewUsers,
   ]);
   const activeNavigationItem =
@@ -585,6 +615,7 @@ function App() {
 
   const {
     allTickets,
+    boardCountsById,
     setAllTickets,
     filter,
     setFilter,
@@ -662,6 +693,7 @@ function App() {
   const loadNotificationsRef = useRef<
     (token?: string, options?: { silent?: boolean }) => Promise<void>
   >(async () => {});
+  const loadAllTicketsRef = useRef(loadAllTickets);
   const upsertActiveTicketLocallyRef = useRef(upsertActiveTicketLocally);
   const applyArchivedTicketLocallyRef = useRef(applyArchivedTicketLocally);
   const removeTicketLocallyRef = useRef(removeTicketLocally);
@@ -1071,6 +1103,10 @@ function App() {
   }, [loadNotifications]);
 
   useEffect(() => {
+    loadAllTicketsRef.current = loadAllTickets;
+  }, [loadAllTickets]);
+
+  useEffect(() => {
     upsertActiveTicketLocallyRef.current = upsertActiveTicketLocally;
   }, [upsertActiveTicketLocally]);
 
@@ -1272,7 +1308,7 @@ function App() {
   const recoverAfterBackendAvailable = useCallback(
     async (token: string) => {
       if (canViewTicketSections) {
-        await loadAllTickets(token);
+        await loadAllTicketsRef.current(token);
       }
 
       void loadTicketBoards(token);
@@ -1609,7 +1645,6 @@ function App() {
     getAccessTokenSilently,
     isAuthenticated,
     isLoading,
-    loadAllTickets,
     loadTicketBoards,
     loadNotifications,
     loadSessionConfiguration,
@@ -1937,7 +1972,7 @@ function App() {
     loadOnlineUsers,
   ]);
 
-  const grantConsent = async () => {
+  const grantConsent = useStableCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -1972,7 +2007,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  };
+  });
 
   const availableTicketBoards = useMemo(
     () => (ticketBoards.length > 0 ? ticketBoards : [...DEFAULT_TICKET_BOARDS]),
@@ -1980,12 +2015,8 @@ function App() {
   );
 
   const boardTabs = useMemo(() => {
-    return availableTicketBoards.filter(
-      (board) =>
-        board.isEnabled ||
-        allTickets.some((ticket) => ticket.boardId === board.id),
-    );
-  }, [allTickets, availableTicketBoards]);
+    return availableTicketBoards.filter((board) => board.isEnabled);
+  }, [availableTicketBoards]);
 
   useEffect(() => {
     if (selectedBoardId === "all") {
@@ -1997,7 +2028,7 @@ function App() {
     }
   }, [boardTabs, selectedBoardId, setSelectedBoardId]);
 
-  const handleViewChange = (view: AppView) => {
+  const handleViewChange = useStableCallback((view: AppView) => {
     if (!isViewAllowed(view)) {
       toast.error("You do not have access to this section.");
       return;
@@ -2006,9 +2037,28 @@ function App() {
     setActiveView(view);
     setIsAppMenuOpen(false);
     setIsNotificationPanelOpen(false);
-  };
+  });
 
-  const openFailedJobsQueue = () => {
+  const handleSidebarResize = useCallback((nextWidth: number) => {
+    setSidebarWidth(clampSidebarWidth(nextWidth));
+  }, []);
+
+  const handleRefreshTickets = useStableCallback(() => {
+    void loadAllTickets();
+  });
+
+  const handleCreateTicket = useStableCallback(() => {
+    openTicket(
+      createDraftTicket(
+        ticketStatuses,
+        ticketBoards.length > 0 ? ticketBoards : [...DEFAULT_TICKET_BOARDS],
+        currentUser?.displayName ?? user?.name ?? "",
+        currentUser?.department ?? "",
+      ),
+    );
+  });
+
+  const openFailedJobsQueue = useStableCallback(() => {
     if (!canManageJobsNav) {
       return;
     }
@@ -2024,9 +2074,9 @@ function App() {
         block: "start",
       });
     }, 50);
-  };
+  });
 
-  const markNotificationAsRead = async (
+  const markNotificationAsRead = useStableCallback(async (
     notification: UserNotification,
     providedToken?: string,
   ) => {
@@ -2048,9 +2098,9 @@ function App() {
       ),
     );
     setNotificationUnreadCount((currentCount) => Math.max(0, currentCount - 1));
-  };
+  });
 
-  const markAllNotificationsRead = async () => {
+  const markAllNotificationsRead = useStableCallback(async () => {
     try {
       setMarkingAllNotificationsRead(true);
       setNotificationsError(null);
@@ -2082,9 +2132,9 @@ function App() {
     } finally {
       setMarkingAllNotificationsRead(false);
     }
-  };
+  });
 
-  const openNotification = async (notification: UserNotification) => {
+  const openNotification = useStableCallback(async (notification: UserNotification) => {
     try {
       setMarkingNotificationId(notification.id);
       setNotificationsError(null);
@@ -2127,18 +2177,14 @@ function App() {
     } finally {
       setMarkingNotificationId(null);
     }
-  };
+  });
 
-  const toggleTheme = () => {
+  const toggleThemeFromMenu = useStableCallback(() => {
     setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
-  };
-
-  const toggleThemeFromMenu = () => {
-    toggleTheme();
     setIsUserMenuOpen(false);
-  };
+  });
 
-  const toggleAppMenu = () => {
+  const toggleAppMenu = useStableCallback(() => {
     setIsAppMenuOpen((current) => {
       const next = !current;
       if (next) {
@@ -2147,9 +2193,9 @@ function App() {
       }
       return next;
     });
-  };
+  });
 
-  const toggleUserMenu = () => {
+  const toggleUserMenu = useStableCallback(() => {
     setIsUserMenuOpen((current) => {
       const next = !current;
       if (next) {
@@ -2158,9 +2204,9 @@ function App() {
       }
       return next;
     });
-  };
+  });
 
-  const toggleNotificationPanel = () => {
+  const toggleNotificationPanel = useStableCallback(() => {
     setIsNotificationPanelOpen((current) => {
       const next = !current;
       if (next) {
@@ -2172,9 +2218,9 @@ function App() {
       }
       return next;
     });
-  };
+  });
 
-  const openProfileModal = async () => {
+  const openProfileModal = useStableCallback(async () => {
     setIsUserMenuOpen(false);
     setIsNotificationPanelOpen(false);
     setProfileLoading(true);
@@ -2203,7 +2249,43 @@ function App() {
     } finally {
       setProfileLoading(false);
     }
-  };
+  });
+
+  const handleRefreshNotifications = useStableCallback(() => {
+    void loadNotifications();
+  });
+
+  const handleRefreshSession = useStableCallback(() => {
+    void forceSessionRefreshForAuthChanges();
+  });
+
+  const handleStatusMouseEnter = useStableCallback(() => {
+    if (statusTooltipHideTimerRef.current !== null) {
+      window.clearTimeout(statusTooltipHideTimerRef.current);
+      statusTooltipHideTimerRef.current = null;
+    }
+    if (statusTooltipShowTimerRef.current !== null) {
+      window.clearTimeout(statusTooltipShowTimerRef.current);
+    }
+    statusTooltipShowTimerRef.current = window.setTimeout(() => {
+      setIsStatusTooltipVisible(true);
+      statusTooltipShowTimerRef.current = null;
+    }, 25);
+  });
+
+  const handleStatusMouseLeave = useStableCallback(() => {
+    if (statusTooltipShowTimerRef.current !== null) {
+      window.clearTimeout(statusTooltipShowTimerRef.current);
+      statusTooltipShowTimerRef.current = null;
+    }
+    if (statusTooltipHideTimerRef.current !== null) {
+      window.clearTimeout(statusTooltipHideTimerRef.current);
+    }
+    statusTooltipHideTimerRef.current = window.setTimeout(() => {
+      setIsStatusTooltipVisible(false);
+      statusTooltipHideTimerRef.current = null;
+    }, 80);
+  });
 
   const closeProfileModal = () => {
     setIsProfileModalOpen(false);
@@ -2336,374 +2418,56 @@ function App() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-cortex-surface to-cortex-surface-alt text-gray-900 transition-colors dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
-      <header className="relative z-40 border-b border-gray-200 bg-white/92 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-cortex-ink-dark/92">
-        <div className="mx-auto flex w-full max-w-[2200px] flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6 2xl:px-8 xl:flex-row xl:items-center xl:justify-between">
-          <div className="space-y-4">
-            <div className="flex flex-col gap-2 md:flex-row md:items-baseline md:gap-4">
-              <h1 className="text-3xl font-bold">🧠 CORTEX</h1>
-              <h2 className="text-lg text-gray-600 dark:text-slate-400">
-                Central Operations & Routing Technology Expert
-              </h2>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div
-                className={`relative inline-flex items-center gap-2 rounded-full transition-colors ${
-                  realtimeStatus === "connected"
-                    ? "px-1 py-1"
-                    : realtimeStatus === "reconnecting"
-                      ? "bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
-                      : "bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950/30 dark:text-red-300"
-                }`}
-                onMouseEnter={() => {
-                  if (statusTooltipHideTimerRef.current !== null) {
-                    window.clearTimeout(statusTooltipHideTimerRef.current);
-                    statusTooltipHideTimerRef.current = null;
-                  }
-                  if (statusTooltipShowTimerRef.current !== null) {
-                    window.clearTimeout(statusTooltipShowTimerRef.current);
-                  }
-                  statusTooltipShowTimerRef.current = window.setTimeout(() => {
-                    setIsStatusTooltipVisible(true);
-                    statusTooltipShowTimerRef.current = null;
-                  }, 25);
-                }}
-                onMouseLeave={() => {
-                  if (statusTooltipShowTimerRef.current !== null) {
-                    window.clearTimeout(statusTooltipShowTimerRef.current);
-                    statusTooltipShowTimerRef.current = null;
-                  }
-                  if (statusTooltipHideTimerRef.current !== null) {
-                    window.clearTimeout(statusTooltipHideTimerRef.current);
-                  }
-                  statusTooltipHideTimerRef.current = window.setTimeout(() => {
-                    setIsStatusTooltipVisible(false);
-                    statusTooltipHideTimerRef.current = null;
-                  }, 80);
-                }}
-              >
-                <span
-                  className={`inline-block h-2.5 w-2.5 rounded-full ${
-                    realtimeStatus === "connected"
-                      ? "bg-emerald-500"
-                      : realtimeStatus === "reconnecting"
-                        ? "bg-amber-500"
-                        : "bg-red-500"
-                  }`}
-                />
-                {realtimeStatus === "reconnecting" ? "Reconnecting..." : null}
-                {realtimeStatus === "offline" ? "Offline" : null}
-                {isStatusTooltipVisible ? (
-                  <span className="pointer-events-none absolute -bottom-9 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-[11px] font-medium text-white shadow-sm dark:bg-slate-100 dark:text-slate-900">
-                    {realtimeStatus === "connected"
-                      ? "Online"
-                      : realtimeStatus === "reconnecting"
-                        ? "Trying to reconnect to live updates"
-                        : "Live updates are paused. Changes may be out of date."}
-                  </span>
-                ) : null}
-              </div>
-              <div ref={appMenuRef} className="relative lg:hidden">
-                <button
-                  onClick={toggleAppMenu}
-                  className="inline-flex items-center gap-3 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 20 20"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                  >
-                    <path d="M3 5h14" />
-                    <path d="M3 10h14" />
-                    <path d="M3 15h14" />
-                  </svg>
-                  <span>Menu</span>
-                  <span className="text-xs text-gray-400 dark:text-slate-500">
-                    ▾
-                  </span>
-                </button>
-
-                {isAppMenuOpen && (
-                  <div className="absolute left-0 top-full z-20 mt-2 w-80 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
-                    <div className="border-b border-gray-100 px-4 py-3 dark:border-slate-800">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                        Navigate
-                      </p>
-                      <p className="mt-1 text-sm text-gray-600 dark:text-slate-300">
-                        Current view:{" "}
-                        <span className="font-medium text-gray-900 dark:text-slate-100">
-                          {activeViewLabel}
-                        </span>
-                      </p>
-                    </div>
-
-                    {(["workspace", "admin"] as const).map((group) => {
-                      const items = navigationItems.filter((item) => item.group === group);
-                      if (items.length === 0) return null;
-
-                      return (
-                        <section key={group} className="border-t border-gray-100 dark:border-slate-800">
-                          <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-slate-400">
-                            {group === "workspace" ? "Workspace" : "Admin"}
-                          </p>
-                          {items.map((item) => {
-                            const isActive = item.view === activeView;
-
-                            return (
-                              <button
-                                key={item.view}
-                                onClick={() => handleViewChange(item.view)}
-                                className={`w-full px-4 py-3 text-left transition-colors ${
-                                  isActive
-                                    ? "bg-cortex-blue-soft text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100"
-                                    : "text-gray-700 hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between gap-4">
-                                  <span className="font-medium">{item.label}</span>
-                                  {isActive && (
-                                    <span className="text-xs font-semibold uppercase tracking-wide text-cortex-blue dark:text-cortex-cyan">
-                                      Active
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                  {item.description}
-                                </p>
-                              </button>
-                            );
-                          })}
-                        </section>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="inline-flex items-center rounded-full bg-gray-100 px-3 py-2 text-sm text-gray-600 dark:bg-slate-800 dark:text-slate-300">
-                {activeViewLabel}
-              </div>
-
-              {activeNavigationItem && (
-                <p className="hidden text-sm text-gray-500 dark:text-slate-400 lg:block">
-                  {activeNavigationItem.description}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-4">
-            {activeView === "tickets" && (
-              <>
-                <button
-                  onClick={() => void loadAllTickets()}
-                  className="inline-flex items-center rounded-md bg-cortex-blue px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-cortex-blue-dark"
-                >
-                  Refresh
-                </button>
-
-                {canCreateTicketsCap && (
-                  <button
-                    onClick={() =>
-                      openTicket(
-                        createDraftTicket(
-                          ticketStatuses,
-                          ticketBoards.length > 0
-                            ? ticketBoards
-                            : [...DEFAULT_TICKET_BOARDS],
-                          currentUser?.displayName ?? user?.name ?? "",
-                          currentUser?.department ?? "",
-                        ),
-                      )
-                    }
-                    className="inline-flex items-center rounded-md bg-cortex-cyan px-3.5 py-2 text-sm font-semibold text-cortex-ink shadow-sm ring-1 ring-cortex-cyan/70 transition-colors hover:bg-cortex-blue hover:text-white dark:bg-cortex-cyan dark:text-cortex-ink dark:ring-cortex-cyan/60 dark:hover:bg-cortex-blue dark:hover:text-white"
-                  >
-                    + New Ticket
-                  </button>
-                )}
-              </>
-            )}
-
-            {bootstrapComplete && needsConsent && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-yellow-700 dark:text-amber-300">
-                  CORTEX API consent is required before the app can load.
-                </span>
-                <button
-                  onClick={() => void grantConsent()}
-                  className="rounded-md bg-cortex-blue px-3 py-2 text-white transition-colors hover:bg-cortex-blue-dark"
-                >
-                  Grant Access
-                </button>
-              </div>
-            )}
-
-            {sessionRefreshNotice && (
-              <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
-                <span className="text-sm text-amber-800 dark:text-amber-200">
-                  {sessionRefreshNotice}
-                </span>
-                <button
-                  onClick={forceSessionRefreshForAuthChanges}
-                  disabled={sessionRefreshInProgress}
-                  className="rounded-md bg-amber-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {sessionRefreshInProgress
-                    ? "Refreshing..."
-                    : "Refresh Session"}
-                </button>
-              </div>
-            )}
-
-            <div
-              ref={userMenuRef}
-              className="relative flex items-center gap-3 border-l border-gray-300 pl-4 dark:border-slate-700"
-            >
-              <div ref={notificationPanelRef} className="relative">
-                <button
-                  onClick={toggleNotificationPanel}
-                  className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-cortex-blue-soft hover:text-cortex-blue dark:text-slate-300 dark:hover:bg-cortex-blue/20 dark:hover:text-cortex-cyan"
-                  title={
-                    notificationUnreadCount === 0
-                      ? "Notifications"
-                      : `${notificationUnreadCount} unread notification${notificationUnreadCount === 1 ? "" : "s"}`
-                  }
-                  aria-label={
-                    notificationUnreadCount === 0
-                      ? "Open notifications"
-                      : `Open notifications with ${notificationUnreadCount} unread`
-                  }
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 20 20"
-                    className="h-5 w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M10 3.5a5 5 0 0 0-5 5v2.1c0 .7-.2 1.3-.6 1.9l-.8 1.2c-.4.6 0 1.3.7 1.3h11.4c.7 0 1.1-.7.7-1.3l-.8-1.2c-.4-.6-.6-1.2-.6-1.9V8.5a5 5 0 0 0-5-5Z" />
-                    <path d="M8.5 16.5a1.5 1.5 0 0 0 3 0" />
-                  </svg>
-                  {notificationUnreadCount > 0 && (
-                    <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-cortex-cyan px-1 text-[11px] font-semibold leading-none text-cortex-ink">
-                      {notificationUnreadCount > 9
-                        ? "9+"
-                        : notificationUnreadCount}
-                    </span>
-                  )}
-                </button>
-
-                {isNotificationPanelOpen && (
-                  <NotificationPanel
-                    notifications={notifications}
-                    unreadCount={notificationUnreadCount}
-                    loading={notificationsLoading}
-                    error={notificationsError}
-                    markingAllRead={markingAllNotificationsRead}
-                    markingNotificationId={markingNotificationId}
-                    onRefresh={() => void loadNotifications()}
-                    onMarkAllRead={markAllNotificationsRead}
-                    onOpenNotification={openNotification}
-                  />
-                )}
-              </div>
-
-              {canManageJobsNav && failedJobsCount > 0 && (
-                <button
-                  onClick={openFailedJobsQueue}
-                  className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-slate-300 dark:hover:bg-red-950/30 dark:hover:text-red-200"
-                  title={
-                    failedJobsCount === 1
-                      ? "1 failed job needs attention"
-                      : `${failedJobsCount} failed jobs need attention`
-                  }
-                  aria-label={
-                    failedJobsCount === 1
-                      ? "Open failed jobs queue"
-                      : `Open failed jobs queue with ${failedJobsCount} failed jobs`
-                  }
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 20 20"
-                    className="h-5 w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M10 3a4 4 0 0 0-4 4v2.6c0 .7-.2 1.4-.6 2l-.9 1.3A1 1 0 0 0 5.3 14h9.4a1 1 0 0 0 .8-1.6l-.9-1.3a3.6 3.6 0 0 1-.6-2V7a4 4 0 0 0-4-4Z" />
-                    <path d="M8.5 16a1.5 1.5 0 0 0 3 0" />
-                  </svg>
-                  <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-semibold leading-none text-white">
-                    {failedJobsCount > 9 ? "9+" : failedJobsCount}
-                  </span>
-                </button>
-              )}
-
-              <button
-                onClick={toggleUserMenu}
-                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800"
-              >
-                <span>
-                  {currentUser?.nickName ??
-                    currentUser?.displayName ??
-                    user?.name}
-                </span>
-                <span className="text-xs text-gray-500 dark:text-slate-400">
-                  ▾
-                </span>
-              </button>
-
-              {isUserMenuOpen && (
-                <div className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
-                  <div className="border-b border-gray-100 px-4 py-3 dark:border-slate-800">
-                    <p className="font-medium text-gray-900 dark:text-slate-100">
-                      {currentUser?.displayName ?? user?.name}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-slate-400">
-                      {currentUser?.email ?? user?.email}
-                    </p>
-                    {currentUser?.nickName && (
-                      <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                        Nick name: {currentUser.nickName}
-                      </p>
-                    )}
-                  </div>
-
-                  <button
-                    onClick={() => void openProfileModal()}
-                    disabled={profileLoading}
-                    className="w-full px-4 py-3 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    {profileLoading ? "Loading Profile..." : "Edit Profile"}
-                  </button>
-                  <button
-                    onClick={toggleThemeFromMenu}
-                    className="w-full px-4 py-3 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    {isDarkMode ? "Light Mode" : "Dark Mode"}
-                  </button>
-                  <button
-                    onClick={performLogout}
-                    className="w-full px-4 py-3 text-left text-sm text-red-600 transition-colors hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
-                  >
-                    Log Out
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        activeView={activeView}
+        activeViewLabel={activeViewLabel}
+        activeNavigationDescription={activeNavigationItem?.description ?? null}
+        navigationItems={navigationItems}
+        realtimeStatus={realtimeStatus}
+        isStatusTooltipVisible={isStatusTooltipVisible}
+        onStatusMouseEnter={handleStatusMouseEnter}
+        onStatusMouseLeave={handleStatusMouseLeave}
+        appMenuRef={appMenuRef}
+        isAppMenuOpen={isAppMenuOpen}
+        onToggleAppMenu={toggleAppMenu}
+        onViewChange={handleViewChange}
+        showTicketActions={activeView === "tickets"}
+        canCreateTickets={canCreateTicketsCap}
+        onRefreshTickets={handleRefreshTickets}
+        onCreateTicket={handleCreateTicket}
+        bootstrapComplete={bootstrapComplete}
+        needsConsent={needsConsent}
+        onGrantConsent={grantConsent}
+        sessionRefreshNotice={sessionRefreshNotice}
+        sessionRefreshInProgress={sessionRefreshInProgress}
+        onRefreshSession={handleRefreshSession}
+        userMenuRef={userMenuRef}
+        notificationPanelRef={notificationPanelRef}
+        isNotificationPanelOpen={isNotificationPanelOpen}
+        notificationUnreadCount={notificationUnreadCount}
+        notifications={notifications}
+        notificationsLoading={notificationsLoading}
+        notificationsError={notificationsError}
+        markingAllNotificationsRead={markingAllNotificationsRead}
+        markingNotificationId={markingNotificationId}
+        onToggleNotificationPanel={toggleNotificationPanel}
+        onRefreshNotifications={handleRefreshNotifications}
+        onMarkAllNotificationsRead={markAllNotificationsRead}
+        onOpenNotification={openNotification}
+        canManageJobs={canManageJobsNav}
+        failedJobsCount={failedJobsCount}
+        onOpenFailedJobsQueue={openFailedJobsQueue}
+        isUserMenuOpen={isUserMenuOpen}
+        onToggleUserMenu={toggleUserMenu}
+        currentUser={currentUser}
+        authDisplayName={user?.name}
+        authEmail={user?.email}
+        profileLoading={profileLoading}
+        onOpenProfileModal={openProfileModal}
+        isDarkMode={isDarkMode}
+        onToggleThemeFromMenu={toggleThemeFromMenu}
+        onLogout={performLogout}
+      />
 
       <div className="mx-auto flex w-full max-w-[2200px] flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:gap-8 2xl:px-8">
         <AppSidebar
@@ -2711,9 +2475,7 @@ function App() {
           activeView={activeView}
           navigationItems={navigationItems}
           onViewChange={handleViewChange}
-          onResize={(nextWidth) =>
-            setSidebarWidth(clampSidebarWidth(nextWidth))
-          }
+          onResize={handleSidebarResize}
         />
 
         <main className="min-w-0 flex-1">
@@ -2733,7 +2495,7 @@ function App() {
               needsConsent={needsConsent}
               canViewTicketSections={canViewTicketSections}
               boardTabs={boardTabs}
-              allTickets={allTickets}
+              boardCountsById={boardCountsById}
               loading={loading}
               apiUnavailable={apiUnavailable}
               error={error}

@@ -197,6 +197,33 @@ export const ticketService = {
     return response.json() as Promise<PagedTicketList>;
   },
 
+  async getBoardCounts(token: string): Promise<Record<number, number>> {
+    const response = await fetch(`${API_BASE_URL}/tickets/board-counts`, {
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, API_USER_MESSAGES.loadTickets);
+    const data = (await response.json()) as Array<{
+      boardId?: number;
+      count?: number;
+    }>;
+
+    const counts: Record<number, number> = {};
+    for (const entry of data) {
+      if (
+        typeof entry?.boardId === "number" &&
+        Number.isFinite(entry.boardId)
+      ) {
+        counts[entry.boardId] =
+          typeof entry.count === "number" && Number.isFinite(entry.count)
+            ? entry.count
+            : 0;
+      }
+    }
+
+    return counts;
+  },
+
   // Get ticket by ID
   async getById(id: string, token: string): Promise<Ticket> {
     const response = await fetch(`${API_BASE_URL}/tickets/${id}`, {

@@ -208,6 +208,9 @@ export function useTickets({
   const ARCHIVED_PAGE_SIZE = 50;
   const ARCHIVED_CACHE_TTL_MS = 5 * 60 * 1000;
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+  const [boardCountsById, setBoardCountsById] = useState<Record<number, number>>(
+    {},
+  );
   const [serverTicketListMeta, setServerTicketListMeta] = useState<{
     totalCount: number;
     totalPages: number;
@@ -245,6 +248,7 @@ export function useTickets({
   const lastTicketChangeSyncUtcRef = useRef<string | null>(null);
   const lastTicketFullRefreshAtRef = useRef(0);
   const previousSelectedBoardIdRef = useRef<number | "all">(selectedBoardId);
+  const allTicketsRef = useRef<Ticket[]>(allTickets);
   const archivedCacheRef = useRef<
     Map<
       string,
@@ -258,6 +262,10 @@ export function useTickets({
   >(new Map());
   const ticketsLoadedRef = useRef(false);
   const skipNextServerPagingEffectRef = useRef(false);
+
+  useEffect(() => {
+    allTicketsRef.current = allTickets;
+  }, [allTickets]);
 
   const useClientFilterMode = useMemo(
     () =>
@@ -334,10 +342,50 @@ export function useTickets({
     [selectedBoardId, useClientFilterMode, useServerDrivenPaging],
   );
 
+  const loadBoardCountsSilently = useCallback(
+    async (providedToken?: string) => {
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const counts = await ticketService.getBoardCounts(token);
+        setBoardCountsById(counts);
+      } catch (error) {
+        console.error("Failed to load board counts", error);
+      }
+    },
+    [getApiToken],
+  );
+
   const upsertActiveTicketLocally = useCallback(
     (incomingTicket: Ticket, options?: { syncSelectedTicket?: boolean }) => {
+      const previousTicket =
+        allTicketsRef.current.find((ticket) => ticket.id === incomingTicket.id) ??
+        (selectedTicket?.id === incomingTicket.id ? selectedTicket : null);
+
       setAllTickets((currentTickets) => upsertById(currentTickets, incomingTicket));
       setArchivedTickets((currentTickets) => removeById(currentTickets, incomingTicket.id));
+      setBoardCountsById((currentCounts) => {
+        if (!previousTicket) {
+          return {
+            ...currentCounts,
+            [incomingTicket.boardId]:
+              (currentCounts[incomingTicket.boardId] ?? 0) + 1,
+          };
+        }
+
+        if (previousTicket.boardId === incomingTicket.boardId) {
+          return currentCounts;
+        }
+
+        return {
+          ...currentCounts,
+          [previousTicket.boardId]: Math.max(
+            0,
+            (currentCounts[previousTicket.boardId] ?? 0) - 1,
+          ),
+          [incomingTicket.boardId]:
+            (currentCounts[incomingTicket.boardId] ?? 0) + 1,
+        };
+      });
 
       if (options?.syncSelectedTicket === false || isModalOpen) {
         return;
@@ -347,13 +395,21 @@ export function useTickets({
         currentTicket?.id === incomingTicket.id ? incomingTicket : currentTicket,
       );
     },
-    [isModalOpen],
+    [isModalOpen, selectedTicket],
   );
 
   const applyArchivedTicketLocally = useCallback(
     (incomingTicket: ArchivedTicket) => {
       setAllTickets((currentTickets) => removeById(currentTickets, incomingTicket.id));
       setArchivedTickets((currentTickets) => upsertById(currentTickets, incomingTicket));
+
+      setBoardCountsById((currentCounts) => ({
+        ...currentCounts,
+        [incomingTicket.boardId]: Math.max(
+          0,
+          (currentCounts[incomingTicket.boardId] ?? 0) - 1,
+        ),
+      }));
 
       if (selectedTicket?.id === incomingTicket.id) {
         setIsModalOpen(false);
@@ -372,6 +428,19 @@ export function useTickets({
 
       setAllTickets((currentTickets) => removeById(currentTickets, normalizedTicketId));
       setArchivedTickets((currentTickets) => removeById(currentTickets, normalizedTicketId));
+
+      const removedTicket = allTicketsRef.current.find(
+        (ticket) => ticket.id === normalizedTicketId,
+      );
+      if (removedTicket) {
+        setBoardCountsById((currentCounts) => ({
+          ...currentCounts,
+          [removedTicket.boardId]: Math.max(
+            0,
+            (currentCounts[removedTicket.boardId] ?? 0) - 1,
+          ),
+        }));
+      }
 
       if (selectedTicket?.id === normalizedTicketId) {
         setIsModalOpen(false);
@@ -404,7 +473,10 @@ export function useTickets({
 
       try {
         const token = providedToken ?? (await getApiToken());
-        await fetchActiveTicketList(token);
+        await Promise.all([
+          fetchActiveTicketList(token),
+          loadBoardCountsSilently(token),
+        ]);
 
         if (requestId !== ticketSilentRefreshRequestIdRef.current) {
           return;
@@ -425,7 +497,13 @@ export function useTickets({
         }
       }
     },
-    [fetchActiveTicketList, getApiToken, isLikelyNetworkError, setApiUnavailable],
+    [
+      fetchActiveTicketList,
+      getApiToken,
+      isLikelyNetworkError,
+      loadBoardCountsSilently,
+      setApiUnavailable,
+    ],
   );
 
   const loadAllTickets = useCallback(
@@ -435,7 +513,10 @@ export function useTickets({
 
       try {
         const token = providedToken ?? (await getApiToken());
-        await fetchActiveTicketList(token);
+        await Promise.all([
+          fetchActiveTicketList(token),
+          loadBoardCountsSilently(token),
+        ]);
         skipNextServerPagingEffectRef.current = true;
         ticketsLoadedRef.current = true;
         setNeedsConsent(false);
@@ -466,6 +547,7 @@ export function useTickets({
       isConsentRequiredError,
       isForbiddenError,
       isLikelyNetworkError,
+      loadBoardCountsSilently,
       setApiUnavailable,
       setError,
       setLoading,
@@ -499,9 +581,10 @@ export function useTickets({
           selectedBoardId === "all"
             ? { sinceUtc }
             : { sinceUtc, boardId: selectedBoardId };
-        const [updatedPage, archivedPage] = await Promise.all([
+        const [updatedPage, archivedPage, nextBoardCounts] = await Promise.all([
           ticketService.getAll(token, listOptions),
           ticketService.getArchived(token, listOptions),
+          ticketService.getBoardCounts(token),
         ]);
 
         const updatedTickets = updatedPage.items;
@@ -537,6 +620,7 @@ export function useTickets({
 
           return nextTickets;
         });
+        setBoardCountsById(nextBoardCounts);
 
         if (selectedTicket && archivedTicketIds.has(selectedTicket.id)) {
           setIsModalOpen(false);
@@ -964,7 +1048,7 @@ export function useTickets({
           try {
             const token = await getApiToken();
             const fresh = await ticketService.getById(selectedTicket.id, token);
-            setAllTickets((prev) => upsertById(prev, fresh));
+            upsertActiveTicketLocally(fresh, { syncSelectedTicket: false });
             setSelectedTicket(fresh);
             toast.success(
               "This ticket was updated elsewhere. The latest version is loaded — review your changes, then save again.",
@@ -1005,7 +1089,7 @@ export function useTickets({
       setDeleting(true);
       const token = await getApiToken();
       await ticketService.delete(ticketToDelete.id, token);
-      setAllTickets((prev) => prev.filter((ticket) => ticket.id !== ticketToDelete.id));
+      removeTicketLocally(ticketToDelete.id);
       toast.success("Ticket deleted");
     } catch (error) {
       console.error("Failed to delete ticket", error);
@@ -1014,7 +1098,7 @@ export function useTickets({
       setDeleting(false);
       setTicketToDelete(null);
     }
-  }, [getApiToken, ticketToDelete]);
+  }, [getApiToken, removeTicketLocally, ticketToDelete]);
 
   const handleArchiveTicket = useCallback(
     async (ticket: Ticket, changeReason?: string) => {
@@ -1110,6 +1194,7 @@ export function useTickets({
 
   return {
     allTickets,
+    boardCountsById,
     setAllTickets,
     filter,
     setFilter,

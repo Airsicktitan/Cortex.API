@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, type Dispatch, type SetStateAction } from "react";
 import TicketCard from "./TicketCard";
 import { TicketGridSkeleton } from "./LoadingSkeletons";
 import {
@@ -23,7 +23,7 @@ export type TicketsContainerProps = {
   needsConsent: boolean;
   canViewTicketSections: boolean;
   boardTabs: TicketBoardDefinition[];
-  allTickets: Ticket[];
+  boardCountsById: Record<number, number>;
   loading: boolean;
   apiUnavailable: boolean;
   error: string | null;
@@ -68,7 +68,7 @@ export default function TicketsContainer({
   needsConsent,
   canViewTicketSections,
   boardTabs,
-  allTickets,
+  boardCountsById,
   loading,
   apiUnavailable,
   error,
@@ -105,6 +105,11 @@ export default function TicketsContainer({
   syncTicketChangesSilently,
   openTicket,
 }: TicketsContainerProps) {
+  const allBoardsCount = useMemo(
+    () => boardTabs.reduce((sum, board) => sum + (boardCountsById[board.id] ?? 0), 0),
+    [boardCountsById, boardTabs],
+  );
+
   useEffect(() => {
     if (
       !isAuthenticated ||
@@ -202,12 +207,10 @@ export default function TicketsContainer({
             }`}
           >
             All Boards
-            <span className="ml-2 text-xs opacity-80">{allTickets.length}</span>
+            <span className="ml-2 text-xs opacity-80">{allBoardsCount}</span>
           </button>
           {boardTabs.map((board) => {
-            const boardCount = allTickets.filter(
-              (ticket) => ticket.boardId === board.id,
-            ).length;
+            const boardCount = boardCountsById[board.id] ?? 0;
             const isActive = selectedBoardId === board.id;
 
             return (

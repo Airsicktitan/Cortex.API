@@ -171,6 +171,28 @@ public static class TicketHandlers
         });
     }
 
+    public static async Task<IResult> GetTicketBoardCounts(
+        ITicketRepository repo,
+        ITicketVisibilityService ticketVisibilityService,
+        CancellationToken cancellationToken)
+    {
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        var counts = await repo.GetActiveTicketBoardCountsAsync(
+            visibilityContext,
+            cancellationToken);
+
+        var response = counts
+            .Select(entry => new TicketBoardCountResponse
+            {
+                BoardId = entry.Key,
+                Count = entry.Value
+            })
+            .OrderBy(entry => entry.BoardId)
+            .ToList();
+
+        return Results.Ok(response);
+    }
+
     private static List<TicketResponse> SortTicketResponsesBySla(
         IReadOnlyList<TicketResponse> items,
         string sort)

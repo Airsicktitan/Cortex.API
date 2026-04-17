@@ -7,7 +7,6 @@ C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.dll
 C:\Users\adamc\Documents\Cortex.API\artifacts\backend-buildcheck\Cortex.API.pdb
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\appsettings.Development.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\appsettings.json
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.staticwebassets.endpoints.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.exe
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.deps.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.runtimeconfig.json
@@ -124,7 +123,6 @@ C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\runtimes\win\
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\runtimes\win\lib\net6.0\System.Security.Cryptography.ProtectedData.dll
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\runtimes\win\lib\net6.0\System.Windows.Extensions.dll
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.csproj.AssemblyReference.cache
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\rpswa.dswa.cache.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.GeneratedMSBuildEditorConfig.editorconfig
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.AssemblyInfoInputs.cache
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.AssemblyInfo.cs
@@ -132,15 +130,9 @@ C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.cs
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.MvcApplicationPartsAssemblyInfo.cs
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.MvcApplicationPartsAssemblyInfo.cache
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.sourcelink.json
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\rjimswa.dswa.cache.json
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\rjsmrazor.dswa.cache.json
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\rjsmcshtml.dswa.cache.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\scopedcss\bundle\Cortex.API.styles.css
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets.build.json
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets.build.json.cache
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets.development.json
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets.build.endpoints.json
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\swae.build.ex.cache
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.csproj.Up2Date
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.dll
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\refint\Cortex.API.dll
@@ -155,3 +147,8 @@ C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Azu
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Azure.SignalR.dll
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Azure.SignalR.Protocols.dll
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\System.ClientModel.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets\msbuild.Cortex.API.Microsoft.AspNetCore.StaticWebAssets.props
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets\msbuild.build.Cortex.API.props
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets\msbuild.buildMultiTargeting.Cortex.API.props
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets\msbuild.buildTransitive.Cortex.API.props
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\staticwebassets.pack.json

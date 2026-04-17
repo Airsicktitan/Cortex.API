@@ -226,7 +226,6 @@ export const realtimeService = {
           if (error) {
             options.onError?.(error);
           }
-          options.onStatusChange?.("offline");
           scheduleReconnect();
         });
 
@@ -247,7 +246,6 @@ export const realtimeService = {
         currentConnection = null;
         reconnectAttempt += 1;
         options.onError?.(error);
-        options.onStatusChange?.("offline");
         scheduleReconnect();
       }
     };
@@ -263,7 +261,6 @@ export const realtimeService = {
         if (connection) {
           void connection.stop();
         }
-        options.onStatusChange?.("offline");
       },
     };
   },

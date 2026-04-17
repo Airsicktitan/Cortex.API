@@ -17,6 +17,10 @@ public interface ITicketRepository
         string sort,
         CancellationToken cancellationToken = default);
 
+    public Task<IReadOnlyDictionary<int, int>> GetActiveTicketBoardCountsAsync(
+        TicketVisibilityContext visibility,
+        CancellationToken cancellationToken = default);
+
     public Task<IReadOnlyList<ArchivedTicket>> GetArchivedTicketsAsync(
         DateTime? modifiedSinceUtc = null,
         int? boardId = null,

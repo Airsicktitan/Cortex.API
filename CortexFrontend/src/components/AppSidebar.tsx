@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { memo, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 type SidebarView =
   | "dashboard"
@@ -24,7 +24,7 @@ type AppSidebarProps = {
   onResize: (nextWidth: number) => void;
 };
 
-export default function AppSidebar({
+function AppSidebar({
   width,
   activeView,
   navigationItems,
@@ -177,3 +177,44 @@ export default function AppSidebar({
     </aside>
   );
 }
+
+function areNavigationItemsEqual(
+  previousItems: SidebarNavigationItem[],
+  nextItems: SidebarNavigationItem[],
+) {
+  if (previousItems === nextItems) {
+    return true;
+  }
+
+  if (previousItems.length !== nextItems.length) {
+    return false;
+  }
+
+  return previousItems.every((item, index) => {
+    const nextItem = nextItems[index];
+    return (
+      item.view === nextItem.view &&
+      item.group === nextItem.group &&
+      item.label === nextItem.label &&
+      item.description === nextItem.description
+    );
+  });
+}
+
+function areAppSidebarPropsEqual(
+  previousProps: AppSidebarProps,
+  nextProps: AppSidebarProps,
+) {
+  return (
+    previousProps.width === nextProps.width &&
+    previousProps.activeView === nextProps.activeView &&
+    previousProps.onViewChange === nextProps.onViewChange &&
+    previousProps.onResize === nextProps.onResize &&
+    areNavigationItemsEqual(
+      previousProps.navigationItems,
+      nextProps.navigationItems,
+    )
+  );
+}
+
+export default memo(AppSidebar, areAppSidebarPropsEqual);
