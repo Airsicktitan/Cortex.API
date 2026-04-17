@@ -645,7 +645,12 @@ public static class TicketHandlers
         return Results.Ok(restoredTicketResponse);
     }
 
-    public static async Task<IResult> DeleteTicket(string id, ITicketRepository repo)
+    public static async Task<IResult> DeleteTicket(
+        string id,
+        ITicketRepository repo,
+        ITicketVisibilityService ticketVisibilityService,
+        IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver)
     {
         var normalizedId = id.Trim();
         if (string.IsNullOrWhiteSpace(normalizedId))
@@ -653,12 +658,36 @@ public static class TicketHandlers
             return Results.BadRequest("Invalid ticket id.");
         }
 
+        var existing = await repo.GetTicketByIdAsync(normalizedId);
+        if (existing is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(existing))
+        {
+            return Results.NotFound();
+        }
+
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(existing);
+
         var deleted = await repo.DeleteTicketAsync(normalizedId);
 
         if (!deleted)
+        {
             return Results.NotFound();
+        }
 
         await repo.SaveChangesAsync();
+
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "ticket.deleted",
+            TicketId = existing.Id,
+            EntityId = existing.Id,
+            AudienceUserIds = audienceUserIds,
+        });
 
         return Results.NoContent();
     }

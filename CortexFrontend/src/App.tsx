@@ -630,6 +630,11 @@ function App() {
     isLikelyNetworkError,
   });
 
+  const ticketModalOpenRef = useRef(false);
+  const selectedTicketIdRef = useRef<string | undefined>(undefined);
+  ticketModalOpenRef.current = isModalOpen;
+  selectedTicketIdRef.current = selectedTicket?.id;
+
   const {
     savedFilters,
     selectedSavedFilterId,
@@ -1075,6 +1080,24 @@ function App() {
 
         if (event.eventType === "ticket.archived" && event.archivedTicket) {
           applyArchivedTicketLocally(event.archivedTicket);
+          return;
+        }
+
+        if (
+          event.eventType === "ticket.deleted" &&
+          typeof event.ticketId === "string" &&
+          event.ticketId.trim().length > 0
+        ) {
+          const deletedId = event.ticketId.trim();
+          const hadTicketOpenInModal =
+            ticketModalOpenRef.current &&
+            selectedTicketIdRef.current === deletedId;
+          removeTicketLocally(deletedId);
+          if (hadTicketOpenInModal) {
+            toast("This ticket was deleted.", {
+              id: `ticket-deleted-${deletedId}`,
+            });
+          }
           return;
         }
 

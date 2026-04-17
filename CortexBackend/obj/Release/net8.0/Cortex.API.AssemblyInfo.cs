@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Cortex.API")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+baa6d9a02b2ec99428caab6966b812ef94d4913a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+08b9e603d9047d7721d9c246a2428b5b907a7922")]
 [assembly: System.Reflection.AssemblyProductAttribute("Cortex.API")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Cortex.API")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
