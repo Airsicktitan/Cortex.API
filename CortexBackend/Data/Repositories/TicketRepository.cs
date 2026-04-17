@@ -1,6 +1,7 @@
 using Cortex.API.Data;
 using Cortex.API.Database;
 using Cortex.API.Models;
+using Cortex.API.Services;
 
 using System.Globalization;
 using System.Text;
@@ -12,12 +13,20 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 { 
     private readonly CortexDbContext _context = context;
 
-    public async Task<IEnumerable<Ticket>> GetAllTicketsAsync(DateTime? modifiedSinceUtc = null)
+    public async Task<IReadOnlyList<Ticket>> GetAllTicketsAsync(
+        DateTime? modifiedSinceUtc = null,
+        int? boardId = null,
+        TicketVisibilityContext? visibilityFilter = null)
     {
         var query = _context.Tickets
             .AsNoTracking()
             .Include(ticket => ticket.BoardDefinition)
             .AsQueryable();
+
+        if (boardId.HasValue)
+        {
+            query = query.Where(ticket => ticket.BoardId == boardId.Value);
+        }
 
         if (modifiedSinceUtc.HasValue)
         {
@@ -27,15 +36,60 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
                 (ticket.LastModifiedDate.HasValue && ticket.LastModifiedDate.Value >= sinceUtc));
         }
 
-        return await query.ToListAsync();
+        if (visibilityFilter is not null)
+        {
+            query = query.WhereVisibleTo(visibilityFilter);
+        }
+
+        return await query
+            .OrderByDescending(ticket => ticket.CreatedDate)
+            .ThenByDescending(ticket => ticket.Id)
+            .ToListAsync();
     }
 
-    public async Task<IEnumerable<ArchivedTicket>> GetArchivedTicketsAsync(DateTime? modifiedSinceUtc = null)
+    public async Task<(IReadOnlyList<Ticket> Items, int TotalCount)> GetTicketsPageAsync(
+        int? boardId,
+        TicketVisibilityContext visibility,
+        int page,
+        int pageSize,
+        string sort,
+        CancellationToken cancellationToken = default)
+    {
+        var filtered = _context.Tickets
+            .AsNoTracking()
+            .Include(ticket => ticket.BoardDefinition)
+            .WhereVisibleTo(visibility)
+            .AsQueryable();
+
+        if (boardId.HasValue)
+        {
+            filtered = filtered.Where(ticket => ticket.BoardId == boardId.Value);
+        }
+
+        var totalCount = await filtered.CountAsync(cancellationToken);
+        var items = await filtered
+            .OrderByTicketListSort(sort)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
+    }
+
+    public async Task<IReadOnlyList<ArchivedTicket>> GetArchivedTicketsAsync(
+        DateTime? modifiedSinceUtc = null,
+        int? boardId = null,
+        TicketVisibilityContext? visibilityFilter = null)
     {
         var query = _context.ArchivedTickets
             .AsNoTracking()
             .Include(ticket => ticket.BoardDefinition)
             .AsQueryable();
+
+        if (boardId.HasValue)
+        {
+            query = query.Where(ticket => ticket.BoardId == boardId.Value);
+        }
 
         if (modifiedSinceUtc.HasValue)
         {
@@ -45,9 +99,44 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
                 (ticket.LastModifiedDate.HasValue && ticket.LastModifiedDate.Value >= sinceUtc));
         }
 
+        if (visibilityFilter is not null)
+        {
+            query = query.WhereVisibleTo(visibilityFilter);
+        }
+
         return await query
             .OrderByDescending(ticket => ticket.ArchivedDate)
+            .ThenByDescending(ticket => ticket.Id)
             .ToListAsync();
+    }
+
+    public async Task<(IReadOnlyList<ArchivedTicket> Items, int TotalCount)> GetArchivedTicketsPageAsync(
+        int? boardId,
+        TicketVisibilityContext visibility,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var filtered = _context.ArchivedTickets
+            .AsNoTracking()
+            .Include(ticket => ticket.BoardDefinition)
+            .WhereVisibleTo(visibility)
+            .AsQueryable();
+
+        if (boardId.HasValue)
+        {
+            filtered = filtered.Where(ticket => ticket.BoardId == boardId.Value);
+        }
+
+        var totalCount = await filtered.CountAsync(cancellationToken);
+        var items = await filtered
+            .OrderByDescending(ticket => ticket.ArchivedDate)
+            .ThenByDescending(ticket => ticket.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
     }
 
     public async Task<IReadOnlyList<Ticket>> GetArchiveCandidatesAsync(
@@ -80,18 +169,29 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
 
     public async Task<IEnumerable<Ticket>> GetTicketByUserAsync(int user)
     {
-        return await _context.Tickets.Where(t => t.CreatedBy == user).ToListAsync();
+        return await _context.Tickets
+            .AsNoTracking()
+            .Include(t => t.BoardDefinition)
+            .Where(t => t.CreatedBy == user)
+            .ToListAsync();
     }
-
 
     public async Task<IEnumerable<Ticket>> GetTicketsByStatusAsync(string status)
     {
-        return await _context.Tickets.Where(t => t.Status == status).ToListAsync();
+        return await _context.Tickets
+            .AsNoTracking()
+            .Include(t => t.BoardDefinition)
+            .Where(t => t.Status == status)
+            .ToListAsync();
     }
 
     public async Task<IEnumerable<Ticket>> GetTicketsByPriorityAsync(string priority)
     {
-        return await _context.Tickets.Where(t => t.Priority == priority).ToListAsync();
+        return await _context.Tickets
+            .AsNoTracking()
+            .Include(t => t.BoardDefinition)
+            .Where(t => t.Priority == priority)
+            .ToListAsync();
     }
 
     public async Task<Ticket> CreateTicketAsync(Ticket ticket)

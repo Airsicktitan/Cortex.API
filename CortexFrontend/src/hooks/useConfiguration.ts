@@ -152,7 +152,10 @@ export interface UseConfigurationParams {
   /** Silently refreshes the active ticket list (e.g., after SLA save or archive run). */
   refreshTicketsSilently: (token?: string) => Promise<void>;
   /** Reloads the archived ticket list (e.g., after archive run or job run). */
-  loadArchivedTickets: (token?: string) => Promise<void>;
+  loadArchivedTickets: (
+    token?: string,
+    options?: { fullCatalog?: boolean },
+  ) => Promise<void>;
   /** Called when a config action needs to change the active Reports tab. */
   onActiveReportSectionChange: (section: ReportSection) => void;
   /** Called when a config action needs to update the selected custom report. */
@@ -1328,7 +1331,7 @@ export function useConfiguration({
       const result = await archiveConfigurationService.runNow(token);
       await Promise.all([
         refreshTicketsSilently(token),
-        loadArchivedTickets(token),
+        loadArchivedTickets(token, { fullCatalog: true }),
       ]);
       toast.success(
         result.archivedTicketCount === 1
@@ -1651,7 +1654,7 @@ export function useConfiguration({
         );
         await Promise.all([
           refreshTicketsSilently(token),
-          loadArchivedTickets(token),
+          loadArchivedTickets(token, { fullCatalog: true }),
         ]);
         toast.success("Job ran successfully");
       } catch (error) {

@@ -11,6 +11,91 @@ public static class QueryParameterValidation
 
     public static readonly string[] AllowedExportFormats = ["csv"];
 
+    public const int TicketListMinPage = 1;
+    public const int TicketListMinPageSize = 1;
+    public const int TicketListMaxPageSize = 100;
+    public const int TicketListDefaultPage = 1;
+    public const int TicketListDefaultPageSize = 25;
+
+    public static readonly string[] AllowedTicketListSorts =
+    [
+        "newest-first",
+        "oldest-first",
+        "priority-high-low",
+        "priority-low-high",
+        "due-soonest",
+        "most-overdue"
+    ];
+
+    public static bool TryNormalizeTicketListPage(int? page, out int normalized, out string? errorMessage)
+    {
+        errorMessage = null;
+        if (page is null)
+        {
+            normalized = TicketListDefaultPage;
+            return true;
+        }
+
+        if (page.Value < TicketListMinPage)
+        {
+            normalized = TicketListDefaultPage;
+            errorMessage = $"page must be at least {TicketListMinPage}.";
+            return false;
+        }
+
+        normalized = page.Value;
+        return true;
+    }
+
+    public static bool TryNormalizeTicketListPageSize(int? pageSize, out int normalized, out string? errorMessage)
+    {
+        errorMessage = null;
+        if (pageSize is null)
+        {
+            normalized = TicketListDefaultPageSize;
+            return true;
+        }
+
+        if (pageSize.Value < TicketListMinPageSize || pageSize.Value > TicketListMaxPageSize)
+        {
+            normalized = TicketListDefaultPageSize;
+            errorMessage =
+                $"pageSize must be between {TicketListMinPageSize} and {TicketListMaxPageSize}.";
+            return false;
+        }
+
+        normalized = pageSize.Value;
+        return true;
+    }
+
+    public static bool TryNormalizeTicketListSort(string? sort, out string normalized, out string? errorMessage)
+    {
+        errorMessage = null;
+        if (string.IsNullOrWhiteSpace(sort))
+        {
+            normalized = "newest-first";
+            return true;
+        }
+
+        var trimmed = sort.Trim();
+        foreach (var allowed in AllowedTicketListSorts)
+        {
+            if (string.Equals(trimmed, allowed, StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = allowed;
+                return true;
+            }
+        }
+
+        normalized = "newest-first";
+        errorMessage =
+            $"sort must be one of: {string.Join(", ", AllowedTicketListSorts)}.";
+        return false;
+    }
+
+    public static bool IsSlaTicketListSort(string sort) =>
+        sort is "due-soonest" or "most-overdue";
+
     /// <summary>
     /// Validates a filter segment (route or query) for length and characters that must never appear in ticket filters.
     /// </summary>
@@ -79,6 +164,27 @@ public static class QueryParameterValidation
 
         canonical = priority;
         return false;
+    }
+
+    /// <summary>Optional ticket board filter: when provided, must be a positive identifier.</summary>
+    public static bool TryValidateOptionalBoardId(int? boardId, out int? normalized, out string? errorMessage)
+    {
+        normalized = null;
+        errorMessage = null;
+
+        if (boardId is null)
+        {
+            return true;
+        }
+
+        if (boardId.Value < 1)
+        {
+            errorMessage = "boardId must be a positive integer when provided.";
+            return false;
+        }
+
+        normalized = boardId.Value;
+        return true;
     }
 
     public static bool IsAllowedExportFormat(string? format, out string? errorMessage)

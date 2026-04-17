@@ -151,3 +151,7 @@ C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Ext
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions.dll
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore.dll
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Extensions.Options.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Azure.SignalR.Common.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Azure.SignalR.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Microsoft.Azure.SignalR.Protocols.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\System.ClientModel.dll

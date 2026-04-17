@@ -18,11 +18,11 @@ public static class TicketEndpoints
 
         tickets.MapGet("/archived", TicketHandlers.GetArchivedTickets)
             .WithName("GetArchivedTickets")
-            .Produces<List<ArchivedTicket>>(StatusCodes.Status200OK);
+            .Produces<PagedArchivedTicketListResponse>(StatusCodes.Status200OK);
 
         tickets.MapGet("/", TicketHandlers.GetAllTickets)
             .WithName("GetAllTickets")
-            .Produces<List<Ticket>>(StatusCodes.Status200OK);
+            .Produces<PagedTicketListResponse>(StatusCodes.Status200OK);
 
         tickets.MapGet("/{id}", TicketHandlers.GetTicketById)
             .WithName("GetTicketById")

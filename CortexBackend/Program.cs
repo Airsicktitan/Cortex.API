@@ -10,6 +10,7 @@ using Cortex.API.Data;
 using Cortex.API.Data.Repositories;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Azure.SignalR;
 using Cortex.API.Services;
 using Cortex.API.Authorization;
 using Cortex.API.Hubs;
@@ -259,11 +260,41 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization(options => options.AddCortexPolicies());
-// TODO: Add Azure SignalR Service or a Redis backplane before relying on multi-replica delivery.
-builder.Services.AddSignalR();
+
+// SignalR: use Azure SignalR Service when a connection string is configured (multi-instance / Container Apps).
+// Omit or leave empty for local development — falls back to in-memory scale-out (single process).
+var azureSignalRConnectionString =
+    builder.Configuration["Azure:SignalR:ConnectionString"]
+    ?? builder.Configuration.GetConnectionString("AzureSignalR");
+
+var useAzureSignalR = !string.IsNullOrWhiteSpace(azureSignalRConnectionString);
+
+if (useAzureSignalR)
+{
+    builder.Services.AddSignalR().AddAzureSignalR(options =>
+    {
+        options.ConnectionString = azureSignalRConnectionString;
+    });
+}
+else
+{
+    builder.Services.AddSignalR();
+}
 
 // Build app
 var app = builder.Build();
+
+var realtimeLogger = app.Logger;
+if (useAzureSignalR)
+{
+    realtimeLogger.LogInformation(
+        "Realtime: Azure SignalR Service is enabled (multi-instance safe).");
+}
+else
+{
+    realtimeLogger.LogInformation(
+        "Realtime: using in-process SignalR (set Azure__SignalR__ConnectionString or ConnectionStrings__AzureSignalR for Azure SignalR Service).");
+}
 
 var auth0ManagementOptions = app.Services
     .GetRequiredService<Microsoft.Extensions.Options.IOptions<Auth0ManagementOptions>>()

@@ -156,3 +156,7 @@ C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\obj\Release\net8.0\refint\C
 C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\obj\Release\net8.0\Cortex.API.Tests.pdb
 C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\obj\Release\net8.0\Cortex.API.Tests.genruntimeconfig.cache
 C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\obj\Release\net8.0\ref\Cortex.API.Tests.dll
+C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Release\net8.0\Microsoft.Azure.SignalR.Common.dll
+C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Release\net8.0\Microsoft.Azure.SignalR.dll
+C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Release\net8.0\Microsoft.Azure.SignalR.Protocols.dll
+C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Release\net8.0\System.ClientModel.dll

@@ -585,6 +585,7 @@ function App() {
     setSelectedTicket,
     isModalOpen,
     archivedTickets,
+    archivedTicketsForView,
     setArchivedTickets,
     archivedLoading,
     archivedError,
@@ -1852,8 +1853,9 @@ function App() {
 
       if (notification.ticketIsArchived) {
         setHighlightedArchivedTicketId(notification.ticketId);
+        setSelectedBoardId("all");
         setActiveView("archived");
-        await loadArchivedTickets(token);
+        await loadArchivedTickets(token, { fullCatalog: true });
 
         window.setTimeout(() => {
           document
@@ -2455,7 +2457,7 @@ function App() {
             />
           ) : activeView === "archived" && canViewArchived ? (
             <ArchivedTicketsPage
-              tickets={archivedTickets}
+              tickets={archivedTicketsForView}
               loading={archivedLoading || apiUnavailable}
               error={apiUnavailable ? null : archivedError}
               highlightedTicketId={highlightedArchivedTicketId}

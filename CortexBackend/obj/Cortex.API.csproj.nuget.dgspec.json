@@ -10,7 +10,7 @@
         "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
         "projectName": "Cortex.API",
         "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
-        "packagesPath": "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\10f5847e65f1990b193539da2e7ef243\\nuget",
+        "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
         "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
@@ -54,6 +54,10 @@
             "Microsoft.AspNetCore.Authentication.JwtBearer": {
               "target": "Package",
               "version": "[8.0.0, )"
+            },
+            "Microsoft.Azure.SignalR": {
+              "target": "Package",
+              "version": "[1.33.0, )"
             },
             "Microsoft.EntityFrameworkCore.Design": {
               "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",

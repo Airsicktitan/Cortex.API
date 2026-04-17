@@ -25,24 +25,169 @@ public static class TicketHandlers
 
     public static async Task<IResult> GetAllTickets(
         DateTimeOffset? sinceUtc,
+        int? boardId,
+        int? page,
+        int? pageSize,
+        string? sort,
+        bool? unpaged,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
         IResponseMappingContextFactory mappingContextFactory)
     {
+        if (!QueryParameterValidation.TryValidateOptionalBoardId(boardId, out var normalizedBoardId, out var boardIdError))
+        {
+            return Results.BadRequest(new { message = boardIdError });
+        }
+
+        if (!QueryParameterValidation.TryNormalizeTicketListSort(sort, out var normalizedSort, out var sortError))
+        {
+            return Results.BadRequest(new { message = sortError });
+        }
+
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
-        var tickets = await repo.GetAllTicketsAsync(sinceUtc?.UtcDateTime);
-        var visibleTickets = tickets.Where(visibilityContext.CanView).ToList();
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
 
-        var mappingContext = await mappingContextFactory.CreateAsync(
-            visibleTickets.Select(ticket => ticket.CreatedBy),
-            null,
-            visibleTickets.Select(ticket => ticket.BoardId));
+        if (sinceUtc.HasValue)
+        {
+            var tickets = await repo.GetAllTicketsAsync(
+                sinceUtc.Value.UtcDateTime,
+                normalizedBoardId,
+                visibilityContext);
 
-        return Results.Ok(
-            visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                tickets.Select(ticket => ticket.CreatedBy),
+                null,
+                tickets.Select(ticket => ticket.BoardId));
+
+            var items = tickets
+                .Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext))
+                .ToList();
+
+            return Results.Ok(new PagedTicketListResponse
+            {
+                Items = items,
+                Page = 1,
+                PageSize = items.Count,
+                TotalCount = items.Count,
+                TotalPages = 1
+            });
+        }
+
+        if (unpaged == true)
+        {
+            var tickets = await repo.GetAllTicketsAsync(null, normalizedBoardId, visibilityContext);
+            var ordered = QueryParameterValidation.IsSlaTicketListSort(normalizedSort)
+                ? tickets
+                : TicketQueryableExtensions.SortTicketEntitiesInMemory(tickets, normalizedSort);
+
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                ordered.Select(ticket => ticket.CreatedBy),
+                null,
+                ordered.Select(ticket => ticket.BoardId));
+
+            var responses = ordered
+                .Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext))
+                .ToList();
+
+            if (QueryParameterValidation.IsSlaTicketListSort(normalizedSort))
+            {
+                responses = SortTicketResponsesBySla(responses, normalizedSort);
+            }
+
+            return Results.Ok(new PagedTicketListResponse
+            {
+                Items = responses,
+                Page = 1,
+                PageSize = responses.Count,
+                TotalCount = responses.Count,
+                TotalPages = 1
+            });
+        }
+
+        if (!QueryParameterValidation.TryNormalizeTicketListPage(page, out var normalizedPage, out var pageError))
+        {
+            return Results.BadRequest(new { message = pageError });
+        }
+
+        if (!QueryParameterValidation.TryNormalizeTicketListPageSize(pageSize, out var normalizedPageSize, out var pageSizeError))
+        {
+            return Results.BadRequest(new { message = pageSizeError });
+        }
+
+        if (QueryParameterValidation.IsSlaTicketListSort(normalizedSort))
+        {
+            var tickets = await repo.GetAllTicketsAsync(null, normalizedBoardId, visibilityContext);
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                tickets.Select(ticket => ticket.CreatedBy),
+                null,
+                tickets.Select(ticket => ticket.BoardId));
+
+            var responses = tickets
+                .Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext))
+                .ToList();
+            responses = SortTicketResponsesBySla(responses, normalizedSort);
+
+            var totalCount = responses.Count;
+            var pageItems = responses
+                .Skip((normalizedPage - 1) * normalizedPageSize)
+                .Take(normalizedPageSize)
+                .ToList();
+
+            return Results.Ok(new PagedTicketListResponse
+            {
+                Items = pageItems,
+                Page = normalizedPage,
+                PageSize = normalizedPageSize,
+                TotalCount = totalCount,
+                TotalPages = ComputeTotalPages(totalCount, normalizedPageSize)
+            });
+        }
+
+        var (pageTickets, total) = await repo.GetTicketsPageAsync(
+            normalizedBoardId,
+            visibilityContext,
+            normalizedPage,
+            normalizedPageSize,
+            normalizedSort);
+
+        var pageMappingContext = await mappingContextFactory.CreateAsync(
+            pageTickets.Select(ticket => ticket.CreatedBy),
+            null,
+            pageTickets.Select(ticket => ticket.BoardId));
+
+        var pagedResponses = pageTickets
+            .Select(ticket => ticket.ToResponse(slaConfigurations, pageMappingContext))
+            .ToList();
+
+        return Results.Ok(new PagedTicketListResponse
+        {
+            Items = pagedResponses,
+            Page = normalizedPage,
+            PageSize = normalizedPageSize,
+            TotalCount = total,
+            TotalPages = ComputeTotalPages(total, normalizedPageSize)
+        });
     }
+
+    private static List<TicketResponse> SortTicketResponsesBySla(
+        IReadOnlyList<TicketResponse> items,
+        string sort)
+    {
+        if (sort == "due-soonest")
+        {
+            return items.OrderBy(r => r.SlaTargetDate).ThenBy(r => r.Id).ToList();
+        }
+
+        return items
+            .OrderBy(r => r.SlaRemainingMinutes)
+            .ThenBy(r => r.SlaTargetDate)
+            .ThenBy(r => r.Id)
+            .ToList();
+    }
+
+    private static int ComputeTotalPages(int totalCount, int pageSize) =>
+        pageSize <= 0 ? 0 : (totalCount + pageSize - 1) / pageSize;
 
     public static async Task<IResult> GetTicketById(
         string id,
@@ -114,21 +259,103 @@ public static class TicketHandlers
 
     public static async Task<IResult> GetArchivedTickets(
         DateTimeOffset? sinceUtc,
+        int? boardId,
+        int? page,
+        int? pageSize,
+        bool? unpaged,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
         IResponseMappingContextFactory mappingContextFactory)
     {
+        if (!QueryParameterValidation.TryValidateOptionalBoardId(boardId, out var normalizedBoardId, out var boardIdError))
+        {
+            return Results.BadRequest(new { message = boardIdError });
+        }
+
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
-        var archivedTickets = await repo.GetArchivedTicketsAsync(sinceUtc?.UtcDateTime);
-        var visibleTickets = archivedTickets.Where(ticket =>
-            visibilityContext.CanView(ticket.CreatedBy, ticket.SynitiOwner, ticket.BusinessOwner)).ToList();
 
-        var mappingContext = await mappingContextFactory.CreateAsync(
-            visibleTickets.SelectMany(ticket => new[] { ticket.CreatedBy, ticket.ArchivedBy }),
+        if (sinceUtc.HasValue)
+        {
+            var archivedTickets = await repo.GetArchivedTicketsAsync(
+                sinceUtc.Value.UtcDateTime,
+                normalizedBoardId,
+                visibilityContext);
+
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                archivedTickets.SelectMany(ticket => new[] { ticket.CreatedBy, ticket.ArchivedBy }),
+                null,
+                archivedTickets.Select(ticket => ticket.BoardId));
+
+            var items = archivedTickets
+                .Select(ticket => ticket.ToResponse(mappingContext))
+                .ToList();
+
+            return Results.Ok(new PagedArchivedTicketListResponse
+            {
+                Items = items,
+                Page = 1,
+                PageSize = items.Count,
+                TotalCount = items.Count,
+                TotalPages = 1
+            });
+        }
+
+        if (unpaged == true)
+        {
+            var archivedTickets = await repo.GetArchivedTicketsAsync(null, normalizedBoardId, visibilityContext);
+
+            var mappingContext = await mappingContextFactory.CreateAsync(
+                archivedTickets.SelectMany(ticket => new[] { ticket.CreatedBy, ticket.ArchivedBy }),
+                null,
+                archivedTickets.Select(ticket => ticket.BoardId));
+
+            var responses = archivedTickets
+                .Select(ticket => ticket.ToResponse(mappingContext))
+                .ToList();
+
+            return Results.Ok(new PagedArchivedTicketListResponse
+            {
+                Items = responses,
+                Page = 1,
+                PageSize = responses.Count,
+                TotalCount = responses.Count,
+                TotalPages = 1
+            });
+        }
+
+        if (!QueryParameterValidation.TryNormalizeTicketListPage(page, out var normalizedPage, out var pageError))
+        {
+            return Results.BadRequest(new { message = pageError });
+        }
+
+        if (!QueryParameterValidation.TryNormalizeTicketListPageSize(pageSize, out var normalizedPageSize, out var pageSizeError))
+        {
+            return Results.BadRequest(new { message = pageSizeError });
+        }
+
+        var (pageTickets, total) = await repo.GetArchivedTicketsPageAsync(
+            normalizedBoardId,
+            visibilityContext,
+            normalizedPage,
+            normalizedPageSize);
+
+        var pageMappingContext = await mappingContextFactory.CreateAsync(
+            pageTickets.SelectMany(ticket => new[] { ticket.CreatedBy, ticket.ArchivedBy }),
             null,
-            visibleTickets.Select(ticket => ticket.BoardId));
+            pageTickets.Select(ticket => ticket.BoardId));
 
-        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(mappingContext)));
+        var pagedResponses = pageTickets
+            .Select(ticket => ticket.ToResponse(pageMappingContext))
+            .ToList();
+
+        return Results.Ok(new PagedArchivedTicketListResponse
+        {
+            Items = pagedResponses,
+            Page = normalizedPage,
+            PageSize = normalizedPageSize,
+            TotalCount = total,
+            TotalPages = ComputeTotalPages(total, normalizedPageSize)
+        });
     }
 
     public static async Task<IResult> GetTicketsByStatus(

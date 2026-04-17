@@ -8,6 +8,7 @@ import type {
   TicketSaveOutcome,
 } from "../types/ticket";
 import type { UserProfile } from "../types/user";
+import type { TicketListQueryOptions } from "../services/api";
 import {
   API_USER_MESSAGES,
   ApiError,
@@ -15,6 +16,7 @@ import {
   getUserFacingErrorMessage,
   ticketService,
 } from "../services/api";
+import type { PagedTicketList } from "../types/pagedList";
 import toast from "react-hot-toast";
 
 export type FilterOption = "all" | "status" | "priority" | "sla";
@@ -204,6 +206,10 @@ export function useTickets({
   isLikelyNetworkError,
 }: UseTicketsParams) {
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+  const [serverTicketListMeta, setServerTicketListMeta] = useState<{
+    totalCount: number;
+    totalPages: number;
+  } | null>(null);
   const [filter, setFilter] = useState<FilterOption>("all");
   const [filterValue, setFilterValue] = useState("");
   const debouncedFilterValue = useDebouncedValue(filterValue, 300);
@@ -232,6 +238,84 @@ export function useTickets({
   const ticketChangeSyncInFlightRef = useRef(false);
   const lastTicketChangeSyncUtcRef = useRef<string | null>(null);
   const lastTicketFullRefreshAtRef = useRef(0);
+  const previousSelectedBoardIdRef = useRef<number | "all">(selectedBoardId);
+  const ticketsLoadedRef = useRef(false);
+  const skipNextServerPagingEffectRef = useRef(false);
+
+  const useClientFilterMode = useMemo(
+    () =>
+      debouncedSearchQuery.trim() !== "" ||
+      filter !== "all" ||
+      myTicketsOnly ||
+      ticketListSort === "due-soonest" ||
+      ticketListSort === "most-overdue" ||
+      pageSize === "all",
+    [
+      debouncedSearchQuery,
+      filter,
+      myTicketsOnly,
+      ticketListSort,
+      pageSize,
+    ],
+  );
+
+  const useServerDrivenPaging = useMemo(
+    () => !useClientFilterMode,
+    [useClientFilterMode],
+  );
+
+  const buildActiveTicketQueryOptions = useCallback((): TicketListQueryOptions => {
+    const boardScope =
+      selectedBoardId === "all" ? undefined : selectedBoardId;
+
+    if (useClientFilterMode) {
+      return {
+        unpaged: true,
+        sort: ticketListSort,
+        ...(boardScope !== undefined ? { boardId: boardScope } : {}),
+      };
+    }
+
+    const numericPageSize = pageSize === "all" ? 100 : pageSize;
+    return {
+      page: currentPage,
+      pageSize: numericPageSize,
+      sort: ticketListSort,
+      ...(boardScope !== undefined ? { boardId: boardScope } : {}),
+    };
+  }, [
+    currentPage,
+    pageSize,
+    selectedBoardId,
+    ticketListSort,
+    useClientFilterMode,
+  ]);
+
+  const applyTicketPageResponse = useCallback(
+    (data: PagedTicketList) => {
+      const boardScope =
+        selectedBoardId === "all" ? undefined : selectedBoardId;
+
+      if (useClientFilterMode && boardScope !== undefined) {
+        setAllTickets((prev) => {
+          const others = prev.filter((ticket) => ticket.boardId !== boardScope);
+          return [...others, ...data.items];
+        });
+      } else {
+        setAllTickets(data.items);
+      }
+
+      if (useServerDrivenPaging) {
+        setServerTicketListMeta({
+          totalCount: data.totalCount,
+          totalPages: data.totalPages,
+        });
+      } else {
+        setServerTicketListMeta(null);
+      }
+    },
+    [selectedBoardId, useClientFilterMode, useServerDrivenPaging],
+  );
 
   const upsertActiveTicketLocally = useCallback(
     (incomingTicket: Ticket, options?: { syncSelectedTicket?: boolean }) => {
@@ -280,6 +364,18 @@ export function useTickets({
     [selectedTicket],
   );
 
+  const fetchActiveTicketList = useCallback(
+    async (providedToken?: string) => {
+      const token = providedToken ?? (await getApiToken());
+      const data = await ticketService.getAll(token, buildActiveTicketQueryOptions());
+      applyTicketPageResponse(data);
+      setApiUnavailable(false);
+      lastTicketChangeSyncUtcRef.current = new Date().toISOString();
+      lastTicketFullRefreshAtRef.current = Date.now();
+    },
+    [applyTicketPageResponse, buildActiveTicketQueryOptions, getApiToken, setApiUnavailable],
+  );
+
   const refreshTicketsSilently = useCallback(
     async (providedToken?: string) => {
       if (ticketSilentRefreshInFlightRef.current) {
@@ -288,20 +384,14 @@ export function useTickets({
 
       ticketSilentRefreshInFlightRef.current = true;
       const requestId = ++ticketSilentRefreshRequestIdRef.current;
-      const syncStartedAt = new Date().toISOString();
 
       try {
         const token = providedToken ?? (await getApiToken());
-        const data = await ticketService.getAll(token);
+        await fetchActiveTicketList(token);
 
         if (requestId !== ticketSilentRefreshRequestIdRef.current) {
           return;
         }
-
-        setAllTickets(data);
-        setApiUnavailable(false);
-        lastTicketChangeSyncUtcRef.current = syncStartedAt;
-        lastTicketFullRefreshAtRef.current = Date.now();
       } catch (error) {
         console.error("Failed to refresh tickets silently", error);
 
@@ -318,7 +408,7 @@ export function useTickets({
         }
       }
     },
-    [getApiToken, isLikelyNetworkError, setApiUnavailable],
+    [fetchActiveTicketList, getApiToken, isLikelyNetworkError, setApiUnavailable],
   );
 
   const loadAllTickets = useCallback(
@@ -327,14 +417,12 @@ export function useTickets({
       setError(null);
 
       try {
-        const syncStartedAt = new Date().toISOString();
         const token = providedToken ?? (await getApiToken());
-        const data = await ticketService.getAll(token);
-        setAllTickets(data);
+        await fetchActiveTicketList(token);
+        skipNextServerPagingEffectRef.current = true;
+        ticketsLoadedRef.current = true;
         setNeedsConsent(false);
         setApiUnavailable(false);
-        lastTicketChangeSyncUtcRef.current = syncStartedAt;
-        lastTicketFullRefreshAtRef.current = Date.now();
       } catch (error) {
         console.error("Failed to load tickets", error);
 
@@ -356,6 +444,7 @@ export function useTickets({
       }
     },
     [
+      fetchActiveTicketList,
       getApiToken,
       isConsentRequiredError,
       isForbiddenError,
@@ -389,10 +478,17 @@ export function useTickets({
 
       try {
         const token = providedToken ?? (await getApiToken());
-        const [updatedTickets, archivedTicketsDelta] = await Promise.all([
-          ticketService.getAll(token, { sinceUtc }),
-          ticketService.getArchived(token, { sinceUtc }),
+        const listOptions =
+          selectedBoardId === "all"
+            ? { sinceUtc }
+            : { sinceUtc, boardId: selectedBoardId };
+        const [updatedPage, archivedPage] = await Promise.all([
+          ticketService.getAll(token, listOptions),
+          ticketService.getArchived(token, listOptions),
         ]);
+
+        const updatedTickets = updatedPage.items;
+        const archivedTicketsDelta = archivedPage.items;
 
         const updatedTicketIds = new Set(updatedTickets.map((ticket) => ticket.id));
         const archivedTicketIds = new Set(
@@ -453,6 +549,7 @@ export function useTickets({
       isLikelyNetworkError,
       isModalOpen,
       refreshTicketsSilently,
+      selectedBoardId,
       selectedTicket,
       setApiUnavailable,
     ],
@@ -505,14 +602,33 @@ export function useTickets({
   );
 
   const loadArchivedTickets = useCallback(
-    async (providedToken?: string) => {
+    async (
+      providedToken?: string,
+      options?: { fullCatalog?: boolean },
+    ) => {
       setArchivedLoading(true);
       setArchivedError(null);
 
       try {
         const token = providedToken ?? (await getApiToken());
-        const data = await ticketService.getArchived(token);
-        setArchivedTickets(data);
+        const fullCatalog = options?.fullCatalog === true;
+        const boardScope =
+          fullCatalog || selectedBoardId === "all" ? undefined : selectedBoardId;
+        const requestOptions: TicketListQueryOptions = {
+          unpaged: true,
+          ...(boardScope !== undefined ? { boardId: boardScope } : {}),
+        };
+        const data = await ticketService.getArchived(token, requestOptions);
+        const items = data.items;
+
+        if (boardScope === undefined) {
+          setArchivedTickets(items);
+        } else {
+          setArchivedTickets((prev) => {
+            const others = prev.filter((ticket) => ticket.boardId !== boardScope);
+            return [...others, ...items];
+          });
+        }
         setApiUnavailable(false);
       } catch (error) {
         console.error("Failed to load archived tickets", error);
@@ -530,8 +646,55 @@ export function useTickets({
         setArchivedLoading(false);
       }
     },
-    [getApiToken, isForbiddenError, isLikelyNetworkError, setApiUnavailable],
+    [getApiToken, isForbiddenError, isLikelyNetworkError, selectedBoardId, setApiUnavailable],
   );
+
+  useEffect(() => {
+    const previous = previousSelectedBoardIdRef.current;
+    previousSelectedBoardIdRef.current = selectedBoardId;
+    if (typeof previous === "number" && selectedBoardId === "all") {
+      void loadArchivedTickets();
+    }
+  }, [loadArchivedTickets, selectedBoardId]);
+
+  const archivedTicketsForView = useMemo(() => {
+    if (selectedBoardId === "all") {
+      return archivedTickets;
+    }
+
+    return archivedTickets.filter((ticket) => ticket.boardId === selectedBoardId);
+  }, [archivedTickets, selectedBoardId]);
+
+  useEffect(() => {
+    if (!useServerDrivenPaging || !ticketsLoadedRef.current) {
+      return;
+    }
+    if (skipNextServerPagingEffectRef.current) {
+      skipNextServerPagingEffectRef.current = false;
+      return;
+    }
+
+    void (async () => {
+      try {
+        const token = await getApiToken();
+        await fetchActiveTicketList(token);
+      } catch (e) {
+        console.error("Failed to load ticket page", e);
+      }
+    })();
+  }, [
+    currentPage,
+    debouncedSearchQuery,
+    fetchActiveTicketList,
+    filter,
+    getApiToken,
+    myTicketsOnly,
+    pageSize,
+    selectedBoardId,
+    ticketListSort,
+    useClientFilterMode,
+    useServerDrivenPaging,
+  ]);
 
   const tickets = useMemo(() => {
     const filterInput = normalize(debouncedFilterValue);
@@ -585,28 +748,53 @@ export function useTickets({
     selectedBoardId,
   ]);
 
-  const sortedTickets = useMemo(
-    () => sortTicketsForList(tickets, ticketListSort),
-    [ticketListSort, tickets],
-  );
+  const sortedTickets = useMemo(() => {
+    if (useServerDrivenPaging) {
+      return tickets;
+    }
+    return sortTicketsForList(tickets, ticketListSort);
+  }, [ticketListSort, tickets, useServerDrivenPaging]);
 
-  const totalTickets = sortedTickets.length;
-  const totalPages =
-    pageSize === "all" ? 1 : Math.max(1, Math.ceil(totalTickets / pageSize));
+  const totalTickets = useMemo(() => {
+    if (serverTicketListMeta && useServerDrivenPaging) {
+      return serverTicketListMeta.totalCount;
+    }
+    return sortedTickets.length;
+  }, [serverTicketListMeta, sortedTickets.length, useServerDrivenPaging]);
+
+  const totalPages = useMemo(() => {
+    if (serverTicketListMeta && useServerDrivenPaging) {
+      return Math.max(1, serverTicketListMeta.totalPages);
+    }
+    if (pageSize === "all") {
+      return 1;
+    }
+    return Math.max(1, Math.ceil(totalTickets / pageSize));
+  }, [pageSize, serverTicketListMeta, totalTickets, useServerDrivenPaging]);
+
   const pagedTickets = useMemo(() => {
+    if (useServerDrivenPaging) {
+      return sortedTickets;
+    }
     if (pageSize === "all") {
       return sortedTickets;
     }
 
     const startIndex = (currentPage - 1) * pageSize;
     return sortedTickets.slice(startIndex, startIndex + pageSize);
-  }, [currentPage, pageSize, sortedTickets]);
+  }, [currentPage, pageSize, sortedTickets, useServerDrivenPaging]);
+
+  const numericPageSize =
+    pageSize === "all" ? Math.max(totalTickets, 1) : pageSize;
+
   const showingStart =
     totalTickets === 0
       ? 0
-      : (currentPage - 1) * (pageSize === "all" ? totalTickets : pageSize) + 1;
+      : (currentPage - 1) * numericPageSize + 1;
   const showingEnd =
-    pageSize === "all" ? totalTickets : Math.min(totalTickets, currentPage * pageSize);
+    totalTickets === 0
+      ? 0
+      : Math.min(currentPage * numericPageSize, totalTickets);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -861,6 +1049,7 @@ export function useTickets({
     isModalOpen,
     setIsModalOpen,
     archivedTickets,
+    archivedTicketsForView,
     setArchivedTickets,
     archivedLoading,
     archivedError,

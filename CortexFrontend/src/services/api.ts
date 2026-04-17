@@ -1,5 +1,9 @@
 import type { CreateTicketInput, Ticket, TicketMutationInput } from "../types/ticket";
 import type { ArchivedTicket } from "../types/archivedTicket";
+import type {
+  PagedArchivedTicketList,
+  PagedTicketList,
+} from "../types/pagedList";
 import type { TicketAttachment } from "../types/attachment";
 import type { TicketAuditEntry } from "../types/ticketAudit";
 import type {
@@ -16,19 +20,44 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
-type TicketListQueryOptions = {
+export type TicketListQueryOptions = {
   sinceUtc?: string;
+  /** When set, the API applies SQL filtering to this board only (reduces payload for board-scoped sync). */
+  boardId?: number;
+  page?: number;
+  pageSize?: number;
+  sort?: string;
+  /** Loads the full visible list (ignores page/pageSize on the server). */
+  unpaged?: boolean;
 };
 
 function withTicketQuery(path: string, options?: TicketListQueryOptions) {
-  if (!options?.sinceUtc) {
+  if (!options) {
     return path;
   }
 
-  const searchParams = new URLSearchParams({
-    sinceUtc: options.sinceUtc,
-  });
-  return `${path}?${searchParams.toString()}`;
+  const searchParams = new URLSearchParams();
+  if (options.sinceUtc) {
+    searchParams.set("sinceUtc", options.sinceUtc);
+  }
+  if (options.boardId !== undefined) {
+    searchParams.set("boardId", String(options.boardId));
+  }
+  if (options.page !== undefined) {
+    searchParams.set("page", String(options.page));
+  }
+  if (options.pageSize !== undefined) {
+    searchParams.set("pageSize", String(options.pageSize));
+  }
+  if (options.sort) {
+    searchParams.set("sort", options.sort);
+  }
+  if (options.unpaged === true) {
+    searchParams.set("unpaged", "true");
+  }
+
+  const qs = searchParams.toString();
+  return qs ? `${path}?${qs}` : path;
 }
 
 const authHeaders = (token: string, includeJson = false): HeadersInit => ({
@@ -156,14 +185,16 @@ export const ticketService = {
     return response.json();
   },
 
-  // Get all tickets
-  async getAll(token: string, options?: TicketListQueryOptions): Promise<Ticket[]> {
+  async getAll(
+    token: string,
+    options?: TicketListQueryOptions,
+  ): Promise<PagedTicketList> {
     const response = await fetch(withTicketQuery(`${API_BASE_URL}/tickets`, options), {
       headers: authHeaders(token),
     });
 
     await ensureSuccess(response, API_USER_MESSAGES.loadTickets);
-    return response.json();
+    return response.json() as Promise<PagedTicketList>;
   },
 
   // Get ticket by ID
@@ -202,16 +233,16 @@ export const ticketService = {
   async getArchived(
     token: string,
     options?: TicketListQueryOptions,
-  ): Promise<ArchivedTicket[]> {
+  ): Promise<PagedArchivedTicketList> {
     const response = await fetch(
       withTicketQuery(`${API_BASE_URL}/tickets/archived`, options),
       {
-      headers: authHeaders(token),
+        headers: authHeaders(token),
       },
     );
 
     await ensureSuccess(response, "Failed to fetch archived tickets");
-    return response.json();
+    return response.json() as Promise<PagedArchivedTicketList>;
   },
 
   async getHistory(id: string, token: string): Promise<TicketAuditEntry[]> {
