@@ -286,9 +286,12 @@ export const ticketService = {
     ticket: CreateTicketInput,
     token: string,
   ): Promise<Ticket> {
-    const { status: _ignoredStatus, ...createPayload } = ticket as CreateTicketInput & {
+    const createPayload = {
+      ...ticket,
+    } as CreateTicketInput & {
       status?: string;
     };
+    delete createPayload.status;
 
     const response = await fetch(`${API_BASE_URL}/tickets`, {
       method: "POST",

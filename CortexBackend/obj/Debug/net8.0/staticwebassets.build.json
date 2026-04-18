@@ -1,11 +1,1 @@
-{
-  "Version": 1,
-  "Hash": "1yXI8b5/mCGnKFGTpPOeUZdAMJ5A6YPj7wxjcjvZHoU=",
-  "Source": "Cortex.API",
-  "BasePath": "_content/Cortex.API",
-  "Mode": "Default",
-  "ManifestType": "Build",
-  "ReferencedProjectsConfiguration": [],
-  "DiscoveryPatterns": [],
-  "Assets": []
-}
+{"Version":1,"Hash":"+J1A7DSEzlwxQWX+xNldRA8JcGIDrWCyLcvjZb9ZPnQ=","Source":"Cortex.API","BasePath":"/","Mode":"Root","ManifestType":"Build","ReferencedProjectsConfiguration":[],"DiscoveryPatterns":[],"Assets":[],"Endpoints":[]}

@@ -617,14 +617,6 @@ public static class TicketHandlers
                 AudienceUserIds = audienceUserIds,
                 Ticket = createdTicketResponse
             });
-            await realtimeEventService.PublishAsync(new RealtimeEventMessage
-            {
-                EventType = "ticket.routed",
-                TicketId = createdTicket.Id,
-                EntityId = createdTicket.Id,
-                AudienceUserIds = audienceUserIds,
-                Ticket = createdTicketResponse
-            });
 
             LogTicketCreated(
                 logger,

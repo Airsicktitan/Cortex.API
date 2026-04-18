@@ -119,6 +119,8 @@ export function useSavedFilters({
   const [savedFilterName, setSavedFilterName] = useState("");
 
   useEffect(() => {
+    // Storage key changes should immediately swap the saved-filter namespace.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSavedFilters(
       parseSavedFilters(window.localStorage.getItem(storageKey)),
     );

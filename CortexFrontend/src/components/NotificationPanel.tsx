@@ -16,14 +16,29 @@ function formatDateTime(value: string) {
   return new Date(value).toLocaleString();
 }
 
-function getSeverityClass(severity: string) {
-  switch (severity.toLowerCase()) {
-    case "critical":
-      return "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-200";
-    case "warning":
+function getTypeClass(type: UserNotification["type"]) {
+  switch (type) {
+    case "assignment":
+      return "bg-cortex-blue-soft text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100";
+    case "comment":
+      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200";
+    case "status":
       return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
     default:
-      return "bg-cortex-blue-soft text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-200";
+      return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
+  }
+}
+
+function getTypeLabel(type: UserNotification["type"]) {
+  switch (type) {
+    case "assignment":
+      return "Assignment";
+    case "comment":
+      return "Comment";
+    case "status":
+      return "Status";
+    default:
+      return "System";
   }
 }
 
@@ -107,10 +122,15 @@ export default function NotificationPanel({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${getSeverityClass(notification.severity)}`}
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${getTypeClass(notification.type)}`}
                       >
-                        {notification.severity}
+                        {getTypeLabel(notification.type)}
                       </span>
+                      {notification.ticketId && (
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-slate-800 dark:text-slate-300">
+                          Ticket {notification.ticketId}
+                        </span>
+                      )}
                       {!notification.isRead && (
                         <span className="inline-flex h-2.5 w-2.5 rounded-full bg-cortex-cyan" />
                       )}
@@ -122,7 +142,7 @@ export default function NotificationPanel({
                       {notification.message}
                     </p>
                     <p className="mt-2 text-xs text-gray-500 dark:text-slate-500">
-                      {formatDateTime(notification.createdDateUtc)}
+                      {formatDateTime(notification.createdAt ?? notification.createdDateUtc)}
                     </p>
                   </div>
                   {markingNotificationId === notification.id && (

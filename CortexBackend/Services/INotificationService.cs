@@ -10,6 +10,7 @@ public interface INotificationService
     Task MarkAllAsReadAsync(int userId);
     Task<int> CreateAssignmentNotificationsAsync(Ticket originalTicket, Ticket updatedTicket, User actor);
     Task<int> CreateAssignmentNotificationsForNewTicketAsync(Ticket ticket, User actor);
+    Task<int> CreateCommentNotificationsAsync(Ticket ticket, User actor);
     Task<int> CreateArchiveNotificationsAsync(Ticket ticket, User actor, bool ticketIsArchived, bool isReactivated = false);
     Task<int> ProcessSlaNotificationsAsync(DateTime utcNow, CancellationToken cancellationToken = default);
 }

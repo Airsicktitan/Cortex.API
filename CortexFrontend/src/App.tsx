@@ -95,8 +95,8 @@ function mergeNotificationsById(
   return Array.from(notificationsById.values())
     .sort(
       (left, right) =>
-        new Date(right.createdDateUtc).getTime() -
-        new Date(left.createdDateUtc).getTime(),
+        new Date(right.createdAt ?? right.createdDateUtc).getTime() -
+        new Date(left.createdAt ?? left.createdDateUtc).getTime(),
     )
     .slice(0, 20);
 }
@@ -1158,41 +1158,38 @@ function App() {
         setLatestRealtimeEvent(event);
 
         if (event.eventType === "notification.created") {
-          const recipients = event.recipientUserIds ?? [];
-          const activeUser = currentUserRef.current;
-          if (
-            activeUser &&
-            recipients.includes(activeUser.id)
-          ) {
-            if (typeof event.unreadCount === "number") {
-              setNotificationUnreadCount(event.unreadCount);
-            }
+          if (typeof event.unreadCount === "number") {
+            setNotificationUnreadCount(event.unreadCount);
+          }
 
-            if (event.notifications && event.notifications.length > 0) {
-              const assignmentNotifications = event.notifications.filter(
-                (notification) => notification.eventType === "ticket.assignment",
-              );
-              const routingNotifications = event.notifications.filter(
-                (notification) => notification.eventType === "ticket.routed",
-              );
-              for (const notification of assignmentNotifications) {
-                toast.success(notification.title, {
-                  id: `assignment-notification-${notification.id}`,
-                });
-              }
-              for (const notification of routingNotifications) {
-                toast(notification.title, {
-                  id: `routing-notification-${notification.id}`,
-                });
-              }
-              setNotifications((currentNotifications) =>
-                mergeNotificationsById(currentNotifications, event.notifications ?? []),
-              );
-              setNotificationsLoaded(true);
-              setNotificationsError(null);
-            } else {
-              void loadNotificationsRef.current(undefined, { silent: true });
+          if (event.notifications && event.notifications.length > 0) {
+            const assignmentNotifications = event.notifications.filter(
+              (notification) =>
+                notification.type === "assignment" ||
+                notification.eventType === "ticket.assignment",
+            );
+            const commentNotifications = event.notifications.filter(
+              (notification) =>
+                notification.type === "comment" ||
+                notification.eventType === "ticket.comment",
+            );
+            for (const notification of assignmentNotifications) {
+              toast.success(notification.title, {
+                id: `assignment-notification-${notification.id}`,
+              });
             }
+            for (const notification of commentNotifications) {
+              toast(notification.title, {
+                id: `comment-notification-${notification.id}`,
+              });
+            }
+            setNotifications((currentNotifications) =>
+              mergeNotificationsById(currentNotifications, event.notifications ?? []),
+            );
+            setNotificationsLoaded(true);
+            setNotificationsError(null);
+          } else {
+            void loadNotificationsRef.current(undefined, { silent: true });
           }
           return;
         }
@@ -1204,18 +1201,11 @@ function App() {
           event.ticket
         ) {
           upsertActiveTicketLocallyRef.current(event.ticket);
-          if (event.eventType === "ticket.updated") {
-            toast("Ticket assignment or routing updated.", {
-              id: `ticket-updated-${event.ticket.id}`,
-            });
-          }
           return;
         }
 
-        if (event.eventType === "ticket.routed" && event.ticket) {
-          toast("Routing recommendation applied.", {
-            id: `ticket-routed-${event.ticket.id}`,
-          });
+        if (event.eventType === "ticket.routed") {
+          // Ticket payload is already applied via ticket.created / ticket.updated; suppress noisy routing toasts.
           return;
         }
 

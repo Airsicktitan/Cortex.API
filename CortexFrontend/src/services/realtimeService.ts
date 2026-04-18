@@ -29,7 +29,6 @@ type RealtimeEventLike = {
   entityId?: unknown;
   actorUserId?: unknown;
   actorDisplayName?: unknown;
-  recipientUserIds?: unknown;
   ticket?: unknown;
   archivedTicket?: unknown;
   comment?: unknown;
@@ -41,7 +40,6 @@ type RealtimeEventLike = {
   EntityId?: unknown;
   ActorUserId?: unknown;
   ActorDisplayName?: unknown;
-  RecipientUserIds?: unknown;
   Ticket?: unknown;
   ArchivedTicket?: unknown;
   Comment?: unknown;
@@ -75,8 +73,6 @@ function normalizeRealtimeEvent(value: unknown): RealtimeEvent | null {
   const actorUserIdRaw = candidate.actorUserId ?? candidate.ActorUserId;
   const actorDisplayNameRaw =
     candidate.actorDisplayName ?? candidate.ActorDisplayName;
-  const recipientUserIdsRaw =
-    candidate.recipientUserIds ?? candidate.RecipientUserIds;
   const ticketRaw = candidate.ticket ?? candidate.Ticket;
   const archivedTicketRaw =
     candidate.archivedTicket ?? candidate.ArchivedTicket;
@@ -115,13 +111,6 @@ function normalizeRealtimeEvent(value: unknown): RealtimeEvent | null {
     actorDisplayNameRaw.trim().length > 0
   ) {
     normalized.actorDisplayName = actorDisplayNameRaw;
-  }
-
-  if (
-    Array.isArray(recipientUserIdsRaw) &&
-    recipientUserIdsRaw.every((value) => typeof value === "number")
-  ) {
-    normalized.recipientUserIds = recipientUserIdsRaw;
   }
 
   const ticket = normalizeObject<NonNullable<RealtimeEvent["ticket"]>>(ticketRaw);

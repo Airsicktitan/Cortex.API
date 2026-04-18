@@ -135,6 +135,34 @@ public class NotificationService(
         return createdCount;
     }
 
+    public async Task<int> CreateCommentNotificationsAsync(Ticket ticket, User actor)
+    {
+        var users = await GetNotifiableUsersAsync();
+        var recipients = ResolveOwnerRecipients(ticket, users)
+            .Where(user => user.Id != actor.Id)
+            .ToList();
+
+        if (recipients.Count == 0)
+        {
+            return 0;
+        }
+
+        var actorName = FormatActorName(actor);
+        var notifications = recipients.Select(user => new UserNotification
+        {
+            UserId = user.Id,
+            TicketId = ticket.Id,
+            TicketIsArchived = false,
+            Category = "Comment",
+            EventType = "ticket.comment",
+            Severity = "info",
+            Title = $"New comment on ticket {ticket.Id}",
+            Message = $"{actorName} commented on ticket {ticket.Id} ({ticket.Title})."
+        }).ToList();
+
+        return await CreateAndPublishAsync(notifications);
+    }
+
     public async Task<int> CreateArchiveNotificationsAsync(
         Ticket ticket,
         User actor,
@@ -285,7 +313,7 @@ public class NotificationService(
             await _realtimeEventService.PublishAsync(new RealtimeEventMessage
             {
                 EventType = "notification.created",
-                EntityId = notificationResponses.Length.ToString(),
+                EntityId = notificationResponses[0].Id.ToString(),
                 TicketId = notificationResponses
                     .Select(notification => notification.TicketId)
                     .FirstOrDefault(ticketId => !string.IsNullOrWhiteSpace(ticketId)),
@@ -415,6 +443,19 @@ public class NotificationService(
         return ResolveInterestedUsers(ticket, usersById, aliases);
     }
 
+    private static IReadOnlyList<User> ResolveOwnerRecipients(
+        Ticket ticket,
+        IReadOnlyList<User> users)
+    {
+        var aliases = BuildUserAliasLookup(users);
+        var recipients = new Dictionary<int, User>();
+
+        AddOwnerRecipient(recipients, ticket.SynitiOwner, aliases);
+        AddOwnerRecipient(recipients, ticket.BusinessOwner, aliases);
+
+        return recipients.Values.ToList();
+    }
+
     private static IReadOnlyList<User> ResolveInterestedUsers(
         Ticket ticket,
         IReadOnlyDictionary<int, User> usersById,
@@ -540,6 +581,7 @@ public class NotificationService(
         return new NotificationResponse
         {
             Id = notification.Id,
+            Type = ResolveNotificationType(notification),
             Category = notification.Category,
             EventType = notification.EventType,
             Severity = notification.Severity,
@@ -548,9 +590,35 @@ public class NotificationService(
             TicketId = notification.TicketId,
             TicketIsArchived = notification.TicketIsArchived,
             IsRead = notification.IsRead,
+            CreatedAt = notification.CreatedDateUtc,
             CreatedDateUtc = notification.CreatedDateUtc,
             ReadDateUtc = notification.ReadDateUtc
         };
+    }
+
+    private static string ResolveNotificationType(UserNotification notification)
+    {
+        if (string.Equals(notification.Category, "Assignment", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(notification.EventType, "ticket.assignment", StringComparison.OrdinalIgnoreCase))
+        {
+            return "assignment";
+        }
+
+        if (string.Equals(notification.Category, "Comment", StringComparison.OrdinalIgnoreCase) ||
+            notification.EventType.Contains("comment", StringComparison.OrdinalIgnoreCase))
+        {
+            return "comment";
+        }
+
+        if (string.Equals(notification.Category, "Archive", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(notification.Category, "SLA", StringComparison.OrdinalIgnoreCase) ||
+            notification.EventType.StartsWith("ticket.", StringComparison.OrdinalIgnoreCase) ||
+            notification.EventType.StartsWith("sla.", StringComparison.OrdinalIgnoreCase))
+        {
+            return "status";
+        }
+
+        return "system";
     }
 
     private sealed class AssignmentNotificationState(User user)

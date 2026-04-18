@@ -75,7 +75,7 @@ public sealed class RealtimeAudienceResolver(IUserRepository userRepository) : I
 
     private static bool CanSeeAssignedTicket(User user, string? synitiOwner, string? businessOwner)
     {
-        if (!string.Equals(user.Role, Auth0Roles.Guest, StringComparison.OrdinalIgnoreCase))
+        if (HasGlobalVisibility(user))
         {
             return false;
         }

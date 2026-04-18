@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { ArchivedTicket } from "../types/archivedTicket";
 import type {
@@ -248,6 +255,11 @@ export function useTickets({
   const lastTicketChangeSyncUtcRef = useRef<string | null>(null);
   const lastTicketFullRefreshAtRef = useRef(0);
   const previousSelectedBoardIdRef = useRef<number | "all">(selectedBoardId);
+  const lastBoardForCacheRestoreRef = useRef<number | "all" | null>(null);
+  const activeBoardPageCacheRef = useRef<
+    Map<string, { items: Ticket[]; meta: { totalCount: number; totalPages: number } }>
+  >(new Map());
+  const boardSwitchFallbackTicketsRef = useRef<Ticket[]>([]);
   const allTicketsRef = useRef<Ticket[]>(allTickets);
   const archivedCacheRef = useRef<
     Map<
@@ -331,9 +343,15 @@ export function useTickets({
       }
 
       if (useServerDrivenPaging) {
-        setServerTicketListMeta({
+        const meta = {
           totalCount: data.totalCount,
           totalPages: data.totalPages,
+        };
+        setServerTicketListMeta(meta);
+        const cacheKey = selectedBoardId === "all" ? "all" : `board:${selectedBoardId}`;
+        activeBoardPageCacheRef.current.set(cacheKey, {
+          items: data.items,
+          meta,
         });
       } else {
         setServerTicketListMeta(null);
@@ -451,9 +469,18 @@ export function useTickets({
   );
 
   const fetchActiveTicketList = useCallback(
-    async (providedToken?: string) => {
+    async (
+      providedToken?: string,
+      options?: { isCancelled?: () => boolean },
+    ) => {
       const token = providedToken ?? (await getApiToken());
+      if (options?.isCancelled?.()) {
+        return;
+      }
       const data = await ticketService.getAll(token, buildActiveTicketQueryOptions());
+      if (options?.isCancelled?.()) {
+        return;
+      }
       applyTicketPageResponse(data);
       setApiUnavailable(false);
       lastTicketChangeSyncUtcRef.current = new Date().toISOString();
@@ -710,7 +737,7 @@ export function useTickets({
       const append = options?.append === true;
       if (append) {
         setArchivedLoadingMore(true);
-      } else {
+      } else if (archivedTickets.length === 0) {
         setArchivedLoading(true);
       }
       setArchivedError(null);
@@ -787,6 +814,7 @@ export function useTickets({
       }
     },
     [
+      archivedTickets.length,
       getApiToken,
       isForbiddenError,
       isLikelyNetworkError,
@@ -832,6 +860,30 @@ export function useTickets({
     });
   }, [archivedTickets, debouncedArchivedSearchQuery, selectedBoardId]);
 
+  useLayoutEffect(() => {
+    if (!ticketsLoadedRef.current) {
+      return;
+    }
+    if (!useServerDrivenPaging) {
+      lastBoardForCacheRestoreRef.current = selectedBoardId;
+      return;
+    }
+    if (lastBoardForCacheRestoreRef.current === null) {
+      lastBoardForCacheRestoreRef.current = selectedBoardId;
+      return;
+    }
+    if (lastBoardForCacheRestoreRef.current === selectedBoardId) {
+      return;
+    }
+    lastBoardForCacheRestoreRef.current = selectedBoardId;
+    const cacheKey = selectedBoardId === "all" ? "all" : `board:${selectedBoardId}`;
+    const cached = activeBoardPageCacheRef.current.get(cacheKey);
+    if (cached) {
+      setAllTickets(cached.items);
+      setServerTicketListMeta(cached.meta);
+    }
+  }, [selectedBoardId, useServerDrivenPaging]);
+
   useEffect(() => {
     if (!useServerDrivenPaging || !ticketsLoadedRef.current) {
       return;
@@ -841,14 +893,20 @@ export function useTickets({
       return;
     }
 
+    let cancelled = false;
+
     void (async () => {
       try {
         const token = await getApiToken();
-        await fetchActiveTicketList(token);
+        await fetchActiveTicketList(token, { isCancelled: () => cancelled });
       } catch (e) {
         console.error("Failed to load ticket page", e);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     currentPage,
     debouncedSearchQuery,
@@ -863,7 +921,7 @@ export function useTickets({
     useServerDrivenPaging,
   ]);
 
-  const tickets = useMemo(() => {
+  const ticketsForBoard = useMemo(() => {
     const filterInput = normalize(debouncedFilterValue);
     const searchInput = normalize(debouncedSearchQuery);
     let filteredTickets =
@@ -915,6 +973,38 @@ export function useTickets({
     selectedBoardId,
   ]);
 
+  const shouldUseBoardSwitchFallback = useMemo(() => {
+    if (!useServerDrivenPaging) {
+      return false;
+    }
+    if (ticketsForBoard.length > 0) {
+      return false;
+    }
+    if (selectedBoardId === "all") {
+      return false;
+    }
+    if (allTickets.length === 0) {
+      return false;
+    }
+    return allTickets.every((ticket) => ticket.boardId !== selectedBoardId);
+  }, [allTickets, selectedBoardId, ticketsForBoard.length, useServerDrivenPaging]);
+
+  useEffect(() => {
+    if (ticketsForBoard.length > 0) {
+      boardSwitchFallbackTicketsRef.current = ticketsForBoard;
+    }
+  }, [ticketsForBoard]);
+
+  const tickets = useMemo(() => {
+    if (
+      shouldUseBoardSwitchFallback &&
+      boardSwitchFallbackTicketsRef.current.length > 0
+    ) {
+      return boardSwitchFallbackTicketsRef.current;
+    }
+    return ticketsForBoard;
+  }, [shouldUseBoardSwitchFallback, ticketsForBoard]);
+
   const sortedTickets = useMemo(() => {
     if (useServerDrivenPaging) {
       return tickets;
@@ -923,21 +1013,40 @@ export function useTickets({
   }, [ticketListSort, tickets, useServerDrivenPaging]);
 
   const totalTickets = useMemo(() => {
-    if (serverTicketListMeta && useServerDrivenPaging) {
+    if (
+      serverTicketListMeta &&
+      useServerDrivenPaging &&
+      !shouldUseBoardSwitchFallback
+    ) {
       return serverTicketListMeta.totalCount;
     }
     return sortedTickets.length;
-  }, [serverTicketListMeta, sortedTickets.length, useServerDrivenPaging]);
+  }, [
+    serverTicketListMeta,
+    sortedTickets.length,
+    shouldUseBoardSwitchFallback,
+    useServerDrivenPaging,
+  ]);
 
   const totalPages = useMemo(() => {
-    if (serverTicketListMeta && useServerDrivenPaging) {
+    if (
+      serverTicketListMeta &&
+      useServerDrivenPaging &&
+      !shouldUseBoardSwitchFallback
+    ) {
       return Math.max(1, serverTicketListMeta.totalPages);
     }
     if (pageSize === "all") {
       return 1;
     }
     return Math.max(1, Math.ceil(totalTickets / pageSize));
-  }, [pageSize, serverTicketListMeta, totalTickets, useServerDrivenPaging]);
+  }, [
+    pageSize,
+    serverTicketListMeta,
+    shouldUseBoardSwitchFallback,
+    totalTickets,
+    useServerDrivenPaging,
+  ]);
 
   const pagedTickets = useMemo(() => {
     if (useServerDrivenPaging) {

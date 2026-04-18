@@ -9,7 +9,6 @@ export interface RealtimeEvent {
   entityId?: string;
   actorUserId?: number;
   actorDisplayName?: string;
-  recipientUserIds?: number[];
   ticket?: Ticket;
   archivedTicket?: ArchivedTicket;
   comment?: Comment;

@@ -9,6 +9,7 @@ public class RealtimeEventMessage
     public string? EntityId { get; init; }
     public int? ActorUserId { get; init; }
     public string? ActorDisplayName { get; init; }
+    [JsonIgnore]
     public int[]? RecipientUserIds { get; init; }
     public TicketResponse? Ticket { get; init; }
     public ArchivedTicketResponse? ArchivedTicket { get; init; }

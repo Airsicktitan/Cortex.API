@@ -68,6 +68,7 @@ public static class CommentHandlers
         ITicketVisibilityService ticketVisibilityService,
         IUserContextService userContext,
         ITicketAuditService ticketAuditService,
+        INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory)
@@ -105,6 +106,7 @@ public static class CommentHandlers
         await ticketAuditService.RecordCommentAddedAsync(comment, currentUser);
         var mappingContext = await mappingContextFactory.CreateAsync([comment.CreatedBy]);
         var commentResponse = comment.ToResponse(mappingContext);
+        await notificationService.CreateCommentNotificationsAsync(ticket, currentUser);
         var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(ticket);
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
         {
