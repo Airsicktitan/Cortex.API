@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { Ticket } from "../types/ticket";
 import type {
   RoutingExplanationPayload,
+  TicketRoutingDecisionDto,
   TicketRoutingLatestResponse,
+  TicketRoutingOverrideDto,
 } from "../types/ticketRoutingInsight";
 import { ticketService } from "../services/api";
 import { formatDisplayValue } from "../utils/presentation";
@@ -91,6 +93,46 @@ function formatFactorLabel(key: string): string {
   return FACTOR_LABELS[key] ?? key.replace(/([A-Z])/g, " $1").trim();
 }
 
+function computeRoutingSummary(
+  decision: TicketRoutingDecisionDto,
+  override: TicketRoutingOverrideDto | null,
+  ticket: Ticket,
+): string {
+  if (override) {
+    return "Assignment overridden from recommendation";
+  }
+
+  const hasSynitiRec = Boolean(decision.chosenSynitiOwner?.trim());
+  const hasBusinessRec = Boolean(decision.chosenBusinessOwner?.trim());
+  const hasRecommendation = hasSynitiRec || hasBusinessRec;
+
+  if (hasRecommendation) {
+    const synitiOk =
+      !hasSynitiRec ||
+      ownersMatch(ticket.synitiOwner, decision.chosenSynitiOwner);
+    const businessOk =
+      !hasBusinessRec ||
+      ownersMatch(ticket.businessOwner, decision.chosenBusinessOwner);
+    if (synitiOk && businessOk) {
+      return "Auto-assigned based on routing rules";
+    }
+    return "Assignment overridden from recommendation";
+  }
+
+  if (decision.outcomeType === "RuleMatch") {
+    return "Auto-assigned based on routing rules";
+  }
+
+  return "Manual assignment (no matching rule)";
+}
+
+function hasOwnerRecommendation(decision: TicketRoutingDecisionDto): boolean {
+  return (
+    Boolean(decision.chosenSynitiOwner?.trim()) ||
+    Boolean(decision.chosenBusinessOwner?.trim())
+  );
+}
+
 interface TicketRoutingInsightProps {
   ticket: Ticket;
   isModalOpen: boolean;
@@ -104,6 +146,11 @@ export default function TicketRoutingInsight({
   const [data, setData] = useState<TicketRoutingLatestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+
+  useEffect(() => {
+    setDetailsExpanded(false);
+  }, [ticket.id]);
 
   useEffect(() => {
     if (!isModalOpen || !ticket.id) {
@@ -157,38 +204,18 @@ export default function TicketRoutingInsight({
     [decision],
   );
 
-  /** Non-empty chosen owner from routing = a comparable recommendation for that slot. */
-  const alignmentBanner = useMemo(() => {
+  const summaryHeadline = useMemo(() => {
     if (!decision) {
       return null;
     }
-    const hasSynitiRec = Boolean(decision.chosenSynitiOwner?.trim());
-    const hasBusinessRec = Boolean(decision.chosenBusinessOwner?.trim());
-    const hasAnyRecommendation = hasSynitiRec || hasBusinessRec;
+    return computeRoutingSummary(decision, override, ticket);
+  }, [decision, override, ticket]);
 
-    if (!hasAnyRecommendation) {
-      if (decision.outcomeType === "Fallback") {
-        return {
-          kind: "neutral-no-match" as const,
-          message:
-            "No routing rules matched — manual assignment used.",
-        };
-      }
-      return { kind: "none" as const };
-    }
-
-    const synitiOk =
-      !hasSynitiRec ||
-      ownersMatch(ticket.synitiOwner, decision.chosenSynitiOwner);
-    const businessOk =
-      !hasBusinessRec ||
-      ownersMatch(ticket.businessOwner, decision.chosenBusinessOwner);
-    const followsRecommendation = synitiOk && businessOk;
-
-    return followsRecommendation
-      ? { kind: "aligned" as const }
-      : { kind: "differs" as const };
-  }, [decision, ticket.synitiOwner, ticket.businessOwner]);
+  /** No rule owner recommendation: show heavy grids only when user expands. */
+  const isLightweightNoRec =
+    decision != null &&
+    !hasOwnerRecommendation(decision) &&
+    decision.outcomeType === "Fallback";
 
   if (!ticket.id) {
     return null;
@@ -196,16 +223,30 @@ export default function TicketRoutingInsight({
 
   return (
     <div className="mb-6 rounded-lg border border-slate-200/90 bg-slate-50/80 p-4 dark:border-slate-700/80 dark:bg-slate-900/35">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
             Routing insight
           </h3>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            How this ticket was routed and whether assignments follow the
-            recommendation.
+            How this ticket was assigned relative to routing rules.
           </p>
+          {!loading && !error && summaryHeadline ? (
+            <p className="mt-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+              {summaryHeadline}
+            </p>
+          ) : null}
         </div>
+        {decision && !loading && !error ? (
+          <button
+            type="button"
+            onClick={() => setDetailsExpanded((open) => !open)}
+            aria-expanded={detailsExpanded}
+            className="shrink-0 rounded-md border border-slate-200/90 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-white dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            {detailsExpanded ? "Hide details" : "Show details"}
+          </button>
+        ) : null}
       </div>
 
       {loading ? (
@@ -219,72 +260,60 @@ export default function TicketRoutingInsight({
           No routing decision is stored for this ticket yet. Decisions are
           recorded when a ticket is created or when routing inputs change.
         </p>
-      ) : (
+      ) : detailsExpanded ? (
         <div className="mt-3 space-y-3 text-sm text-slate-700 dark:text-slate-200">
-          {alignmentBanner?.kind === "neutral-no-match" ? (
-            <div className="flex items-center gap-2 rounded-md border border-slate-200/90 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-950/25 dark:text-slate-200">
-              <span aria-hidden>ℹ</span>
-              <span>{alignmentBanner.message}</span>
-            </div>
-          ) : null}
-          {alignmentBanner?.kind === "aligned" ? (
-            <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/90 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-800/80 dark:bg-emerald-950/40 dark:text-emerald-100">
-              <span aria-hidden>✓</span>
-              <span>Current owners follow the routing recommendation.</span>
-            </div>
-          ) : null}
-          {alignmentBanner?.kind === "differs" ? (
-            <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs font-medium text-amber-950 dark:border-amber-800/80 dark:bg-amber-950/35 dark:text-amber-100">
-              <span aria-hidden>⏸</span>
-              <span>
-                Owner assignment differs from the last routing recommendation.
-              </span>
-            </div>
-          ) : null}
-
-          <div className="grid gap-1.5 text-xs sm:grid-cols-2">
-            <div>
-              <span className="text-slate-500 dark:text-slate-400">Outcome</span>
-              <p className="font-medium">{humanizeOutcome(decision.outcomeType)}</p>
-            </div>
-            <div>
-              <span className="text-slate-500 dark:text-slate-400">Confidence</span>
-              <p className="font-medium">
-                {humanizeConfidence(decision.confidenceLevel)}
-              </p>
-            </div>
-            <div>
-              <span className="text-slate-500 dark:text-slate-400">Board</span>
-              <p className="font-medium">{formatDisplayValue(ticket.boardName)}</p>
-            </div>
-            {decision.matchedRuleId != null ? (
-              <div>
-                <span className="text-slate-500 dark:text-slate-400">Rule</span>
-                <p className="font-medium">#{decision.matchedRuleId}</p>
+          {!isLightweightNoRec ? (
+            <>
+              <div className="grid gap-1.5 text-xs sm:grid-cols-2">
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400">Outcome</span>
+                  <p className="font-medium">{humanizeOutcome(decision.outcomeType)}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400">Confidence</span>
+                  <p className="font-medium">
+                    {humanizeConfidence(decision.confidenceLevel)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400">Board</span>
+                  <p className="font-medium">{formatDisplayValue(ticket.boardName)}</p>
+                </div>
+                {decision.matchedRuleId != null ? (
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400">Rule</span>
+                    <p className="font-medium">#{decision.matchedRuleId}</p>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
 
-          <div className="rounded-md border border-slate-200/80 bg-white/60 px-3 py-2 dark:border-slate-700/60 dark:bg-slate-950/30">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Recommended at decision time
+              <div className="rounded-md border border-slate-200/80 bg-white/60 px-3 py-2 dark:border-slate-700/60 dark:bg-slate-950/30">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Recommended at decision time
+                </p>
+                <div className="mt-1 grid gap-1 text-xs sm:grid-cols-2">
+                  <p>
+                    <span className="text-slate-500 dark:text-slate-400">Syniti: </span>
+                    {formatDisplayValue(
+                      formatOwnerFieldForDisplay(decision.chosenSynitiOwner) || undefined,
+                    )}
+                  </p>
+                  <p>
+                    <span className="text-slate-500 dark:text-slate-400">Business: </span>
+                    {formatDisplayValue(
+                      formatOwnerFieldForDisplay(decision.chosenBusinessOwner) ||
+                        undefined,
+                    )}
+                  </p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              No routing rule recommended specific owners. Assignments were set
+              manually or by defaults.
             </p>
-            <div className="mt-1 grid gap-1 text-xs sm:grid-cols-2">
-              <p>
-                <span className="text-slate-500 dark:text-slate-400">Syniti: </span>
-                {formatDisplayValue(
-                  formatOwnerFieldForDisplay(decision.chosenSynitiOwner) || undefined,
-                )}
-              </p>
-              <p>
-                <span className="text-slate-500 dark:text-slate-400">Business: </span>
-                {formatDisplayValue(
-                  formatOwnerFieldForDisplay(decision.chosenBusinessOwner) ||
-                    undefined,
-                )}
-              </p>
-            </div>
-          </div>
+          )}
 
           {decision.explanationText ? (
             <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
@@ -321,59 +350,50 @@ export default function TicketRoutingInsight({
             </div>
           ) : null}
 
-          <details className="group text-xs text-slate-600 dark:text-slate-400">
-            <summary className="cursor-pointer list-none font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:text-slate-900 dark:text-slate-200 dark:decoration-slate-600 dark:hover:text-white [&::-webkit-details-marker]:hidden">
-              <span className="inline group-open:hidden">Show routing details</span>
-              <span className="hidden group-open:inline">Hide routing details</span>
-            </summary>
-            <div className="mt-2 space-y-2 rounded-md border border-dashed border-slate-200/90 bg-white/50 p-3 dark:border-slate-700 dark:bg-slate-950/20">
-              {explanation?.factors &&
-              Object.keys(explanation.factors).length > 0 ? (
-                <div>
-                  <p className="mb-1 font-medium text-slate-700 dark:text-slate-200">
-                    Inputs considered
-                  </p>
-                  <ul className="space-y-0.5">
-                    {Object.entries(explanation.factors).map(([key, val]) => (
-                      <li key={key}>
-                        <span className="text-slate-500 dark:text-slate-400">
-                          {formatFactorLabel(key)}:{" "}
-                        </span>
-                        {val && String(val).trim()
-                          ? String(val).trim()
-                          : "—"}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {decision.noMatchReason ? (
-                <p>
-                  <span className="font-medium text-slate-700 dark:text-slate-200">
-                    No-match reason:{" "}
-                  </span>
-                  {decision.noMatchReason.replace(/([A-Z])/g, " $1").trim()}
+          <div className="rounded-md border border-dashed border-slate-200/90 bg-white/50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/20 dark:text-slate-400">
+            {explanation?.factors && Object.keys(explanation.factors).length > 0 ? (
+              <div className="mb-2">
+                <p className="mb-1 font-medium text-slate-700 dark:text-slate-200">
+                  Inputs considered
                 </p>
-              ) : null}
-              {explanation?.candidateCount != null ? (
-                <p>
-                  <span className="font-medium text-slate-700 dark:text-slate-200">
-                    Candidate rules evaluated:{" "}
-                  </span>
-                  {explanation.candidateCount}
-                </p>
-              ) : null}
-              <p className="text-[11px] text-slate-500 dark:text-slate-500">
-                Engine {decision.engineVersion} ·{" "}
-                {new Date(decision.createdDateUtc).toLocaleString(undefined, {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                })}
+                <ul className="space-y-0.5">
+                  {Object.entries(explanation.factors).map(([key, val]) => (
+                    <li key={key}>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {formatFactorLabel(key)}:{" "}
+                      </span>
+                      {val && String(val).trim() ? String(val).trim() : "—"}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {decision.noMatchReason ? (
+              <p className="mb-2">
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  No-match reason:{" "}
+                </span>
+                {decision.noMatchReason.replace(/([A-Z])/g, " $1").trim()}
               </p>
-            </div>
-          </details>
+            ) : null}
+            {explanation?.candidateCount != null ? (
+              <p className="mb-2">
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  Candidate rules evaluated:{" "}
+                </span>
+                {explanation.candidateCount}
+              </p>
+            ) : null}
+            <p className="text-[11px] text-slate-500 dark:text-slate-500">
+              Engine {decision.engineVersion} ·{" "}
+              {new Date(decision.createdDateUtc).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </p>
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
