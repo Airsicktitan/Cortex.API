@@ -157,13 +157,37 @@ export default function TicketRoutingInsight({
     [decision],
   );
 
-  const alignment = useMemo(() => {
+  /** Non-empty chosen owner from routing = a comparable recommendation for that slot. */
+  const alignmentBanner = useMemo(() => {
     if (!decision) {
       return null;
     }
-    const syn = ownersMatch(ticket.synitiOwner, decision.chosenSynitiOwner);
-    const bus = ownersMatch(ticket.businessOwner, decision.chosenBusinessOwner);
-    return { syn, bus, both: syn && bus };
+    const hasSynitiRec = Boolean(decision.chosenSynitiOwner?.trim());
+    const hasBusinessRec = Boolean(decision.chosenBusinessOwner?.trim());
+    const hasAnyRecommendation = hasSynitiRec || hasBusinessRec;
+
+    if (!hasAnyRecommendation) {
+      if (decision.outcomeType === "Fallback") {
+        return {
+          kind: "neutral-no-match" as const,
+          message:
+            "No routing rules matched — manual assignment used.",
+        };
+      }
+      return { kind: "none" as const };
+    }
+
+    const synitiOk =
+      !hasSynitiRec ||
+      ownersMatch(ticket.synitiOwner, decision.chosenSynitiOwner);
+    const businessOk =
+      !hasBusinessRec ||
+      ownersMatch(ticket.businessOwner, decision.chosenBusinessOwner);
+    const followsRecommendation = synitiOk && businessOk;
+
+    return followsRecommendation
+      ? { kind: "aligned" as const }
+      : { kind: "differs" as const };
   }, [decision, ticket.synitiOwner, ticket.businessOwner]);
 
   if (!ticket.id) {
@@ -197,22 +221,26 @@ export default function TicketRoutingInsight({
         </p>
       ) : (
         <div className="mt-3 space-y-3 text-sm text-slate-700 dark:text-slate-200">
-          {alignment && (
-            <div
-              className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium ${
-                alignment.both
-                  ? "border-emerald-200 bg-emerald-50/90 text-emerald-900 dark:border-emerald-800/80 dark:bg-emerald-950/40 dark:text-emerald-100"
-                  : "border-amber-200 bg-amber-50/90 text-amber-950 dark:border-amber-800/80 dark:bg-amber-950/35 dark:text-amber-100"
-              }`}
-            >
-              <span aria-hidden>{alignment.both ? "✓" : "⏸"}</span>
+          {alignmentBanner?.kind === "neutral-no-match" ? (
+            <div className="flex items-center gap-2 rounded-md border border-slate-200/90 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-950/25 dark:text-slate-200">
+              <span aria-hidden>ℹ</span>
+              <span>{alignmentBanner.message}</span>
+            </div>
+          ) : null}
+          {alignmentBanner?.kind === "aligned" ? (
+            <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/90 px-3 py-2 text-xs font-medium text-emerald-900 dark:border-emerald-800/80 dark:bg-emerald-950/40 dark:text-emerald-100">
+              <span aria-hidden>✓</span>
+              <span>Current owners follow the routing recommendation.</span>
+            </div>
+          ) : null}
+          {alignmentBanner?.kind === "differs" ? (
+            <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs font-medium text-amber-950 dark:border-amber-800/80 dark:bg-amber-950/35 dark:text-amber-100">
+              <span aria-hidden>⏸</span>
               <span>
-                {alignment.both
-                  ? "Current owners match the routing recommendation."
-                  : "Owner assignment differs from the last routing recommendation."}
+                Owner assignment differs from the last routing recommendation.
               </span>
             </div>
-          )}
+          ) : null}
 
           <div className="grid gap-1.5 text-xs sm:grid-cols-2">
             <div>

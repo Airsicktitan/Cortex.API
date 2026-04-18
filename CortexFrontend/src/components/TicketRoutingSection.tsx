@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
+import { useEffect, useState } from "react";
 import type { TicketRoutingRule } from "../types/ticketRouting";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
+import type { UserDirectoryEntry } from "../types/user";
+import UserCombobox from "./UserCombobox";
+import { getUserFacingErrorMessage, userService } from "../services/api";
+import { ownerDisplayLabel } from "../utils/ownerIdentity";
+
+const API_AUDIENCE = "https://cortex-api";
 
 const PRIORITY_OPTIONS = ["Critical", "High", "Medium", "Low"] as const;
 
@@ -26,6 +33,7 @@ interface TicketRoutingSectionProps {
 function describeRule(
   rule: TicketRoutingRule,
   boardNameById: Map<string, string>,
+  ownerDirectory: UserDirectoryEntry[],
 ) {
   const criteria: string[] = [];
   const assignments: string[] = [];
@@ -52,11 +60,17 @@ function describeRule(
   }
 
   if (rule.synitiOwner.trim()) {
-    assignments.push(`Syniti: ${rule.synitiOwner}`);
+    const label =
+      ownerDisplayLabel(rule.synitiOwner, ownerDirectory).trim() ||
+      rule.synitiOwner.trim();
+    assignments.push(`Syniti: ${label}`);
   }
 
   if (rule.businessOwner.trim()) {
-    assignments.push(`Business: ${rule.businessOwner}`);
+    const label =
+      ownerDisplayLabel(rule.businessOwner, ownerDirectory).trim() ||
+      rule.businessOwner.trim();
+    assignments.push(`Business: ${label}`);
   }
 
   return `P${rule.rulePriority}/W${rule.weight} :: ${criteria.join(" + ") || "No match criteria"} -> ${assignments.join(" | ") || "No assignments"}`;
@@ -77,12 +91,65 @@ export default function TicketRoutingSection({
   onSave,
   onDelete,
 }: TicketRoutingSectionProps) {
+  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
   const isBusy = saving || deletingId !== null;
   const isNewRule = selectedRule?.id === 0;
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [ownerDirectory, setOwnerDirectory] = useState<UserDirectoryEntry[]>([]);
+  const [ownerDirectoryLoading, setOwnerDirectoryLoading] = useState(false);
+  const [ownerDirectoryError, setOwnerDirectoryError] = useState<string | null>(
+    null,
+  );
   const boardNameById = new Map(
     boards.map((board) => [String(board.id), board.name]),
   );
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      setOwnerDirectoryLoading(true);
+      setOwnerDirectoryError(null);
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: { audience: API_AUDIENCE },
+        });
+        const directoryEntries = await userService.getDirectory(token);
+        if (!cancelled) {
+          setOwnerDirectory(directoryEntries);
+        }
+      } catch (error) {
+        console.error("Failed to load user directory for routing rules", error);
+        if (!cancelled) {
+          setOwnerDirectoryError(
+            getUserFacingErrorMessage(error, "Unable to load users."),
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setOwnerDirectoryLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getAccessTokenSilently, isAuthenticated]);
+
+  const ownerPickerDisabled =
+    isBusy ||
+    (Boolean(ownerDirectoryError) && ownerDirectory.length === 0);
+  const synitiOwnerHelperText = ownerDirectoryError
+    ? ownerDirectoryError
+    : "Optional. Leave blank if this rule should only set the business owner.";
+  const businessOwnerHelperText = ownerDirectoryError
+    ? ownerDirectoryError
+    : "Optional. Leave blank to keep the requester as the business owner.";
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -157,7 +224,7 @@ export default function TicketRoutingSection({
                           Rule #{rule.id} (P{rule.rulePriority}, W{rule.weight})
                         </p>
                         <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
-                          {describeRule(rule, boardNameById)}
+                          {describeRule(rule, boardNameById, ownerDirectory)}
                         </p>
                       </div>
                       <span
@@ -262,37 +329,27 @@ export default function TicketRoutingSection({
                     </h5>
 
                     <div className="mt-3 space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                          Syniti owner
-                        </label>
-                        <input
-                          type="text"
-                          value={selectedRule.synitiOwner}
-                          onChange={(event) => onChange("synitiOwner", event.target.value)}
-                          className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                          placeholder="Syniti Team Member"
-                        />
-                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                          Optional. Leave blank if this rule should only set the business owner.
-                        </p>
-                      </div>
+                      <UserCombobox
+                        label="Syniti owner"
+                        value={selectedRule.synitiOwner}
+                        users={ownerDirectory}
+                        onChange={(value) => onChange("synitiOwner", value)}
+                        placeholder="Search users..."
+                        loading={ownerDirectoryLoading}
+                        disabled={ownerPickerDisabled}
+                        helperText={synitiOwnerHelperText}
+                      />
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                          Business owner
-                        </label>
-                        <input
-                          type="text"
-                          value={selectedRule.businessOwner}
-                          onChange={(event) => onChange("businessOwner", event.target.value)}
-                          className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                          placeholder="Business Lead"
-                        />
-                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                          Optional. Leave blank to keep the requester as the business owner.
-                        </p>
-                      </div>
+                      <UserCombobox
+                        label="Business owner"
+                        value={selectedRule.businessOwner}
+                        users={ownerDirectory}
+                        onChange={(value) => onChange("businessOwner", value)}
+                        placeholder="Search users..."
+                        loading={ownerDirectoryLoading}
+                        disabled={ownerPickerDisabled}
+                        helperText={businessOwnerHelperText}
+                      />
                     </div>
                   </div>
 
@@ -379,7 +436,7 @@ export default function TicketRoutingSection({
                         selectedRule.requesterDepartment.trim() ||
                         selectedRule.requesterRole.trim()) &&
                       (selectedRule.synitiOwner.trim() || selectedRule.businessOwner.trim())
-                        ? describeRule(selectedRule, boardNameById)
+                        ? describeRule(selectedRule, boardNameById, ownerDirectory)
                         : "Define at least one condition and who the ticket should be routed to."}
                     </p>
                   </div>
