@@ -77,6 +77,11 @@ public class ResponseMappingContextFactory(CortexDbContext context)
                     definition => definition.Name,
                     cancellationToken);
 
-        return new ResponseMappingContext(userDisplayNames, storedProcedureLabels, boardNames);
+        var ownerAliasUsers = await _context.Users
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+        var ownerAliases = OwnerFieldResolution.BuildAliasLookup(ownerAliasUsers);
+
+        return new ResponseMappingContext(userDisplayNames, storedProcedureLabels, boardNames, ownerAliases);
     }
 }

@@ -9,6 +9,8 @@ export interface ArchivedTicket {
   storyPoints?: number;
   synitiOwner?: string;
   businessOwner?: string;
+  synitiOwnerDisplayName?: string;
+  businessOwnerDisplayName?: string;
   createdBy: number;
   createdByDisplayName: string;
   createdDate: string;

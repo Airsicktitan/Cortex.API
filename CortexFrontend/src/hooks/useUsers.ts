@@ -491,6 +491,7 @@ export function useUsers({
           ? { ...existingUser, ...updatedUser }
           : existingUser,
       );
+      userService.clearDirectoryCache();
 
       setAdminAccessFeedback("User saved.");
       closeAdminUserModal();
@@ -539,6 +540,7 @@ export function useUsers({
           ),
         ),
       );
+      userService.clearDirectoryCache();
       closeCreateUserModal();
       toast.success("User created");
     } catch (error) {
@@ -575,6 +577,7 @@ export function useUsers({
             (userRecord) => userRecord.id !== selectedUser.id,
           ),
         );
+        userService.clearDirectoryCache();
 
         if (editingAdminUser?.id === selectedUser.id) {
           closeAdminUserModal();

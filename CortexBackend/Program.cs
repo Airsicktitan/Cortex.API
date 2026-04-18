@@ -9,6 +9,7 @@ using Cortex.API.Middleware;
 using Cortex.API.Database;
 using Cortex.API.Data;
 using Cortex.API.Data.Repositories;
+using Cortex.API;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.SignalR;
@@ -19,10 +20,12 @@ using System.Security.Claims;
 
 
 var builder = WebApplication.CreateBuilder(args);
-var connectionString = builder.Configuration.GetConnectionString("AzureCortexDb")
-    ?? builder.Configuration.GetConnectionString("CortexDB")
+
+var connectionString = DatabaseConnectionConfiguration.ResolveFirstNonEmpty(builder.Configuration)
     ?? throw new InvalidOperationException(
-        "Connection string 'AzureCortexDb' is not configured. Set ConnectionStrings:AzureCortexDb or use CortexDB as a fallback.");
+        "Database connection string is not configured. " +
+        "For local Development, set ConnectionStrings:CortexDb (see appsettings.Development.json). " +
+        "For Azure and other environments, set ConnectionStrings:AzureCortexDb or ConnectionStrings:CortexDB.");
 
 builder.Services.AddDbContext<CortexDbContext>(options =>
     options.UseSqlServer(
@@ -406,20 +409,34 @@ if (app.Environment.IsDevelopment())
     try
     {
         db.Database.Migrate();
+        dbStartupLogger.LogInformation("Database migrations applied successfully.");
     }
     catch (Exception exception)
     {
-        dbStartupLogger.LogWarning(
+        StartupDatabaseResilience.LogStartupDatabaseFailure(
             exception,
-            "Database migration failed during startup. SQL may be waking up or temporarily unavailable.");
-        throw;
+            dbStartupLogger,
+            operation: "EF Core Migrate (Development)");
     }
 }
 
 using (var scope = app.Services.CreateScope())
 {
+    var ensureDefaultsLogger = scope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Startup");
     var ticketBoardService = scope.ServiceProvider.GetRequiredService<ITicketBoardService>();
-    await ticketBoardService.EnsureDefaultsAsync();
+    try
+    {
+        await ticketBoardService.EnsureDefaultsAsync();
+    }
+    catch (Exception exception)
+    {
+        StartupDatabaseResilience.LogStartupDatabaseFailure(
+            exception,
+            ensureDefaultsLogger,
+            operation: "Ensure default ticket boards");
+    }
 }
 
 app.Run();

@@ -1,4 +1,8 @@
 import type { Ticket } from "../types/ticket";
+import {
+  readOnlyBusinessOwnerLabel,
+  readOnlySynitiOwnerLabel,
+} from "./ownerIdentity";
 
 type CellValue = string | number;
 
@@ -49,7 +53,11 @@ function formatPercentage(count: number, total: number) {
 }
 
 function getOwnerLabel(ticket: Ticket) {
-  return ticket.synitiOwner || ticket.businessOwner || "Unassigned";
+  return (
+    readOnlySynitiOwnerLabel(ticket) ||
+    readOnlyBusinessOwnerLabel(ticket) ||
+    "Unassigned"
+  );
 }
 
 function buildCell(value: CellValue, isHeader: boolean) {

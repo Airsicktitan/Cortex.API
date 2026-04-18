@@ -2308,6 +2308,7 @@ function App() {
 
       setCurrentUser(updatedUser);
       updateUserRecord(updatedUser);
+      userService.clearDirectoryCache();
       setIsProfileModalOpen(false);
       toast.success("Profile updated");
     } catch (error) {

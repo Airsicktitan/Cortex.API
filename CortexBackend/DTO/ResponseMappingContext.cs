@@ -1,16 +1,19 @@
 using Cortex.API.Models;
+using Cortex.API.Services;
 
 namespace Cortex.API.DTO;
 
 public sealed class ResponseMappingContext(
     IReadOnlyDictionary<int, string> userDisplayNames,
     IReadOnlyDictionary<int, string> storedProcedureLabels,
-    IReadOnlyDictionary<int, string> boardNames)
+    IReadOnlyDictionary<int, string> boardNames,
+    IReadOnlyDictionary<string, User> ownerAliases)
 {
     public static ResponseMappingContext Empty { get; } = new(
         new Dictionary<int, string>(),
         new Dictionary<int, string>(),
-        new Dictionary<int, string>());
+        new Dictionary<int, string>(),
+        new Dictionary<string, User>(StringComparer.OrdinalIgnoreCase));
 
     public string ResolveUserDisplayName(int userId, User? loadedUser = null)
     {
@@ -59,6 +62,20 @@ public sealed class ResponseMappingContext(
         return boardNames.TryGetValue(boardId, out var boardName)
             ? boardName
             : "Regular";
+    }
+
+    /// <summary>
+    /// Resolves a stored Syniti/Business owner token (email, <c>user:id</c>, or legacy display name) to a display label.
+    /// </summary>
+    public string? ResolveOwnerFieldDisplayName(string? rawStored)
+    {
+        if (string.IsNullOrWhiteSpace(rawStored))
+        {
+            return null;
+        }
+
+        var resolved = OwnerFieldResolution.ResolveUser(rawStored, ownerAliases);
+        return OwnerFieldResolution.FormatOwnerDisplayForApi(rawStored, resolved);
     }
 
     private static string? NormalizeDisplayName(string? value)

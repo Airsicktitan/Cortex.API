@@ -76,6 +76,24 @@ public static class UserResponseExtensions
             LastLoginDate = user.LastLoginDate
         };
     }
+
+    public static UserDirectoryEntryResponse ToDirectoryResponse(this User user)
+    {
+        return new UserDirectoryEntryResponse
+        {
+            Id = user.Id,
+            DisplayName = string.IsNullOrWhiteSpace(user.DisplayName)
+                ? user.Email ?? string.Empty
+                : user.DisplayName.Trim(),
+            Email = user.Email ?? string.Empty,
+            Department = string.IsNullOrWhiteSpace(user.Department)
+                ? null
+                : user.Department.Trim(),
+            Role = string.IsNullOrWhiteSpace(user.Role)
+                ? null
+                : user.Role.Trim()
+        };
+    }
 }
 
 public static class CommentMappings
@@ -144,6 +162,12 @@ public static class TicketResponseExtensions
             StoryPoints = ticket.StoryPoints,
             SynitiOwner = ticket.SynitiOwner,
             BusinessOwner = ticket.BusinessOwner,
+            SynitiOwnerDisplayName = string.IsNullOrWhiteSpace(ticket.SynitiOwner)
+                ? null
+                : context.ResolveOwnerFieldDisplayName(ticket.SynitiOwner),
+            BusinessOwnerDisplayName = string.IsNullOrWhiteSpace(ticket.BusinessOwner)
+                ? null
+                : context.ResolveOwnerFieldDisplayName(ticket.BusinessOwner),
             CreatedBy = ticket.CreatedBy,
             CreatedDate = ticket.CreatedDate,
             LastModifiedBy = ticket.LastModifiedBy,
@@ -216,6 +240,12 @@ public static class ArchivedTicketMappings
             StoryPoints = ticket.StoryPoints,
             SynitiOwner = ticket.SynitiOwner,
             BusinessOwner = ticket.BusinessOwner,
+            SynitiOwnerDisplayName = string.IsNullOrWhiteSpace(ticket.SynitiOwner)
+                ? null
+                : context.ResolveOwnerFieldDisplayName(ticket.SynitiOwner),
+            BusinessOwnerDisplayName = string.IsNullOrWhiteSpace(ticket.BusinessOwner)
+                ? null
+                : context.ResolveOwnerFieldDisplayName(ticket.BusinessOwner),
             CreatedBy = ticket.CreatedBy,
             CreatedByDisplayName = context.ResolveUserDisplayName(
                 ticket.CreatedBy,

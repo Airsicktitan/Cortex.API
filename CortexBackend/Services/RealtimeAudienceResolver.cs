@@ -44,6 +44,8 @@ public sealed class RealtimeAudienceResolver(IUserRepository userRepository) : I
                 (user.ExpiryDate is null || user.ExpiryDate > utcNow))
             .ToList();
 
+        var aliases = OwnerFieldResolution.BuildAliasLookup(users);
+
         var recipients = new HashSet<int>();
         foreach (var user in users)
         {
@@ -51,7 +53,7 @@ public sealed class RealtimeAudienceResolver(IUserRepository userRepository) : I
 
             if (HasGlobalVisibility(user) ||
                 CanSeeCreatedTicket(user, createdBy) ||
-                CanSeeAssignedTicket(user, synitiOwner, businessOwner))
+                CanSeeAssignedTicket(user, synitiOwner, businessOwner, aliases))
             {
                 recipients.Add(user.Id);
             }
@@ -73,24 +75,18 @@ public sealed class RealtimeAudienceResolver(IUserRepository userRepository) : I
                user.Id == createdBy;
     }
 
-    private static bool CanSeeAssignedTicket(User user, string? synitiOwner, string? businessOwner)
+    private static bool CanSeeAssignedTicket(
+        User user,
+        string? synitiOwner,
+        string? businessOwner,
+        IReadOnlyDictionary<string, User> aliases)
     {
         if (HasGlobalVisibility(user))
         {
             return false;
         }
 
-        return MatchesIdentity(user, synitiOwner) || MatchesIdentity(user, businessOwner);
-    }
-
-    private static bool MatchesIdentity(User user, string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        return string.Equals(value.Trim(), user.DisplayName?.Trim(), StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(value.Trim(), user.Email?.Trim(), StringComparison.OrdinalIgnoreCase);
+        return OwnerFieldResolution.TokenMatchesUser(user, synitiOwner, aliases) ||
+               OwnerFieldResolution.TokenMatchesUser(user, businessOwner, aliases);
     }
 }

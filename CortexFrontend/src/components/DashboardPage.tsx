@@ -6,6 +6,10 @@ import {
   formatDisplayValue,
   formatTicketIdentifier,
 } from "../utils/presentation";
+import {
+  readOnlyBusinessOwnerLabel,
+  readOnlySynitiOwnerLabel,
+} from "../utils/ownerIdentity";
 
 interface DashboardPageProps {
   tickets: Ticket[];
@@ -35,12 +39,12 @@ function formatPercentage(count: number, total: number) {
 }
 
 function getOwnerLabel(ticket: Ticket) {
-  const synitiOwner = formatDisplayValue(ticket.synitiOwner);
+  const synitiOwner = formatDisplayValue(readOnlySynitiOwnerLabel(ticket));
   if (synitiOwner !== "—") {
     return synitiOwner;
   }
 
-  return formatDisplayValue(ticket.businessOwner);
+  return formatDisplayValue(readOnlyBusinessOwnerLabel(ticket));
 }
 
 function buildCounts(values: string[], preferredOrder?: string[]) {

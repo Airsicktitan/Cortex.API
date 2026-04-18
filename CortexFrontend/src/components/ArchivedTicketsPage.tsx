@@ -7,6 +7,10 @@ import {
   formatDisplayValue,
   formatTicketIdentifier,
 } from "../utils/presentation";
+import {
+  readOnlyBusinessOwnerLabel,
+  readOnlySynitiOwnerLabel,
+} from "../utils/ownerIdentity";
 
 interface ArchivedTicketsPageProps {
   tickets: ArchivedTicket[];
@@ -179,10 +183,10 @@ export default function ArchivedTicketsPage({
                       </div>
                     </td>
                     <td className="px-4 py-3 align-top">
-                      {formatDisplayValue(ticket.synitiOwner)}
+                      {formatDisplayValue(readOnlySynitiOwnerLabel(ticket))}
                     </td>
                     <td className="px-4 py-3 align-top">
-                      {formatDisplayValue(ticket.businessOwner)}
+                      {formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}
                     </td>
                     <td className="px-4 py-3 align-top whitespace-nowrap">
                       <div>

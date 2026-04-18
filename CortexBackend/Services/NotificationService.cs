@@ -90,7 +90,7 @@ public class NotificationService(
     public async Task<int> CreateAssignmentNotificationsAsync(Ticket originalTicket, Ticket updatedTicket, User actor)
     {
         var users = await GetNotifiableUsersAsync();
-        var aliases = BuildUserAliasLookup(users);
+        var aliases = OwnerFieldResolution.BuildAliasLookup(users);
         var assignments = new Dictionary<int, AssignmentNotificationState>();
 
         AddAssignment(assignments, aliases, actor, originalTicket.SynitiOwner, updatedTicket.SynitiOwner, "Syniti Owner", updatedTicket.Id);
@@ -211,7 +211,7 @@ public class NotificationService(
         }
 
         var usersById = users.ToDictionary(user => user.Id);
-        var aliases = BuildUserAliasLookup(users);
+        var aliases = OwnerFieldResolution.BuildAliasLookup(users);
         var tickets = await _ticketRepository.GetAllTicketsAsync();
         var slaConfigurations = await _slaConfigurationService.GetPriorityMapAsync();
         var notifications = new List<UserNotification>();
@@ -382,20 +382,6 @@ public class NotificationService(
             .ToList();
     }
 
-    private static Dictionary<string, User> BuildUserAliasLookup(IEnumerable<User> users)
-    {
-        var aliases = new Dictionary<string, User>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var user in users)
-        {
-            AddAlias(aliases, "email", user.Email, user);
-            AddAlias(aliases, "display", user.DisplayName, user);
-            AddAlias(aliases, "nickname", user.NickName, user);
-        }
-
-        return aliases;
-    }
-
     private void AddAssignment(
         IDictionary<int, AssignmentNotificationState> assignments,
         IReadOnlyDictionary<string, User> aliases,
@@ -405,17 +391,15 @@ public class NotificationService(
         string roleLabel,
         string ticketId)
     {
-        var previousNormalized = NormalizeOwner(previousOwner);
-        var nextNormalized = NormalizeOwner(nextOwner);
-
-        if (string.IsNullOrWhiteSpace(nextNormalized) ||
-            string.Equals(previousNormalized, nextNormalized, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(nextOwner?.Trim()))
         {
             return;
         }
 
-        var resolvedUser = ResolveOwnerUser(nextOwner, aliases);
-        if (resolvedUser is null)
+        var previousResolved = OwnerFieldResolution.ResolveUser(previousOwner, aliases);
+        var nextResolved = OwnerFieldResolution.ResolveUser(nextOwner, aliases);
+
+        if (nextResolved is null)
         {
             _logger.LogWarning(
                 "Assignment notification skipped: could not resolve owner alias '{Owner}' for ticket {TicketId} role {RoleLabel}.",
@@ -425,10 +409,15 @@ public class NotificationService(
             return;
         }
 
-        if (!assignments.TryGetValue(resolvedUser.Id, out var state))
+        if (previousResolved?.Id == nextResolved.Id)
         {
-            state = new AssignmentNotificationState(resolvedUser);
-            assignments[resolvedUser.Id] = state;
+            return;
+        }
+
+        if (!assignments.TryGetValue(nextResolved.Id, out var state))
+        {
+            state = new AssignmentNotificationState(nextResolved);
+            assignments[nextResolved.Id] = state;
         }
 
         state.Roles.Add(roleLabel);
@@ -439,7 +428,7 @@ public class NotificationService(
         IReadOnlyList<User> users)
     {
         var usersById = users.ToDictionary(user => user.Id);
-        var aliases = BuildUserAliasLookup(users);
+        var aliases = OwnerFieldResolution.BuildAliasLookup(users);
         return ResolveInterestedUsers(ticket, usersById, aliases);
     }
 
@@ -447,7 +436,7 @@ public class NotificationService(
         Ticket ticket,
         IReadOnlyList<User> users)
     {
-        var aliases = BuildUserAliasLookup(users);
+        var aliases = OwnerFieldResolution.BuildAliasLookup(users);
         var recipients = new Dictionary<int, User>();
 
         AddOwnerRecipient(recipients, ticket.SynitiOwner, aliases);
@@ -479,67 +468,11 @@ public class NotificationService(
         string? rawOwner,
         IReadOnlyDictionary<string, User> aliases)
     {
-        var user = ResolveOwnerUser(rawOwner, aliases);
+        var user = OwnerFieldResolution.ResolveUser(rawOwner, aliases);
         if (user is not null)
         {
             recipients[user.Id] = user;
         }
-    }
-
-    private static User? ResolveOwnerUser(
-        string? rawOwner,
-        IReadOnlyDictionary<string, User> aliases)
-    {
-        var normalized = NormalizeOwner(rawOwner);
-        if (string.IsNullOrWhiteSpace(normalized))
-        {
-            return null;
-        }
-
-        if (normalized.Contains('@') &&
-            aliases.TryGetValue($"email:{normalized}", out var byEmail))
-        {
-            return byEmail;
-        }
-
-        if (aliases.TryGetValue($"display:{normalized}", out var byDisplayName))
-        {
-            return byDisplayName;
-        }
-
-        if (aliases.TryGetValue($"nickname:{normalized}", out var byNickname))
-        {
-            return byNickname;
-        }
-
-        if (aliases.TryGetValue($"email:{normalized}", out byEmail))
-        {
-            return byEmail;
-        }
-
-        return null;
-    }
-
-    private static void AddAlias(
-        IDictionary<string, User> aliases,
-        string prefix,
-        string? rawValue,
-        User user)
-    {
-        var normalized = NormalizeOwner(rawValue);
-        if (string.IsNullOrWhiteSpace(normalized) || aliases.ContainsKey($"{prefix}:{normalized}"))
-        {
-            return;
-        }
-
-        aliases[$"{prefix}:{normalized}"] = user;
-    }
-
-    private static string NormalizeOwner(string? rawValue)
-    {
-        return string.IsNullOrWhiteSpace(rawValue)
-            ? string.Empty
-            : rawValue.Trim().ToLowerInvariant();
     }
 
     private static string BuildSlaDeduplicationKey(string ticketId, string status)

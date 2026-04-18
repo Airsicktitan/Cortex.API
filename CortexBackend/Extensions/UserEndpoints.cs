@@ -41,6 +41,11 @@ public static class UserEndpoints
             .WithName("GetOnlineUsers")
             .Produces<List<OnlineUserResponse>>(StatusCodes.Status200OK);
 
+        users.MapGet("/directory", UserHandlers.GetUserDirectory)
+            .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
+            .WithName("GetUserDirectory")
+            .Produces<List<UserDirectoryEntryResponse>>(StatusCodes.Status200OK);
+
         users.MapPost("/", UserHandlers.CreateUser)
             .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("CreateUser")

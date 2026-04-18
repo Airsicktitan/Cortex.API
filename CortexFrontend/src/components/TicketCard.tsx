@@ -8,6 +8,10 @@ import {
   formatDisplayValue,
   formatTicketIdentifier,
 } from "../utils/presentation";
+import {
+  readOnlyBusinessOwnerLabel,
+  readOnlySynitiOwnerLabel,
+} from "../utils/ownerIdentity";
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -185,13 +189,19 @@ export default function TicketCard({ ticket, onClick }: TicketCardProps) {
       </p>
 
       <div className="mt-3 space-y-1 border-t border-gray-100 pt-3 text-left text-[11px] leading-snug text-gray-600 dark:border-slate-800 dark:text-slate-400">
-        <p className="truncate" title={formatDisplayValue(ticket.synitiOwner)}>
+        <p
+          className="truncate"
+          title={formatDisplayValue(readOnlySynitiOwnerLabel(ticket))}
+        >
           <span className="text-gray-500 dark:text-slate-500">Syniti:</span>{" "}
-          {formatDisplayValue(ticket.synitiOwner)}
+          {formatDisplayValue(readOnlySynitiOwnerLabel(ticket))}
         </p>
-        <p className="truncate" title={formatDisplayValue(ticket.businessOwner)}>
+        <p
+          className="truncate"
+          title={formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}
+        >
           <span className="text-gray-500 dark:text-slate-500">Business:</span>{" "}
-          {formatDisplayValue(ticket.businessOwner)}
+          {formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}
         </p>
       </div>
     </div>

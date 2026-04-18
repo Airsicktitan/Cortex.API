@@ -73,6 +73,8 @@ function ticketMatchesSearch(ticket: Ticket, searchValue: string) {
     ticket.priority,
     ticket.synitiOwner,
     ticket.businessOwner,
+    ticket.synitiOwnerDisplayName,
+    ticket.businessOwnerDisplayName,
     ticket.createdByDisplayName,
   ];
 
@@ -93,6 +95,7 @@ function getOwnerMatchCandidates(
     profile?.email,
     auth0Name,
     auth0Email,
+    profile?.id != null ? `user:${profile.id}` : undefined,
   ]) {
     const normalized = normalize(String(value ?? ""));
     if (normalized) {

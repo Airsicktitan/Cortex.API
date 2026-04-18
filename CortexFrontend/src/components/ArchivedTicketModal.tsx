@@ -11,6 +11,10 @@ import {
   formatDisplayValue,
   formatTicketIdentifier,
 } from "../utils/presentation";
+import {
+  readOnlyBusinessOwnerLabel,
+  readOnlySynitiOwnerLabel,
+} from "../utils/ownerIdentity";
 
 type ArchivedTicketModalProps = {
   ticket: ArchivedTicket | null;
@@ -267,7 +271,7 @@ export default function ArchivedTicketModal({
                     </label>
                     <input
                       type="text"
-                      value={formatDisplayValue(ticket.synitiOwner)}
+                      value={formatDisplayValue(readOnlySynitiOwnerLabel(ticket))}
                       readOnly
                       className="w-full cursor-not-allowed rounded-md border-gray-300 bg-gray-100 text-gray-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                     />
@@ -278,7 +282,7 @@ export default function ArchivedTicketModal({
                     </label>
                     <input
                       type="text"
-                      value={formatDisplayValue(ticket.businessOwner)}
+                      value={formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}
                       readOnly
                       className="w-full cursor-not-allowed rounded-md border-gray-300 bg-gray-100 text-gray-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                     />

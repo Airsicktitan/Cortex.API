@@ -13,12 +13,19 @@ import type { TicketAttachment } from "../types/attachment";
 import type { RealtimeEvent } from "../types/realtime";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { TicketStatusDefinition } from "../types/ticketStatus";
+import type { UserDirectoryEntry } from "../types/user";
 import { commentService } from "../services/commentService";
-import { attachmentService, getUserFacingErrorMessage } from "../services/api";
+import {
+  attachmentService,
+  getUserFacingErrorMessage,
+  userService,
+} from "../services/api";
 import type { Comment } from "../types/comment";
 import CommentList from "./CommentList";
 import AddComment from "./AddComment";
 import TicketHistoryModal from "./TicketHistoryModal";
+import UserCombobox from "./UserCombobox";
+import TicketRoutingInsight from "./TicketRoutingInsight";
 import { useAuth0 } from "@auth0/auth0-react";
 import {
   buildSlaTooltip,
@@ -37,6 +44,7 @@ import {
   canCreateTickets,
   canEditTickets,
 } from "../utils/role";
+import { readOnlyOwnerDetailDisplay } from "../utils/ownerIdentity";
 
 const API_AUDIENCE = "https://cortex-api";
 const MAX_TITLE_LENGTH = 200;
@@ -179,6 +187,12 @@ export default function TicketModal({
   const [businessOwner, setBusinessOwner] = useState(
     ticket.businessOwner || "",
   );
+  const [ownerDirectory, setOwnerDirectory] = useState<UserDirectoryEntry[]>([]);
+  const [ownerDirectoryLoading, setOwnerDirectoryLoading] = useState(false);
+  const [ownerDirectoryLoaded, setOwnerDirectoryLoaded] = useState(false);
+  const [ownerDirectoryError, setOwnerDirectoryError] = useState<string | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [description, setDescription] = useState(ticket.description || "");
@@ -219,6 +233,11 @@ export default function TicketModal({
   const commentThreadOpenScrollPendingRef = useRef(false);
   const commentThreadSendScrollPendingRef = useRef(false);
   const prevCommentIdsSigRef = useRef<string>("");
+  /** Latest ticket from props; used so we don't list `ticket` as a layout-effect dependency (avoids resetting the form on every parent/realtime object update). */
+  const ticketPropRef = useRef(ticket);
+  ticketPropRef.current = ticket;
+  /** Reset form fields from ticket only when opening the modal or switching to a different ticket (id), not when the same ticket object is replaced while editing. */
+  const lastHydratedFormKeyRef = useRef<string | null>(null);
   const [pendingNewCommentsCount, setPendingNewCommentsCount] = useState(0);
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
@@ -312,20 +331,37 @@ export default function TicketModal({
   }, [getAccessTokenSilently]);
 
   // ✅ CRITICAL: useLayoutEffect prevents the “1 frame of old ticket data”
+  // Hydrate from props only when the modal opens or the ticket identity changes — not when `ticket`
+  // is a new object reference for the same id (e.g. realtime refresh), or Syniti/Business owner edits reset.
   useLayoutEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      lastHydratedFormKeyRef.current = null;
+      return;
+    }
 
-    setTitle(ticket.title || "");
-    setDescription(ticket.description || "");
-    setPriority(ticket.priority);
-    setStatus(ticket.id ? ticket.status : "New");
-    setDepartment(ticket.department || currentUser?.department || "");
-    setBoardId(defaultBoard?.id ?? 0);
+    const t = ticketPropRef.current;
+    const formKey = t.id ?? "__new__";
+    if (lastHydratedFormKeyRef.current === formKey) {
+      return;
+    }
+    lastHydratedFormKeyRef.current = formKey;
+
+    const resolvedDefaultBoard =
+      ticketBoards.find((board) => board.id === t.boardId) ??
+      ticketBoards.find((board) => board.name === "Ticket") ??
+      ticketBoards[0];
+
+    setTitle(t.title || "");
+    setDescription(t.description || "");
+    setPriority(t.priority);
+    setStatus(t.id ? t.status : "New");
+    setDepartment(t.department || currentUser?.department || "");
+    setBoardId(resolvedDefaultBoard?.id ?? 0);
     setStoryPoints(
-      ticket.storyPoints ?? (defaultBoard?.requiresStoryPoints ? 1 : ""),
+      t.storyPoints ?? (resolvedDefaultBoard?.requiresStoryPoints ? 1 : ""),
     );
-    setSynitiOwner(ticket.synitiOwner || "");
-    setBusinessOwner(ticket.businessOwner || "");
+    setSynitiOwner(t.synitiOwner || "");
+    setBusinessOwner(t.businessOwner || "");
     setChangeReason("");
     setQueuedAttachments([]);
     setIsAttachmentDropActive(false);
@@ -335,7 +371,19 @@ export default function TicketModal({
     setTypingUsers([]);
     lastTypingPingAtRef.current = 0;
     pendingLocalCommentRef.current = null;
-  }, [currentUser?.department, defaultBoard, ticket, isOpen]);
+  }, [isOpen, ticket.id, ticketBoards]);
+
+  // Create ticket: when profile/department loads after open, fill department if still empty.
+  useEffect(() => {
+    if (!isOpen || ticket.id) {
+      return;
+    }
+    setDepartment((prev) =>
+      prev.trim() !== ""
+        ? prev
+        : ticket.department || currentUser?.department || "",
+    );
+  }, [isOpen, ticket.id, ticket.department, currentUser?.department]);
 
   useEffect(() => {
     if (!isOpen || ticket.id) {
@@ -583,10 +631,50 @@ export default function TicketModal({
     }
   }, [getApiToken, ticket.id]);
 
+  const loadOwnerDirectory = useCallback(async () => {
+    setOwnerDirectoryLoading(true);
+    setOwnerDirectoryError(null);
+
+    try {
+      const token = await getApiToken();
+      const directoryEntries = await userService.getDirectory(token);
+      setOwnerDirectory(directoryEntries);
+      setOwnerDirectoryLoaded(true);
+    } catch (error) {
+      console.error("Failed to load user directory", error);
+      setOwnerDirectoryError(
+        getUserFacingErrorMessage(error, "Unable to load users."),
+      );
+    } finally {
+      setOwnerDirectoryLoading(false);
+    }
+  }, [getApiToken]);
+
   useEffect(() => {
     if (!isOpen || !ticket.id) return;
     void reloadComments();
   }, [isOpen, reloadComments, ticket.id]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !canSaveTicket ||
+      ownerDirectoryLoading ||
+      ownerDirectoryLoaded ||
+      ownerDirectoryError
+    ) {
+      return;
+    }
+
+    void loadOwnerDirectory();
+  }, [
+    canSaveTicket,
+    isOpen,
+    loadOwnerDirectory,
+    ownerDirectoryError,
+    ownerDirectoryLoaded,
+    ownerDirectoryLoading,
+  ]);
 
   useLayoutEffect(() => {
     if (!isOpen || !ticket.id || loadingComments) {
@@ -1091,6 +1179,21 @@ export default function TicketModal({
         : priority === "Medium"
           ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200"
           : "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200";
+  const ownerPickerDisabled =
+    formReadOnly ||
+    saving ||
+    archiving ||
+    (Boolean(ownerDirectoryError) && ownerDirectory.length === 0);
+  const synitiOwnerHelperText = ownerDirectoryError
+    ? ownerDirectoryError
+    : !ticket.id
+      ? "Leave blank to use the matching routing rule."
+      : undefined;
+  const businessOwnerHelperText = ownerDirectoryError
+    ? ownerDirectoryError
+    : !ticket.id
+      ? "Leave blank to use routing first, then default this ticket to you as the requester."
+      : undefined;
 
   const ticketDetailsBody = (
     <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
@@ -1133,7 +1236,13 @@ export default function TicketModal({
           Syniti Owner
         </p>
         <p className="mt-1 text-gray-800 dark:text-slate-200">
-          {formatDisplayValue(synitiOwner)}
+          {formatDisplayValue(
+            readOnlyOwnerDetailDisplay(synitiOwner, {
+              baselineStored: ticket.synitiOwner ?? "",
+              apiDisplayName: ticket.synitiOwnerDisplayName,
+              directory: ownerDirectory,
+            }),
+          )}
         </p>
       </div>
       <div>
@@ -1141,7 +1250,13 @@ export default function TicketModal({
           Business Owner
         </p>
         <p className="mt-1 text-gray-800 dark:text-slate-200">
-          {formatDisplayValue(businessOwner)}
+          {formatDisplayValue(
+            readOnlyOwnerDetailDisplay(businessOwner, {
+              baselineStored: ticket.businessOwner ?? "",
+              apiDisplayName: ticket.businessOwnerDisplayName,
+              directory: ownerDirectory,
+            }),
+          )}
         </p>
       </div>
       {hasPersistedSla ? (
@@ -1431,41 +1546,34 @@ export default function TicketModal({
 
                 {/* Syniti Owner */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Syniti Owner
-                  </label>
-                  <input
-                    type="text"
+                  <UserCombobox
+                    label="Syniti Owner"
                     value={synitiOwner}
-                    onChange={(e) => setSynitiOwner(e.target.value)}
-                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    users={ownerDirectory}
+                    onChange={setSynitiOwner}
+                    loading={ownerDirectoryLoading}
+                    disabled={ownerPickerDisabled}
+                    helperText={synitiOwnerHelperText}
                   />
-                  {!ticket.id && (
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Leave blank to use the matching routing rule.
-                    </p>
-                  )}
                 </div>
 
                 {/* Business Owner */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Business Owner
-                  </label>
-                  <input
-                    type="text"
+                  <UserCombobox
+                    label="Business Owner"
                     value={businessOwner}
-                    onChange={(e) => setBusinessOwner(e.target.value)}
-                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    users={ownerDirectory}
+                    onChange={setBusinessOwner}
+                    loading={ownerDirectoryLoading}
+                    disabled={ownerPickerDisabled}
+                    helperText={businessOwnerHelperText}
                   />
-                  {!ticket.id && (
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Leave blank to use routing first, then default this ticket
-                      to you as the requester.
-                    </p>
-                  )}
                 </div>
               </div>
+
+              {ticket.id ? (
+                <TicketRoutingInsight ticket={ticket} isModalOpen={isOpen} />
+              ) : null}
 
               {ticket.id && (
                 <div className="mb-6">

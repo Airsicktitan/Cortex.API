@@ -18,6 +18,10 @@ import {
   formatDisplayValue,
   humanizeEnumLabel,
 } from "../utils/presentation";
+import {
+  readOnlyBusinessOwnerLabel,
+  readOnlySynitiOwnerLabel,
+} from "../utils/ownerIdentity";
 
 type ReportSection = "sla" | "online-users" | "custom";
 
@@ -73,12 +77,12 @@ function formatPercentage(count: number, total: number) {
 }
 
 function getOwnerLabel(ticket: Ticket) {
-  const synitiOwner = formatDisplayValue(ticket.synitiOwner);
+  const synitiOwner = formatDisplayValue(readOnlySynitiOwnerLabel(ticket));
   if (synitiOwner !== "—") {
     return synitiOwner;
   }
 
-  return formatDisplayValue(ticket.businessOwner);
+  return formatDisplayValue(readOnlyBusinessOwnerLabel(ticket));
 }
 
 function sortByUrgency(tickets: Ticket[]) {

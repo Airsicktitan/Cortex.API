@@ -12,6 +12,8 @@ public class ArchivedTicketResponse
     public int? StoryPoints { get; set; }
     public string? SynitiOwner { get; set; }
     public string? BusinessOwner { get; set; }
+    public string? SynitiOwnerDisplayName { get; set; }
+    public string? BusinessOwnerDisplayName { get; set; }
     public int CreatedBy { get; set; }
     public string CreatedByDisplayName { get; set; } = string.Empty;
     public DateTime CreatedDate { get; set; }

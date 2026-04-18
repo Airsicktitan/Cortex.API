@@ -47,7 +47,15 @@ public sealed record TicketVisibilityContext(
             return false;
         }
 
-        return string.Equals(value.Trim(), DisplayName?.Trim(), StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(value.Trim(), Email?.Trim(), StringComparison.OrdinalIgnoreCase);
+        var trimmed = value.Trim();
+        if (trimmed.StartsWith(OwnerFieldResolution.UserIdTokenPrefix, StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(trimmed.AsSpan(OwnerFieldResolution.UserIdTokenPrefix.Length), out var ownerId) &&
+            ownerId == UserId)
+        {
+            return true;
+        }
+
+        return string.Equals(trimmed, DisplayName?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(trimmed, Email?.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 }

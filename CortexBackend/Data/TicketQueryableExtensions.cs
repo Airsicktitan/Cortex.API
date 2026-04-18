@@ -13,29 +13,41 @@ internal static class TicketQueryableExtensions
         {
             TicketVisibilityScope.All => query,
             TicketVisibilityScope.CreatedByCurrentUser => query.Where(t => t.CreatedBy == ctx.UserId),
-            TicketVisibilityScope.AssignedToCurrentUser => query.Where(t =>
-                (ctx.DisplayName != null && t.SynitiOwner != null &&
-                 string.Equals(
-                     t.SynitiOwner.Trim(),
-                     ctx.DisplayName.Trim(),
-                     StringComparison.OrdinalIgnoreCase)) ||
-                (ctx.Email != null && t.SynitiOwner != null &&
-                 string.Equals(
-                     t.SynitiOwner.Trim(),
-                     ctx.Email.Trim(),
-                     StringComparison.OrdinalIgnoreCase)) ||
-                (ctx.DisplayName != null && t.BusinessOwner != null &&
-                 string.Equals(
-                     t.BusinessOwner.Trim(),
-                     ctx.DisplayName.Trim(),
-                     StringComparison.OrdinalIgnoreCase)) ||
-                (ctx.Email != null && t.BusinessOwner != null &&
-                 string.Equals(
-                     t.BusinessOwner.Trim(),
-                     ctx.Email.Trim(),
-                     StringComparison.OrdinalIgnoreCase))),
+            TicketVisibilityScope.AssignedToCurrentUser => WhereAssignedToCurrentUser(query, ctx),
             _ => query.Where(t => t.CreatedBy == ctx.UserId)
         };
+    }
+
+    private static IQueryable<Ticket> WhereAssignedToCurrentUser(
+        IQueryable<Ticket> query,
+        TicketVisibilityContext ctx)
+    {
+        var userIdToken = OwnerFieldResolution.UserIdTokenPrefix + ctx.UserId;
+        return query.Where(t =>
+            (ctx.DisplayName != null && t.SynitiOwner != null &&
+             string.Equals(
+                 t.SynitiOwner.Trim(),
+                 ctx.DisplayName.Trim(),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (ctx.Email != null && t.SynitiOwner != null &&
+             string.Equals(
+                 t.SynitiOwner.Trim(),
+                 ctx.Email.Trim(),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (ctx.DisplayName != null && t.BusinessOwner != null &&
+             string.Equals(
+                 t.BusinessOwner.Trim(),
+                 ctx.DisplayName.Trim(),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (ctx.Email != null && t.BusinessOwner != null &&
+             string.Equals(
+                 t.BusinessOwner.Trim(),
+                 ctx.Email.Trim(),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (t.SynitiOwner != null &&
+             string.Equals(t.SynitiOwner.Trim(), userIdToken, StringComparison.OrdinalIgnoreCase)) ||
+            (t.BusinessOwner != null &&
+             string.Equals(t.BusinessOwner.Trim(), userIdToken, StringComparison.OrdinalIgnoreCase)));
     }
 
     public static IQueryable<ArchivedTicket> WhereVisibleTo(
@@ -46,29 +58,41 @@ internal static class TicketQueryableExtensions
         {
             TicketVisibilityScope.All => query,
             TicketVisibilityScope.CreatedByCurrentUser => query.Where(t => t.CreatedBy == ctx.UserId),
-            TicketVisibilityScope.AssignedToCurrentUser => query.Where(t =>
-                (ctx.DisplayName != null && t.SynitiOwner != null &&
-                 string.Equals(
-                     t.SynitiOwner.Trim(),
-                     ctx.DisplayName.Trim(),
-                     StringComparison.OrdinalIgnoreCase)) ||
-                (ctx.Email != null && t.SynitiOwner != null &&
-                 string.Equals(
-                     t.SynitiOwner.Trim(),
-                     ctx.Email.Trim(),
-                     StringComparison.OrdinalIgnoreCase)) ||
-                (ctx.DisplayName != null && t.BusinessOwner != null &&
-                 string.Equals(
-                     t.BusinessOwner.Trim(),
-                     ctx.DisplayName.Trim(),
-                     StringComparison.OrdinalIgnoreCase)) ||
-                (ctx.Email != null && t.BusinessOwner != null &&
-                 string.Equals(
-                     t.BusinessOwner.Trim(),
-                     ctx.Email.Trim(),
-                     StringComparison.OrdinalIgnoreCase))),
+            TicketVisibilityScope.AssignedToCurrentUser => WhereArchivedAssignedToCurrentUser(query, ctx),
             _ => query.Where(t => t.CreatedBy == ctx.UserId)
         };
+    }
+
+    private static IQueryable<ArchivedTicket> WhereArchivedAssignedToCurrentUser(
+        IQueryable<ArchivedTicket> query,
+        TicketVisibilityContext ctx)
+    {
+        var userIdToken = OwnerFieldResolution.UserIdTokenPrefix + ctx.UserId;
+        return query.Where(t =>
+            (ctx.DisplayName != null && t.SynitiOwner != null &&
+             string.Equals(
+                 t.SynitiOwner.Trim(),
+                 ctx.DisplayName.Trim(),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (ctx.Email != null && t.SynitiOwner != null &&
+             string.Equals(
+                 t.SynitiOwner.Trim(),
+                 ctx.Email.Trim(),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (ctx.DisplayName != null && t.BusinessOwner != null &&
+             string.Equals(
+                 t.BusinessOwner.Trim(),
+                 ctx.DisplayName.Trim(),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (ctx.Email != null && t.BusinessOwner != null &&
+             string.Equals(
+                 t.BusinessOwner.Trim(),
+                 ctx.Email.Trim(),
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (t.SynitiOwner != null &&
+             string.Equals(t.SynitiOwner.Trim(), userIdToken, StringComparison.OrdinalIgnoreCase)) ||
+            (t.BusinessOwner != null &&
+             string.Equals(t.BusinessOwner.Trim(), userIdToken, StringComparison.OrdinalIgnoreCase)));
     }
 
     public static IQueryable<Ticket> OrderByTicketListSort(this IQueryable<Ticket> query, string sort)

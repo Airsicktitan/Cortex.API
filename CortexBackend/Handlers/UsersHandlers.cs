@@ -309,6 +309,18 @@ public static class UserHandlers
         return Results.Ok(users.Select(user => user.ToOnlineResponse()).ToList());
     }
 
+    public static async Task<IResult> GetUserDirectory(IUserRepository repo)
+    {
+        var users = await repo.GetAllUsersAsync();
+        var directoryEntries = users
+            .Where(user => user.Id > 0 && user.IsActive)
+            .OrderBy(user => user.DisplayName ?? user.Email)
+            .Select(user => user.ToDirectoryResponse())
+            .ToList();
+
+        return Results.Ok(directoryEntries);
+    }
+
     public static async Task<IResult> UpdateCurrentUserPresence(
         IUserContextService userContext,
         IUserRepository repo)

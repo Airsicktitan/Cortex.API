@@ -51,6 +51,15 @@ export interface OnlineUser {
   lastLoginDate?: string;
 }
 
+export interface UserDirectoryEntry {
+  id: number;
+  displayName: string;
+  email: string;
+  department?: string;
+  /** Local role display (e.g. User, Business Manager); optional for older API responses. */
+  role?: string;
+}
+
 export interface AdminUpdateUserInput {
   nickName?: string;
   phoneNumber?: string;

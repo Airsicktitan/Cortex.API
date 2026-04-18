@@ -13,6 +13,9 @@ export interface Ticket {
   storyPoints?: number;
   synitiOwner?: string;
   businessOwner?: string;
+  /** Resolved display labels from API for read-only UI (opaque values remain in synitiOwner/businessOwner). */
+  synitiOwnerDisplayName?: string;
+  businessOwnerDisplayName?: string;
   createdBy: string;
   createdByUser?:
     | {

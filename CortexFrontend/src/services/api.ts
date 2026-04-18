@@ -6,6 +6,7 @@ import type {
 } from "../types/pagedList";
 import type { TicketAttachment } from "../types/attachment";
 import type { TicketAuditEntry } from "../types/ticketAudit";
+import type { TicketRoutingLatestResponse } from "../types/ticketRoutingInsight";
 import type {
   AdminUpdateUserInput,
   Auth0RoleOption,
@@ -13,6 +14,7 @@ import type {
   OnlineUser,
   UpdateUserProfileInput,
   UserAuth0RolesResponse,
+  UserDirectoryEntry,
   UserProfile,
   UserRecord,
   UserRoleMutationRequest,
@@ -281,6 +283,21 @@ export const ticketService = {
     return response.json();
   },
 
+  async getLatestRouting(
+    id: string,
+    token: string,
+  ): Promise<TicketRoutingLatestResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${id}/routing/latest`,
+      {
+        headers: authHeaders(token),
+      },
+    );
+
+    await ensureSuccess(response, "Unable to load routing insight");
+    return response.json() as Promise<TicketRoutingLatestResponse>;
+  },
+
   // Create ticket
   async create(
     ticket: CreateTicketInput,
@@ -440,6 +457,9 @@ export const attachmentService = {
   },
 };
 
+let userDirectoryCache: UserDirectoryEntry[] | null = null;
+let userDirectoryRequest: Promise<UserDirectoryEntry[]> | null = null;
+
 export const userService = {
   async getCurrentUser(token: string): Promise<UserProfile> {
     const response = await fetch(`${API_BASE_URL}/users/me`, {
@@ -457,6 +477,38 @@ export const userService = {
 
     await ensureSuccess(response, "Unable to load users");
     return response.json();
+  },
+
+  async getDirectory(token: string): Promise<UserDirectoryEntry[]> {
+    if (userDirectoryCache) {
+      return userDirectoryCache;
+    }
+
+    if (userDirectoryRequest) {
+      return userDirectoryRequest;
+    }
+
+    userDirectoryRequest = (async () => {
+      const response = await fetch(`${API_BASE_URL}/users/directory`, {
+        headers: authHeaders(token),
+      });
+
+      await ensureSuccess(response, "Unable to load user directory");
+      const directoryEntries = (await response.json()) as UserDirectoryEntry[];
+      userDirectoryCache = directoryEntries;
+      return directoryEntries;
+    })();
+
+    try {
+      return await userDirectoryRequest;
+    } finally {
+      userDirectoryRequest = null;
+    }
+  },
+
+  clearDirectoryCache() {
+    userDirectoryCache = null;
+    userDirectoryRequest = null;
   },
 
   async getOnlineUsers(token: string): Promise<OnlineUser[]> {
