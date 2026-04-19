@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -13,7 +14,7 @@ import type {
   ApprovalTriagePreview,
   Ticket,
   TicketMutationInput,
-  TicketSaveOutcome,
+  TicketSaveResult,
   TicketTriageGenerateApiResponse,
 } from "../types/ticket";
 import type { TicketAttachment } from "../types/attachment";
@@ -21,6 +22,12 @@ import type { RealtimeEvent } from "../types/realtime";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { TicketStatusDefinition } from "../types/ticketStatus";
 import type { UserDirectoryEntry } from "../types/user";
+import {
+  CLARITY_STATE_LABEL,
+  CLARITY_STATE_PILL_CLASS,
+  type ClarityState,
+  type IntakeAssistResult,
+} from "../types/intakeAssist";
 import { commentService } from "../services/commentService";
 import {
   attachmentService,
@@ -37,6 +44,7 @@ import UserCombobox from "./UserCombobox";
 import TicketRoutingInsight from "./TicketRoutingInsight";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
+import { CortexTooltip } from "./ui/Tooltip";
 import {
   shouldShowApprovalTriageModalPanel,
   triageHasContent,
@@ -215,7 +223,7 @@ interface TicketModalProps {
   onSave: (
     updatedTicket: TicketMutationInput,
     attachments: File[],
-  ) => Promise<TicketSaveOutcome | void>;
+  ) => Promise<TicketSaveResult | void>;
   onArchive: (ticket: Ticket, changeReason?: string) => Promise<void>;
   onDelete: (ticket: Ticket) => void;
   currentUser: {
@@ -235,6 +243,11 @@ interface TicketModalProps {
   ) => Promise<Ticket | null>;
   /** Parent list/queue refresh after triage is persisted. */
   onTriagePersisted?: () => void;
+  /**
+   * After triage apply succeeds, merge the server ticket into parent state (e.g. selected ticket).
+   * Needed while the modal is open because list upsert normally skips selected ticket sync.
+   */
+  onTriageApplySuccess?: (ticket: Ticket) => void;
   /** When set, shows intake review actions for pending / needs-info tickets. */
   intakeApprovalHandlers?: {
     approve: () => Promise<void>;
@@ -266,6 +279,7 @@ export default function TicketModal({
   approvalDisplayContext = "requester",
   refreshPersistedTicket,
   onTriagePersisted,
+  onTriageApplySuccess,
   intakeApprovalHandlers,
 }: TicketModalProps) {
   const defaultBoard =
@@ -305,6 +319,12 @@ export default function TicketModal({
   const [triagePreviewOverride, setTriagePreviewOverride] =
     useState<ApprovalTriagePreview | null>(null);
   const [regenerateTriageLoading, setRegenerateTriageLoading] = useState(false);
+  /** Which AI triage apply action is currently in-flight; null when idle. */
+  const [triageApplyPending, setTriageApplyPending] = useState<
+    "priority" | "status" | "both" | null
+  >(null);
+  /** User-facing error from the last apply attempt (e.g. 409 conflict). */
+  const [triageApplyError, setTriageApplyError] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
@@ -322,6 +342,15 @@ export default function TicketModal({
   const [isTicketDetailsOpen, setIsTicketDetailsOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  // Intake-assist ("Improve for review") state. Stateless on the server;
+  // result lives here until the requester applies it or dismisses it.
+  const [intakeAssistResult, setIntakeAssistResult] =
+    useState<IntakeAssistResult | null>(null);
+  const [intakeAssistEditableDescription, setIntakeAssistEditableDescription] =
+    useState("");
+  const [intakeAssistLoading, setIntakeAssistLoading] = useState(false);
+  const [intakeAssistError, setIntakeAssistError] = useState<string | null>(null);
+  const intakeAssistAbortRef = useRef<AbortController | null>(null);
 
   const { getAccessTokenSilently } = useAuth0();
 
@@ -486,6 +515,33 @@ export default function TicketModal({
     });
   }, [getAccessTokenSilently]);
 
+  /** Merge a server ticket into modal form state after save (stay-open edit path). */
+  const applyServerTicketToForm = useCallback(
+    (saved: Ticket) => {
+      const resolvedBoard =
+        ticketBoards.find((board) => board.id === saved.boardId) ??
+        ticketBoards.find((board) => board.name === "Ticket") ??
+        ticketBoards[0];
+      setTitle(saved.title || "");
+      setDescription(saved.description || "");
+      setPriority(saved.priority);
+      lastServerTicketPriorityRef.current = saved.priority;
+      setStatus(saved.status);
+      setDepartment(saved.department || currentUser?.department || "");
+      setBoardId(saved.boardId);
+      setStoryPoints(
+        saved.storyPoints ?? (resolvedBoard?.requiresStoryPoints ? 1 : ""),
+      );
+      setSynitiOwner(saved.synitiOwner || "");
+      setBusinessOwner(saved.businessOwner || "");
+      setChangeReason("");
+      setQueuedAttachments([]);
+      setTriagePreviewOverride(saved.approvalTriagePreview ?? null);
+      setTriageApplyError(null);
+    },
+    [currentUser?.department, ticketBoards],
+  );
+
   useEffect(() => {
     setTriagePreviewOverride(null);
   }, [ticket.id]);
@@ -493,11 +549,33 @@ export default function TicketModal({
   const triageDisplayTicket = useMemo(
     (): Ticket => ({
       ...ticket,
+      priority,
+      status,
       approvalTriagePreview:
         triagePreviewOverride ?? ticket.approvalTriagePreview,
     }),
-    [ticket, triagePreviewOverride],
+    [ticket, priority, status, triagePreviewOverride],
   );
+
+  /**
+   * My Tickets (requester): hide collaboration affordances while a request is still
+   * awaiting intake approval — same boundary as reviewer modal (no comment thread).
+   */
+  const commentsColumnEnabled = useMemo(() => {
+    if (!ticket.id) {
+      return false;
+    }
+    if (approvalDisplayContext === "reviewer") {
+      return false;
+    }
+    if (
+      approvalDisplayContext === "requester" &&
+      getTicketApprovalStatus(ticket) === "PendingApproval"
+    ) {
+      return false;
+    }
+    return true;
+  }, [approvalDisplayContext, ticket]);
 
   const handleRegenerateTriageAnalysis = useCallback(async () => {
     if (!ticket.id) {
@@ -551,6 +629,69 @@ export default function TicketModal({
     ticket.priority,
   ]);
 
+  /**
+   * Reviewer apply: posts the selected AI triage suggestions to the backend,
+   * updates local fields from the server response, and surfaces 409 inline
+   * instead of a full board refresh.
+   */
+  const handleApplyTriageSuggestions = useCallback(
+    async (action: "priority" | "status" | "both") => {
+      if (!ticket.id || triageApplyPending) {
+        return;
+      }
+
+      setTriageApplyPending(action);
+      setTriageApplyError(null);
+
+      try {
+        const token = await getApiToken();
+        const updated = await ticketService.applyTriageSuggestions(
+          ticket.id,
+          {
+            applyPriority: action !== "status",
+            applyStatus: action !== "priority",
+          },
+          token,
+        );
+
+        // Sync local form fields to server truth; parent reconciles its list
+        // via the realtime event that the backend publishes after apply.
+        if (action !== "status") {
+          setPriority(updated.priority);
+          lastServerTicketPriorityRef.current = updated.priority;
+        }
+        if (action !== "priority") {
+          setStatus(updated.status);
+        }
+
+        // Use the server-returned preview immediately; clearing the override would
+        // revert to a stale prop until the parent/list syncs.
+        setTriagePreviewOverride(updated.approvalTriagePreview ?? null);
+
+        onTriageApplySuccess?.(updated);
+        onTriagePersisted?.();
+
+        const successCopy =
+          action === "priority"
+            ? "Priority suggestion applied."
+            : action === "status"
+              ? "Status suggestion applied."
+              : "AI suggestions applied.";
+        toast.success(successCopy);
+      } catch (error) {
+        const message = getUserFacingErrorMessage(
+          error,
+          "Unable to apply AI triage suggestions.",
+        );
+        setTriageApplyError(message);
+        toast.error(message);
+      } finally {
+        setTriageApplyPending(null);
+      }
+    },
+    [getApiToken, onTriageApplySuccess, onTriagePersisted, ticket.id, triageApplyPending],
+  );
+
   // ✅ CRITICAL: useLayoutEffect prevents the “1 frame of old ticket data”
   // Hydrate from props only when the modal opens or the ticket identity changes — not when `ticket`
   // is a new object reference for the same id (e.g. realtime refresh), or Syniti/Business owner edits reset.
@@ -591,6 +732,9 @@ export default function TicketModal({
     setIsActionMenuOpen(false);
     setIsTicketDetailsOpen(false);
     setTypingUsers([]);
+    setTriagePreviewOverride(null);
+    setTriageApplyError(null);
+    setTriageApplyPending(null);
     lastTypingPingAtRef.current = 0;
     pendingLocalCommentRef.current = null;
   }, [isOpen, ticket.id, ticketBoards]);
@@ -662,6 +806,108 @@ export default function TicketModal({
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [isActionMenuOpen]);
 
+  // Reset intake-assist state when the modal opens or the ticket identity changes,
+  // and abort any in-flight assist request so stale results don't leak across tickets.
+  useEffect(() => {
+    intakeAssistAbortRef.current?.abort();
+    intakeAssistAbortRef.current = null;
+    setIntakeAssistResult(null);
+    setIntakeAssistEditableDescription("");
+    setIntakeAssistLoading(false);
+    setIntakeAssistError(null);
+  }, [ticket.id, isOpen]);
+
+  // Abort any in-flight intake-assist request on unmount.
+  useEffect(() => {
+    return () => {
+      intakeAssistAbortRef.current?.abort();
+      intakeAssistAbortRef.current = null;
+    };
+  }, []);
+
+  const handleImproveIntake = useCallback(async () => {
+    const trimmedTitle = title.trim();
+    const trimmedDescription = description.trim();
+    if (!trimmedDescription) {
+      return;
+    }
+    if (intakeAssistLoading) {
+      return;
+    }
+
+    intakeAssistAbortRef.current?.abort();
+    const controller = new AbortController();
+    intakeAssistAbortRef.current = controller;
+
+    setIntakeAssistLoading(true);
+    setIntakeAssistError(null);
+    try {
+      const token = await getApiToken();
+      const result = await ticketService.intakeAssist(
+        {
+          title: trimmedTitle,
+          description: trimmedDescription,
+          boardName: selectedBoard?.name ?? ticket.boardName ?? undefined,
+        },
+        token,
+        controller.signal,
+      );
+      if (controller.signal.aborted) {
+        return;
+      }
+      setIntakeAssistResult(result);
+      setIntakeAssistEditableDescription(result.improvedDescription ?? "");
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      const message = getUserFacingErrorMessage(
+        error,
+        "Unable to improve request.",
+      );
+      setIntakeAssistError(message);
+    } finally {
+      if (intakeAssistAbortRef.current === controller) {
+        intakeAssistAbortRef.current = null;
+      }
+      if (!controller.signal.aborted) {
+        setIntakeAssistLoading(false);
+      }
+    }
+  }, [
+    title,
+    description,
+    intakeAssistLoading,
+    getApiToken,
+    selectedBoard?.name,
+    ticket.boardName,
+  ]);
+
+  const handleUseIntakeSummary = useCallback(() => {
+    const summary = intakeAssistResult?.suggestedSummary?.trim();
+    if (!summary) {
+      return;
+    }
+    setTitle(summary.slice(0, MAX_TITLE_LENGTH));
+  }, [intakeAssistResult]);
+
+  const handleUseIntakeDescription = useCallback(() => {
+    const next = intakeAssistEditableDescription.trim();
+    if (!next) {
+      return;
+    }
+    setDescription(next.slice(0, MAX_DESCRIPTION_LENGTH));
+  }, [intakeAssistEditableDescription]);
+
+  const handleDismissIntakeAssist = useCallback(() => {
+    intakeAssistAbortRef.current?.abort();
+    intakeAssistAbortRef.current = null;
+    setIntakeAssistResult(null);
+    setIntakeAssistEditableDescription("");
+    setIntakeAssistError(null);
+    setIntakeAssistLoading(false);
+  }, []);
+
   const handleSave = useCallback(async () => {
     if (saving || archiving) {
       return;
@@ -677,7 +923,7 @@ export default function TicketModal({
 
     setSaving(true);
     try {
-      const outcome = await onSave(
+      const result = await onSave(
         {
           title,
           description,
@@ -698,8 +944,18 @@ export default function TicketModal({
         },
         queuedAttachments,
       );
-      if (outcome !== "reloaded") {
-        onClose();
+      if (!result) {
+        return;
+      }
+      if (result.outcome === "reloaded") {
+        return;
+      }
+      if (result.outcome === "saved") {
+        if (result.shouldCloseModal) {
+          onClose();
+          return;
+        }
+        applyServerTicketToForm(result.savedTicket);
       }
     } catch {
       // The parent save handler already surfaces the error to the user.
@@ -707,6 +963,7 @@ export default function TicketModal({
       setSaving(false);
     }
   }, [
+    applyServerTicketToForm,
     archiving,
     isCreateMode,
     onSave,
@@ -896,9 +1153,18 @@ export default function TicketModal({
   }, [loadOwnerDirectory]);
 
   useEffect(() => {
-    if (!isOpen || !ticket.id) return;
+    if (!isOpen || !ticket.id) {
+      return;
+    }
+    if (!commentsColumnEnabled) {
+      setComments([]);
+      setLoadingComments(false);
+      setTypingUsers([]);
+      setPendingNewCommentsCount(0);
+      return;
+    }
     void reloadComments();
-  }, [isOpen, reloadComments, ticket.id]);
+  }, [isOpen, reloadComments, ticket.id, commentsColumnEnabled]);
 
   useEffect(() => {
     if (
@@ -1003,6 +1269,9 @@ export default function TicketModal({
     }
 
     if (latestRealtimeEvent.eventType === "comment.created") {
+      if (!commentsColumnEnabled) {
+        return;
+      }
       const pending = pendingLocalCommentRef.current;
 
       if (pending) {
@@ -1031,6 +1300,9 @@ export default function TicketModal({
     }
 
     if (latestRealtimeEvent.eventType === "comment.typing") {
+      if (!commentsColumnEnabled) {
+        return;
+      }
       const actorDisplayName = latestRealtimeEvent.actorDisplayName?.trim();
       if (
         actorDisplayName &&
@@ -1082,6 +1354,7 @@ export default function TicketModal({
       void reloadAttachments();
     }
   }, [
+    commentsColumnEnabled,
     isOpen,
     latestRealtimeEvent,
     currentUser?.displayName,
@@ -1095,6 +1368,10 @@ export default function TicketModal({
       setTypingUsers([]);
       return;
     }
+    if (!commentsColumnEnabled) {
+      setTypingUsers([]);
+      return;
+    }
 
     const intervalId = window.setInterval(() => {
       const now = Date.now();
@@ -1104,7 +1381,7 @@ export default function TicketModal({
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [isOpen, ticket.id]);
+  }, [commentsColumnEnabled, isOpen, ticket.id]);
 
   const queueAttachments = useCallback((selectedFiles: File[]) => {
     if (selectedFiles.length === 0) {
@@ -1172,6 +1449,60 @@ export default function TicketModal({
     }
   }, []);
 
+  /**
+   * Reviewer-only apply controls for the AI triage rail. Only rendered when
+   * suggestions exist and the reviewer could actually change a canonical field.
+   * Memoized here (before any early return) so hook order stays consistent.
+   */
+  const triageApplyControls = useMemo(() => {
+    if (
+      approvalDisplayContext !== "reviewer" ||
+      !ticket.id ||
+      getTicketApprovalStatus(ticket) !== "PendingApproval"
+    ) {
+      return undefined;
+    }
+
+    const preview =
+      triagePreviewOverride ?? ticket.approvalTriagePreview ?? null;
+    const suggestedPriority = preview?.suggestedPriority?.trim() ?? "";
+    const suggestedStatus = preview?.suggestedStatus?.trim() ?? "";
+    const currentPriority = (priority ?? "").trim();
+    const currentStatus = (status ?? "").trim();
+
+    const hasSuggestedPriority = suggestedPriority.length > 0;
+    const hasSuggestedStatus = suggestedStatus.length > 0;
+    const canApplyPriority =
+      hasSuggestedPriority &&
+      suggestedPriority.toLowerCase() !== currentPriority.toLowerCase();
+    const canApplyStatus =
+      hasSuggestedStatus &&
+      suggestedStatus.toLowerCase() !== currentStatus.toLowerCase();
+    const canApplyBoth = canApplyPriority && canApplyStatus;
+
+    return {
+      hasSuggestedPriority,
+      hasSuggestedStatus,
+      canApplyPriority,
+      canApplyStatus,
+      canApplyBoth,
+      pendingAction: triageApplyPending,
+      errorMessage: triageApplyError,
+      onApplyPriority: () => handleApplyTriageSuggestions("priority"),
+      onApplyStatus: () => handleApplyTriageSuggestions("status"),
+      onApplyBoth: () => handleApplyTriageSuggestions("both"),
+    };
+  }, [
+    approvalDisplayContext,
+    handleApplyTriageSuggestions,
+    priority,
+    status,
+    ticket,
+    triageApplyError,
+    triageApplyPending,
+    triagePreviewOverride,
+  ]);
+
   if (!isOpen) return null;
 
   const handleBoardSelectionChange = (nextBoardId: number) => {
@@ -1224,7 +1555,7 @@ export default function TicketModal({
 
     try {
       setSaving(true);
-      const outcome = await onSave(
+      const result = await onSave(
         {
           title,
           description,
@@ -1240,7 +1571,7 @@ export default function TicketModal({
         },
         queuedAttachments,
       );
-      if (outcome === "reloaded") {
+      if (!result || result.outcome === "reloaded") {
         return;
       }
       onClose();
@@ -1401,14 +1732,12 @@ export default function TicketModal({
         : "") ||
     "Unknown User";
   const hasPersistedSla = Boolean(ticket.id);
-  const canManageComments = Boolean(ticket.id);
   const requesterApprovalStatus = getTicketApprovalStatus(ticket);
   const isRequesterContext = approvalDisplayContext === "requester";
   const isRequesterIntakeTicket =
     isRequesterContext && requesterApprovalStatus !== "Approved";
-  /** Reviewer intake workflow: decision-focused modal — no comment thread. */
-  const showCommentsColumn =
-    canManageComments && approvalDisplayContext !== "reviewer";
+  /** Reviewer + requester PendingApproval: no comment thread (intake vs collaboration). */
+  const showCommentsColumn = commentsColumnEnabled;
   const showAiTriageColumn =
     approvalDisplayContext === "reviewer" &&
     Boolean(ticket.id) &&
@@ -1787,14 +2116,38 @@ export default function TicketModal({
 
               {/* Description */}
               <div className="rounded-md border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40">
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                  Description
-                  {isCreateMode && (
-                    <span className="ml-1 text-red-600 dark:text-red-400">
-                      *
-                    </span>
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                    Description
+                    {isCreateMode && (
+                      <span className="ml-1 text-red-600 dark:text-red-400">
+                        *
+                      </span>
+                    )}
+                  </label>
+                  {isCreateMode && !formReadOnly && (
+                    <CortexTooltip
+                      content="Polishes your description for clarity and flags gaps so reviewers can decide without chasing you for details."
+                    >
+                      <button
+                        type="button"
+                        onClick={handleImproveIntake}
+                        disabled={
+                          intakeAssistLoading || !description.trim()
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border-2 border-cortex-blue bg-white px-2.5 py-1.5 text-xs font-semibold text-cortex-blue-dark shadow-sm transition-colors hover:border-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-55 dark:border-emerald-400/85 dark:bg-slate-900 dark:text-emerald-300 dark:shadow-sm dark:hover:border-emerald-300 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-200"
+                      >
+                        {intakeAssistLoading ? "Improving…" : "Improve for review"}
+                      </button>
+                    </CortexTooltip>
                   )}
-                </label>
+                </div>
+                {isCreateMode && !formReadOnly ? (
+                  <p className="mb-2 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+                    Improve this request before submission so reviewers can act
+                    without extra follow-up.
+                  </p>
+                ) : null}
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -1807,6 +2160,23 @@ export default function TicketModal({
                   <p className="mt-2 text-xs text-red-600 dark:text-red-400">
                     {validationErrors.description}
                   </p>
+                )}
+                {intakeAssistError && (
+                  <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                    {intakeAssistError}
+                  </p>
+                )}
+                {intakeAssistResult && (
+                  <IntakeAssistResultPanel
+                    result={intakeAssistResult}
+                    editableDescription={intakeAssistEditableDescription}
+                    onChangeEditableDescription={
+                      setIntakeAssistEditableDescription
+                    }
+                    onUseSummary={handleUseIntakeSummary}
+                    onUseDescription={handleUseIntakeDescription}
+                    onDismiss={handleDismissIntakeAssist}
+                  />
                 )}
               </div>
 
@@ -2334,6 +2704,7 @@ export default function TicketModal({
                     : undefined
                 }
                 regenerateLoading={regenerateTriageLoading}
+                applyControls={triageApplyControls}
               />
             ) : null}
 
@@ -2511,6 +2882,410 @@ export default function TicketModal({
           onClose={() => setIsHistoryModalOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+/** Renders assist draft with preserved breaks; highlights common section labels and bullets for scanning. */
+function IntakeDraftPreview({ text }: { text: string }) {
+  if (!text.trim()) {
+    return (
+      <p className="text-sm italic text-gray-500 dark:text-slate-400">
+        No text yet.
+      </p>
+    );
+  }
+
+  const lines = text.split("\n");
+  const sectionRe =
+    /^\s*(Issue|What happened|Impact|Notes|Important):\s*(.*)$/i;
+
+  return (
+    <div
+      className="max-h-[min(22rem,45vh)] overflow-y-auto rounded-lg border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/50 px-5 py-4 text-sm text-gray-800 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.65)] dark:border-slate-600/55 dark:from-slate-900/95 dark:to-slate-950/90 dark:text-slate-200 dark:shadow-none"
+      role="region"
+      aria-label="Reviewer-ready draft preview"
+    >
+      <div className="select-text">
+        {lines.map((line, i) => {
+          const sectionMatch = line.match(sectionRe);
+          if (sectionMatch) {
+            const title = sectionMatch[1] ?? "";
+            const rest = (sectionMatch[2] ?? "").trim();
+            const hasPriorSection = lines
+              .slice(0, i)
+              .some((l) => l.match(sectionRe));
+            /** Space between major sections; spacing-first (no heavy dividers). */
+            const sectionBreak = hasPriorSection ? "mt-8" : "";
+
+            if (!rest) {
+              return (
+                <p
+                  key={`${i}-${title}`}
+                  className={`${sectionBreak} mb-2.5 text-sm font-semibold tracking-tight text-gray-900 dark:text-slate-100`}
+                >
+                  {title}:
+                </p>
+              );
+            }
+            return (
+              <div
+                key={`${i}-${title}`}
+                className={`${sectionBreak} space-y-2.5`}
+              >
+                <p className="text-sm font-semibold tracking-tight text-gray-900 dark:text-slate-100">
+                  {title}:
+                </p>
+                <p className="text-[0.9375rem] leading-[1.7] text-gray-800 dark:text-slate-200">
+                  {rest}
+                </p>
+              </div>
+            );
+          }
+
+          const bulletMatch = line.match(/^\s*[-•]\s+(.+)$/);
+          if (bulletMatch) {
+            return (
+              <div
+                key={i}
+                className="ml-0.5 flex gap-2.5 border-l border-cortex-blue/22 py-1 pl-3.5 dark:border-cortex-blue/30"
+              >
+                <span
+                  className="mt-[0.2rem] shrink-0 text-xs font-semibold text-cortex-blue/70 dark:text-cortex-blue/50"
+                  aria-hidden
+                >
+                  ·
+                </span>
+                <span className="text-[0.9375rem] leading-[1.7] text-gray-800 dark:text-slate-200">
+                  {bulletMatch[1]}
+                </span>
+              </div>
+            );
+          }
+
+          const numberedMatch = line.match(/^\s*(\d+)\.\s+(.+)$/);
+          if (numberedMatch) {
+            return (
+              <div
+                key={i}
+                className="ml-0.5 flex gap-2 border-l border-slate-200/80 py-1 pl-3.5 dark:border-slate-600/55"
+              >
+                <span className="mt-[0.12rem] min-w-[1.25rem] shrink-0 text-xs tabular-nums text-gray-500 dark:text-slate-400">
+                  {numberedMatch[1]}.
+                </span>
+                <span className="text-[0.9375rem] leading-[1.7] text-gray-800 dark:text-slate-200">
+                  {numberedMatch[2]}
+                </span>
+              </div>
+            );
+          }
+
+          if (line.trim() === "") {
+            return <div key={i} className="h-2 shrink-0" aria-hidden />;
+          }
+
+          return (
+            <p
+              key={i}
+              className="text-[0.9375rem] leading-[1.7] text-gray-800 dark:text-slate-200"
+            >
+              {line}
+            </p>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Inline panel rendered under the Description textarea while in create mode.
+ * Intentionally scoped to this file so it shares intake vocabulary with the
+ * modal and never becomes a modal-in-modal.
+ */
+interface IntakeAssistResultPanelProps {
+  result: IntakeAssistResult;
+  editableDescription: string;
+  onChangeEditableDescription: (value: string) => void;
+  onUseSummary: () => void;
+  onUseDescription: () => void;
+  onDismiss: () => void;
+}
+
+function IntakeAssistResultPanel({
+  result,
+  editableDescription,
+  onChangeEditableDescription,
+  onUseSummary,
+  onUseDescription,
+  onDismiss,
+}: IntakeAssistResultPanelProps) {
+  const intakeAssistPanelBodyId = useId();
+  const [draftTab, setDraftTab] = useState<"preview" | "edit">("preview");
+  const [panelExpanded, setPanelExpanded] = useState(true);
+  const panelAssistFingerprintRef = useRef<string | null>(null);
+  const draftTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const clarityState: ClarityState = result.clarityState;
+  const pillClass = CLARITY_STATE_PILL_CLASS[clarityState];
+  const pillLabel = CLARITY_STATE_LABEL[clarityState];
+  const hasSummary = Boolean(result.suggestedSummary?.trim());
+  const hasEditableDescription = editableDescription.trim().length > 0;
+  const hasMissingDetails = result.missingDetails.length > 0;
+
+  const draftTextareaRows = useMemo(() => {
+    const lines = editableDescription.split("\n").length;
+    return Math.min(18, Math.max(8, lines + 2));
+  }, [editableDescription]);
+
+  useEffect(() => {
+    setDraftTab("preview");
+  }, [result.improvedDescription, result.clarityState, result.guidanceMessage]);
+
+  /** New improve run → expand full panel; same payload → do not reset user collapse. */
+  const panelAssistFingerprint = useMemo(
+    () =>
+      [
+        result.clarityState,
+        result.improvedDescription ?? "",
+        result.guidanceMessage ?? "",
+        result.suggestedSummary ?? "",
+        result.missingDetails.join("\u001e"),
+      ].join("\u0000"),
+    [
+      result.clarityState,
+      result.improvedDescription,
+      result.guidanceMessage,
+      result.suggestedSummary,
+      result.missingDetails,
+    ],
+  );
+
+  useEffect(() => {
+    if (panelAssistFingerprintRef.current === panelAssistFingerprint) {
+      return;
+    }
+    panelAssistFingerprintRef.current = panelAssistFingerprint;
+    setPanelExpanded(true);
+  }, [panelAssistFingerprint]);
+
+  useLayoutEffect(() => {
+    if (draftTab === "edit") {
+      draftTextareaRef.current?.focus();
+    }
+  }, [draftTab]);
+
+  if (result.unavailable) {
+    return (
+      <div
+        className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100"
+        role="status"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <p>
+            {result.unavailableReason?.trim() ||
+              "Improve for review is temporarily unavailable. Your draft hasn't been changed."}
+          </p>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100 dark:hover:bg-amber-900/50"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const collapsedSummaryLine = hasMissingDetails
+    ? `${result.missingDetails.length} detail${result.missingDetails.length === 1 ? "" : "s"} missing for review`
+    : "Reviewer-ready draft available";
+
+  return (
+    <div
+      className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3.5 text-sm text-gray-800 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-200"
+      aria-live="polite"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <button
+          type="button"
+          aria-expanded={panelExpanded}
+          aria-controls={intakeAssistPanelBodyId}
+          aria-label={
+            panelExpanded
+              ? "Collapse intake assist result"
+              : `Expand intake assist result. ${collapsedSummaryLine}`
+          }
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setPanelExpanded((open) => !open);
+          }}
+          className="relative z-10 flex min-w-0 flex-1 cursor-pointer items-start gap-2 rounded-md py-0.5 text-left transition-colors hover:bg-gray-50/80 dark:hover:bg-slate-800/50"
+        >
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2.5">
+            <span
+              className={`inline-flex w-fit shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${pillClass}`}
+            >
+              {pillLabel}
+            </span>
+            <span className="block min-w-0 text-xs leading-snug text-gray-600 dark:text-slate-400">
+              {panelExpanded ? (
+                <>
+                  <span className="font-medium text-gray-700 dark:text-slate-300">
+                    Full result
+                  </span>
+                  <span className="text-gray-500 dark:text-slate-500">
+                    {" "}
+                    · tap to collapse
+                  </span>
+                </>
+              ) : (
+                <>
+                  {collapsedSummaryLine}
+                  <span className="text-gray-500 dark:text-slate-500">
+                    {" "}
+                    · tap to expand
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+          <span
+            className="mt-0.5 shrink-0 text-[0.65rem] leading-none text-gray-400 dark:text-slate-500"
+            aria-hidden
+          >
+            {panelExpanded ? "▼" : "▶"}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+        >
+          Dismiss
+        </button>
+      </div>
+
+      {panelExpanded ? (
+        <div
+          id={intakeAssistPanelBodyId}
+          className="mt-3 space-y-3.5 border-t border-slate-200/60 pt-3.5 dark:border-slate-600/45"
+          role="region"
+          aria-label="Intake assist full result"
+        >
+          <p className="text-xs text-gray-500 dark:text-slate-400">
+            Coaching only — does not change priority or status
+          </p>
+
+          {result.guidanceMessage && (
+            <p className="text-sm leading-relaxed text-gray-700 dark:text-slate-300">
+              {result.guidanceMessage}
+            </p>
+          )}
+
+          {hasSummary && (
+            <div className="rounded-md border border-gray-200 bg-white p-3.5 dark:border-slate-700 dark:bg-slate-900">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                  Suggested title line
+                </p>
+                <button
+                  type="button"
+                  onClick={onUseSummary}
+                  className="rounded-md border border-cortex-blue/40 bg-white px-2 py-1 text-xs font-semibold text-cortex-blue hover:bg-cortex-blue/10 dark:border-cortex-blue/50 dark:bg-slate-900 dark:text-cortex-blue dark:hover:bg-slate-800"
+                >
+                  Use this
+                </button>
+              </div>
+              <p className="text-sm leading-relaxed text-gray-800 dark:text-slate-100">
+                {result.suggestedSummary}
+              </p>
+            </div>
+          )}
+
+          {result.improvedDescription != null && (
+            <div className="rounded-md border border-gray-200 bg-white p-3.5 dark:border-slate-700 dark:bg-slate-900">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                  Reviewer-ready description
+                </p>
+                <button
+                  type="button"
+                  onClick={onUseDescription}
+                  disabled={!hasEditableDescription}
+                  className="rounded-md border border-cortex-blue/40 bg-white px-2 py-1 text-xs font-semibold text-cortex-blue hover:bg-cortex-blue/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cortex-blue/50 dark:bg-slate-900 dark:text-cortex-blue dark:hover:bg-slate-800"
+                >
+                  Use this description
+                </button>
+              </div>
+
+              <div
+                className="mb-2 flex rounded-lg bg-slate-100/90 p-1 dark:bg-slate-800/80"
+                role="tablist"
+                aria-label="Draft view"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={draftTab === "preview"}
+                  className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                    draftTab === "preview"
+                      ? "bg-white text-gray-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+                      : "text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                  onClick={() => setDraftTab("preview")}
+                >
+                  Preview
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={draftTab === "edit"}
+                  className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                    draftTab === "edit"
+                      ? "bg-white text-gray-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+                      : "text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                  onClick={() => setDraftTab("edit")}
+                >
+                  Edit
+                </button>
+              </div>
+              <p className="mb-2 text-xs leading-snug text-gray-500 dark:text-slate-500">
+                Preview shows structure and line breaks. Use Edit to change the
+                text.
+              </p>
+
+              {draftTab === "preview" ? (
+                <IntakeDraftPreview text={editableDescription} />
+              ) : (
+                <textarea
+                  ref={draftTextareaRef}
+                  value={editableDescription}
+                  onChange={(e) => onChangeEditableDescription(e.target.value)}
+                  rows={draftTextareaRows}
+                  spellCheck
+                  className="w-full resize-y rounded-lg border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 px-4 py-3.5 text-[0.9375rem] leading-relaxed text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-cortex-blue focus:outline-none focus:ring-2 focus:ring-cortex-blue/30 dark:border-slate-600/70 dark:from-slate-950 dark:to-slate-950/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-cortex-blue/25"
+                />
+              )}
+            </div>
+          )}
+
+          {hasMissingDetails && (
+            <div className="rounded-md border border-gray-200 bg-white p-3.5 dark:border-slate-700 dark:bg-slate-900">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                Add these before submitting
+              </p>
+              <ul className="list-outside list-disc space-y-2.5 pl-5 text-sm leading-relaxed text-gray-800 dark:text-slate-100">
+                {result.missingDetails.map((detail, index) => (
+                  <li key={`${index}-${detail}`}>{detail}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

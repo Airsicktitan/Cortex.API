@@ -12,6 +12,7 @@
   "dependencies": {
     "@auth0/auth0-react": "^2.13.0",
     "@microsoft/signalr": "^10.0.0",
+    "@radix-ui/react-tooltip": "^1.2.8",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-hot-toast": "^2.6.0"

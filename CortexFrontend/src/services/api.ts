@@ -2,6 +2,7 @@ import type {
   CreateTicketInput,
   Ticket,
   TicketMutationInput,
+  TicketTriageApplyRequest,
   TicketTriageGenerateApiResponse,
 } from "../types/ticket";
 import type { ArchivedTicket } from "../types/archivedTicket";
@@ -31,6 +32,11 @@ import type {
   UserRecord,
   UserRoleMutationRequest,
 } from "../types/user";
+import {
+  isClarityState,
+  type IntakeAssistRequest,
+  type IntakeAssistResult,
+} from "../types/intakeAssist";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
@@ -472,6 +478,81 @@ export const ticketService = {
 
     await ensureSuccess(response, "Unable to load AI triage");
     return response.json() as Promise<TicketTriageGenerateApiResponse>;
+  },
+
+  /**
+   * Explicit reviewer action: apply persisted AI triage suggestions to the ticket's
+   * canonical Priority / Status fields. Does NOT call the AI. A 409 indicates the
+   * suggestion is stale against the current vocabulary and surfaces as ApiError(409).
+   */
+  async applyTriageSuggestions(
+    id: string,
+    request: TicketTriageApplyRequest,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<Ticket> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/triage/apply`,
+      {
+        method: "POST",
+        headers: authHeaders(token, true),
+        body: JSON.stringify(request),
+        signal,
+      },
+    );
+
+    await ensureSuccess(response, "Unable to apply AI triage suggestions");
+    return response.json() as Promise<Ticket>;
+  },
+
+  /**
+   * Stateless, user-facing Improve Request assist. Server never mutates a ticket;
+   * a 200 with `unavailable: true` means AI is misconfigured or failed and the
+   * UI should leave the draft untouched.
+   */
+  async intakeAssist(
+    request: IntakeAssistRequest,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<IntakeAssistResult> {
+    const response = await fetch(`${API_BASE_URL}/tickets/intake-assist`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify(request),
+      signal,
+    });
+
+    await ensureSuccess(response, "Unable to improve request");
+    const raw = (await response.json()) as Record<string, unknown>;
+
+    const suggestedSummary =
+      typeof raw.suggestedSummary === "string" ? raw.suggestedSummary : null;
+    const improvedDescription =
+      typeof raw.improvedDescription === "string" ? raw.improvedDescription : null;
+    const guidanceMessage =
+      typeof raw.guidanceMessage === "string" ? raw.guidanceMessage : null;
+    const unavailable = raw.unavailable === true;
+    const unavailableReason =
+      typeof raw.unavailableReason === "string" ? raw.unavailableReason : null;
+
+    const missingDetails = Array.isArray(raw.missingDetails)
+      ? raw.missingDetails.filter((entry): entry is string => typeof entry === "string")
+      : [];
+
+    // Default to requires_clarification so the UI never renders an unknown pill.
+    const clarityState = isClarityState(raw.clarityState)
+      ? raw.clarityState
+      : "requires_clarification";
+
+    return {
+      suggestedSummary,
+      improvedDescription,
+      missingDetails,
+      clarityState,
+      guidanceMessage,
+      unavailable,
+      unavailableReason,
+    };
   },
 
   async approveTicket(id: string, token: string): Promise<Ticket> {

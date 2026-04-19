@@ -137,6 +137,11 @@ builder.Services.AddHttpClient<ITicketTriageAiService, TicketTriageAiService>(cl
     client.Timeout = TimeSpan.FromSeconds(90);
 });
 builder.Services.AddScoped<ITicketTriageVocabularyProvider, TicketTriageVocabularyProvider>();
+builder.Services.AddScoped<ITicketIntakeAssistPromptBuilder, TicketIntakeAssistPromptBuilder>();
+builder.Services.AddHttpClient<ITicketIntakeAssistAiService, TicketIntakeAssistAiService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(45);
+});
 builder.Services.AddSingleton<IRealtimeEventService, RealtimeEventService>();
 builder.Services.AddHostedService<ScheduledJobHostedService>();
 builder.Services.AddHostedService<SlaNotificationHostedService>();

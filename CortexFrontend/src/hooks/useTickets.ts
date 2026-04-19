@@ -14,7 +14,7 @@ import type {
   CreateTicketInput,
   Ticket,
   TicketMutationInput,
-  TicketSaveOutcome,
+  TicketSaveResult,
 } from "../types/ticket";
 import { isTicketApproved } from "../types/ticket";
 import type { UserProfile } from "../types/user";
@@ -1542,7 +1542,7 @@ export function useTickets({
     async (
       updatedTicket: TicketMutationInput,
       attachments: File[],
-    ): Promise<TicketSaveOutcome | undefined> => {
+    ): Promise<TicketSaveResult | undefined> => {
       if (!selectedTicket) return undefined;
       const isCreateAction = !selectedTicket.id;
       const actionLabel = isCreateAction ? "create" : "update";
@@ -1570,7 +1570,7 @@ export function useTickets({
           upsertActiveTicketLocally(savedTicket, { syncSelectedTicket: false });
         } else {
           savedTicket = await ticketService.update(selectedTicket.id, updatedTicket, token);
-          upsertActiveTicketLocally(savedTicket, { syncSelectedTicket: false });
+          upsertActiveTicketLocally(savedTicket, { syncSelectedTicket: true });
         }
 
         if (attachments.length > 0) {
@@ -1602,7 +1602,11 @@ export function useTickets({
             );
             setIsModalOpen(false);
             setSelectedTicket(null);
-            return "saved";
+            return {
+              outcome: "saved",
+              savedTicket,
+              shouldCloseModal: true,
+            };
           }
         }
 
@@ -1618,9 +1622,15 @@ export function useTickets({
               savedTicket.approvalStatus === "PendingApproval",
           },
         );
-        setIsModalOpen(false);
-        setSelectedTicket(null);
-        return "saved";
+        if (isCreateAction) {
+          setIsModalOpen(false);
+          setSelectedTicket(null);
+        }
+        return {
+          outcome: "saved",
+          savedTicket,
+          shouldCloseModal: isCreateAction,
+        };
       } catch (error) {
         const isUpdate = Boolean(selectedTicket?.id);
         if (
@@ -1637,7 +1647,7 @@ export function useTickets({
               "This ticket was updated elsewhere. The latest version is loaded — review your changes, then save again.",
               { id: "ticket-conflict-reloaded" },
             );
-            return "reloaded";
+            return { outcome: "reloaded" };
           } catch (reloadError) {
             console.error("Failed to reload ticket after save conflict", reloadError);
             toast.error(

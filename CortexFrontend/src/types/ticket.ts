@@ -1,4 +1,4 @@
-/** Result of saving from the ticket modal (parent may keep the modal open after a conflict reload). */
+/** @deprecated Use `TicketSaveResult` — supports stay-open on edit save. */
 export type TicketSaveOutcome = "saved" | "reloaded";
 
 /** Intake lifecycle; future work may add notifications per transition (e.g. approved, returned, rejected). */
@@ -40,6 +40,18 @@ export interface TicketTriageGenerateApiResponse {
   slaRiskReason?: string | null;
   unavailable?: boolean;
   unavailableReason?: string | null;
+}
+
+/**
+ * Reviewer apply request for POST /api/tickets/{id}/triage/apply.
+ * Applies persisted AI triage suggestions to canonical fields without a new AI call.
+ * At least one of applyPriority / applyStatus must be true.
+ */
+export interface TicketTriageApplyRequest {
+  applyPriority: boolean;
+  applyStatus: boolean;
+  /** Optional short reviewer rationale recorded in ticket audit history. */
+  changeReason?: string;
 }
 
 export interface Ticket {
@@ -89,6 +101,11 @@ export interface Ticket {
   /** Base64 row version from API; required when updating an existing ticket. */
   concurrencyToken?: string;
 }
+
+/** Result of saving from the ticket modal (parent coordinates list + modal lifecycle). */
+export type TicketSaveResult =
+  | { outcome: "saved"; savedTicket: Ticket; shouldCloseModal: boolean }
+  | { outcome: "reloaded" };
 
 export interface TicketMutationInput {
   title?: string;

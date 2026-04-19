@@ -49,6 +49,24 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status409Conflict);
 
+        tickets.MapPost("/{id}/triage/apply", TicketHandlers.ApplyTicketTriageSuggestions)
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .WithName("ApplyTicketTriageSuggestions")
+            .Accepts<TicketTriageApplyRequest>("application/json")
+            .Produces<TicketResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
+
+        // User-facing Improve Request: stateless, no persistence, no ticket ID.
+        // Gated by StandardWriteAccess so only users who can actually submit tickets can invoke it.
+        tickets.MapPost("/intake-assist", TicketIntakeAssistHandlers.ImproveIntake)
+            .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
+            .WithName("ImproveTicketIntake")
+            .Accepts<IntakeAssistRequest>("application/json")
+            .Produces<IntakeAssistResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest);
+
         tickets.MapGet("/{id}/history", TicketHandlers.GetTicketHistory)
             .WithName("GetTicketHistory")
             .Produces(StatusCodes.Status200OK)

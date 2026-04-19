@@ -1891,6 +1891,170 @@ public static class TicketHandlers
         user.IsInRole(Auth0Roles.Developer) ||
         user.IsInRole(Auth0Roles.BusinessManager);
 
+    /// <summary>
+    /// Explicit reviewer action that applies persisted AI triage suggestions to canonical fields.
+    /// No AI call; re-validates each selected suggestion against the live vocabulary before mutating.
+    /// </summary>
+    public static async Task<IResult> ApplyTicketTriageSuggestions(
+        string id,
+        TicketTriageApplyRequest request,
+        ITicketRepository repo,
+        IUserContextService userContext,
+        ITicketVisibilityService visibilityService,
+        ITicketTriageVocabularyProvider triageVocabulary,
+        ITicketAuditService ticketAuditService,
+        ISlaConfigurationService slaConfigurationService,
+        IResponseMappingContextFactory mappingContextFactory,
+        IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
+        ILogger<TicketHandlersLogCategory> logger,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibility = await visibilityService.GetCurrentVisibilityAsync();
+        if (!visibility.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        if (!request.ApplyPriority && !request.ApplyStatus)
+        {
+            return Results.BadRequest(new
+            {
+                message = "Select at least one AI triage suggestion to apply.",
+            });
+        }
+
+        var changeReason = string.IsNullOrWhiteSpace(request.ChangeReason)
+            ? null
+            : request.ChangeReason.Trim();
+        if (changeReason is not null && changeReason.Length > MaxApprovalReasonLength)
+        {
+            return Results.BadRequest(new
+            {
+                message = $"Change reason must be {MaxApprovalReasonLength} characters or fewer.",
+            });
+        }
+
+        var vocabulary = await triageVocabulary.GetAsync(cancellationToken);
+
+        string? priorityToApply = null;
+        if (request.ApplyPriority)
+        {
+            priorityToApply = MatchVocabularyOption(
+                ticket.AiTriageSuggestedPriority,
+                vocabulary.Priorities.Select(p => p.Name));
+            if (priorityToApply is null)
+            {
+                return Results.Conflict(new
+                {
+                    message =
+                        "The AI-suggested priority is no longer a valid option. Regenerate triage and try again.",
+                });
+            }
+        }
+
+        string? statusToApply = null;
+        if (request.ApplyStatus)
+        {
+            statusToApply = MatchVocabularyOption(
+                ticket.AiTriageSuggestedStatus,
+                vocabulary.Statuses.Select(s => s.Name));
+            if (statusToApply is null)
+            {
+                return Results.Conflict(new
+                {
+                    message =
+                        "The AI-suggested status is no longer a valid option. Regenerate triage and try again.",
+                });
+            }
+        }
+
+        var currentUser = await userContext.GetCurrentUserAsync();
+        var originalSnapshot = CloneTicket(ticket);
+
+        if (priorityToApply is not null)
+        {
+            ticket.Priority = priorityToApply;
+        }
+
+        if (statusToApply is not null)
+        {
+            ticket.Status = statusToApply;
+        }
+
+        ticket.LastModifiedBy = currentUser.Id;
+        ticket.LastModifiedDate = DateTime.UtcNow;
+
+        await repo.UpdateTicketAsync(ticket);
+        try
+        {
+            await repo.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Results.Conflict(new
+            {
+                message =
+                    "This ticket was updated elsewhere. Refresh the page to load the latest version before trying again.",
+            });
+        }
+
+        await ticketAuditService.RecordTicketUpdatedAsync(
+            originalSnapshot,
+            ticket,
+            currentUser,
+            changeReason);
+
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            [ticket.CreatedBy],
+            null,
+            [ticket.BoardId],
+            cancellationToken);
+        var response = ticket.ToResponse(slaConfigurations, mappingContext);
+
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(
+            ticket,
+            cancellationToken);
+        await realtimeEventService.PublishAsync(
+            new RealtimeEventMessage
+            {
+                EventType = "ticket.updated",
+                TicketId = ticket.Id,
+                EntityId = ticket.Id,
+                AudienceUserIds = audienceUserIds,
+                Ticket = response,
+            },
+            cancellationToken);
+
+        return Results.Ok(response);
+    }
+
+    private static string? MatchVocabularyOption(string? candidate, IEnumerable<string> allowed)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return null;
+        }
+
+        var trimmed = candidate.Trim();
+        foreach (var name in allowed)
+        {
+            if (string.Equals(trimmed, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return name;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Phase 1 advisory AI triage for intake review; persists on success (e.g. manual regenerate).</summary>
     public static async Task<IResult> GenerateTicketTriage(
         string id,

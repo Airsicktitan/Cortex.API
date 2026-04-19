@@ -3,6 +3,7 @@ import {
   shouldShowApprovalTriageModalPanel,
   triageHasContent,
 } from "../../utils/approvalTriage";
+import { getTriageClarityIndicator } from "../../utils/triageClarity";
 
 function priorityBadgeClass(priorityRaw: string): string {
   const p = priorityRaw.trim().toLowerCase();
@@ -29,10 +30,66 @@ type ApprovalTriagePanelProps = {
   embedded?: boolean;
   /** Visual mode: standalone dashed panel, embedded text, or modal right rail. */
   presentation?: "standalone" | "embedded" | "modalColumn";
+  /** For clarity pill heuristics — pass ticket fields when available. */
+  ticketTitle?: string;
+  ticketDescription?: string;
 };
 
+type TriageApplyAction = "priority" | "status" | "both";
+
+type ApprovalTriageApplyControls = {
+  hasSuggestedPriority: boolean;
+  hasSuggestedStatus: boolean;
+  canApplyPriority: boolean;
+  canApplyStatus: boolean;
+  canApplyBoth: boolean;
+  pendingAction: TriageApplyAction | null;
+  errorMessage?: string | null;
+  onApplyPriority: () => void | Promise<void>;
+  onApplyStatus: () => void | Promise<void>;
+  onApplyBoth: () => void | Promise<void>;
+};
+
+function getApplyHelperText(
+  controls: ApprovalTriageApplyControls,
+): string | null {
+  if (!controls.hasSuggestedPriority && !controls.hasSuggestedStatus) {
+    return null;
+  }
+
+  if (controls.canApplyPriority && controls.canApplyStatus) {
+    return "Apply a saved suggestion to update canonical workflow fields.";
+  }
+
+  if (!controls.hasSuggestedPriority && controls.hasSuggestedStatus) {
+    return controls.canApplyStatus
+      ? "Only the saved status suggestion can be applied."
+      : "The saved status suggestion is already reflected on this ticket.";
+  }
+
+  if (controls.hasSuggestedPriority && !controls.hasSuggestedStatus) {
+    return controls.canApplyPriority
+      ? "Only the saved priority suggestion can be applied."
+      : "The saved priority suggestion is already reflected on this ticket.";
+  }
+
+  if (!controls.canApplyPriority && !controls.canApplyStatus) {
+    return "The saved suggestions are already reflected on this ticket.";
+  }
+
+  if (!controls.canApplyPriority) {
+    return "Priority already matches the saved suggestion.";
+  }
+
+  if (!controls.canApplyStatus) {
+    return "Status already matches the saved suggestion.";
+  }
+
+  return null;
+}
+
 /**
- * AI-assisted triage content. Use `presentation="modalColumn"` for the reviewer modal rail.
+ * Intake insight (advisory) content. Use `presentation="modalColumn"` for the reviewer modal rail.
  */
 export function ApprovalTriagePanel({
   triage,
@@ -41,6 +98,8 @@ export function ApprovalTriagePanel({
   unavailableMessage,
   embedded = false,
   presentation: presentationProp,
+  ticketTitle = "",
+  ticketDescription = "",
 }: ApprovalTriagePanelProps) {
   const presentation =
     presentationProp ?? (embedded ? "embedded" : "standalone");
@@ -81,10 +140,10 @@ export function ApprovalTriagePanel({
   const headerRow = isModalColumn ? (
     <div className="flex shrink-0 items-start justify-between gap-2">
       <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-        AI Triage
+        Intake insight
       </p>
       <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
-        Advisory
+        Reviewer-facing
       </span>
     </div>
   ) : isEmbedded ? (
@@ -92,29 +151,47 @@ export function ApprovalTriagePanel({
       <p
         className={`font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 ${titleSize}`}
       >
-        AI triage
+        Intake insight
       </p>
-      <span className={`font-normal ${mutedClass}`}>Advisory</span>
+      <span className={`font-normal ${mutedClass}`}>Reviewer-facing</span>
     </div>
   ) : (
     <div className="flex shrink-0 items-start justify-between gap-2">
       <p
         className={`font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 ${titleSize}`}
       >
-        AI Triage
+        Intake insight
       </p>
       <span className="font-medium text-[10px] text-gray-500 dark:text-slate-400">
-        Advisory
+        Reviewer-facing
       </span>
     </div>
   );
+
+  const clarity = getTriageClarityIndicator(triage, {
+    title: ticketTitle,
+    description: ticketDescription,
+    triageSummary: triage?.summary,
+  });
+  const showClarity =
+    !loading && !unavailable && hasContent && clarity !== null;
 
   return (
     <div className={outerClass}>
       {headerRow}
       <p className={`${isModalColumn ? "mt-2" : isEmbedded ? "mt-1" : "mt-1.5"} shrink-0 ${mutedClass}`}>
-        Suggestions are advisory. You decide how to review and route tickets.
+        Captures what matters so reviewers can act with fewer meetings. Suggestions stay
+        advisory until applied.
       </p>
+      {showClarity && clarity ? (
+        <div className={`${isModalColumn ? "mt-3" : isEmbedded ? "mt-2" : "mt-2.5"} shrink-0`}>
+          <span
+            className={`inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-xs font-semibold leading-snug ${clarity.toneClass}`}
+          >
+            {clarity.label}
+          </span>
+        </div>
+      ) : null}
       {loading ? (
         <p className={`mt-4 ${bodyClass} text-gray-600 dark:text-slate-300`}>
           Analyzing request…
@@ -122,9 +199,10 @@ export function ApprovalTriagePanel({
       ) : unavailable ? (
         <p className={`mt-4 ${bodyClass} text-gray-600 dark:text-slate-400`}>
           {unavailableMessage?.trim() ||
-            "AI triage is not available. You can still review using the ticket details."}
+            "Intake insight is not available. Use ticket details to review."}
         </p>
       ) : hasContent ? (
+        <>
         <dl className={`mt-4 ${dlGap} ${bodyClass}`}>
           {triage?.summary?.trim() ? (
             <div className="space-y-1.5">
@@ -162,8 +240,11 @@ export function ApprovalTriagePanel({
           ) : null}
           {triage?.potentialSlaRisk?.trim() || triage?.slaRiskReason?.trim() ? (
             <div className="space-y-2">
-              <dt className={sectionLabelClass}>Potential SLA risk</dt>
+              <dt className={sectionLabelClass}>Execution risk</dt>
               <dd className="space-y-1.5">
+                <p className={mutedClass}>
+                  Unclear work increases delays and follow-up.
+                </p>
                 {triage?.potentialSlaRisk?.trim() ? (
                   <span
                     className={
@@ -191,7 +272,9 @@ export function ApprovalTriagePanel({
           ) : null}
           {triage?.missingDetailHints && triage.missingDetailHints.length > 0 ? (
             <div className="space-y-1.5">
-              <dt className={sectionLabelClass}>Missing details</dt>
+              <dt className={sectionLabelClass}>
+                What would have required a follow-up
+              </dt>
               <dd>
                 <ul className="list-outside list-disc space-y-2 pl-5">
                   {triage.missingDetailHints.map((hint, index) => (
@@ -204,6 +287,14 @@ export function ApprovalTriagePanel({
             </div>
           ) : null}
         </dl>
+        {isModalColumn ? (
+          <p
+            className={`${mutedClass} mt-4 border-t border-gray-200/90 pt-4 dark:border-slate-700/90`}
+          >
+            All decisions are tracked in history—no need to chase status updates.
+          </p>
+        ) : null}
+        </>
       ) : (
         <p className={`mt-4 ${bodyClass} text-gray-500 dark:text-slate-500`}>
           No analysis yet.
@@ -214,28 +305,32 @@ export function ApprovalTriagePanel({
 }
 
 /**
- * Right-hand AI triage rail for the reviewer ticket modal (~1/3 width). Matches intake review layout:
+ * Right-hand intake insight rail for the reviewer ticket modal (~1/3 width). Matches intake review layout:
  * bordered column, Regenerate on top, scrollable advisory content.
  */
 export function ApprovalTriageModalColumn({
   ticket,
   onRegenerateAnalysis,
   regenerateLoading = false,
+  applyControls,
 }: {
   ticket: Ticket;
   onRegenerateAnalysis?: () => void | Promise<void>;
   regenerateLoading?: boolean;
+  applyControls?: ApprovalTriageApplyControls;
 }) {
   if (!shouldShowApprovalTriageModalPanel(ticket)) {
     return null;
   }
 
   const canRegenerate = Boolean(onRegenerateAnalysis);
+  const applyHelperText = applyControls ? getApplyHelperText(applyControls) : null;
+  const triageActionPending = applyControls?.pendingAction != null;
 
   return (
     <aside
       className="flex min-h-0 min-w-0 flex-col border-t border-gray-200 pt-4 dark:border-slate-800 lg:min-h-0 lg:flex-1 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0"
-      aria-label="AI triage"
+      aria-label="Intake insight"
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/45">
         {canRegenerate ? (
@@ -243,7 +338,7 @@ export function ApprovalTriageModalColumn({
             <button
               type="button"
               onClick={() => void onRegenerateAnalysis?.()}
-              disabled={regenerateLoading}
+              disabled={regenerateLoading || triageActionPending}
               className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               {regenerateLoading ? "Regenerating…" : "Regenerate Analysis"}
@@ -256,8 +351,62 @@ export function ApprovalTriageModalColumn({
           <ApprovalTriagePanel
             triage={ticket.approvalTriagePreview}
             presentation="modalColumn"
+            ticketTitle={ticket.title}
+            ticketDescription={ticket.description}
           />
         </div>
+        {applyControls ? (
+          <div className="shrink-0 border-t border-gray-100 px-3 py-3 dark:border-slate-800 sm:px-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
+              Apply Suggestions
+            </p>
+            <p className="mt-1 text-xs leading-snug text-gray-500 dark:text-slate-500">
+              Apply to avoid a follow-up discussion.
+            </p>
+            {applyHelperText ? (
+              <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+                {applyHelperText}
+              </p>
+            ) : null}
+            {applyControls.errorMessage?.trim() ? (
+              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+                {applyControls.errorMessage.trim()}
+              </div>
+            ) : null}
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => void applyControls.onApplyPriority()}
+                disabled={!applyControls.canApplyPriority || triageActionPending}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-55 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                {applyControls.pendingAction === "priority"
+                  ? "Applying…"
+                  : "Apply Priority"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void applyControls.onApplyStatus()}
+                disabled={!applyControls.canApplyStatus || triageActionPending}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-55 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                {applyControls.pendingAction === "status"
+                  ? "Applying…"
+                  : "Apply Status"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void applyControls.onApplyBoth()}
+                disabled={!applyControls.canApplyBoth || triageActionPending}
+                className="rounded-md bg-cortex-blue px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {applyControls.pendingAction === "both"
+                  ? "Applying…"
+                  : "Apply Both"}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </aside>
   );

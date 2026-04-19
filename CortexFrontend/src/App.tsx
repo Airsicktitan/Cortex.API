@@ -2953,6 +2953,9 @@ function App() {
           onTriagePersisted={
             activeView === "approval" ? bumpApprovalQueueRefresh : undefined
           }
+          onTriageApplySuccess={(updatedTicket) =>
+            upsertActiveTicketLocally(updatedTicket, { syncSelectedTicket: true })
+          }
           intakeApprovalHandlers={
             canEditTicketsCap &&
             selectedTicket.id &&

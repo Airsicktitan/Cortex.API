@@ -1,11 +1,11 @@
-using Microsoft.EntityFrameworkCore.Migrations;
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace Cortex.API.Migrations
 {
     /// <inheritdoc />
-    public class AddAiTriageSlaRiskFields : Migration
+    public partial class AddAiTriageSlaRiskFields : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -21,6 +21,12 @@ namespace Cortex.API.Migrations
                 table: "Tickets",
                 type: "nvarchar(max)",
                 nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "AiTriageSuggestedStatus",
+                table: "Tickets",
+                type: "nvarchar(max)",
+                nullable: true);
         }
 
         /// <inheritdoc />
@@ -32,6 +38,10 @@ namespace Cortex.API.Migrations
 
             migrationBuilder.DropColumn(
                 name: "AiTriageSlaRiskReason",
+                table: "Tickets");
+
+            migrationBuilder.DropColumn(
+                name: "AiTriageSuggestedStatus",
                 table: "Tickets");
         }
     }

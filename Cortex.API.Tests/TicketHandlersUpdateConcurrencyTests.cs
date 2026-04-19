@@ -67,6 +67,8 @@ public class TicketHandlersUpdateConcurrencyTests
             Mock.Of<ITicketRoutingRuleService>(),
             Mock.Of<ITicketTriageAiService>(),
             Mock.Of<ITicketTriageVocabularyProvider>(),
+            new TicketTriageResponseValidator(),
+            new TicketTriageFallbackPolicy(),
             Mock.Of<ITicketAuditService>(),
             Mock.Of<INotificationService>(),
             Mock.Of<IRealtimeEventService>(),

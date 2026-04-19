@@ -1,6 +1,6 @@
 namespace Cortex.API.DTO;
 
-/// <summary>Phase 1 advisory triage from AI (not persisted).</summary>
+/// <summary>Phase 1 advisory triage payload. AI output is validated before persistence.</summary>
 public class TicketTriageGenerateResponse
 {
     public string? Summary { get; set; }

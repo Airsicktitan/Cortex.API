@@ -5,6 +5,7 @@ import { Toaster } from "react-hot-toast";
 import { Auth0Provider } from "@auth0/auth0-react";
 import "./index.css";
 import { applyTheme, getPreferredTheme } from "./theme";
+import { TooltipProvider } from "./components/ui/Tooltip";
 
 applyTheme(getPreferredTheme());
 
@@ -20,8 +21,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         scope: "openid profile email",
       }}
     >
-      <App />
-      <Toaster position="top-right" />
+      <TooltipProvider>
+        <App />
+        <Toaster position="top-right" />
+      </TooltipProvider>
     </Auth0Provider>
   </React.StrictMode>,
 );
