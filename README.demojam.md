@@ -2,159 +2,144 @@
 
 **Central Operations & Routing Technology EXpert**
 
-A demonstration of how enterprise support tooling should model **ownership, accountability, and responsibility explicitly — with real-time visibility, automation, and controlled AI decision support.**
+A demonstration of how enterprise support workflows can be transformed by making:
+
+- ownership explicit
+- input structured
+- evidence understood
+- readiness measurable
 
 ---
 
 ## 🎯 Demo Objective
 
-> **Ownership ambiguity is the root cause of most support delays.**
-
-CORTEX demonstrates how explicitly modeling responsibility:
-
-* Eliminates unclear ownership
-* Reduces handoff friction
-* Makes escalations factual
-* Turns status reporting into actionable operations
+> **Bad tickets create delays. CORTEX fixes the ticket before the reviewer ever sees it.**
 
 ---
 
 ## 🧩 Problem Demonstrated
 
-Enterprise ticketing tools:
+Today’s ticket:
 
-* Assume a single owner
-* Hide responsibility shifts
-* Rely on comments to explain intent
+- “Not working”
+- unclear ownership
+- missing context
+- requires follow-up
 
 Result:
 
-* Delays
-* Confusion
-* Lack of accountability
-* Manual coordination
+- delays
+- back-and-forth
+- manual coordination
 
 ---
 
 ## 💡 What CORTEX Changes
 
-* Ownership is explicit
-* Routing is automatic
-* SLA risk is visible
-* Work is surfaced immediately
+CORTEX transforms the workflow:
 
-> **Who owns it, what’s at risk, what happens next**
+### Before
+
+- vague ticket
+- reviewer guesses
+- multiple follow-ups
+
+### After
+
+- structured request
+- AI-extracted context
+- clear readiness signal
 
 ---
 
-## 💡 Demo Flow
+## ⚡ Demo Flow
 
-1. Create a ticket
-2. Show automatic routing
-3. Trigger AI-assisted triage:
+### 1. Create weak ticket
 
-   * Suggested priority
-   * Suggested status
-   * SLA risk
-4. Show AI constraints:
+> “SAP not working”
 
-   * Uses only valid system values
-   * Cannot invent statuses or priorities
-5. Accept AI suggestion
-6. Show audit history
-7. Show dashboard + SLA visibility
-8. Show notifications
-9. Show reporting + export
-10. Show configuration
-11. Archive + restore
+---
+
+### 2. Improve Request (AI)
+
+- structured description
+- missing details surfaced
+
+---
+
+### 3. Screenshot Insight (🔥 moment)
+
+- analyze screenshot
+- extract real issue
+- suggest likely cause
+
+> Even with poor input, Cortex understands the problem.
+
+---
+
+### 4. Reviewer View
+
+Show:
+
+- Ready / Needs Detail signal
+- structured description
+- screenshot insight already available
+
+> Reviewer doesn’t have to guess.
+
+---
+
+### 5. Metrics (Proof)
+
+Switch to Reports:
+
+- readiness distribution
+- follow-up proxy
+- usage metrics
+
+> “We can measure the improvement.”
 
 ---
 
 ## 🤖 AI in This Demo
 
-### Key Principle
+### Principle
 
 > AI operates within system rules — not outside them.
 
-### What You’ll See
+### Behavior
 
-* AI suggests priority and status
-* Uses only configured values
-* No hallucinated workflow states
-
-### Why This Matters
-
-Most AI systems:
-
-* Break workflows
-* Introduce inconsistency
-
-CORTEX:
-
-* Uses live configuration
-* Enforces validation
-* Keeps system authoritative
+- uses only valid statuses
+- uses only valid priorities
+- cannot invent workflow states
 
 ### Result
 
 AI becomes:
 
-* Decision support
-* Not operational risk
+- decision support
+- not operational risk
 
 ---
 
-## ⚙️ Engineering Depth
+## 🧠 Key Insight
 
-* Data integrity enforcement
-* Stored procedure alignment
-* Real-world debugging
-* Scalable frontend architecture
+> CORTEX doesn’t just process tickets — it improves them before work begins.
 
 ---
 
-## 🧠 Key Design Decisions
+## 🎤 Close
 
-* Dual ownership
-* API-enforced invariants
-* Config-driven system
-* AI constrained by system vocabulary
-
----
-
-## 🏗 Technical Overview
-
-* .NET 8 backend
-* React + TypeScript frontend
-* SQL Server
-* Auth0 security
-* Docker deployment
-
----
-
-## 🚧 Not Shown
-
-* ML routing
-* Multi-tenancy
-* Slack integration
-
----
-
-## 🎤 Talking Points
-
-* Ownership vs responsibility
-* AI with guardrails
-* SLA-driven behavior
-* System over manual coordination
+> **Better tickets → fewer follow-ups → faster decisions**
 
 ---
 
 ## 👨‍💻 Author
 
-Adam Hooper
+Adam Hooper  
 Senior Consultant, Syniti
 
 ---
 
-**Status:** Demo-ready
+**Status:** Demo-ready  
 **Audience:** Leadership & Engineering
