@@ -546,6 +546,9 @@ namespace Cortex.API.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<string>("AiScreenshotInsightJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("AiTriageMissingDetailsJson")
                         .HasColumnType("nvarchar(max)");
 
@@ -1209,6 +1212,44 @@ namespace Cortex.API.Migrations
                     b.HasIndex("UserId", "IsRead", "CreatedDateUtc");
 
                     b.ToTable("UserNotifications");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.WorkflowMetricEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("ActorUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TicketId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventType");
+
+                    b.HasIndex("OccurredUtc");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("WorkflowMetricEvents");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.ArchivedComment", b =>

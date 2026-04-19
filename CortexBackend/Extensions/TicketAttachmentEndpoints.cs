@@ -25,6 +25,12 @@ public static class TicketAttachmentEndpoints
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound);
 
+        attachments.MapPost("/screenshot-insight", ScreenshotInsightHandlers.AnalyzeScreenshotAttachments)
+            .WithName("AnalyzeScreenshotAttachments")
+            .Produces<ScreenshotInsightResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound);
+
         attachments.MapGet("/{attachmentId:int}/download", TicketAttachmentHandlers.DownloadAttachment)
             .WithName("DownloadTicketAttachment")
             .Produces(StatusCodes.Status200OK)

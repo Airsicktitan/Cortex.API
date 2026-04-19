@@ -113,8 +113,6 @@ public class TicketHandlersGenerateTriageTests
             userRepository.Object,
             triageAi.Object,
             triageVocabulary.Object,
-            new TicketTriageResponseValidator(),
-            new TicketTriageFallbackPolicy(),
             NullLogger<TicketHandlersLogCategory>.Instance,
             CancellationToken.None);
 
@@ -132,6 +130,8 @@ public class TicketHandlersGenerateTriageTests
             response.Body.SlaRiskReason);
         Assert.Equal(expectedHints, response.Body.MissingDetails);
 
+        // Handler returns the AI response as-is; persistence maps vocabulary and updates canonical
+        // Priority/Status when suggestions validate (see TicketTriagePersistence.ApplyPersistedResult).
         repo.Verify(
             repository => repository.UpdateTicketAsync(It.Is<Ticket>(updated =>
                 updated.Id == ticket.Id &&
@@ -139,8 +139,8 @@ public class TicketHandlersGenerateTriageTests
                 updated.AiTriageSuggestedPriority == "High" &&
                 updated.AiTriagePriorityReason == "Approval flow is blocking intake progress." &&
                 updated.AiTriageSuggestedStatus == "In Review" &&
-                updated.Priority == "Medium" &&
-                updated.Status == "New" &&
+                updated.Priority == "High" &&
+                updated.Status == "In Review" &&
                 updated.AiTriagePotentialSlaRisk == "Medium" &&
                 updated.AiTriageSlaRiskReason ==
                 "Unclear scope drives extra clarification cycles before delivery can be bounded." &&
@@ -150,7 +150,7 @@ public class TicketHandlersGenerateTriageTests
     }
 
     [Fact]
-    public async Task GenerateTicketTriage_InvalidAiFields_PersistsFallbackAdvisoryValues_WithoutOverwritingCanonicalFields()
+    public async Task GenerateTicketTriage_InvalidVocabularyFields_ReturnsRawAiResponse_AndPersistsNullAdvisoriesForInvalidFields()
     {
         var expectedHints = new[] { "Confirm impacted queue.", "Name the reviewer group." };
         var ticket = new Ticket
@@ -247,8 +247,6 @@ public class TicketHandlersGenerateTriageTests
             userRepository.Object,
             triageAi.Object,
             triageVocabulary.Object,
-            new TicketTriageResponseValidator(),
-            new TicketTriageFallbackPolicy(),
             NullLogger<TicketHandlersLogCategory>.Instance,
             CancellationToken.None);
 
@@ -256,30 +254,27 @@ public class TicketHandlersGenerateTriageTests
 
         Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
         Assert.NotNull(response.Body);
+        // Handler returns the mock AI payload unchanged (no validator/fallback in this path).
         Assert.Equal("Clarify the approval issue and required workflow outcome.", response.Body!.Summary);
-        Assert.Equal("Low", response.Body.SuggestedPriority);
-        Assert.Equal(
-            "Default configured priority applied pending reviewer confirmation.",
-            response.Body.PriorityReason);
-        Assert.Equal("Needs Review", response.Body.SuggestedStatus);
-        Assert.Equal("Medium", response.Body.PotentialSlaRisk);
-        Assert.Equal(
-            "Clarification is still needed before delivery pressure can be assessed more precisely.",
-            response.Body.SlaRiskReason);
+        Assert.Equal("Urgent", response.Body.SuggestedPriority);
+        Assert.Equal(" ", response.Body.PriorityReason);
+        Assert.Equal("Resolved", response.Body.SuggestedStatus);
+        Assert.Equal("Critical", response.Body.PotentialSlaRisk);
+        Assert.Equal("", response.Body.SlaRiskReason);
         Assert.Equal(expectedHints, response.Body.MissingDetails);
 
+        // Persistence maps only vocabulary-backed fields; invalid priority/status become null advisories.
         repo.Verify(
             repository => repository.UpdateTicketAsync(It.Is<Ticket>(updated =>
                 updated.Id == ticket.Id &&
                 updated.AiTriageSummary == "Clarify the approval issue and required workflow outcome." &&
-                updated.AiTriageSuggestedPriority == "Low" &&
-                updated.AiTriagePriorityReason == "Default configured priority applied pending reviewer confirmation." &&
-                updated.AiTriageSuggestedStatus == "Needs Review" &&
+                updated.AiTriageSuggestedPriority == null &&
+                updated.AiTriagePriorityReason == " " &&
+                updated.AiTriageSuggestedStatus == null &&
                 updated.Priority == "Medium" &&
                 updated.Status == "New" &&
-                updated.AiTriagePotentialSlaRisk == "Medium" &&
-                updated.AiTriageSlaRiskReason ==
-                "Clarification is still needed before delivery pressure can be assessed more precisely." &&
+                updated.AiTriagePotentialSlaRisk == "Critical" &&
+                updated.AiTriageSlaRiskReason == "" &&
                 DeserializeHints(updated.AiTriageMissingDetailsJson).SequenceEqual(expectedHints))),
             Times.Once);
         repo.Verify(repository => repository.SaveChangesAsync(), Times.Once);

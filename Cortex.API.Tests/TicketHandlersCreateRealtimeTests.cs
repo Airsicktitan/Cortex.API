@@ -164,13 +164,12 @@ public class TicketHandlersCreateRealtimeTests
             ticketRoutingRuleService.Object,
             triageAi.Object,
             triageVocabulary.Object,
-            new TicketTriageResponseValidator(),
-            new TicketTriageFallbackPolicy(),
             ticketAuditService.Object,
             notificationService.Object,
             realtimeEventService.Object,
             realtimeAudienceResolver.Object,
             mappingContextFactory.Object,
+            Mock.Of<IWorkflowMetricsService>(),
             NullLogger<TicketHandlersLogCategory>.Instance);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status201Created);
@@ -187,7 +186,7 @@ public class TicketHandlersCreateRealtimeTests
     }
 
     [Fact]
-    public async Task CreateTicket_PersistsAiAdvisoryFields_WithoutOverwritingCanonicalPriorityOrStatus()
+    public async Task CreateTicket_PersistsAiAdvisoryFields_AndAppliesValidatedTriageToCanonicalPriorityAndStatus()
     {
         const string ticketId = "3002";
 
@@ -355,20 +354,21 @@ public class TicketHandlersCreateRealtimeTests
             ticketRoutingRuleService.Object,
             triageAi.Object,
             triageVocabulary.Object,
-            new TicketTriageResponseValidator(),
-            new TicketTriageFallbackPolicy(),
             ticketAuditService.Object,
             notificationService.Object,
             realtimeEventService.Object,
             realtimeAudienceResolver.Object,
             mappingContextFactory.Object,
+            Mock.Of<IWorkflowMetricsService>(),
             NullLogger<TicketHandlersLogCategory>.Instance);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status201Created);
 
         Assert.NotNull(createdTicket);
-        Assert.Equal("High", createdTicket!.Priority);
-        Assert.Equal("New", createdTicket.Status);
+        // Create path runs triage persistence: validated AI suggestions update canonical Priority/Status
+        // when they match vocabulary (TicketTriagePersistence.ApplyAiSuggestedPriorityToTicket / Status).
+        Assert.Equal("Low", createdTicket!.Priority);
+        Assert.Equal("In Review", createdTicket.Status);
         Assert.Equal("Clarify the reviewer handoff and approval outcome.", createdTicket.AiTriageSummary);
         Assert.Equal("Low", createdTicket.AiTriageSuggestedPriority);
         Assert.Equal(
@@ -384,8 +384,8 @@ public class TicketHandlersCreateRealtimeTests
             JsonSerializer.Deserialize<List<string>>(createdTicket.AiTriageMissingDetailsJson!) ?? []);
 
         Assert.Single(realtimeMessages);
-        Assert.Equal("High", realtimeMessages[0].Ticket!.Priority);
-        Assert.Equal("New", realtimeMessages[0].Ticket!.Status);
+        Assert.Equal("Low", realtimeMessages[0].Ticket!.Priority);
+        Assert.Equal("In Review", realtimeMessages[0].Ticket!.Status);
 
         ticketRepository.Verify(repository => repository.UpdateTicketAsync(It.IsAny<Ticket>()), Times.Once);
         ticketRepository.Verify(repository => repository.SaveChangesAsync(), Times.Exactly(2));

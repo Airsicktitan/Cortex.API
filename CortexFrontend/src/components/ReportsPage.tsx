@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Ticket } from "../types/ticket";
 import type {
   CustomReportDefinition,
@@ -23,8 +24,326 @@ import {
   readOnlySynitiOwnerLabel,
 } from "../utils/ownerIdentity";
 import { isOpenTicket } from "../utils/ticketLifecycle";
+import type { WorkflowMetricsSnapshot } from "../types/workflowMetrics";
+import { metricsService } from "../services/api";
+
+const API_AUDIENCE = "https://cortex-api";
 
 type ReportSection = "sla" | "online-users" | "custom";
+
+function formatWorkflowAvg(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0.0";
+  }
+  return value.toFixed(1);
+}
+
+function formatWorkflowCount(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  return String(Math.round(value));
+}
+
+/** When follow-up averages are comparable and Ready &lt; Needs detail, surface a subtle insight. */
+function getWorkflowFollowUpInsight(
+  m: WorkflowMetricsSnapshot,
+): string | null {
+  const readyAvg = m.avgCommentCountBySignal.ready;
+  const needsAvg = m.avgCommentCountBySignal.needs_detail;
+  if (!Number.isFinite(readyAvg) || !Number.isFinite(needsAvg)) {
+    return null;
+  }
+  if (needsAvg <= 0 || readyAvg >= needsAvg) {
+    return null;
+  }
+  return "So far, tickets labeled Ready for review show lower average follow-up comments than those labeled Needs detail first.";
+}
+
+function WorkflowSectionBlock({
+  title,
+  children,
+  intro,
+}: {
+  title: string;
+  children: ReactNode;
+  /** Muted helper shown under the section title (e.g. Follow-Up Proxy). */
+  intro?: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg bg-slate-50/90 px-3 py-2.5 ring-1 ring-gray-100/80 dark:bg-slate-800/35 dark:ring-slate-700/50">
+      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-600 dark:text-slate-300">
+        {title}
+      </p>
+      {intro}
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+function WorkflowMetricRow({
+  label,
+  value,
+  valueIsAverage = false,
+  labelEmphasis = "default",
+}: {
+  label: string;
+  value: string;
+  valueIsAverage?: boolean;
+  /** Stronger label copy for reviewer readiness (still neutral). */
+  labelEmphasis?: "default" | "readiness";
+}) {
+  const labelClass =
+    labelEmphasis === "readiness"
+      ? "text-sm font-medium text-gray-700 dark:text-slate-300"
+      : "text-xs text-gray-500 dark:text-slate-400";
+
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-b border-gray-100/80 pb-1.5 last:border-b-0 last:pb-0 dark:border-slate-700/40">
+      <span className={`min-w-0 leading-snug ${labelClass}`}>{label}</span>
+      <span
+        className={`shrink-0 text-right text-base font-semibold tabular-nums tracking-tight text-gray-900 dark:text-slate-50 ${
+          valueIsAverage ? "min-w-[3.25rem]" : "min-w-[2.5rem]"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ReviewerReadinessDistributionBar({
+  ready,
+  gaps,
+  needsDetail,
+}: {
+  ready: number;
+  gaps: number;
+  needsDetail: number;
+}) {
+  const r = Math.max(0, Math.round(ready));
+  const g = Math.max(0, Math.round(gaps));
+  const n = Math.max(0, Math.round(needsDetail));
+  const total = r + g + n;
+  const pct = (x: number) => (total > 0 ? (x / total) * 100 : 0);
+
+  return (
+    <div
+      className="mb-2.5"
+      role="img"
+      aria-label="Reviewer readiness distribution: Ready, Small gaps, and Needs detail shares of total signals."
+    >
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-gray-200/90 dark:bg-slate-700/90">
+        {total > 0 ? (
+          <>
+            <div
+              style={{ width: `${pct(r)}%` }}
+              className="min-w-0 shrink-0 bg-emerald-500/75 dark:bg-emerald-500/55"
+            />
+            <div
+              style={{ width: `${pct(g)}%` }}
+              className="min-w-0 shrink-0 bg-amber-400/85 dark:bg-amber-500/50"
+            />
+            <div
+              style={{ width: `${pct(n)}%` }}
+              className="min-w-0 shrink-0 bg-rose-500/70 dark:bg-rose-500/48"
+            />
+          </>
+        ) : (
+          <div className="h-full w-full bg-gray-300/60 dark:bg-slate-600/60" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowFollowUpRow({
+  label,
+  value,
+  valueNum,
+  maxInSection,
+}: {
+  label: string;
+  value: string;
+  valueNum: number;
+  maxInSection: number;
+}) {
+  const max = maxInSection > 0 ? maxInSection : 1;
+  const safe = Number.isFinite(valueNum) ? Math.max(0, valueNum) : 0;
+  const fillPct = Math.min(100, (safe / max) * 100);
+
+  return (
+    <div className="flex items-center gap-2 border-b border-gray-100/80 pb-1.5 last:border-b-0 last:pb-0 dark:border-slate-700/40">
+      <span className="min-w-0 flex-1 text-xs leading-snug text-gray-500 dark:text-slate-400">
+        {label}
+      </span>
+      <div
+        className="h-1.5 w-[5.5rem] shrink-0 overflow-hidden rounded-full bg-gray-200/90 dark:bg-slate-700/80"
+        aria-hidden
+      >
+        <div
+          className="h-full rounded-full bg-slate-500/75 dark:bg-slate-400/55"
+          style={{ width: `${fillPct}%` }}
+        />
+      </div>
+      <span className="w-[2.75rem] shrink-0 text-right text-base font-semibold tabular-nums tracking-tight text-gray-900 dark:text-slate-50">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function WorkflowMetricsSnapshotContent({
+  data,
+}: {
+  data: WorkflowMetricsSnapshot;
+}) {
+  const insight = getWorkflowFollowUpInsight(data);
+  const readyAvg = data.avgCommentCountBySignal.ready;
+  const gapsAvg = data.avgCommentCountBySignal.gaps;
+  const needsAvg = data.avgCommentCountBySignal.needs_detail;
+  const followUpMax = Math.max(
+    0,
+    Number.isFinite(readyAvg) ? readyAvg : 0,
+    Number.isFinite(gapsAvg) ? gapsAvg : 0,
+    Number.isFinite(needsAvg) ? needsAvg : 0,
+  );
+
+  const readinessTotal =
+    Math.max(0, Math.round(data.reviewerSignalCounts.ready)) +
+    Math.max(0, Math.round(data.reviewerSignalCounts.gaps)) +
+    Math.max(0, Math.round(data.reviewerSignalCounts.needs_detail));
+
+  const followUpAllZero =
+    (!Number.isFinite(readyAvg) || readyAvg <= 0) &&
+    (!Number.isFinite(gapsAvg) || gapsAvg <= 0) &&
+    (!Number.isFinite(needsAvg) || needsAvg <= 0);
+
+  const requesterAllZero =
+    data.intakeAssistUsageCount === 0 &&
+    data.intakeAssistSavedCount === 0 &&
+    (!Number.isFinite(data.avgMissingDetailCount) ||
+      data.avgMissingDetailCount <= 0);
+
+  const insightLine = insight ?? "Not enough data to identify patterns yet.";
+
+  return (
+    <div className="space-y-5 text-sm text-gray-800 dark:text-slate-200">
+      <WorkflowSectionBlock title="Requester Assist">
+        {requesterAllZero ? (
+          <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-500">
+            No assist activity recorded yet.
+          </p>
+        ) : (
+          <>
+            <WorkflowMetricRow
+              label="Intake Assist Used"
+              value={formatWorkflowCount(data.intakeAssistUsageCount)}
+            />
+            <WorkflowMetricRow
+              label="Tickets Saved After Assist"
+              value={formatWorkflowCount(data.intakeAssistSavedCount)}
+            />
+            <WorkflowMetricRow
+              label="Average Missing Details"
+              value={formatWorkflowAvg(data.avgMissingDetailCount)}
+              valueIsAverage
+            />
+          </>
+        )}
+      </WorkflowSectionBlock>
+
+      <WorkflowSectionBlock title="Reviewer Readiness">
+        {readinessTotal === 0 ? (
+          <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-500">
+            No reviewer activity yet.
+          </p>
+        ) : (
+          <>
+            <ReviewerReadinessDistributionBar
+              ready={data.reviewerSignalCounts.ready}
+              gaps={data.reviewerSignalCounts.gaps}
+              needsDetail={data.reviewerSignalCounts.needs_detail}
+            />
+            <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-gray-100/80 pb-1.5 text-xs dark:border-slate-700/40">
+              <span className="text-gray-600 dark:text-slate-400">
+                Ready:{" "}
+                <span className="font-semibold tabular-nums text-gray-900 dark:text-slate-100">
+                  {formatWorkflowCount(data.reviewerSignalCounts.ready)}
+                </span>
+              </span>
+              <span className="text-gray-600 dark:text-slate-400">
+                Gaps:{" "}
+                <span className="font-semibold tabular-nums text-gray-900 dark:text-slate-100">
+                  {formatWorkflowCount(data.reviewerSignalCounts.gaps)}
+                </span>
+              </span>
+              <span className="text-gray-600 dark:text-slate-400">
+                Needs detail:{" "}
+                <span className="font-semibold tabular-nums text-gray-900 dark:text-slate-100">
+                  {formatWorkflowCount(data.reviewerSignalCounts.needs_detail)}
+                </span>
+              </span>
+            </div>
+          </>
+        )}
+      </WorkflowSectionBlock>
+
+      <WorkflowSectionBlock title="Screenshot Insight">
+        {data.screenshotInsightUsageCount === 0 ? (
+          <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-500">
+            No screenshot insight usage yet.
+          </p>
+        ) : (
+          <WorkflowMetricRow
+            label="Screenshot Insight Used"
+            value={formatWorkflowCount(data.screenshotInsightUsageCount)}
+          />
+        )}
+      </WorkflowSectionBlock>
+
+      <WorkflowSectionBlock
+        title="Follow-Up Proxy"
+        intro={
+          <p className="mb-1.5 text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
+            Average comment activity when this signal was shown.
+          </p>
+        }
+      >
+        {followUpAllZero ? (
+          <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-500">
+            No follow-up data available yet.
+          </p>
+        ) : (
+          <>
+            <WorkflowFollowUpRow
+              label="Ready for Review"
+              value={formatWorkflowAvg(readyAvg)}
+              valueNum={readyAvg}
+              maxInSection={followUpMax}
+            />
+            <WorkflowFollowUpRow
+              label="Small Gaps Remain"
+              value={formatWorkflowAvg(gapsAvg)}
+              valueNum={gapsAvg}
+              maxInSection={followUpMax}
+            />
+            <WorkflowFollowUpRow
+              label="Needs Detail First"
+              value={formatWorkflowAvg(needsAvg)}
+              valueNum={needsAvg}
+              maxInSection={followUpMax}
+            />
+          </>
+        )}
+      </WorkflowSectionBlock>
+
+      <p className="rounded-r-md border border-gray-100 border-l-[3px] border-l-slate-400 bg-white py-1.5 pl-3.5 pr-3 text-[11px] leading-relaxed text-gray-500 dark:border-slate-700/60 dark:border-l-slate-500 dark:bg-slate-800/40 dark:text-slate-500">
+        {insightLine}
+      </p>
+    </div>
+  );
+}
 
 interface ReportsPageProps {
   tickets: Ticket[];
@@ -524,6 +843,13 @@ export default function ReportsPage({
 }: ReportsPageProps) {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const { getAccessTokenSilently } = useAuth0();
+  const [workflowMetrics, setWorkflowMetrics] =
+    useState<WorkflowMetricsSnapshot | null>(null);
+  const [workflowMetricsError, setWorkflowMetricsError] = useState<
+    string | null
+  >(null);
+  const [workflowMetricsLoading, setWorkflowMetricsLoading] = useState(true);
 
   useEffect(() => {
     if (!isExportMenuOpen) {
@@ -539,6 +865,34 @@ export default function ReportsPage({
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [isExportMenuOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: { audience: API_AUDIENCE },
+        });
+        const data = await metricsService.getWorkflowMetricsSnapshot(token);
+        if (!cancelled) {
+          setWorkflowMetrics(data);
+          setWorkflowMetricsError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setWorkflowMetricsError("Unable to load workflow metrics.");
+          setWorkflowMetrics(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setWorkflowMetricsLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getAccessTokenSilently]);
 
   if (
     (activeSection === "sla" && loading) ||
@@ -703,6 +1057,32 @@ export default function ReportsPage({
                   </button>
                 ))}
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-gray-100 px-6 py-4 dark:border-slate-800">
+          <h3 className="text-lg font-bold tracking-tight text-gray-900 dark:text-slate-100">
+            Workflow Metrics (Preview)
+          </h3>
+          <p className="mt-1.5 text-sm leading-relaxed text-gray-500 dark:text-slate-400">
+            Operational snapshot of intake quality, reviewer readiness, and
+            follow-up signals.
+          </p>
+          <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+            Early metrics from real Cortex usage (all-time, v1).
+          </p>
+        </div>
+        <div className="px-6 py-4">
+          {workflowMetricsLoading ? (
+            <p className="text-sm text-gray-500 dark:text-slate-400">Loading…</p>
+          ) : workflowMetricsError ? (
+            <p className="text-sm text-gray-600 dark:text-slate-400">
+              {workflowMetricsError}
+            </p>
+          ) : workflowMetrics ? (
+            <WorkflowMetricsSnapshotContent data={workflowMetrics} />
+          ) : null}
         </div>
       </section>
 

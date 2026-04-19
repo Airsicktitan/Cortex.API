@@ -39,6 +39,9 @@ public class TicketResponse
     /// <summary>Persisted Phase 1 AI triage for intake review (advisory).</summary>
     public ApprovalTriagePreviewDto? ApprovalTriagePreview { get; set; }
 
+    /// <summary>Last successful attachment (screenshot) AI insight; advisory only.</summary>
+    public ScreenshotInsightPersistedDto? ScreenshotInsight { get; set; }
+
     public DateTime SlaTargetDate { get; set; }
     public DateTime? SlaCompletedDate { get; set; }
     public string SlaStatus { get; set; } = string.Empty;

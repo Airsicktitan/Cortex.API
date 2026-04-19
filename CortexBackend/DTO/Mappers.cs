@@ -142,6 +142,12 @@ public static class CommentMappings
 
 public static class TicketResponseExtensions
 {
+    private static readonly JsonSerializerOptions ScreenshotInsightJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     public static TicketResponse ToResponse(
         this Ticket ticket,
         IReadOnlyDictionary<string, SlaConfiguration> slaConfigurations,
@@ -192,6 +198,7 @@ public static class TicketResponseExtensions
             ReturnedForDetailBy = ticket.ReturnedForDetailBy,
             ReturnReason = ticket.ReturnReason,
             ApprovalTriagePreview = MapApprovalTriagePreview(ticket),
+            ScreenshotInsight = MapScreenshotInsightPersisted(ticket),
             SlaTargetDate = slaSnapshot.TargetDateUtc,
             SlaCompletedDate = slaSnapshot.CompletedDateUtc,
             SlaStatus = slaSnapshot.Status,
@@ -254,6 +261,25 @@ public static class TicketResponseExtensions
                 ? null
                 : ticket.AiTriageSlaRiskReason.Trim(),
         };
+    }
+
+    private static ScreenshotInsightPersistedDto? MapScreenshotInsightPersisted(Ticket ticket)
+    {
+        if (string.IsNullOrWhiteSpace(ticket.AiScreenshotInsightJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<ScreenshotInsightPersistedDto>(
+                ticket.AiScreenshotInsightJson,
+                ScreenshotInsightJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }
 

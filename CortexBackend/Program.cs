@@ -127,7 +127,8 @@ builder.Services.AddScoped<IOwnerWorkloadPreviewService, OwnerWorkloadPreviewSer
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
 builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabilityService>();
 builder.Services.AddScoped<IResponseMappingContextFactory, ResponseMappingContextFactory>();
-builder.Services.AddScoped<IRealtimeAudienceResolver, RealtimeAudienceResolver>();
+    builder.Services.AddScoped<IRealtimeAudienceResolver, RealtimeAudienceResolver>();
+    builder.Services.AddScoped<IWorkflowMetricsService, WorkflowMetricsService>();
 builder.Services.AddHttpClient<INotificationDeliveryService, NotificationDeliveryService>();
 builder.Services.Configure<EmailNotificationOptions>(builder.Configuration.GetSection("Notifications:Email"));
 builder.Services.Configure<TeamsNotificationOptions>(builder.Configuration.GetSection("Notifications:Teams"));
@@ -141,6 +142,11 @@ builder.Services.AddScoped<ITicketIntakeAssistPromptBuilder, TicketIntakeAssistP
 builder.Services.AddHttpClient<ITicketIntakeAssistAiService, TicketIntakeAssistAiService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(45);
+});
+builder.Services.AddScoped<IScreenshotInsightPromptBuilder, ScreenshotInsightPromptBuilder>();
+builder.Services.AddHttpClient<IScreenshotInsightAiService, ScreenshotInsightAiService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(120);
 });
 builder.Services.AddSingleton<IRealtimeEventService, RealtimeEventService>();
 builder.Services.AddHostedService<ScheduledJobHostedService>();
@@ -409,6 +415,7 @@ app.MapSessionConfigurationEndpoints();
 app.MapNotificationChannelConfigurationEndpoints();
 app.MapRoleDefinitionEndpoints();
 app.MapReportDefinitionEndpoints();
+app.MapMetricsEndpoints();
 app.MapAdminLogEndpoints();
 app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();

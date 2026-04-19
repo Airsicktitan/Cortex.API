@@ -28,6 +28,7 @@ public static class TicketIntakeAssistHandlers
     public static async Task<IResult> ImproveIntake(
         IntakeAssistRequest? request,
         ITicketIntakeAssistAiService intakeAssistAi,
+        IWorkflowMetricsService metrics,
         ILogger<IntakeAssistLogCategory> logger,
         CancellationToken cancellationToken)
     {
@@ -39,6 +40,19 @@ public static class TicketIntakeAssistHandlers
         var title = (request.Title ?? string.Empty).Trim();
         var description = (request.Description ?? string.Empty).Trim();
         var boardName = request.BoardName?.Trim();
+        var ticketIdMetric = string.IsNullOrWhiteSpace(request.TicketId) ? null : request.TicketId.Trim();
+        var clientFlowRaw = (request.ClientFlow ?? string.Empty).Trim().ToLowerInvariant();
+        var clientFlow = clientFlowRaw is "create" or "edit" ? clientFlowRaw : "unknown";
+
+        await metrics.TryRecordAsync(
+            "intake_assist_requested",
+            new
+            {
+                clientFlow,
+                descriptionPresent = description.Length > 0,
+            },
+            ticketIdMetric,
+            cancellationToken);
 
         if (description.Length == 0)
         {
@@ -80,6 +94,18 @@ public static class TicketIntakeAssistHandlers
         try
         {
             var result = await intakeAssistAi.ImproveAsync(input, cancellationToken);
+            await metrics.TryRecordAsync(
+                "intake_assist_completed",
+                new
+                {
+                    clarityState = result.ClarityState,
+                    missingDetailCount = result.MissingDetails.Count,
+                    suggestedSummaryReturned = !string.IsNullOrWhiteSpace(result.SuggestedSummary),
+                    improvedDescriptionReturned = !string.IsNullOrWhiteSpace(result.ImprovedDescription),
+                    unavailable = result.Unavailable,
+                },
+                ticketIdMetric,
+                cancellationToken);
             return Results.Ok(result);
         }
         catch (OperationCanceledException)
@@ -94,12 +120,25 @@ public static class TicketIntakeAssistHandlers
                 title.Length,
                 description.Length);
 
-            return Results.Ok(new IntakeAssistResponse
+            var fallback = new IntakeAssistResponse
             {
                 Unavailable = true,
                 UnavailableReason = "Improve Request is unavailable right now. Try again in a moment.",
                 MissingDetails = [],
-            });
+            };
+            await metrics.TryRecordAsync(
+                "intake_assist_completed",
+                new
+                {
+                    clarityState = (string?)null,
+                    missingDetailCount = 0,
+                    suggestedSummaryReturned = false,
+                    improvedDescriptionReturned = false,
+                    unavailable = true,
+                },
+                ticketIdMetric,
+                cancellationToken);
+            return Results.Ok(fallback);
         }
     }
 }

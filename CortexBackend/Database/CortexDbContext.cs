@@ -34,6 +34,7 @@ public class CortexDbContext : DbContext
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<HttpRequestLogEntry> HttpRequestLogEntries => Set<HttpRequestLogEntry>();
+    public DbSet<WorkflowMetricEvent> WorkflowMetricEvents => Set<WorkflowMetricEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -713,6 +714,28 @@ public class CortexDbContext : DbContext
                 .HasMaxLength(128);
 
             entity.HasIndex(entry => entry.OccurredUtc);
+        });
+
+        modelBuilder.Entity<WorkflowMetricEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.EventType)
+                .IsRequired()
+                .HasMaxLength(128);
+
+            entity.Property(e => e.OccurredUtc)
+                .IsRequired();
+
+            entity.Property(e => e.TicketId)
+                .HasMaxLength(64);
+
+            entity.Property(e => e.PayloadJson)
+                .IsRequired();
+
+            entity.HasIndex(e => e.OccurredUtc);
+            entity.HasIndex(e => e.EventType);
+            entity.HasIndex(e => e.TicketId);
         });
     }
 }

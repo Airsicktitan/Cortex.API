@@ -966,6 +966,7 @@ public static class TicketHandlers
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory,
+        IWorkflowMetricsService workflowMetrics,
         ILogger<TicketHandlersLogCategory> logger)
     {
         try
@@ -1063,6 +1064,12 @@ public static class TicketHandlers
                 createdTicket.BoardId,
                 createdTicket.Status);
 
+            await RecordIntakeAssistSaveMetricAsync(
+                workflowMetrics,
+                request.IntakeAssistSave,
+                createdTicket.Id,
+                CancellationToken.None);
+
             return Results.Created(
                 $"/api/tickets/{createdTicket.Id}",
                 createdTicketResponse);
@@ -1095,6 +1102,7 @@ public static class TicketHandlers
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory,
+        IWorkflowMetricsService workflowMetrics,
         ILogger<TicketHandlersLogCategory> logger)
     {
         try
@@ -1352,6 +1360,12 @@ public static class TicketHandlers
                 updatedTicket,
                 currentUser.Id);
 
+            await RecordIntakeAssistSaveMetricAsync(
+                workflowMetrics,
+                request.IntakeAssistSave,
+                updatedTicket.Id,
+                CancellationToken.None);
+
             return Results.Ok(updatedTicketResponse);
         }
         catch (ArgumentException exception)
@@ -1362,6 +1376,29 @@ public static class TicketHandlers
         {
             return Results.BadRequest(new { message = exception.Message });
         }
+    }
+
+    private static async Task RecordIntakeAssistSaveMetricAsync(
+        IWorkflowMetricsService metrics,
+        IntakeAssistSaveMetrics? save,
+        string ticketId,
+        CancellationToken cancellationToken)
+    {
+        if (save?.IntakeAssistUsedBeforeSave != true)
+        {
+            return;
+        }
+
+        await metrics.TryRecordAsync(
+            "intake_assist_saved",
+            new
+            {
+                intakeAssistUsedBeforeSave = true,
+                clarityState = save.LastIntakeClarityState,
+                missingDetailCount = save.LastIntakeMissingDetailCount,
+            },
+            ticketId,
+            cancellationToken);
     }
 
     public static async Task<IResult> ArchiveTicket(

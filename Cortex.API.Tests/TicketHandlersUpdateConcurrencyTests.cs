@@ -67,13 +67,12 @@ public class TicketHandlersUpdateConcurrencyTests
             Mock.Of<ITicketRoutingRuleService>(),
             Mock.Of<ITicketTriageAiService>(),
             Mock.Of<ITicketTriageVocabularyProvider>(),
-            new TicketTriageResponseValidator(),
-            new TicketTriageFallbackPolicy(),
             Mock.Of<ITicketAuditService>(),
             Mock.Of<INotificationService>(),
             Mock.Of<IRealtimeEventService>(),
             Mock.Of<IRealtimeAudienceResolver>(),
             Mock.Of<IResponseMappingContextFactory>(),
+            Mock.Of<IWorkflowMetricsService>(),
             NullLogger<TicketHandlersLogCategory>.Instance);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status409Conflict);

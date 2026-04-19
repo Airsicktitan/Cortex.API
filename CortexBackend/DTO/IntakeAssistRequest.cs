@@ -13,4 +13,10 @@ public sealed class IntakeAssistRequest
 
     /// <summary>Optional display name of the board the requester selected; used only as background context.</summary>
     public string? BoardName { get; set; }
+
+    /// <summary>Existing ticket id when improving in edit flow; metrics only.</summary>
+    public string? TicketId { get; set; }
+
+    /// <summary>create | edit — metrics only.</summary>
+    public string? ClientFlow { get; set; }
 }

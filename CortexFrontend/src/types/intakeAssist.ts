@@ -14,6 +14,10 @@ export interface IntakeAssistRequest {
   description?: string;
   /** Optional board name for background context; never echoed back to the requester. */
   boardName?: string;
+  /** Existing ticket id in edit flow; metrics only. */
+  ticketId?: string;
+  /** create | edit — metrics only. */
+  clientFlow?: "create" | "edit";
 }
 
 export interface IntakeAssistResult {

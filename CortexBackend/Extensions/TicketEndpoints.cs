@@ -67,6 +67,13 @@ public static class TicketEndpoints
             .Produces<IntakeAssistResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest);
 
+        tickets.MapPost("/{id}/metrics/reviewer-quality-signal", WorkflowMetricsHandlers.RecordReviewerQualitySignalShown)
+            .WithName("RecordReviewerQualitySignalMetrics")
+            .Accepts<ReviewerQualitySignalMetricsRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound);
+
         tickets.MapGet("/{id}/history", TicketHandlers.GetTicketHistory)
             .WithName("GetTicketHistory")
             .Produces(StatusCodes.Status200OK)

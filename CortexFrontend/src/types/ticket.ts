@@ -1,3 +1,5 @@
+import type { ScreenshotInsightPersisted } from "./screenshotInsight";
+
 /** @deprecated Use `TicketSaveResult` — supports stay-open on edit save. */
 export type TicketSaveOutcome = "saved" | "reloaded";
 
@@ -62,6 +64,8 @@ export interface Ticket {
   approvalStatus?: ApprovalStatus;
   /** Future: server-provided advisory triage; omit until backend sends real data. */
   approvalTriagePreview?: ApprovalTriagePreview | null;
+  /** Last successful attachment (screenshot) AI insight persisted on the ticket. */
+  screenshotInsight?: ScreenshotInsightPersisted | null;
   priority: string;
   department?: string;
   boardId: number;
@@ -107,6 +111,21 @@ export type TicketSaveResult =
   | { outcome: "saved"; savedTicket: Ticket; shouldCloseModal: boolean }
   | { outcome: "reloaded" };
 
+/** Optional payload for POST/PUT ticket saves (workflow metrics only). */
+export interface IntakeAssistSaveMetrics {
+  intakeAssistUsedBeforeSave: boolean;
+  lastIntakeClarityState?: string;
+  lastIntakeMissingDetailCount?: number;
+}
+
+/** POST /api/tickets/{id}/metrics/reviewer-quality-signal */
+export type ReviewerQualitySignalKind = "none" | "ready" | "gaps" | "needs_detail";
+
+export interface ReviewerQualitySignalMetricsPayload {
+  reviewerSignal: ReviewerQualitySignalKind;
+  missingDetailHintCount?: number;
+}
+
 export interface TicketMutationInput {
   title?: string;
   description?: string;
@@ -119,6 +138,7 @@ export interface TicketMutationInput {
   businessOwner?: string;
   changeReason?: string;
   concurrencyToken?: string;
+  intakeAssistSave?: IntakeAssistSaveMetrics;
 }
 
 export interface CreateTicketInput extends Omit<TicketMutationInput, "status"> {

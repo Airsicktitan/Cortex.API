@@ -12,4 +12,7 @@ public class CreateTicketRequest
     public string? BusinessOwner { get; set; }
     public string? Status { get; set; } // e.g., "Open", "In Progress", "Closed"
     public string? ChangeReason { get; set; }
+
+    /// <summary>Optional workflow metrics: save after Improve Request in this session.</summary>
+    public IntakeAssistSaveMetrics? IntakeAssistSave { get; set; }
 }

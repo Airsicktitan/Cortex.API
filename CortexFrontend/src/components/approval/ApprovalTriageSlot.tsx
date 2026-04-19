@@ -1,8 +1,13 @@
+import {
+  type ScreenshotInsightPersisted,
+  screenshotInsightPersistedHasContent,
+} from "../../types/screenshotInsight";
 import type { ApprovalTriagePreview, Ticket } from "../../types/ticket";
 import {
   shouldShowApprovalTriageModalPanel,
   triageHasContent,
 } from "../../utils/approvalTriage";
+import { filterScreenshotInsightNoise } from "../../utils/screenshotInsightDisplay";
 import { getTriageClarityIndicator } from "../../utils/triageClarity";
 
 function priorityBadgeClass(priorityRaw: string): string {
@@ -304,6 +309,116 @@ export function ApprovalTriagePanel({
   );
 }
 
+/** Persisted screenshot (attachment) AI insight in the reviewer modal rail. */
+function ScreenshotInsightTriagePanel({
+  insight,
+}: {
+  insight: ScreenshotInsightPersisted;
+}) {
+  const bodyClass = "text-sm leading-relaxed text-gray-800 dark:text-slate-200";
+  const sectionLabelClass =
+    "text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400";
+  const mutedClass = "text-xs leading-relaxed text-gray-500 dark:text-slate-400";
+  const visibleLines = filterScreenshotInsightNoise(insight.visibleDetails ?? []);
+  const issueLines = filterScreenshotInsightNoise(insight.possibleIssues ?? []);
+  const followLines = filterScreenshotInsightNoise(
+    insight.recommendedFollowUp ?? [],
+  );
+
+  const analyzedLabel =
+    insight.analyzedImageCount != null && insight.analyzedImageCount > 0
+      ? `${insight.analyzedImageCount} image${
+          insight.analyzedImageCount === 1 ? "" : "s"
+        } analyzed`
+      : null;
+
+  let dateLabel: string | null = null;
+  if (insight.analyzedAtUtc) {
+    const d = new Date(insight.analyzedAtUtc);
+    if (!Number.isNaN(d.getTime())) {
+      dateLabel = d.toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    }
+  }
+
+  const metaLine = [analyzedLabel, dateLabel].filter(Boolean).join(" · ");
+
+  return (
+    <section aria-label="Attachment insight" className="min-w-0 text-left">
+      <div className="flex shrink-0 items-start justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+          Attachment insight
+        </p>
+        <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
+          AI · attachments
+        </span>
+      </div>
+      <p className={`mt-2 ${mutedClass}`}>
+        From images attached to this ticket. Advisory only—review the files
+        directly when decisions matter.
+      </p>
+      {metaLine ? <p className={`mt-2 ${mutedClass}`}>{metaLine}</p> : null}
+      {insight.analyzedFileNames && insight.analyzedFileNames.length > 0 ? (
+        <p className={`mt-1 ${mutedClass} break-words`}>
+          {insight.analyzedFileNames.join(", ")}
+        </p>
+      ) : null}
+      <dl className={`mt-4 space-y-4 ${bodyClass}`}>
+        {insight.summary?.trim() ? (
+          <div className="space-y-1.5">
+            <dt className={sectionLabelClass}>Summary</dt>
+            <dd className="whitespace-pre-wrap">{insight.summary.trim()}</dd>
+          </div>
+        ) : null}
+        {visibleLines.length > 0 ? (
+          <div className="space-y-1.5">
+            <dt className={sectionLabelClass}>Visible details</dt>
+            <dd>
+              <ul className="list-outside list-disc space-y-2 pl-5">
+                {visibleLines.map((line, index) => (
+                  <li key={index} className="leading-relaxed">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        ) : null}
+        {issueLines.length > 0 ? (
+          <div className="space-y-1.5">
+            <dt className={sectionLabelClass}>Possible issues</dt>
+            <dd>
+              <ul className="list-outside list-disc space-y-2 pl-5">
+                {issueLines.map((line, index) => (
+                  <li key={index} className="leading-relaxed">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        ) : null}
+        {followLines.length > 0 ? (
+          <div className="space-y-1.5">
+            <dt className={sectionLabelClass}>Recommended follow-up</dt>
+            <dd>
+              <ul className="list-outside list-disc space-y-2 pl-5">
+                {followLines.map((line, index) => (
+                  <li key={index} className="leading-relaxed">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </section>
+  );
+}
+
 /**
  * Right-hand intake insight rail for the reviewer ticket modal (~1/3 width). Matches intake review layout:
  * bordered column, Regenerate on top, scrollable advisory content.
@@ -339,9 +454,12 @@ export function ApprovalTriageModalColumn({
               type="button"
               onClick={() => void onRegenerateAnalysis?.()}
               disabled={regenerateLoading || triageActionPending}
-              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              aria-busy={regenerateLoading}
+              className="ai-button rounded-md border-2 border-cortex-blue bg-white px-3 py-1.5 text-xs font-semibold text-cortex-blue-dark transition-colors hover:border-cortex-blue-dark hover:bg-cortex-blue-soft disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/85 dark:bg-slate-800 dark:text-emerald-300 dark:hover:border-emerald-300 dark:hover:bg-emerald-950/40"
             >
-              {regenerateLoading ? "Regenerating…" : "Regenerate Analysis"}
+              <span>
+                {regenerateLoading ? "Regenerating…" : "Regenerate Analysis"}
+              </span>
             </button>
           </div>
         ) : null}
@@ -354,6 +472,13 @@ export function ApprovalTriageModalColumn({
             ticketTitle={ticket.title}
             ticketDescription={ticket.description}
           />
+          {screenshotInsightPersistedHasContent(ticket.screenshotInsight) ? (
+            <div className="mt-6 border-t border-gray-200/90 pt-6 dark:border-slate-700/90">
+              <ScreenshotInsightTriagePanel
+                insight={ticket.screenshotInsight!}
+              />
+            </div>
+          ) : null}
         </div>
         {applyControls ? (
           <div className="shrink-0 border-t border-gray-100 px-3 py-3 dark:border-slate-800 sm:px-4">

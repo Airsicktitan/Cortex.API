@@ -18,6 +18,11 @@ import type {
   TicketTriageGenerateApiResponse,
 } from "../types/ticket";
 import type { TicketAttachment } from "../types/attachment";
+import {
+  persistedScreenshotInsightToResult,
+  screenshotInsightPersistedHasContent,
+  type ScreenshotInsightResult,
+} from "../types/screenshotInsight";
 import type { RealtimeEvent } from "../types/realtime";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { TicketStatusDefinition } from "../types/ticketStatus";
@@ -46,8 +51,11 @@ import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
 import {
+  deriveReviewerIntakeQualitySignal,
+  getReviewerIntakeQualityCopy,
   shouldShowApprovalTriageModalPanel,
   triageHasContent,
+  type ReviewerIntakeQualityKind,
 } from "../utils/approvalTriage";
 import { useAuth0 } from "@auth0/auth0-react";
 import {
@@ -68,6 +76,7 @@ import {
   canEditTickets,
 } from "../utils/role";
 import { readOnlyOwnerDetailDisplay } from "../utils/ownerIdentity";
+import { filterScreenshotInsightNoise } from "../utils/screenshotInsightDisplay";
 
 const API_AUDIENCE = "https://cortex-api";
 const MAX_TITLE_LENGTH = 200;
@@ -91,6 +100,26 @@ function formatFileSize(fileSize: number) {
 
 function getQueuedAttachmentKey(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+/** v1 screenshot insight: PNG, JPEG, WebP only (aligned with backend). */
+function isImageAttachmentForInsight(a: TicketAttachment): boolean {
+  const name = a.fileName.toLowerCase();
+  if (
+    name.endsWith(".png") ||
+    name.endsWith(".jpg") ||
+    name.endsWith(".jpeg") ||
+    name.endsWith(".webp")
+  ) {
+    return true;
+  }
+  const ct = (a.contentType || "").toLowerCase().split(";")[0].trim();
+  return (
+    ct === "image/png" ||
+    ct === "image/jpeg" ||
+    ct === "image/jpg" ||
+    ct === "image/webp"
+  );
 }
 
 function getTicketApprovalStatus(ticket: Ticket): ApprovalStatus {
@@ -351,6 +380,26 @@ export default function TicketModal({
   const [intakeAssistLoading, setIntakeAssistLoading] = useState(false);
   const [intakeAssistError, setIntakeAssistError] = useState<string | null>(null);
   const intakeAssistAbortRef = useRef<AbortController | null>(null);
+  const [screenshotInsightResult, setScreenshotInsightResult] =
+    useState<ScreenshotInsightResult | null>(null);
+  const [screenshotInsightLoading, setScreenshotInsightLoading] =
+    useState(false);
+  const [screenshotInsightError, setScreenshotInsightError] = useState<
+    string | null
+  >(null);
+  /** Muted “Analyzing…” line for soft auto-run only (not manual). */
+  const [screenshotInsightAutoHint, setScreenshotInsightAutoHint] =
+    useState(false);
+  const screenshotInsightAbortRef = useRef<AbortController | null>(null);
+  /** Prevents repeated auto screenshot analysis per modal open (token discipline). */
+  const screenshotInsightAutoTriggeredForOpenRef = useRef(false);
+  /** Improve Request was invoked at least once this modal session (for save metrics). */
+  const intakeAssistUsedInSessionRef = useRef(false);
+  const lastIntakeAssistSnapshotRef = useRef<{
+    clarityState: string;
+    missingDetailCount: number;
+  } | null>(null);
+  const lastReviewerQualityMetricsKeyRef = useRef<string | null>(null);
 
   const { getAccessTokenSilently } = useAuth0();
 
@@ -556,6 +605,82 @@ export default function TicketModal({
     }),
     [ticket, priority, status, triagePreviewOverride],
   );
+
+  const reviewerIntakeQualityKind: ReviewerIntakeQualityKind | null = useMemo(
+    () => {
+      if (approvalDisplayContext !== "reviewer" || !ticket.id) {
+        return null;
+      }
+      const preview =
+        triagePreviewOverride ?? ticket.approvalTriagePreview ?? null;
+      return deriveReviewerIntakeQualitySignal(preview);
+    },
+    [
+      approvalDisplayContext,
+      ticket.id,
+      triagePreviewOverride,
+      ticket.approvalTriagePreview,
+    ],
+  );
+
+  const reviewerIntakeQualityCopy = useMemo(
+    () =>
+      reviewerIntakeQualityKind === null
+        ? null
+        : getReviewerIntakeQualityCopy(reviewerIntakeQualityKind),
+    [reviewerIntakeQualityKind],
+  );
+
+  const showAiTriageColumn = useMemo(
+    () =>
+      approvalDisplayContext === "reviewer" &&
+      Boolean(ticket.id) &&
+      shouldShowApprovalTriageModalPanel(ticket),
+    [approvalDisplayContext, ticket],
+  );
+
+  useEffect(() => {
+    if (!isOpen || !ticket.id || !showAiTriageColumn) {
+      return;
+    }
+    if (approvalDisplayContext !== "reviewer") {
+      return;
+    }
+    if (reviewerIntakeQualityKind === null) {
+      return;
+    }
+
+    const preview =
+      triagePreviewOverride ?? ticket.approvalTriagePreview ?? null;
+    const hintCount = preview?.missingDetailHints?.length ?? 0;
+    const key = `${ticket.id}:${reviewerIntakeQualityKind}:${hintCount}`;
+
+    if (lastReviewerQualityMetricsKeyRef.current === key) {
+      return;
+    }
+    lastReviewerQualityMetricsKeyRef.current = key;
+
+    void (async () => {
+      try {
+        const token = await getApiToken();
+        await ticketService.recordReviewerQualitySignal(ticket.id, {
+          reviewerSignal: reviewerIntakeQualityKind,
+          missingDetailHintCount: hintCount > 0 ? hintCount : undefined,
+        }, token);
+      } catch {
+        /* workflow metrics are best-effort */
+      }
+    })();
+  }, [
+    isOpen,
+    ticket.id,
+    showAiTriageColumn,
+    approvalDisplayContext,
+    reviewerIntakeQualityKind,
+    triagePreviewOverride,
+    ticket.approvalTriagePreview,
+    getApiToken,
+  ]);
 
   /**
    * My Tickets (requester): hide collaboration affordances while a request is still
@@ -815,13 +940,48 @@ export default function TicketModal({
     setIntakeAssistEditableDescription("");
     setIntakeAssistLoading(false);
     setIntakeAssistError(null);
+    screenshotInsightAbortRef.current?.abort();
+    screenshotInsightAbortRef.current = null;
+    setScreenshotInsightResult(
+      persistedScreenshotInsightToResult(
+        ticketPropRef.current.screenshotInsight,
+      ) ?? null,
+    );
+    setScreenshotInsightLoading(false);
+    setScreenshotInsightError(null);
+    intakeAssistUsedInSessionRef.current = false;
+    lastIntakeAssistSnapshotRef.current = null;
+    lastReviewerQualityMetricsKeyRef.current = null;
   }, [ticket.id, isOpen]);
+
+  // When the same ticket is refreshed (e.g. after save or GET), hydrate screenshot insight from the server.
+  useEffect(() => {
+    if (!isOpen || !ticket.id) {
+      return;
+    }
+    const persisted = persistedScreenshotInsightToResult(ticket.screenshotInsight);
+    if (persisted) {
+      setScreenshotInsightResult(persisted);
+    }
+  }, [isOpen, ticket.id, ticket.screenshotInsight]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      screenshotInsightAutoTriggeredForOpenRef.current = false;
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    screenshotInsightAutoTriggeredForOpenRef.current = false;
+  }, [ticket.id]);
 
   // Abort any in-flight intake-assist request on unmount.
   useEffect(() => {
     return () => {
       intakeAssistAbortRef.current?.abort();
       intakeAssistAbortRef.current = null;
+      screenshotInsightAbortRef.current?.abort();
+      screenshotInsightAbortRef.current = null;
     };
   }, []);
 
@@ -848,6 +1008,8 @@ export default function TicketModal({
           title: trimmedTitle,
           description: trimmedDescription,
           boardName: selectedBoard?.name ?? ticket.boardName ?? undefined,
+          ticketId: ticket.id?.trim() || undefined,
+          clientFlow: isCreateMode ? "create" : "edit",
         },
         token,
         controller.signal,
@@ -855,6 +1017,11 @@ export default function TicketModal({
       if (controller.signal.aborted) {
         return;
       }
+      intakeAssistUsedInSessionRef.current = true;
+      lastIntakeAssistSnapshotRef.current = {
+        clarityState: result.clarityState,
+        missingDetailCount: result.missingDetails.length,
+      };
       setIntakeAssistResult(result);
       setIntakeAssistEditableDescription(result.improvedDescription ?? "");
     } catch (error) {
@@ -879,8 +1046,10 @@ export default function TicketModal({
     description,
     intakeAssistLoading,
     getApiToken,
+    isCreateMode,
     selectedBoard?.name,
     ticket.boardName,
+    ticket.id,
   ]);
 
   const handleUseIntakeSummary = useCallback(() => {
@@ -908,6 +1077,117 @@ export default function TicketModal({
     setIntakeAssistLoading(false);
   }, []);
 
+  const imageAttachmentsForInsight = useMemo(
+    () => attachments.filter(isImageAttachmentForInsight),
+    [attachments],
+  );
+
+  const handleAnalyzeScreenshots = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (screenshotInsightLoading || !ticket.id) {
+        if (silent) {
+          screenshotInsightAutoTriggeredForOpenRef.current = false;
+        }
+        return;
+      }
+      if (imageAttachmentsForInsight.length === 0) {
+        if (silent) {
+          screenshotInsightAutoTriggeredForOpenRef.current = false;
+        }
+        return;
+      }
+      if (silent) {
+        screenshotInsightAutoTriggeredForOpenRef.current = true;
+        setScreenshotInsightAutoHint(true);
+      }
+      screenshotInsightAbortRef.current?.abort();
+      const controller = new AbortController();
+      screenshotInsightAbortRef.current = controller;
+      setScreenshotInsightLoading(true);
+      setScreenshotInsightError(null);
+      try {
+        const token = await getApiToken();
+        const result = await attachmentService.analyzeScreenshotInsight(
+          ticket.id,
+          token,
+          controller.signal,
+        );
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (result.unavailable) {
+          const fromPersisted = persistedScreenshotInsightToResult(
+            ticketPropRef.current.screenshotInsight,
+          );
+          setScreenshotInsightResult(fromPersisted ?? result);
+        } else {
+          setScreenshotInsightResult(result);
+          if (refreshPersistedTicket) {
+            await refreshPersistedTicket(ticket.id, token);
+          }
+        }
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (!silent) {
+          setScreenshotInsightError(
+            getUserFacingErrorMessage(error, "Unable to analyze screenshots."),
+          );
+        }
+      } finally {
+        if (silent) {
+          setScreenshotInsightAutoHint(false);
+        }
+        if (screenshotInsightAbortRef.current === controller) {
+          screenshotInsightAbortRef.current = null;
+        }
+        if (!controller.signal.aborted) {
+          setScreenshotInsightLoading(false);
+        }
+      }
+    },
+    [
+      getApiToken,
+      imageAttachmentsForInsight.length,
+      refreshPersistedTicket,
+      screenshotInsightLoading,
+      ticket.id,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isOpen || !ticket.id) {
+      return;
+    }
+    if (approvalDisplayContext !== "reviewer") {
+      return;
+    }
+    if (screenshotInsightAutoTriggeredForOpenRef.current) {
+      return;
+    }
+    if (screenshotInsightPersistedHasContent(ticket.screenshotInsight)) {
+      return;
+    }
+    if (imageAttachmentsForInsight.length === 0) {
+      return;
+    }
+    if (screenshotInsightLoading) {
+      return;
+    }
+
+    void handleAnalyzeScreenshots({ silent: true });
+  }, [
+    approvalDisplayContext,
+    handleAnalyzeScreenshots,
+    imageAttachmentsForInsight.length,
+    isOpen,
+    screenshotInsightLoading,
+    ticket.id,
+    ticket.screenshotInsight,
+  ]);
+
   const handleSave = useCallback(async () => {
     if (saving || archiving) {
       return;
@@ -923,6 +1203,16 @@ export default function TicketModal({
 
     setSaving(true);
     try {
+      const snapshot = lastIntakeAssistSnapshotRef.current;
+      const intakeAssistSave =
+        intakeAssistUsedInSessionRef.current && snapshot
+          ? {
+              intakeAssistUsedBeforeSave: true,
+              lastIntakeClarityState: snapshot.clarityState,
+              lastIntakeMissingDetailCount: snapshot.missingDetailCount,
+            }
+          : undefined;
+
       const result = await onSave(
         {
           title,
@@ -941,6 +1231,7 @@ export default function TicketModal({
             ? changeReason.trim() || undefined
             : undefined,
           concurrencyToken: ticket.id ? ticket.concurrencyToken : undefined,
+          ...(intakeAssistSave ? { intakeAssistSave } : {}),
         },
         queuedAttachments,
       );
@@ -1738,10 +2029,6 @@ export default function TicketModal({
     isRequesterContext && requesterApprovalStatus !== "Approved";
   /** Reviewer + requester PendingApproval: no comment thread (intake vs collaboration). */
   const showCommentsColumn = commentsColumnEnabled;
-  const showAiTriageColumn =
-    approvalDisplayContext === "reviewer" &&
-    Boolean(ticket.id) &&
-    shouldShowApprovalTriageModalPanel(ticket);
   const canOfferTriageRegenerate =
     Boolean(ticket.id) &&
     approvalDisplayContext === "reviewer" &&
@@ -2135,13 +2422,38 @@ export default function TicketModal({
                         disabled={
                           intakeAssistLoading || !description.trim()
                         }
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md border-2 border-cortex-blue bg-white px-2.5 py-1.5 text-xs font-semibold text-cortex-blue-dark shadow-sm transition-colors hover:border-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-55 dark:border-emerald-400/85 dark:bg-slate-900 dark:text-emerald-300 dark:shadow-sm dark:hover:border-emerald-300 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-200"
+                        aria-busy={intakeAssistLoading}
+                        className="ai-button inline-flex shrink-0 items-center gap-1 rounded-md border-2 border-cortex-blue bg-white px-2.5 py-1.5 text-xs font-semibold text-cortex-blue-dark transition-colors hover:border-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-55 dark:border-emerald-400/85 dark:bg-slate-900 dark:text-emerald-300 dark:hover:border-emerald-300 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-200"
                       >
-                        {intakeAssistLoading ? "Improving…" : "Improve for review"}
+                        <span className="inline-flex items-center gap-1">
+                          {intakeAssistLoading ? "Improving…" : "Improve for review"}
+                        </span>
                       </button>
                     </CortexTooltip>
                   )}
                 </div>
+                {reviewerIntakeQualityKind !== null && reviewerIntakeQualityCopy ? (
+                  <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-2.5 dark:border-slate-700 dark:bg-slate-900/50">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                          reviewerIntakeQualityKind === "none"
+                            ? "border border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                            : reviewerIntakeQualityKind === "ready"
+                              ? CLARITY_STATE_PILL_CLASS.ready_for_execution
+                              : reviewerIntakeQualityKind === "gaps"
+                                ? CLARITY_STATE_PILL_CLASS.would_have_required_follow_up
+                                : CLARITY_STATE_PILL_CLASS.requires_clarification
+                        }`}
+                      >
+                        {reviewerIntakeQualityCopy.title}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+                      {reviewerIntakeQualityCopy.body}
+                    </p>
+                  </div>
+                ) : null}
                 {isCreateMode && !formReadOnly ? (
                   <p className="mb-2 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
                     Improve this request before submission so reviewers can act
@@ -2393,6 +2705,188 @@ export default function TicketModal({
                     Attachments
                   </button>
                 </div>
+
+                {approvalDisplayContext === "reviewer" &&
+                ticket.id &&
+                imageAttachmentsForInsight.length > 0 ? (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-3 sm:gap-y-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void handleAnalyzeScreenshots()}
+                        disabled={screenshotInsightLoading}
+                        aria-busy={screenshotInsightLoading}
+                        className="ai-button inline-flex min-h-[2.5rem] shrink-0 items-center justify-center rounded-md border-2 border-cortex-blue bg-white px-3 py-2 text-xs font-semibold text-cortex-blue-dark transition-opacity hover:border-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/85 dark:bg-slate-900 dark:text-emerald-300 dark:hover:border-emerald-300 dark:hover:bg-emerald-950/40"
+                      >
+                        {screenshotInsightLoading ? (
+                          <span className="inline-flex items-center">
+                            <svg
+                              className="mr-2 h-4 w-4 shrink-0 animate-spin text-current"
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              aria-hidden
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                              />
+                            </svg>
+                            Analyzing screenshots…
+                          </span>
+                        ) : (
+                          <span>Analyze screenshots</span>
+                        )}
+                      </button>
+                      <span className="text-xs text-gray-500 dark:text-slate-400 sm:pt-2">
+                        {imageAttachmentsForInsight.length} image
+                        {imageAttachmentsForInsight.length === 1 ? "" : "s"}{" "}
+                        (PNG, JPG, WEBP)
+                      </span>
+                    </div>
+                    {screenshotInsightAutoHint ? (
+                      <p
+                        className="text-[11px] text-gray-500 dark:text-slate-500"
+                        aria-live="polite"
+                      >
+                        Analyzing screenshots…
+                      </p>
+                    ) : null}
+                    <p className="max-w-xl text-xs leading-snug text-gray-500 dark:text-slate-500">
+                      Understand what&apos;s happening from screenshots before
+                      asking follow-up questions.
+                    </p>
+                    {screenshotInsightError ? (
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        {screenshotInsightError}
+                      </p>
+                    ) : null}
+                    {screenshotInsightResult ? (
+                      <div
+                        className="rounded-md border border-gray-200 bg-gray-50 p-4 text-sm text-gray-800 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-200"
+                        role="region"
+                        aria-label="Screenshot insight"
+                      >
+                        <p className="mb-3 text-xs font-semibold tracking-wide text-gray-700 dark:text-slate-300">
+                          Screenshot Insight
+                        </p>
+                        {screenshotInsightResult.unavailable ? (
+                          <p
+                            className="text-sm text-amber-900 dark:text-amber-100"
+                            role="status"
+                          >
+                            {screenshotInsightResult.unavailableReason?.trim() ||
+                              "Unable to analyze screenshots."}
+                          </p>
+                        ) : (
+                          (() => {
+                            const visibleLines = filterScreenshotInsightNoise(
+                              screenshotInsightResult.visibleDetails,
+                            );
+                            const issueLines = filterScreenshotInsightNoise(
+                              screenshotInsightResult.possibleIssues,
+                            );
+                            const followLines =
+                              screenshotInsightResult.recommendedFollowUp;
+
+                            return (
+                              <div className="space-y-5">
+                                <p className="text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
+                                  Advisory read of visible screenshots — may not
+                                  capture full context or intent.
+                                </p>
+
+                                <div className="border-b border-gray-200 pb-4 dark:border-slate-700">
+                                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                                    Summary
+                                  </p>
+                                  <p className="text-[15px] font-semibold leading-snug text-gray-900 dark:text-slate-50">
+                                    {screenshotInsightResult.summary?.trim() ||
+                                      "—"}
+                                  </p>
+                                </div>
+
+                                {issueLines.length > 0 ? (
+                                  <div className="rounded-lg border border-amber-300/80 bg-amber-50/90 px-3 py-3 dark:border-amber-700/50 dark:bg-amber-950/35">
+                                    <p className="mb-2.5 text-xs font-bold uppercase tracking-wide text-amber-950 dark:text-amber-200">
+                                      Possible issues
+                                    </p>
+                                    <ul className="list-none space-y-2.5 pl-0">
+                                      {issueLines.map((line, idx) => (
+                                        <li
+                                          key={`pi-${idx}-${line.slice(0, 32)}`}
+                                          className={
+                                            idx === 0
+                                              ? "border-l-[3px] border-amber-600 pl-3 text-sm font-semibold leading-relaxed text-gray-900 dark:border-amber-400 dark:text-slate-50"
+                                              : "border-l-[3px] border-amber-200/80 pl-3 text-sm leading-relaxed text-gray-800 dark:border-amber-800/60 dark:text-slate-200"
+                                          }
+                                        >
+                                          {line}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+
+                                {followLines.length > 0 ? (
+                                  <div className="rounded-lg border border-emerald-300/70 bg-emerald-50/60 px-3 py-3 dark:border-emerald-800/50 dark:bg-emerald-950/25">
+                                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-950 dark:text-emerald-200">
+                                      Recommended follow-up
+                                    </p>
+                                    <ul className="list-none space-y-2 pl-0">
+                                      {followLines.map((line, idx) => (
+                                        <li
+                                          key={`rf-${idx}-${line.slice(0, 32)}`}
+                                          className="flex gap-2 text-sm font-medium leading-relaxed text-emerald-950 dark:text-emerald-100"
+                                        >
+                                          <span
+                                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-600 dark:bg-emerald-400"
+                                            aria-hidden
+                                          />
+                                          <span>{line}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+
+                                {visibleLines.length > 0 ? (
+                                  <div className="border-t border-gray-200 pt-4 dark:border-slate-700">
+                                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                                      What&apos;s visible
+                                    </p>
+                                    <p className="mb-2 text-[11px] text-gray-500 dark:text-slate-500">
+                                      Observable UI detail (secondary to issues
+                                      and follow-up).
+                                    </p>
+                                    <ul className="list-outside list-disc space-y-2 pl-5 text-sm leading-[1.55] text-gray-600 dark:text-slate-400">
+                                      {visibleLines.map((line, idx) => (
+                                        <li
+                                          key={`vis-${idx}-${line.slice(0, 32)}`}
+                                        >
+                                          {line}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })()
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="mt-4 space-y-3">
                   <label

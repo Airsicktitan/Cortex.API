@@ -9,6 +9,13 @@ public class CommentRepository(CortexDbContext context) : ICommentRepository
 {
     private readonly CortexDbContext _context = context;
 
+    public Task<int> CountCommentsByTicketIdAsync(string ticketId)
+    {
+        return _context.Comments
+            .AsNoTracking()
+            .CountAsync(c => c.TicketId == ticketId);
+    }
+
     public async Task<IEnumerable<Comment>> GetCommentsByTicketIdAsync(string ticketId)
     {
         return await _context.Comments

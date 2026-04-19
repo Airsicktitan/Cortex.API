@@ -48,6 +48,9 @@ public class Ticket
     /// <summary>One sentence explaining the advisory SLA risk assessment.</summary>
     public string? AiTriageSlaRiskReason { get; set; }
 
+    /// <summary>JSON blob: last successful screenshot (attachment) insight from AI vision; advisory only.</summary>
+    public string? AiScreenshotInsightJson { get; set; }
+
     public List<Comment> Comments { get; set; } = []; // Initialize to empty list 
     public List<TicketAttachment> Attachments { get; set; } = [];
     

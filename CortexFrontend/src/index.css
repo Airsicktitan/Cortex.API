@@ -65,3 +65,149 @@ html.dark body {
   width: 0;
   height: 0;
 }
+
+/* Subtle shimmer + hover glow for AI actions (intake assist, screenshot insight, triage regenerate). */
+@layer components {
+  @keyframes ai-button-shimmer {
+    0% {
+      background-position: 130% 0;
+    }
+    100% {
+      background-position: -130% 0;
+    }
+  }
+
+  @keyframes ai-button-pulse {
+    0%,
+    100% {
+      box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.04),
+        0 0 0 0 rgb(11 155 135 / 0);
+    }
+    50% {
+      box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.05),
+        0 0 0 1px rgb(11 155 135 / 0.22),
+        0 6px 20px -6px rgb(11 155 135 / 0.18);
+    }
+  }
+
+  @keyframes ai-button-pulse-dark {
+    0%,
+    100% {
+      box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.2),
+        0 0 0 0 rgb(52 211 153 / 0);
+    }
+    50% {
+      box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.25),
+        0 0 0 1px rgb(52 211 153 / 0.28),
+        0 6px 22px -6px rgb(16 185 129 / 0.12);
+    }
+  }
+
+  .ai-button {
+    position: relative;
+    isolation: isolate;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+    @apply overflow-hidden transition-shadow duration-200;
+  }
+
+  html.dark .ai-button {
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.22);
+  }
+
+  .ai-button::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.75;
+    background: linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 42%,
+      rgb(11 155 135 / 0.07) 50%,
+      transparent 58%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    background-position: 130% 0;
+    animation: ai-button-shimmer 4.5s linear infinite;
+  }
+
+  html.dark .ai-button::before {
+    background: linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 42%,
+      rgb(255 255 255 / 0.055) 50%,
+      transparent 58%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    background-position: 130% 0;
+    opacity: 0.65;
+  }
+
+  .ai-button:hover:not(:disabled)::before {
+    opacity: 0.95;
+  }
+
+  html.dark .ai-button:hover:not(:disabled)::before {
+    opacity: 0.85;
+  }
+
+  .ai-button:hover:not(:disabled) {
+    box-shadow:
+      0 0 0 1px rgb(11 155 135 / 0.28),
+      0 6px 18px -4px rgb(11 155 135 / 0.2);
+  }
+
+  html.dark .ai-button:hover:not(:disabled) {
+    box-shadow:
+      0 0 0 1px rgb(52 211 153 / 0.35),
+      0 6px 20px -4px rgb(16 185 129 / 0.14);
+  }
+
+  .ai-button:disabled::before {
+    animation: none;
+    opacity: 0.2;
+  }
+
+  .ai-button[aria-busy="true"]::before {
+    animation-play-state: paused;
+    opacity: 0.35;
+  }
+
+  html.dark .ai-button[aria-busy="true"]::before {
+    opacity: 0.28;
+  }
+
+  .ai-button[aria-busy="true"] {
+    animation: ai-button-pulse 1.75s ease-in-out infinite;
+  }
+
+  html.dark .ai-button[aria-busy="true"] {
+    animation: ai-button-pulse-dark 1.75s ease-in-out infinite;
+  }
+
+  .ai-button > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ai-button::before {
+      animation: none;
+      opacity: 0.25;
+    }
+
+    .ai-button[aria-busy="true"] {
+      animation: none;
+    }
+  }
+}

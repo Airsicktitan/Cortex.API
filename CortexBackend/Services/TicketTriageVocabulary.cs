@@ -41,7 +41,7 @@ public sealed class TicketTriageVocabularyProvider(
     {
         var definitions = await _statusRepository.GetAllAsync();
         var statuses = definitions
-            .Where(d => d.IsEnabled)
+            .Where(d => d.IsEnabled && !string.IsNullOrWhiteSpace(d.Name.Trim()))
             .OrderBy(d => d.Id)
             .Select(d => new TicketTriageStatusOption(
                 d.Name.Trim(),
@@ -51,6 +51,7 @@ public sealed class TicketTriageVocabularyProvider(
 
         var slaRows = await _slaConfigurationService.GetAllAsync();
         var priorities = slaRows
+            .Where(p => !string.IsNullOrWhiteSpace(p.Priority.Trim()))
             .GroupBy(p => p.Priority.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .Select(p => new TicketTriagePriorityOption(

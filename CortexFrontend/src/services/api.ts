@@ -1,5 +1,6 @@
 import type {
   CreateTicketInput,
+  ReviewerQualitySignalMetricsPayload,
   Ticket,
   TicketMutationInput,
   TicketTriageApplyRequest,
@@ -11,6 +12,7 @@ import type {
   PagedTicketList,
 } from "../types/pagedList";
 import type { TicketAttachment } from "../types/attachment";
+import type { ScreenshotInsightResult } from "../types/screenshotInsight";
 import type { TicketAuditEntry } from "../types/ticketAudit";
 import type {
   OwnerWorkloadPreviewRequest,
@@ -19,6 +21,7 @@ import type {
   RoutingPreviewResponse,
   TicketRoutingLatestResponse,
 } from "../types/ticketRoutingInsight";
+import type { WorkflowMetricsSnapshot } from "../types/workflowMetrics";
 import type {
   AdminUpdateUserInput,
   Auth0RoleOption,
@@ -505,6 +508,29 @@ export const ticketService = {
     return response.json() as Promise<Ticket>;
   },
 
+  /** Best-effort workflow metric; failures are ignored client-side. */
+  async recordReviewerQualitySignal(
+    ticketId: string,
+    payload: ReviewerQualitySignalMetricsPayload,
+    token: string,
+  ): Promise<void> {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/tickets/${encodeURIComponent(ticketId)}/metrics/reviewer-quality-signal`,
+        {
+          method: "POST",
+          headers: authHeaders(token, true),
+          body: JSON.stringify(payload),
+        },
+      );
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+  },
+
   /**
    * Stateless, user-facing Improve Request assist. Server never mutates a ticket;
    * a 200 with `unavailable: true` means AI is misconfigured or failed and the
@@ -597,6 +623,18 @@ export const ticketService = {
   },
 };
 
+export const metricsService = {
+  async getWorkflowMetricsSnapshot(
+    token: string,
+  ): Promise<WorkflowMetricsSnapshot> {
+    const response = await fetch(`${API_BASE_URL}/metrics/snapshot`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load workflow metrics");
+    return response.json() as Promise<WorkflowMetricsSnapshot>;
+  },
+};
+
 export const attachmentService = {
   async getByTicket(ticketId: string, token: string): Promise<TicketAttachment[]> {
     const response = await fetch(`${API_BASE_URL}/tickets/${ticketId}/attachments`, {
@@ -663,6 +701,25 @@ export const attachmentService = {
 
     await ensureSuccess(response, "Unable to download archived attachment");
     return response.blob();
+  },
+
+  async analyzeScreenshotInsight(
+    ticketId: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<ScreenshotInsightResult> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${ticketId}/attachments/screenshot-insight`,
+      {
+        method: "POST",
+        headers: authHeaders(token, true),
+        body: "{}",
+        signal,
+      },
+    );
+
+    await ensureSuccess(response, "Unable to analyze screenshots");
+    return response.json() as Promise<ScreenshotInsightResult>;
   },
 };
 
