@@ -3,6 +3,7 @@ import { memo, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent }
 type SidebarView =
   | "dashboard"
   | "tickets"
+  | "approval"
   | "archived"
   | "reports"
   | "sla"

@@ -60,6 +60,17 @@ export interface UserDirectoryEntry {
   role?: string;
 }
 
+/** Result of POST /api/users/sync-from-auth0 (local directory projection from Auth0). */
+export interface SyncUsersFromAuth0Result {
+  totalFromAuth0: number;
+  created: number;
+  linkedByEmail: number;
+  updated: number;
+  unchanged: number;
+  skippedNoEmail: number;
+  skippedEmailConflict: number;
+}
+
 export interface AdminUpdateUserInput {
   nickName?: string;
   phoneNumber?: string;

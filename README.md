@@ -4,9 +4,9 @@
 
 A SaaS-style support operations platform designed to model **real enterprise ownership, accountability, and workflow flow** — not idealized ticket states.
 
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen)  
-![.NET](https://img.shields.io/badge/.NET-8-purple)  
-![React](https://img.shields.io/badge/React-19-blue)  
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
+![.NET](https://img.shields.io/badge/.NET-8-purple)
+![React](https://img.shields.io/badge/React-19-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
 
 ---
@@ -54,20 +54,64 @@ By separating execution from verification and enforcing ownership through the sy
 
 Unlike generic ticketing systems, CORTEX is opinionated around real operational workflows:
 
-- **Dual ownership model**  
+- **Dual ownership model**
   Separates technical execution from business validation
 
-- **Built-in routing intelligence**  
+- **Built-in routing intelligence**
   Automatically assigns ownership based on context, not manual triage
 
-- **SLA awareness by default**  
+- **SLA awareness by default**
   Risk is surfaced in real time, not buried in reports
 
-- **Action-first UI**  
+- **Action-first UI**
   Users can resolve issues directly from priority views without navigation overhead
 
-- **Out-of-the-box usability**  
+- **Out-of-the-box usability**
   Works immediately without requiring heavy configuration
+
+---
+
+## 🤖 AI-Assisted Triage (System-Constrained Intelligence)
+
+CORTEX includes an AI-assisted triage layer designed to enhance — not override — operational workflows.
+
+Unlike generic AI integrations, CORTEX enforces **strict system boundaries**:
+
+- AI operates within **CORTEX-defined statuses and priorities**
+- AI cannot invent or assume workflow states
+- All recommendations are validated against **live system configuration**
+
+### 🧠 How It Works
+
+- The system dynamically provides the AI with:
+  - Valid ticket statuses (from configuration)
+  - Valid priorities (from SLA configuration)
+  - Optional descriptions and sequencing hints
+
+- The AI generates:
+  - Suggested priority
+  - Suggested status (when applicable)
+  - SLA risk assessment (Low / Medium / High)
+
+### 🛡 Safety & Control
+
+- AI outputs are **validated twice**:
+  - At generation time (normalization to allowed values)
+  - At persistence time (final enforcement)
+
+- Invalid or unknown values are **rejected and logged**
+- The system remains the **final authority** over all ticket updates
+
+### 🎯 Design Principle
+
+> AI does not define the workflow — it operates inside it.
+
+### 🚀 Outcome
+
+- Faster triage decisions
+- Reduced manual prioritization
+- No risk of AI corrupting workflow state
+- Immediate compatibility with new statuses and priorities without code changes
 
 ---
 
@@ -78,13 +122,7 @@ Unlike generic ticketing systems, CORTEX is opinionated around real operational 
 | **Syniti Owner**   | Technical execution (code, configuration, deployments) |
 | **Business Owner** | Business validation and acceptance                     |
 
-Ownership is **explicit, enforced, and auditable** — not inferred from comments or status names.
-
----
-
-## 🧠 How It Works in Practice
-
-CORTEX is designed to work **out of the box**, with intelligent defaults for routing, ownership, and SLA tracking — while still allowing deeper configuration where needed.
+Ownership is **explicit, enforced, and auditable**.
 
 ---
 
@@ -97,83 +135,66 @@ CORTEX is actively evolving from a prototype into a production-ready platform.
 Recent engineering work has focused on:
 
 - **Frontend architecture decomposition**
-  - Breaking down large application surfaces into domain-specific hooks (`useUsers`, `useConfiguration`)
-  - Reducing coupling and improving maintainability for future features
 
 - **Backend data integrity enforcement**
-  - Fixing archived ticket failures caused by null data and schema drift
-  - Aligning database contracts with application models to prevent runtime materialization errors
 
 - **Stored procedure contract hardening**
-  - Ensuring `dbo.ArchiveTicket` persists all required fields (including `BoardId` and `StoryPoints`)
-  - Eliminating reliance on brittle fallback logic in application code
 
 - **Production debugging practices**
-  - Tracing failures across frontend → API → EF Core → SQL Server
-  - Identifying and resolving real-world data inconsistencies
 
 - **Safe deployment workflow**
-  - Introducing branch-based development (`dev` vs `v2`) to prevent unintended production deployments
-  - Verifying database and application state alignment across environments
 
-> CORTEX is being built with the expectation that real-world data is imperfect — and the system must handle it safely.
+- **AI integration with system constraints**
+  - AI triage bounded by dynamic system vocabulary
+  - No hardcoded workflow assumptions
+  - Dual-layer validation for safety
+  - Future-proof against new statuses and priorities
+
+> CORTEX is built to handle real-world data safely.
 
 ---
 
 ## 📁 Repository Layout
 
-- `CortexBackend/` - ASP.NET Core API, EF Core models, handlers, services, and backend Dockerfile
-- `CortexFrontend/` - React + TypeScript + Vite frontend with its own Dockerfile
-- `Cortex.API.sln` - root solution entry point for the backend project
-- `docker-compose.yml` - root container orchestration for local frontend + API + SQL Server
+- `CortexBackend/`
+- `CortexFrontend/`
+- `Cortex.API.sln`
+- `docker-compose.yml`
 
 ---
 
 ## 📸 See It in Action
 
-> Screenshots coming soon
-
-CORTEX includes:
-
-- Real-time dashboard with SLA risk and ownership visibility
-- “Needs Attention” workflow for high-priority tickets
-- Inline ticket editing and collaboration
-- Board-aware ticket workflows with a seeded default `Ticket` board plus configurable `Hypercare`, `Enhancement`, and future boards
-- Routing and notification configuration
-- Backend-generated CSV report export for Excel or Google Sheets compatible downloads
-- Persistent Auth0 session restore across browser refresh, a simplified login screen, new-ticket title auto-focus, fresh comment refresh, admin/developer-only archive actions, and a notification dropdown that stays layered above dashboard content
+- Real-time dashboard
+- Needs Attention workflow
+- Inline editing
+- Multi-board workflows
+- CSV export (Excel / Google Sheets compatible)
+- Auth0 session persistence
+- Notification dropdown system
+- AI-assisted triage suggestions
 
 ---
 
 ## 🧪 Product Philosophy
 
-CORTEX follows a deliberate product approach:
-
 - Model reality first
 - Protect invariants early
 - Add intelligence only when data exists
-- Refactor openly as understanding deepens
-
-This repository reflects real-world operational problems and iterative product development — not theoretical design.
-
-- Backend HTTP integrations are kept on DI-managed clients instead of ad-hoc `new HttpClient()` usage
-- Ticket creation resolves invalid or missing board assignments to the default seeded `Ticket` board instead of risking FK drift
+- Refactor as understanding deepens
 
 ---
 
 ## 📌 Project Status
 
 - 🚧 Active development
-- 🧪 Internal platform prototype with working end-to-end flows
-- 🎯 Long-term goal: internal platform-grade deployment
-- 🎤 Target: Syniti DemoJam presentation
+- 🧪 Internal prototype
+- 🎯 DemoJam target
 
 ---
 
 ## 👨‍💻 Author
 
-**Adam Hooper**  
-Senior Consultant, Syniti  
-Full-Stack / Platform-Focused Engineer
-
+Adam Hooper
+Senior Consultant, Syniti
 GitHub: https://github.com/Airsicktitan

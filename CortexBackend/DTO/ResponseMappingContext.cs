@@ -3,14 +3,19 @@ using Cortex.API.Services;
 
 namespace Cortex.API.DTO;
 
+public sealed record ResponseMappingUserIdentity(
+    string DisplayName,
+    string? Email,
+    string? Auth0Id);
+
 public sealed class ResponseMappingContext(
-    IReadOnlyDictionary<int, string> userDisplayNames,
+    IReadOnlyDictionary<int, ResponseMappingUserIdentity> userIdentities,
     IReadOnlyDictionary<int, string> storedProcedureLabels,
     IReadOnlyDictionary<int, string> boardNames,
     IReadOnlyDictionary<string, User> ownerAliases)
 {
     public static ResponseMappingContext Empty { get; } = new(
-        new Dictionary<int, string>(),
+        new Dictionary<int, ResponseMappingUserIdentity>(),
         new Dictionary<int, string>(),
         new Dictionary<int, string>(),
         new Dictionary<string, User>(StringComparer.OrdinalIgnoreCase));
@@ -25,9 +30,35 @@ public sealed class ResponseMappingContext(
             return loadedDisplayName;
         }
 
-        return userDisplayNames.TryGetValue(userId, out var displayName)
-            ? displayName
+        return userIdentities.TryGetValue(userId, out var identity)
+            ? identity.DisplayName
             : "Unknown User";
+    }
+
+    public string? ResolveUserEmail(int userId, User? loadedUser = null)
+    {
+        var loadedEmail = NormalizeDisplayName(loadedUser?.Email);
+        if (loadedEmail is not null)
+        {
+            return loadedEmail;
+        }
+
+        return userIdentities.TryGetValue(userId, out var identity)
+            ? NormalizeDisplayName(identity.Email)
+            : null;
+    }
+
+    public string? ResolveUserAuth0Id(int userId, User? loadedUser = null)
+    {
+        var loadedAuth0Id = NormalizeDisplayName(loadedUser?.Auth0Id);
+        if (loadedAuth0Id is not null)
+        {
+            return loadedAuth0Id;
+        }
+
+        return userIdentities.TryGetValue(userId, out var identity)
+            ? NormalizeDisplayName(identity.Auth0Id)
+            : null;
     }
 
     public string? ResolveStoredProcedureLabel(

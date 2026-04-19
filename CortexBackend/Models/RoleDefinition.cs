@@ -7,6 +7,9 @@ public class RoleDefinition
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>Uppercase invariant form of <see cref="Name"/> for case-insensitive uniqueness in the database.</summary>
+    public string NameNormalized { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string PermissionsJson { get; set; } = "[]";
     public bool IsEnabled { get; set; } = true;

@@ -52,9 +52,12 @@ public class TicketHandlersUpdateConcurrencyTests
             ConcurrencyToken = staleClientToken,
         };
 
+        var httpContext = new DefaultHttpContext();
+
         var result = await TicketHandlers.UpdateTicket(
             ticketId,
             request,
+            httpContext,
             repo.Object,
             userContext.Object,
             Mock.Of<IUserRepository>(),
@@ -62,6 +65,8 @@ public class TicketHandlersUpdateConcurrencyTests
             Mock.Of<ITicketStatusService>(),
             Mock.Of<ITicketBoardService>(),
             Mock.Of<ITicketRoutingRuleService>(),
+            Mock.Of<ITicketTriageAiService>(),
+            Mock.Of<ITicketTriageVocabularyProvider>(),
             Mock.Of<ITicketAuditService>(),
             Mock.Of<INotificationService>(),
             Mock.Of<IRealtimeEventService>(),

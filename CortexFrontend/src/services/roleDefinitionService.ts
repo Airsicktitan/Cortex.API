@@ -1,5 +1,6 @@
 import type {
   RoleDefinition,
+  SyncRoleDefinitionsFromAuth0Result,
   UpsertRoleDefinitionInput,
 } from "../types/roleDefinition";
 import { ensureSuccess } from "./api";
@@ -20,6 +21,17 @@ export const roleDefinitionService = {
     });
 
     await ensureSuccess(response, "Failed to load role definitions");
+    return response.json();
+  },
+
+  async syncFromAuth0(token: string): Promise<SyncRoleDefinitionsFromAuth0Result> {
+    const response = await fetch(`${API_BASE_URL}/settings/roles/sync-from-auth0`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: "{}",
+    });
+
+    await ensureSuccess(response, "Failed to import new roles from Auth0");
     return response.json();
   },
 

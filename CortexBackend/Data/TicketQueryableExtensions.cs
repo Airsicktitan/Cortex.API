@@ -5,6 +5,12 @@ namespace Cortex.API.Data;
 
 internal static class TicketQueryableExtensions
 {
+    /// <summary>Operational boards, SLA, workload, and reporting include only approved tickets.</summary>
+    public static IQueryable<Ticket> WhereApprovedForActiveWork(this IQueryable<Ticket> query)
+    {
+        return query.Where(t => t.ApprovalStatus == ApprovalStatus.Approved);
+    }
+
     public static IQueryable<Ticket> WhereVisibleTo(
         this IQueryable<Ticket> query,
         TicketVisibilityContext ctx)

@@ -16,9 +16,22 @@ public static class TicketSlaCalculator
         SlaConfiguration? configuration = null,
         DateTime? nowUtc = null)
     {
-        var createdDateUtc = EnsureUtc(ticket.CreatedDate);
+        if (ticket.ApprovalStatus != ApprovalStatus.Approved)
+        {
+            var createdDateUtc = EnsureUtc(ticket.CreatedDate);
+            var label = ticket.ApprovalStatus switch
+            {
+                ApprovalStatus.PendingApproval => "Pending Approval",
+                ApprovalStatus.NeedsMoreInfo => "Needs More Info",
+                ApprovalStatus.Rejected => "Rejected",
+                _ => "Not Active"
+            };
+            return new TicketSlaSnapshot(createdDateUtc, null, label, 0, false);
+        }
+
+        var createdDateUtcActive = EnsureUtc(ticket.CreatedDate);
         var effectiveConfiguration = configuration ?? GetDefaultPolicy(ticket.Priority);
-        var targetDateUtc = createdDateUtc.Add(TimeSpan.FromHours(effectiveConfiguration.TargetHours));
+        var targetDateUtc = createdDateUtcActive.Add(TimeSpan.FromHours(effectiveConfiguration.TargetHours));
         var completedDateUtc = GetCompletedDate(ticket);
         var comparisonDateUtc = completedDateUtc ?? nowUtc ?? DateTime.UtcNow;
         var remainingMinutes = ToWholeMinutes(targetDateUtc - comparisonDateUtc);

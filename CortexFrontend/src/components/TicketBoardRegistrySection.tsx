@@ -4,6 +4,19 @@ import type {
   UpsertTicketBoardDefinitionInput,
 } from "../types/ticketBoard";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
+import {
+  ConfigDetailCard,
+  ConfigErrorBanner,
+  ConfigGhostButton,
+  ConfigPageBody,
+  ConfigPageHeader,
+  ConfigPageShell,
+  ConfigPrimaryButton,
+  ConfigSecondaryButton,
+  ConfigTwoColumnWideCatalog,
+  configCatalogItemClass,
+  configFieldClass,
+} from "./configurationAdminUi";
 
 interface TicketBoardRegistrySectionProps {
   boards: TicketBoardDefinition[];
@@ -51,10 +64,10 @@ export default function TicketBoardRegistrySection({
 
   const saveLabel = useMemo(() => {
     if (saving) {
-      return editingId ? "Saving..." : "Creating...";
+      return editingId ? "Saving…" : "Creating…";
     }
 
-    return editingId ? "Save Board" : "Create Board";
+    return editingId ? "Save changes" : "Create board";
   }, [editingId, saving]);
 
   const resetForm = () => {
@@ -106,239 +119,211 @@ export default function TicketBoardRegistrySection({
     setPendingDeleteBoard(null);
   };
 
+  const isNewMode = editingId === null;
+
   return (
     <>
-      <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-                Ticket Boards
-              </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Create and manage the boards tickets can live on, including
-                boards like Hypercare and Enhancement.
-              </p>
-            </div>
+      <ConfigPageShell>
+        <ConfigPageHeader
+          title="Boards"
+          description="Define ticket boards and how they behave (for example story points and availability)."
+          actions={
+            <>
+              <ConfigPrimaryButton onClick={resetForm} disabled={isBusy}>
+                New board
+              </ConfigPrimaryButton>
+              <ConfigGhostButton onClick={onRefresh} disabled={isBusy}>
+                Reload
+              </ConfigGhostButton>
+            </>
+          }
+        />
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={onRefresh}
-                disabled={isBusy}
-                className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={resetForm}
-                disabled={isBusy}
-                className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                New Board
-              </button>
-            </div>
-          </div>
-        </div>
+        {error ? <ConfigErrorBanner>{error}</ConfigErrorBanner> : null}
 
-        {error && (
-          <div className="border-b border-red-200 bg-red-50 px-6 py-4 dark:border-red-900/40 dark:bg-red-950/40">
-            <p className="text-red-700 dark:text-red-300">{error}</p>
-          </div>
-        )}
-
-        <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="overflow-x-auto">
-            {loading ? (
-              <div className="py-10 text-center text-gray-500 dark:text-slate-400">
-                Loading ticket boards...
-              </div>
-            ) : boards.length === 0 ? (
-              <div className="py-10 text-center text-gray-500 dark:text-slate-400">
-                No ticket boards have been created yet.
-              </div>
-            ) : (
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-left text-gray-600 dark:bg-slate-800/80 dark:text-slate-300">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Board</th>
-                    <th className="px-4 py-3 font-medium">Type</th>
-                    <th className="px-4 py-3 font-medium">Availability</th>
-                    <th className="px-4 py-3 font-medium">Updated</th>
-                    <th className="px-4 py-3 font-medium">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {boards.map((board) => (
-                    <tr
-                      key={board.id}
-                      className="border-t border-gray-100 text-gray-700 dark:border-slate-800 dark:text-slate-200"
-                    >
-                      <td className="px-4 py-3 align-top">
-                        <p className="font-medium text-gray-900 dark:text-slate-100">
-                          {board.name}
-                        </p>
-                        <p className="mt-1 max-w-sm text-xs text-gray-500 dark:text-slate-400">
-                          {board.description || "No description"}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <span className="inline-flex rounded-full bg-cortex-blue-soft px-3 py-1 text-xs font-medium text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
-                          {board.requiresStoryPoints
-                            ? "Uses story points"
-                            : "Standard board"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                            board.isEnabled
-                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
-                              : "bg-gray-200 text-gray-700 dark:bg-slate-800 dark:text-slate-300"
-                          }`}
-                        >
-                          {board.isEnabled ? "Enabled" : "Disabled"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 align-top whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">
-                        {formatDate(board.lastModifiedDateUtc ?? board.createdDateUtc)}
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="flex flex-wrap gap-2">
+        <ConfigPageBody>
+          <ConfigTwoColumnWideCatalog
+            left={
+              <div className="flex min-h-[200px] flex-col gap-2">
+                {loading ? (
+                  <p className="py-8 text-center text-sm text-gray-500 dark:text-slate-400">
+                    Loading boards…
+                  </p>
+                ) : boards.length === 0 ? (
+                  <div className="flex flex-1 flex-col justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-8 text-center dark:border-slate-700 dark:bg-slate-800/30">
+                    <p className="text-sm font-medium text-gray-800 dark:text-slate-200">No boards yet</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                      Create a board or reload after adding data elsewhere.
+                    </p>
+                    <div className="mt-4 flex justify-center gap-2">
+                      <ConfigPrimaryButton onClick={resetForm} disabled={isBusy}>
+                        New board
+                      </ConfigPrimaryButton>
+                    </div>
+                  </div>
+                ) : (
+                  <ul className="max-h-[min(420px,50vh)] space-y-1 overflow-y-auto pr-0.5">
+                    {boards.map((board) => {
+                      const selected = editingId === board.id;
+                      return (
+                        <li key={board.id}>
                           <button
+                            type="button"
                             onClick={() => startEdit(board)}
                             disabled={isBusy}
-                            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            className={`group w-full rounded-lg border px-3 py-2.5 text-left text-sm transition disabled:opacity-50 ${configCatalogItemClass(selected)}`}
                           >
-                            Edit
+                            <div className="flex items-start justify-between gap-2">
+                              <span
+                                className={`truncate font-medium ${
+                                  selected
+                                    ? "text-cortex-blue dark:text-cortex-cyan"
+                                    : "text-gray-900 group-hover:text-gray-950 dark:text-slate-100"
+                                }`}
+                              >
+                                {board.name}
+                              </span>
+                              <span
+                                className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                  board.isEnabled
+                                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                    : "bg-gray-200 text-gray-600 dark:bg-slate-600 dark:text-slate-300"
+                                }`}
+                              >
+                                {board.isEnabled ? "On" : "Off"}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                              {board.requiresStoryPoints ? "Story points" : "Standard"} · Updated{" "}
+                              {formatDate(board.lastModifiedDateUtc ?? board.createdDateUtc)}
+                            </div>
                           </button>
-                          <button
-                            onClick={() => setPendingDeleteBoard(board)}
-                            disabled={isBusy}
-                            className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-950/30"
-                          >
-                            {deletingId === board.id ? "Deleting..." : "Delete"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-slate-700 dark:bg-slate-950/40">
-            <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
-              {editingId ? "Edit Ticket Board" : "Add Ticket Board"}
-            </h4>
-
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Board name
-                </label>
-                <input
-                  type="text"
-                  value={draft.name}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, name: event.target.value }))
-                  }
-                  className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                  placeholder="Hypercare"
-                />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
+            }
+            right={
+              <div className="min-w-0 space-y-4">
+                <ConfigDetailCard title={isNewMode ? "New board" : "Edit board"}>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                        Name
+                      </label>
+                      <input
+                        type="text"
+                        value={draft.name}
+                        onChange={(event) =>
+                          setDraft((current) => ({ ...current, name: event.target.value }))
+                        }
+                        className={configFieldClass}
+                        placeholder="e.g. Hypercare"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                        Description
+                      </label>
+                      <textarea
+                        value={draft.description ?? ""}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            description: event.target.value,
+                          }))
+                        }
+                        rows={3}
+                        className={configFieldClass}
+                        placeholder="What work belongs on this board?"
+                      />
+                    </div>
+                  </div>
+                </ConfigDetailCard>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                  Description
-                </label>
-                <textarea
-                  value={draft.description ?? ""}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      description: event.target.value,
-                    }))
-                  }
-                  rows={3}
-                  className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                  placeholder="Highlight what kind of work belongs on this board."
-                />
+                <ConfigDetailCard title="Options">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 dark:border-slate-600 dark:bg-slate-900">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 rounded border-gray-300 text-cortex-blue focus:ring-cortex-blue"
+                      checked={draft.requiresStoryPoints}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          requiresStoryPoints: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-gray-900 dark:text-slate-100">
+                        Requires story points
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-slate-400">
+                        For boards that use 1–5 story point estimates.
+                      </span>
+                    </span>
+                  </label>
+                </ConfigDetailCard>
+
+                <ConfigDetailCard title="Status">
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 rounded border-gray-300 text-cortex-blue focus:ring-cortex-blue"
+                      checked={draft.isEnabled}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          isEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span className="text-sm text-gray-800 dark:text-slate-200">
+                      Board is enabled for new work
+                    </span>
+                  </label>
+                </ConfigDetailCard>
+
+                <ConfigDetailCard title="Actions">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ConfigPrimaryButton
+                      onClick={() => void saveDefinition()}
+                      disabled={isBusy || !draft.name?.trim()}
+                    >
+                      {saveLabel}
+                    </ConfigPrimaryButton>
+                    <ConfigSecondaryButton onClick={resetForm} disabled={isBusy}>
+                      Clear
+                    </ConfigSecondaryButton>
+                    {editingId ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const b = boards.find((x) => x.id === editingId);
+                          if (b) setPendingDeleteBoard(b);
+                        }}
+                        disabled={isBusy}
+                        className="rounded-lg border border-red-200 px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800/60 dark:text-red-300 dark:hover:bg-red-950/30"
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
+                </ConfigDetailCard>
               </div>
-
-              <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900/60">
-                <input
-                  type="checkbox"
-                  checked={draft.requiresStoryPoints}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      requiresStoryPoints: event.target.checked,
-                    }))
-                  }
-                  className="mt-1 h-4 w-4"
-                />
-                <span>
-                  <span className="block font-medium text-gray-900 dark:text-slate-100">
-                    Requires story points
-                  </span>
-                  <span className="text-sm text-gray-500 dark:text-slate-400">
-                    Use this for enhancement-style boards that need story points
-                    from 1 to 5.
-                  </span>
-                </span>
-              </label>
-
-              <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900/60">
-                <input
-                  type="checkbox"
-                  checked={draft.isEnabled}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      isEnabled: event.target.checked,
-                    }))
-                  }
-                  className="mt-1 h-4 w-4"
-                />
-                <span>
-                  <span className="block font-medium text-gray-900 dark:text-slate-100">
-                    Enabled
-                  </span>
-                  <span className="text-sm text-gray-500 dark:text-slate-400">
-                    Disabled boards remain visible for history but can’t receive
-                    new ticket assignments.
-                  </span>
-                </span>
-              </label>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={() => void saveDefinition()}
-                  disabled={isBusy || !draft.name?.trim()}
-                  className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
-                >
-                  {saveLabel}
-                </button>
-                <button
-                  onClick={resetForm}
-                  disabled={isBusy}
-                  className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+            }
+          />
+        </ConfigPageBody>
+      </ConfigPageShell>
 
       <ConfirmDeleteModal
         isOpen={!!pendingDeleteBoard}
-        title="Delete Board"
+        title="Delete board"
         message={
           pendingDeleteBoard
-            ? `Delete "${pendingDeleteBoard.name}"? Tickets must be moved off this board before it can be removed.`
+            ? `Delete "${pendingDeleteBoard.name}"? Tickets must be moved off this board first.`
             : undefined
         }
         onCancel={() => setPendingDeleteBoard(null)}

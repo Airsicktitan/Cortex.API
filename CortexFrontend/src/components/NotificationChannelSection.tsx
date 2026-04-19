@@ -2,6 +2,16 @@ import type {
   NotificationChannelConfiguration,
   NotificationChannelMode,
 } from "../types/notificationChannelConfiguration";
+import {
+  ConfigDetailCard,
+  ConfigErrorBanner,
+  ConfigGhostButton,
+  ConfigPageBody,
+  ConfigPageHeader,
+  ConfigPageShell,
+  ConfigPrimaryButton,
+  configFieldClass,
+} from "./configurationAdminUi";
 
 const CHANNEL_OPTIONS: ReadonlyArray<NotificationChannelMode> = [
   "Neither",
@@ -33,112 +43,93 @@ export default function NotificationChannelSection({
   onSave,
 }: NotificationChannelSectionProps) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-      <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-              Notification Channel Defaults
-            </h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-              Choose the system default for optional Email or Teams alerts when
-              a user has not picked a personal preference yet.
-            </p>
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={onRefresh}
-              className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              Refresh
-            </button>
-            <button
+    <ConfigPageShell>
+      <ConfigPageHeader
+        title="Notifications"
+        description="Default Email/Teams delivery when a user has not set a personal preference."
+        actions={
+          <>
+            <ConfigPrimaryButton
               onClick={onSave}
               disabled={saving || loading || !configuration}
-              className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
             >
-              {saving ? "Saving..." : "Save Channels"}
-            </button>
-          </div>
-        </div>
-      </div>
+              {saving ? "Saving…" : "Save changes"}
+            </ConfigPrimaryButton>
+            <ConfigGhostButton onClick={onRefresh} disabled={saving}>
+              Reload
+            </ConfigGhostButton>
+          </>
+        }
+      />
 
-      {error && (
-        <div className="border-b border-red-200 bg-red-50 px-6 py-4 dark:border-red-900/40 dark:bg-red-950/40">
-          <p className="text-red-700 dark:text-red-300">{error}</p>
-        </div>
-      )}
+      {error ? <ConfigErrorBanner>{error}</ConfigErrorBanner> : null}
 
       {loading || !configuration ? (
-        <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">
-          Loading notification channel settings...
+        <div className="px-6 py-10 text-center text-sm text-gray-500 dark:text-slate-400">
+          Loading notification settings…
         </div>
       ) : (
-        <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.2fr_1fr]">
-          <div className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                Ticket assignment events
-              </label>
-              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Send external alerts when Syniti or Business ownership changes.
-              </p>
-              <select
-                value={configuration.assignmentChannel}
-                onChange={(event) =>
-                  onChange("assignmentChannel", event.target.value as NotificationChannelMode)
-                }
-                className="mt-3 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              >
-                {CHANNEL_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
+        <ConfigPageBody>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ConfigDetailCard title="Channels" subtitle="External delivery for key events">
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                    Ticket assignment
+                  </label>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
+                    When Syniti or business ownership changes.
+                  </p>
+                  <select
+                    value={configuration.assignmentChannel}
+                    onChange={(event) =>
+                      onChange("assignmentChannel", event.target.value as NotificationChannelMode)
+                    }
+                    className={`${configFieldClass} mt-2`}
+                  >
+                    {CHANNEL_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                SLA at-risk and breached events
-              </label>
-              <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Send external alerts when a ticket enters the warning window or
-                breaches its target.
-              </p>
-              <select
-                value={configuration.slaRiskChannel}
-                onChange={(event) =>
-                  onChange("slaRiskChannel", event.target.value as NotificationChannelMode)
-                }
-                className="mt-3 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              >
-                {CHANNEL_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                    SLA risk &amp; breach
+                  </label>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
+                    Warning window and missed targets.
+                  </p>
+                  <select
+                    value={configuration.slaRiskChannel}
+                    onChange={(event) =>
+                      onChange("slaRiskChannel", event.target.value as NotificationChannelMode)
+                    }
+                    className={`${configFieldClass} mt-2`}
+                  >
+                    {CHANNEL_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </ConfigDetailCard>
 
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-slate-700 dark:bg-slate-950/40">
-            <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
-              Delivery Behavior
-            </h4>
-            <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-              In-app notifications always remain on. These settings only control
-              optional external delivery from the backend.
-            </p>
-            <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
-              If Email or Teams transport is not configured on the server yet,
-              CORTEX will still save the notification in-app and quietly skip
-              the external send.
-            </p>
+            <ConfigDetailCard title="Delivery" subtitle="How this behaves in Cortex">
+              <p className="text-sm text-gray-600 dark:text-slate-400">
+                In-app notifications stay on. These defaults only affect optional Email or Teams sends from the server.
+              </p>
+              <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">
+                If transport is not configured, Cortex still records the notification and skips the external send.
+              </p>
+            </ConfigDetailCard>
           </div>
-        </div>
+        </ConfigPageBody>
       )}
-    </section>
+    </ConfigPageShell>
   );
 }

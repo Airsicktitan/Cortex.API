@@ -1,11 +1,40 @@
 using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Services;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Handlers;
 
 public static class RoleDefinitionHandlers
 {
+    public static async Task<IResult> SyncFromAuth0(
+        IRoleDefinitionService roleDefinitionService,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await roleDefinitionService.SyncFromAuth0Async(cancellationToken);
+            return Results.Ok(result);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Results.Problem(
+                title: "Auth0 management is not configured",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+        catch (Auth0ManagementException exception)
+        {
+            return Results.Problem(
+                title: "Failed to sync roles from Auth0",
+                detail: exception.Message,
+                statusCode: exception.StatusCode is >= 400 and < 500
+                    ? exception.StatusCode
+                    : StatusCodes.Status502BadGateway);
+        }
+    }
+
     public static async Task<IResult> GetRoles(IRoleDefinitionService roleDefinitionService)
     {
         var roles = await roleDefinitionService.GetAllAsync();
@@ -38,6 +67,10 @@ public static class RoleDefinitionHandlers
         {
             return Results.BadRequest(new { message = exception.Message });
         }
+        catch (DbUpdateException exception) when (IsRoleDefinitionUniqueConstraintViolation(exception))
+        {
+            return Results.Conflict(new { message = "A role with this name already exists." });
+        }
     }
 
     public static async Task<IResult> UpdateRole(
@@ -66,6 +99,10 @@ public static class RoleDefinitionHandlers
         {
             return Results.BadRequest(new { message = exception.Message });
         }
+        catch (DbUpdateException exception) when (IsRoleDefinitionUniqueConstraintViolation(exception))
+        {
+            return Results.Conflict(new { message = "A role with this name already exists." });
+        }
     }
 
     public static async Task<IResult> DeleteRole(
@@ -85,5 +122,11 @@ public static class RoleDefinitionHandlers
         {
             return Results.BadRequest(new { message = exception.Message });
         }
+    }
+
+    private static bool IsRoleDefinitionUniqueConstraintViolation(DbUpdateException exception)
+    {
+        return exception.InnerException is SqlException sqlException
+            && sqlException.Number is 2601 or 2627;
     }
 }

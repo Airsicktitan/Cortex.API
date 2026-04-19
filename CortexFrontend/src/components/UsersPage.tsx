@@ -17,6 +17,7 @@ interface UsersPageProps {
   loadingMore: boolean;
   onLoadMore: () => void;
   loading: boolean;
+  syncingFromAuth0: boolean;
   error: string | null;
   canCreate: boolean;
   canEdit: boolean;
@@ -24,6 +25,7 @@ interface UsersPageProps {
   currentUserId?: number;
   deletingUserId: number | null;
   onRefresh: () => void;
+  onSyncFromAuth0: () => void;
   onCreate: () => void;
   onEdit: (user: UserRecord) => void;
   onDelete: (user: UserRecord) => void;
@@ -64,6 +66,7 @@ export default function UsersPage({
   loadingMore,
   onLoadMore,
   loading,
+  syncingFromAuth0,
   error,
   canCreate,
   canEdit,
@@ -71,6 +74,7 @@ export default function UsersPage({
   currentUserId,
   deletingUserId,
   onRefresh,
+  onSyncFromAuth0,
   onCreate,
   onEdit,
   onDelete,
@@ -97,15 +101,23 @@ export default function UsersPage({
               Registered Users
             </h2>
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              View the user directory, provision new users, and manage local
-              CORTEX user settings.
+              View the local Cortex directory (projection from Auth0). Import missing
+              Auth0 users to populate owner pickers and assignments.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm text-gray-500 dark:text-slate-400">
               {totalUsers} user{totalUsers === 1 ? "" : "s"}
             </span>
+            <button
+              type="button"
+              onClick={onSyncFromAuth0}
+              disabled={loading || syncingFromAuth0}
+              className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              {syncingFromAuth0 ? "Importing…" : "Import users from Auth0"}
+            </button>
             {canCreate && (
               <button
                 onClick={onCreate}

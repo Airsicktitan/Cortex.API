@@ -8,7 +8,14 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import type { Ticket, TicketMutationInput, TicketSaveOutcome } from "../types/ticket";
+import type {
+  ApprovalStatus,
+  ApprovalTriagePreview,
+  Ticket,
+  TicketMutationInput,
+  TicketSaveOutcome,
+  TicketTriageGenerateApiResponse,
+} from "../types/ticket";
 import type { TicketAttachment } from "../types/attachment";
 import type { RealtimeEvent } from "../types/realtime";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
@@ -18,6 +25,8 @@ import { commentService } from "../services/commentService";
 import {
   attachmentService,
   getUserFacingErrorMessage,
+  ticketService,
+  USER_DIRECTORY_INVALIDATED_EVENT,
   userService,
 } from "../services/api";
 import type { Comment } from "../types/comment";
@@ -26,6 +35,12 @@ import AddComment from "./AddComment";
 import TicketHistoryModal from "./TicketHistoryModal";
 import UserCombobox from "./UserCombobox";
 import TicketRoutingInsight from "./TicketRoutingInsight";
+import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
+import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
+import {
+  shouldShowApprovalTriageModalPanel,
+  triageHasContent,
+} from "../utils/approvalTriage";
 import { useAuth0 } from "@auth0/auth0-react";
 import {
   buildSlaTooltip,
@@ -68,6 +83,69 @@ function formatFileSize(fileSize: number) {
 
 function getQueuedAttachmentKey(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function getTicketApprovalStatus(ticket: Ticket): ApprovalStatus {
+  return ticket.approvalStatus ?? "Approved";
+}
+
+function normalizeAdvisorySlaRiskTier(
+  raw: string | null | undefined,
+): ApprovalTriagePreview["potentialSlaRisk"] {
+  const t = raw?.trim();
+  if (!t) {
+    return undefined;
+  }
+  const lower = t.toLowerCase();
+  if (lower === "low" || lower === "medium" || lower === "high") {
+    return (lower.charAt(0).toUpperCase() + lower.slice(1)) as
+      | "Low"
+      | "Medium"
+      | "High";
+  }
+  return undefined;
+}
+
+function mapTicketTriageApiToPreview(
+  response: TicketTriageGenerateApiResponse,
+): ApprovalTriagePreview {
+  return {
+    summary: response.summary ?? undefined,
+    suggestedPriority: response.suggestedPriority ?? undefined,
+    priorityReason: response.priorityReason ?? undefined,
+    suggestedStatus: response.suggestedStatus ?? undefined,
+    missingDetailHints:
+      response.missingDetails?.filter(
+        (s) => typeof s === "string" && s.trim().length > 0,
+      ) ?? [],
+    potentialSlaRisk: normalizeAdvisorySlaRiskTier(response.potentialSlaRisk),
+    slaRiskReason: response.slaRiskReason?.trim() || undefined,
+  };
+}
+
+/** Match server/API priority casing (Critical | High | Medium | Low). */
+function canonicalizeTicketPriority(raw: string): string {
+  const t = raw.trim();
+  for (const p of ["Critical", "High", "Medium", "Low"] as const) {
+    if (p.toLowerCase() === t.toLowerCase()) {
+      return p;
+    }
+  }
+  return t;
+}
+
+function requesterSummaryCopy(ticket: Ticket): string {
+  switch (getTicketApprovalStatus(ticket)) {
+    case "PendingApproval":
+      return "This request is waiting for reviewer approval before active work begins.";
+    case "NeedsMoreInfo":
+      return "A reviewer needs more information before this request can move into active work.";
+    case "Rejected":
+      return "This request was closed during intake and did not move into active work.";
+    case "Approved":
+    default:
+      return "This request has been approved and is now moving through active work.";
+  }
 }
 
 function reconcileCommentsById(
@@ -141,12 +219,28 @@ interface TicketModalProps {
   onArchive: (ticket: Ticket, changeReason?: string) => Promise<void>;
   onDelete: (ticket: Ticket) => void;
   currentUser: {
+    id?: number;
     displayName: string;
     department?: string;
     role?: string;
     roles?: string[];
   } | null;
   createdByDisplayName: string;
+  /** Active-ticket modal hides redundant approved-state UI; requester/reviewer contexts keep it. */
+  approvalDisplayContext?: "active" | "requester" | "reviewer";
+  /** Refreshes ticket after modal-only actions (e.g. regenerate AI triage). */
+  refreshPersistedTicket?: (
+    ticketId: string,
+    providedToken?: string,
+  ) => Promise<Ticket | null>;
+  /** Parent list/queue refresh after triage is persisted. */
+  onTriagePersisted?: () => void;
+  /** When set, shows intake review actions for pending / needs-info tickets. */
+  intakeApprovalHandlers?: {
+    approve: () => Promise<void>;
+    returnForDetail: (reason: string) => Promise<void>;
+    reject: (reason: string) => Promise<void>;
+  };
 }
 
 type CreateFormField = "title" | "description" | "priority" | "storyPoints";
@@ -169,6 +263,10 @@ export default function TicketModal({
   onDelete,
   currentUser,
   createdByDisplayName,
+  approvalDisplayContext = "requester",
+  refreshPersistedTicket,
+  onTriagePersisted,
+  intakeApprovalHandlers,
 }: TicketModalProps) {
   const defaultBoard =
     ticketBoards.find((board) => board.id === ticket.boardId) ??
@@ -199,7 +297,14 @@ export default function TicketModal({
   const [title, setTitle] = useState(ticket.title || "");
   const [changeReason, setChangeReason] = useState("");
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-
+  const [intakeReasonModal, setIntakeReasonModal] = useState<
+    "return" | "reject" | null
+  >(null);
+  const [intakeReasonDraft, setIntakeReasonDraft] = useState("");
+  const [intakeActionPending, setIntakeActionPending] = useState(false);
+  const [triagePreviewOverride, setTriagePreviewOverride] =
+    useState<ApprovalTriagePreview | null>(null);
+  const [regenerateTriageLoading, setRegenerateTriageLoading] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
@@ -238,6 +343,8 @@ export default function TicketModal({
   ticketPropRef.current = ticket;
   /** Reset form fields from ticket only when opening the modal or switching to a different ticket (id), not when the same ticket object is replaced while editing. */
   const lastHydratedFormKeyRef = useRef<string | null>(null);
+  /** Tracks last known server `ticket.priority` so we can sync the dropdown when AI updates priority without overwriting a divergent approver edit. */
+  const lastServerTicketPriorityRef = useRef(ticket.priority);
   const [pendingNewCommentsCount, setPendingNewCommentsCount] = useState(0);
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
@@ -245,7 +352,18 @@ export default function TicketModal({
   );
   const isCreateMode = !ticket.id;
   const canCreateTicket = isCreateMode && canCreateTickets(authRoles);
-  const canUpdateTicket = Boolean(ticket.id) && canEditTickets(authRoles);
+  const approvalStatusForEdit = getTicketApprovalStatus(ticket);
+  const isCurrentUserCreator =
+    currentUser?.id != null &&
+    String(currentUser.id) === String(ticket.createdBy).trim();
+  const canEditNeedsMoreInfoAsRequester =
+    Boolean(ticket.id) &&
+    approvalStatusForEdit === "NeedsMoreInfo" &&
+    isCurrentUserCreator;
+  const canUpdateTicket =
+    Boolean(ticket.id) &&
+    (canEditNeedsMoreInfoAsRequester ||
+      (canEditTickets(authRoles) && approvalStatusForEdit !== "NeedsMoreInfo"));
   const canSaveTicket = canCreateTicket || canUpdateTicket;
   const canDeleteTicket = Boolean(ticket.id) && canEditTickets(authRoles);
   const canArchiveTicket = Boolean(ticket.id) && canEditTickets(authRoles);
@@ -255,6 +373,44 @@ export default function TicketModal({
     ticketBoards.find((board) => board.id === boardId) ?? defaultBoard;
   const selectedBoardRequiresStoryPoints =
     selectedBoard?.requiresStoryPoints ?? false;
+
+  /** Merged ticket + current form fields so Cortex Decision compares draft owners to live routing. */
+  const cortexDecisionTicket = useMemo(
+    (): Ticket => ({
+      ...ticket,
+      priority,
+      boardId,
+      boardName: selectedBoard?.name ?? ticket.boardName,
+      synitiOwner,
+      businessOwner,
+      title,
+      department,
+    }),
+    [
+      ticket,
+      priority,
+      boardId,
+      selectedBoard?.name,
+      synitiOwner,
+      businessOwner,
+      title,
+      department,
+    ],
+  );
+
+  const routingLivePreviewInput = useMemo(
+    () =>
+      ticket.id
+        ? {
+            boardId,
+            priority,
+            title,
+            department,
+          }
+        : null,
+    [ticket.id, boardId, priority, title, department],
+  );
+
   const validateCreateForm = useCallback((): CreateFormErrors => {
     const errors: CreateFormErrors = {};
     const trimmedTitle = title.trim();
@@ -330,6 +486,71 @@ export default function TicketModal({
     });
   }, [getAccessTokenSilently]);
 
+  useEffect(() => {
+    setTriagePreviewOverride(null);
+  }, [ticket.id]);
+
+  const triageDisplayTicket = useMemo(
+    (): Ticket => ({
+      ...ticket,
+      approvalTriagePreview:
+        triagePreviewOverride ?? ticket.approvalTriagePreview,
+    }),
+    [ticket, triagePreviewOverride],
+  );
+
+  const handleRegenerateTriageAnalysis = useCallback(async () => {
+    if (!ticket.id) {
+      return;
+    }
+    const serverPriorityBeforeCall = ticket.priority;
+    const localPriorityStillMatchesServer =
+      priority.trim() === (serverPriorityBeforeCall ?? "").trim();
+    setRegenerateTriageLoading(true);
+    try {
+      const token = await getApiToken();
+      const result = await ticketService.generateTriage(ticket.id, token);
+      if (result.unavailable) {
+        toast.error(
+          result.unavailableReason?.trim() || "AI triage is not available.",
+        );
+        return;
+      }
+      setTriagePreviewOverride(mapTicketTriageApiToPreview(result));
+      const refreshedTicket = refreshPersistedTicket
+        ? await refreshPersistedTicket(ticket.id, token)
+        : null;
+      if (
+        refreshedTicket &&
+        triageHasContent(refreshedTicket.approvalTriagePreview)
+      ) {
+        setTriagePreviewOverride(null);
+      }
+      if (localPriorityStillMatchesServer) {
+        if (refreshedTicket) {
+          setPriority(refreshedTicket.priority);
+        } else if (result.suggestedPriority) {
+          setPriority(canonicalizeTicketPriority(result.suggestedPriority));
+        }
+      }
+      onTriagePersisted?.();
+      toast.success("Analysis updated.");
+    } catch (error) {
+      toast.error(
+        getUserFacingErrorMessage(error, "Unable to regenerate analysis."),
+      );
+    } finally {
+      setRegenerateTriageLoading(false);
+    }
+  }, [
+    getApiToken,
+    onTriagePersisted,
+    priority,
+    refreshPersistedTicket,
+    ticket.id,
+    ticket.priority,
+  ]);
+
   // ✅ CRITICAL: useLayoutEffect prevents the “1 frame of old ticket data”
   // Hydrate from props only when the modal opens or the ticket identity changes — not when `ticket`
   // is a new object reference for the same id (e.g. realtime refresh), or Syniti/Business owner edits reset.
@@ -354,6 +575,7 @@ export default function TicketModal({
     setTitle(t.title || "");
     setDescription(t.description || "");
     setPriority(t.priority);
+    lastServerTicketPriorityRef.current = t.priority;
     setStatus(t.id ? t.status : "New");
     setDepartment(t.department || currentUser?.department || "");
     setBoardId(resolvedDefaultBoard?.id ?? 0);
@@ -372,6 +594,20 @@ export default function TicketModal({
     lastTypingPingAtRef.current = 0;
     pendingLocalCommentRef.current = null;
   }, [isOpen, ticket.id, ticketBoards]);
+
+  useEffect(() => {
+    if (!ticket.id) {
+      return;
+    }
+    const prevServer = lastServerTicketPriorityRef.current;
+    if ((ticket.priority ?? "") === (prevServer ?? "")) {
+      return;
+    }
+    if (priority.trim() === (prevServer ?? "").trim()) {
+      setPriority(ticket.priority);
+    }
+    lastServerTicketPriorityRef.current = ticket.priority;
+  }, [ticket.id, ticket.priority, priority]);
 
   // Create ticket: when profile/department loads after open, fill department if still empty.
   useEffect(() => {
@@ -649,6 +885,15 @@ export default function TicketModal({
       setOwnerDirectoryLoading(false);
     }
   }, [getApiToken]);
+
+  useEffect(() => {
+    const onDirectoryInvalidated = () => {
+      void loadOwnerDirectory();
+    };
+    window.addEventListener(USER_DIRECTORY_INVALIDATED_EVENT, onDirectoryInvalidated);
+    return () =>
+      window.removeEventListener(USER_DIRECTORY_INVALIDATED_EVENT, onDirectoryInvalidated);
+  }, [loadOwnerDirectory]);
 
   useEffect(() => {
     if (!isOpen || !ticket.id) return;
@@ -1157,6 +1402,28 @@ export default function TicketModal({
     "Unknown User";
   const hasPersistedSla = Boolean(ticket.id);
   const canManageComments = Boolean(ticket.id);
+  const requesterApprovalStatus = getTicketApprovalStatus(ticket);
+  const isRequesterContext = approvalDisplayContext === "requester";
+  const isRequesterIntakeTicket =
+    isRequesterContext && requesterApprovalStatus !== "Approved";
+  /** Reviewer intake workflow: decision-focused modal — no comment thread. */
+  const showCommentsColumn =
+    canManageComments && approvalDisplayContext !== "reviewer";
+  const showAiTriageColumn =
+    approvalDisplayContext === "reviewer" &&
+    Boolean(ticket.id) &&
+    shouldShowApprovalTriageModalPanel(ticket);
+  const canOfferTriageRegenerate =
+    Boolean(ticket.id) &&
+    approvalDisplayContext === "reviewer" &&
+    getTicketApprovalStatus(ticket) === "PendingApproval";
+  const ticketModalGridClass = showAiTriageColumn
+    ? "grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]"
+    : showCommentsColumn
+      ? "grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px]"
+      : "grid-cols-1";
+  const ticketModalMaxWidthClass = showAiTriageColumn ? "max-w-6xl" : "max-w-5xl";
+  const showRequesterRequestSummary = Boolean(ticket.id) && isRequesterContext;
   const activeTypingUsers = typingUsers.filter(
     (typingUser) => typingUser.expiresAt > Date.now(),
   );
@@ -1171,6 +1438,40 @@ export default function TicketModal({
   const slaTooltip = buildSlaTooltip(ticket);
   const slaDisplayLabel = getSlaDisplayLabel(ticket);
   const slaBadgeClass = getSlaBadgeClass(slaDisplayLabel);
+  const showApprovedApprovalState = approvalDisplayContext !== "active";
+  const approvalBadgePresentation = (() => {
+    const s = getTicketApprovalStatus(ticket);
+    const base =
+      "rounded-full border px-3 py-1 text-xs font-semibold";
+    if (s === "Approved") {
+      if (!showApprovedApprovalState) {
+        return null;
+      }
+      return {
+        label: "Approved",
+        className: `${base} border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-100`,
+      };
+    }
+    if (s === "PendingApproval") {
+      return {
+        label: "Pending Approval",
+        className: `${base} border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100`,
+      };
+    }
+    if (s === "NeedsMoreInfo") {
+      return {
+        label: "Needs More Info",
+        className: `${base} border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100`,
+      };
+    }
+    if (s === "Rejected") {
+      return {
+        label: "Rejected",
+        className: `${base} border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100`,
+      };
+    }
+    return null;
+  })();
   const priorityBadgeClass =
     priority === "Critical"
       ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
@@ -1194,6 +1495,19 @@ export default function TicketModal({
     : !ticket.id
       ? "Leave blank to use routing first, then default this ticket to you as the requester."
       : undefined;
+  const requesterSummaryToneClass = (() => {
+    switch (requesterApprovalStatus) {
+      case "NeedsMoreInfo":
+        return "border-amber-200 bg-amber-50/80 dark:border-amber-800 dark:bg-amber-950/30";
+      case "PendingApproval":
+        return "border-cortex-blue/20 bg-cortex-blue/5 dark:border-cortex-blue/40 dark:bg-cortex-blue/10";
+      case "Rejected":
+        return "border-red-200 bg-red-50/80 dark:border-red-900/40 dark:bg-red-950/25";
+      case "Approved":
+      default:
+        return "border-emerald-200 bg-emerald-50/80 dark:border-emerald-800 dark:bg-emerald-950/25";
+    }
+  })();
 
   const ticketDetailsBody = (
     <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
@@ -1314,17 +1628,13 @@ export default function TicketModal({
       {/* Modal */}
       <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-4">
         <div
-          className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-hidden rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6"
+          className={`relative max-h-[calc(100dvh-1.5rem)] w-full ${ticketModalMaxWidthClass} overflow-hidden rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6`}
           tabIndex={-1}
         >
           <div
-            className={`grid h-[calc(100dvh-6rem)] min-h-0 gap-6 ${
-              canManageComments
-                ? "grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px]"
-                : "grid-cols-1"
-            }`}
+            className={`grid h-[calc(100dvh-6rem)] min-h-0 gap-6 ${ticketModalGridClass}`}
           >
-            {/* ================= LEFT PANEL ================= */}
+            {/* ================= MAIN: ticket details / editing ================= */}
             <div className="flex min-h-0 min-w-0 flex-col">
               <div className="scroll-surface min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
               {/* Header */}
@@ -1357,20 +1667,31 @@ export default function TicketModal({
                   </p>
                   {ticket.id && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-cortex-blue-soft px-3 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
-                        {status}
-                      </span>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityBadgeClass}`}
-                      >
-                        {priority}
-                      </span>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${slaBadgeClass}`}
-                        title={slaTooltip}
-                      >
-                        {slaDisplayLabel}
-                      </span>
+                      {!isRequesterIntakeTicket ? (
+                        <span className="rounded-full bg-cortex-blue-soft px-3 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
+                          {status}
+                        </span>
+                      ) : null}
+                      {!isRequesterIntakeTicket ? (
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityBadgeClass}`}
+                        >
+                          {priority}
+                        </span>
+                      ) : null}
+                      {!isRequesterIntakeTicket ? (
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${slaBadgeClass}`}
+                          title={slaTooltip}
+                        >
+                          {slaDisplayLabel}
+                        </span>
+                      ) : null}
+                      {approvalBadgePresentation ? (
+                        <span className={approvalBadgePresentation.className}>
+                          {approvalBadgePresentation.label}
+                        </span>
+                      ) : null}
                     </div>
                   )}
                   {isCreateMode && (
@@ -1386,6 +1707,83 @@ export default function TicketModal({
                   ×
                 </button>
               </div>
+
+              {ticket.id ? (
+                <div className="space-y-3">
+                  {requesterApprovalStatus !== "Approved" || showApprovedApprovalState ? (
+                    <ApprovalOutcomeMessage
+                      ticket={ticket}
+                      variant="modalBanner"
+                      audience={
+                        intakeApprovalHandlers ? "reviewer" : "requester"
+                      }
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+
+              {showRequesterRequestSummary ? (
+                <div
+                  className={`rounded-md border p-4 ${requesterSummaryToneClass}`}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-slate-400">
+                        Request Summary
+                      </p>
+                      <p className="mt-2 text-sm leading-snug text-gray-800 dark:text-slate-100">
+                        {requesterSummaryCopy(ticket)}
+                      </p>
+                    </div>
+                    {requesterApprovalStatus === "NeedsMoreInfo" ? (
+                      <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-950 dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-100">
+                        Action needed
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                        Submitted
+                      </p>
+                      <p className="mt-1 text-gray-800 dark:text-slate-200">
+                        {formatDisplayDateTime(ticket.createdDate)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                        {requesterApprovalStatus === "Approved"
+                          ? "Active board"
+                          : "Requested board"}
+                      </p>
+                      <p className="mt-1 text-gray-800 dark:text-slate-200">
+                        {formatDisplayValue(selectedBoard?.name ?? ticket.boardName)}
+                      </p>
+                    </div>
+                    {ticket.lastModifiedDate ? (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                          Last updated
+                        </p>
+                        <p className="mt-1 text-gray-800 dark:text-slate-200">
+                          {formatDisplayDateTime(ticket.lastModifiedDate)}
+                        </p>
+                      </div>
+                    ) : null}
+                    {requesterApprovalStatus === "Approved" ? (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                          Current status
+                        </p>
+                        <p className="mt-1 text-gray-800 dark:text-slate-200">
+                          {status}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
               {/* Description */}
               <div className="rounded-md border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40">
@@ -1442,7 +1840,8 @@ export default function TicketModal({
                     onChange={(e) =>
                       handleBoardSelectionChange(Number(e.target.value))
                     }
-                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    disabled={Boolean(ticket.id && formReadOnly)}
+                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {ticketBoards.map((board) => (
                       <option key={board.id} value={board.id}>
@@ -1461,7 +1860,8 @@ export default function TicketModal({
                     <select
                       value={storyPoints}
                       onChange={(e) => setStoryPoints(Number(e.target.value))}
-                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      disabled={Boolean(ticket.id && formReadOnly)}
+                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {[1, 2, 3, 4, 5].map((value) => (
                         <option key={value} value={value}>
@@ -1506,6 +1906,15 @@ export default function TicketModal({
                       {validationErrors.priority}
                     </p>
                   )}
+                  {!isCreateMode &&
+                  approvalDisplayContext !== "requester" &&
+                  getTicketApprovalStatus(ticket) === "PendingApproval" ? (
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-slate-400">
+                      AI triage may update this ticket&apos;s priority and status to
+                      match configured vocabulary when it suggests a change. You can
+                      change either before approving.
+                    </p>
+                  ) : null}
                 </div>
 
                 {/* Status */}
@@ -1524,7 +1933,8 @@ export default function TicketModal({
                     <select
                       value={status}
                       onChange={(e) => setStatus(e.target.value)}
-                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      disabled={Boolean(ticket.id && formReadOnly)}
+                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {availableStatusOptions.map((statusDefinition) => (
                         <option
@@ -1571,11 +1981,16 @@ export default function TicketModal({
                 </div>
               </div>
 
-              {ticket.id ? (
-                <TicketRoutingInsight ticket={ticket} isModalOpen={isOpen} />
+              {ticket.id && !isRequesterContext ? (
+                <TicketRoutingInsight
+                  ticket={cortexDecisionTicket}
+                  isModalOpen={isOpen}
+                  ticketBoards={ticketBoards}
+                  livePreview={routingLivePreviewInput}
+                />
               ) : null}
 
-              {ticket.id && (
+              {ticket.id && !isRequesterContext && (
                 <div className="mb-6">
                   <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
                     Change Reason
@@ -1734,6 +2149,56 @@ export default function TicketModal({
               </div>
               </div>
 
+              {intakeApprovalHandlers && ticket.id ? (
+                <div className="border-t border-gray-200 pt-3 dark:border-slate-800">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    Review actions
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-500">
+                    Approve to move this ticket into active work.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={intakeActionPending || saving || archiving}
+                      onClick={async () => {
+                        setIntakeActionPending(true);
+                        try {
+                          await intakeApprovalHandlers.approve();
+                        } finally {
+                          setIntakeActionPending(false);
+                        }
+                      }}
+                      className="rounded-md bg-cortex-blue px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-cortex-blue-dark disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {intakeActionPending ? "Working…" : "Approve"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={intakeActionPending || saving || archiving}
+                      onClick={() => {
+                        setIntakeReasonModal("return");
+                        setIntakeReasonDraft("");
+                      }}
+                      className="rounded-md border border-amber-300 bg-amber-50/80 px-3 py-1.5 text-xs font-semibold text-amber-950 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
+                    >
+                      Return for Detail
+                    </button>
+                    <button
+                      type="button"
+                      disabled={intakeActionPending || saving || archiving}
+                      onClick={() => {
+                        setIntakeReasonModal("reject");
+                        setIntakeReasonDraft("");
+                      }}
+                      className="rounded-md border border-red-300 bg-red-50/80 px-3 py-1.5 text-xs font-semibold text-red-800 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               {/* Actions */}
               <div className="flex shrink-0 flex-col gap-3 border-t border-gray-200 bg-white pt-4 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
@@ -1817,7 +2282,7 @@ export default function TicketModal({
                                 : ""
                             }`}
                           >
-                            Ticket details
+                            {isRequesterContext ? "Request details" : "Ticket details"}
                           </button>
                         </div>
                       )}
@@ -1859,8 +2324,21 @@ export default function TicketModal({
               </div>
             </div>
 
-            {/* ================= RIGHT PANEL ================= */}
-            {canManageComments && (
+            {/* ================= REVIEWER: AI TRIAGE (right rail) ================= */}
+            {showAiTriageColumn ? (
+              <ApprovalTriageModalColumn
+                ticket={triageDisplayTicket}
+                onRegenerateAnalysis={
+                  canOfferTriageRegenerate
+                    ? handleRegenerateTriageAnalysis
+                    : undefined
+                }
+                regenerateLoading={regenerateTriageLoading}
+              />
+            ) : null}
+
+            {/* ================= COMMENTS ================= */}
+            {showCommentsColumn && (
               <div className="flex min-h-0 h-full flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30">
                 <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-slate-800">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
@@ -1957,6 +2435,74 @@ export default function TicketModal({
           </div>
         </div>
       )}
+
+      {intakeReasonModal ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4">
+          <div
+            className="w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+            role="dialog"
+            aria-modal="true"
+          >
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+              {intakeReasonModal === "return"
+                ? "Return for detail"
+                : "Reject ticket"}
+            </h2>
+            <textarea
+              value={intakeReasonDraft}
+              onChange={(e) => setIntakeReasonDraft(e.target.value)}
+              rows={5}
+              className="mt-4 w-full rounded-md border border-gray-300 bg-white p-3 text-sm text-gray-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              placeholder="Reason…"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIntakeReasonModal(null);
+                  setIntakeReasonDraft("");
+                }}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-slate-600 dark:text-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={intakeActionPending}
+                onClick={async () => {
+                  const trimmed = intakeReasonDraft.trim();
+                  if (!trimmed) {
+                    toast.error("A reason is required.");
+                    return;
+                  }
+                  if (trimmed.length > 2000) {
+                    toast.error("Reason must be 2000 characters or fewer.");
+                    return;
+                  }
+                  if (!intakeApprovalHandlers) {
+                    return;
+                  }
+                  setIntakeActionPending(true);
+                  try {
+                    if (intakeReasonModal === "return") {
+                      await intakeApprovalHandlers.returnForDetail(trimmed);
+                    } else {
+                      await intakeApprovalHandlers.reject(trimmed);
+                    }
+                    setIntakeReasonModal(null);
+                    setIntakeReasonDraft("");
+                  } finally {
+                    setIntakeActionPending(false);
+                  }
+                }}
+                className="rounded-md bg-cortex-blue px-4 py-2 text-sm font-semibold text-white hover:bg-cortex-blue-dark disabled:opacity-50"
+              >
+                {intakeActionPending ? "Submitting…" : "Submit"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {ticket.id && (
         <TicketHistoryModal

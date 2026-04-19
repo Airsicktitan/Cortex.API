@@ -12,6 +12,7 @@ import {
   ApiError,
   getUserFacingErrorMessage,
   isLikelyNetworkError,
+  ticketService,
   userService,
 } from "./services/api";
 import { notificationService } from "./services/notificationService";
@@ -33,6 +34,7 @@ import { ConfigurationSkeleton } from "./components/LoadingSkeletons";
 import AppHeader from "./components/AppHeader";
 import AppSidebar from "./components/AppSidebar";
 import TicketsContainer from "./components/TicketsContainer";
+import ApprovalQueuePage from "./components/ApprovalQueuePage";
 import { applyTheme, getPreferredTheme, type ThemeMode } from "./theme";
 import { useUsers } from "./hooks/useUsers";
 import { useConfiguration } from "./hooks/useConfiguration";
@@ -104,6 +106,7 @@ function mergeNotificationsById(
 const APP_VIEW_LABELS: Record<AppView, string> = {
   dashboard: "Dashboard",
   tickets: "Tickets",
+  approval: "Approval Queue",
   archived: "Archived Tickets",
   reports: "Reports",
   sla: "Configuration",
@@ -116,6 +119,7 @@ type NavigationGroup = "workspace" | "admin";
 type AppView =
   | "dashboard"
   | "tickets"
+  | "approval"
   | "archived"
   | "reports"
   | "sla"
@@ -175,6 +179,12 @@ const NAVIGATION_ITEM_DEFINITIONS: ReadonlyArray<NavigationItem> = [
     group: "workspace",
     label: "Tickets",
     description: "Browse and manage the active ticket queue.",
+  },
+  {
+    view: "approval",
+    group: "workspace",
+    label: "Approval Queue",
+    description: "Review new submissions before they enter active boards.",
   },
   {
     view: "archived",
@@ -506,6 +516,7 @@ function App() {
     const isEnabledByView: Record<AppView, boolean> = {
       dashboard: canViewDashboard,
       tickets: canViewTicketSections,
+      approval: canEditTicketsCap,
       archived: canViewArchived,
       reports: canViewReportsNav,
       jobs: canViewJobActivityNav,
@@ -519,6 +530,7 @@ function App() {
   }, [
     canViewDashboard,
     canViewTicketSections,
+    canEditTicketsCap,
     canViewArchived,
     canViewReportsNav,
     canViewJobActivityNav,
@@ -532,12 +544,19 @@ function App() {
     (view: AppView) =>
       view === "dashboard" ||
       view === "tickets" ||
+      (view === "approval" && canEditTicketsCap) ||
       view === "archived" ||
       (view === "reports" && canViewReportsNav) ||
       (view === "jobs" && canViewJobActivityNav) ||
       (view === "sla" && canManageConfiguration) ||
       (view === "users" && canViewUsers),
-    [canManageConfiguration, canViewJobActivityNav, canViewReportsNav, canViewUsers],
+    [
+      canEditTicketsCap,
+      canManageConfiguration,
+      canViewJobActivityNav,
+      canViewReportsNav,
+      canViewUsers,
+    ],
   );
 
   const getFallbackView = useCallback((): AppView => {
@@ -631,6 +650,8 @@ function App() {
     setTicketListSort,
     myTicketsOnly,
     setMyTicketsOnly,
+    myTicketApprovalFilter,
+    setMyTicketApprovalFilter,
     currentPage,
     setCurrentPage,
     selectedTicket,
@@ -645,6 +666,7 @@ function App() {
     archivedLoadingMore,
     archivedHasMore,
     archivedError,
+    requesterLifecycleSummary,
     highlightedArchivedTicketId,
     setHighlightedArchivedTicketId,
     reactivatingArchivedTicketId,
@@ -680,12 +702,108 @@ function App() {
     setError,
     setNeedsConsent,
     currentUser,
+    auth0Sub: user?.sub,
     auth0Name: user?.name,
     auth0Email: user?.email,
     isConsentRequiredError,
     isForbiddenError,
     isLikelyNetworkError,
   });
+
+  const [approvalQueueRefreshNonce, setApprovalQueueRefreshNonce] = useState(0);
+  const bumpApprovalQueueRefresh = useCallback(() => {
+    setApprovalQueueRefreshNonce((n) => n + 1);
+  }, []);
+
+  const handleIntakeApprove = useCallback(async () => {
+    if (!selectedTicket?.id || !canEditTicketsCap) {
+      return;
+    }
+
+    try {
+      const token = await getApiToken();
+      const updated = await ticketService.approveTicket(selectedTicket.id, token);
+      upsertActiveTicketLocally(updated);
+      setSelectedTicket(updated);
+      toast.success("Ticket approved.");
+      bumpApprovalQueueRefresh();
+    } catch (error) {
+      toast.error(getUserFacingErrorMessage(error, "Unable to approve ticket."));
+    }
+  }, [
+    bumpApprovalQueueRefresh,
+    canEditTicketsCap,
+    getApiToken,
+    selectedTicket?.id,
+    setSelectedTicket,
+    upsertActiveTicketLocally,
+  ]);
+
+  const handleIntakeReturn = useCallback(
+    async (reason: string) => {
+      if (!selectedTicket?.id || !canEditTicketsCap) {
+        return;
+      }
+
+      try {
+        const token = await getApiToken();
+        const updated = await ticketService.returnTicketForDetail(
+          selectedTicket.id,
+          token,
+          reason,
+        );
+        setSelectedTicket(updated);
+        upsertActiveTicketLocally(updated, { syncSelectedTicket: false });
+        toast.success("Ticket returned for more detail.");
+        bumpApprovalQueueRefresh();
+      } catch (error) {
+        toast.error(
+          getUserFacingErrorMessage(error, "Unable to return ticket."),
+        );
+      }
+    },
+    [
+      bumpApprovalQueueRefresh,
+      canEditTicketsCap,
+      getApiToken,
+      selectedTicket?.id,
+      setSelectedTicket,
+      upsertActiveTicketLocally,
+    ],
+  );
+
+  const handleIntakeReject = useCallback(
+    async (reason: string) => {
+      if (!selectedTicket?.id || !canEditTicketsCap) {
+        return;
+      }
+
+      try {
+        const token = await getApiToken();
+        const updated = await ticketService.rejectTicket(
+          selectedTicket.id,
+          token,
+          reason,
+        );
+        setSelectedTicket(updated);
+        upsertActiveTicketLocally(updated, { syncSelectedTicket: false });
+        toast.success("Ticket rejected.");
+        bumpApprovalQueueRefresh();
+      } catch (error) {
+        toast.error(
+          getUserFacingErrorMessage(error, "Unable to reject ticket."),
+        );
+      }
+    },
+    [
+      bumpApprovalQueueRefresh,
+      canEditTicketsCap,
+      getApiToken,
+      selectedTicket?.id,
+      setSelectedTicket,
+      upsertActiveTicketLocally,
+    ],
+  );
 
   const ticketModalOpenRef = useRef(false);
   const selectedTicketIdRef = useRef<string | undefined>(undefined);
@@ -716,7 +834,7 @@ function App() {
     closeSaveFilterModal,
     saveCurrentFilter,
     applySavedFilter,
-    clearTicketFilters,
+    clearTicketFilters: clearBaseTicketFilters,
     deleteSavedFilter,
   } = useSavedFilters({
     storageKey: savedFilterStorageKey,
@@ -729,6 +847,11 @@ function App() {
     setSearchQuery,
     setPageSize,
   });
+
+  const clearTicketFilters = useCallback(() => {
+    clearBaseTicketFilters();
+    setMyTicketApprovalFilter("all");
+  }, [clearBaseTicketFilters, setMyTicketApprovalFilter]);
 
   // loadSlaConfigurations and other configuration loaders live in useConfiguration.
 
@@ -906,7 +1029,10 @@ function App() {
     roleDefinitionSaving,
     roleDefinitionDeletingId,
     roleDefinitionError,
+    roleDefinitionsLoadedOnce,
+    roleDefinitionSyncingFromAuth0,
     loadRoleDefinitions,
+    syncRoleDefinitionsFromAuth0,
     handleRoleDefinitionChange,
     createRoleDefinition,
     selectRoleDefinition,
@@ -946,7 +1072,7 @@ function App() {
     updateCustomReport,
     deleteCustomReport,
     exportReportCsv,
-    exportAdminLogsCsv,
+    exportAdminLogs,
     storedProcedures,
     databaseStoredProcedures,
     databaseStoredProceduresLoading,
@@ -1036,6 +1162,7 @@ function App() {
     usersHasMore,
     loadMoreUsers,
     usersLoading,
+    usersSyncingFromAuth0,
     usersError,
     onlineUsers,
     onlineUsersLoading,
@@ -1056,6 +1183,7 @@ function App() {
     sessionRefreshNotice,
     deletingUserId,
     loadUsers,
+    syncUsersFromAuth0,
     loadOnlineUsers,
     openCreateUserModal,
     closeCreateUserModal,
@@ -1673,7 +1801,7 @@ function App() {
       (slaConfigurations.length > 0 &&
         ticketStatuses.length > 0 &&
         ticketRoutingLoadedOnce &&
-        roleDefinitions.length > 0 &&
+        roleDefinitionsLoadedOnce &&
         sessionLoadedOnce &&
         notificationChannelsLoadedOnce &&
         archiveLoadedOnce &&
@@ -1697,7 +1825,7 @@ function App() {
       void loadTicketRoutingRules();
     }
 
-    if (roleDefinitions.length === 0) {
+    if (!roleDefinitionsLoadedOnce) {
       void loadRoleDefinitions();
     }
 
@@ -1751,7 +1879,7 @@ function App() {
     sessionLoadedOnce,
     slaConfigurations.length,
     storedProcedures.length,
-    roleDefinitions.length,
+    roleDefinitionsLoadedOnce,
     ticketRoutingLoadedOnce,
     ticketStatuses.length,
   ]);
@@ -2509,6 +2637,8 @@ function App() {
               setSelectedBoardId={setSelectedBoardId}
               myTicketsOnly={myTicketsOnly}
               setMyTicketsOnly={setMyTicketsOnly}
+              myTicketApprovalFilter={myTicketApprovalFilter}
+              setMyTicketApprovalFilter={setMyTicketApprovalFilter}
               ticketListSort={ticketListSort}
               setTicketListSort={setTicketListSort}
               tickets={tickets}
@@ -2519,9 +2649,21 @@ function App() {
               setCurrentPage={setCurrentPage}
               showingStart={showingStart}
               showingEnd={showingEnd}
+              requesterLifecycleSummary={requesterLifecycleSummary}
               isModalOpen={isModalOpen}
               syncTicketChangesSilently={syncTicketChangesSilently}
               openTicket={openTicket}
+            />
+          ) : activeView === "approval" && canEditTicketsCap ? (
+            <ApprovalQueuePage
+              theme={theme}
+              isAuthenticated={isAuthenticated}
+              bootstrapComplete={bootstrapComplete}
+              needsConsent={needsConsent}
+              getApiToken={getApiToken}
+              authRoles={effectiveAuthRoles}
+              openTicketById={openTicketById}
+              externalRefreshNonce={approvalQueueRefreshNonce}
             />
           ) : activeView === "archived" && canViewArchived ? (
             <ArchivedTicketsPage
@@ -2657,7 +2799,12 @@ function App() {
                 roleDefinitionLoading={roleDefinitionLoading}
                 roleDefinitionSaving={roleDefinitionSaving}
                 roleDefinitionDeletingId={roleDefinitionDeletingId}
+                roleDefinitionsLoadedOnce={roleDefinitionsLoadedOnce}
+                roleDefinitionSyncingFromAuth0={roleDefinitionSyncingFromAuth0}
                 onRefreshRoleDefinitions={() => void loadRoleDefinitions()}
+                onSyncRoleDefinitionsFromAuth0={() =>
+                  void syncRoleDefinitionsFromAuth0()
+                }
                 onCreateRoleDefinition={createRoleDefinition}
                 onSelectRoleDefinition={selectRoleDefinition}
                 onRoleDefinitionChange={handleRoleDefinitionChange}
@@ -2704,7 +2851,7 @@ function App() {
                 onUpdateStoredProcedure={updateStoredProcedureDefinition}
                 onDeleteStoredProcedure={deleteStoredProcedureDefinition}
                 canExportAdminLogs={isAdmin}
-                onExportAdminLogs={exportAdminLogsCsv}
+                onExportAdminLogs={exportAdminLogs}
                 canManageJobs={canManageJobsNav}
                 jobs={jobs}
                 jobsLoading={jobsLoading}
@@ -2730,6 +2877,7 @@ function App() {
               loadingMore={false}
               onLoadMore={loadMoreUsers}
               loading={usersLoading || apiUnavailable}
+              syncingFromAuth0={usersSyncingFromAuth0}
               error={apiUnavailable ? null : usersError}
               canCreate={canCreateUsers}
               canEdit={canEditUsers}
@@ -2737,6 +2885,7 @@ function App() {
               currentUserId={currentUser?.id}
               deletingUserId={deletingUserId}
               onRefresh={() => void loadUsers()}
+              onSyncFromAuth0={() => void syncUsersFromAuth0()}
               onCreate={openCreateUserModal}
               onEdit={openAdminUserModal}
               onDelete={(userRecord) => void deleteUserRecord(userRecord)}
@@ -2775,6 +2924,7 @@ function App() {
           currentUser={
             currentUser
               ? {
+                  id: currentUser.id,
                   displayName: currentUser.displayName ?? "",
                   department: currentUser.department ?? "",
                   role: currentUser.role ?? "",
@@ -2787,6 +2937,32 @@ function App() {
             (!selectedTicket.id
               ? (currentUser?.displayName ?? user?.name ?? "")
               : "")
+          }
+          approvalDisplayContext={
+            activeView === "approval"
+              ? "reviewer"
+              : activeView === "tickets" && myTicketsOnly
+                ? "requester"
+                : "active"
+          }
+          refreshPersistedTicket={(ticketId, providedToken) =>
+            reconcileTicketByIdSilently(ticketId, providedToken, {
+              syncSelectedTicket: true,
+            })
+          }
+          onTriagePersisted={
+            activeView === "approval" ? bumpApprovalQueueRefresh : undefined
+          }
+          intakeApprovalHandlers={
+            canEditTicketsCap &&
+            selectedTicket.id &&
+            selectedTicket.approvalStatus === "PendingApproval"
+              ? {
+                  approve: handleIntakeApprove,
+                  returnForDetail: handleIntakeReturn,
+                  reject: handleIntakeReject,
+                }
+              : undefined
           }
         />
       )}

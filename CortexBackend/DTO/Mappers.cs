@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Cortex.API.Models;
 using Cortex.API.Services;
 
@@ -156,6 +157,7 @@ public static class TicketResponseExtensions
             Title = ticket.Title,
             Description = ticket.Description,
             Status = ticket.Status,
+            ApprovalStatus = ticket.ApprovalStatus,
             Priority = ticket.Priority,
             BoardId = ticket.BoardId,
             BoardName = context.ResolveBoardName(ticket.BoardId, ticket.BoardDefinition) ?? string.Empty,
@@ -175,6 +177,21 @@ public static class TicketResponseExtensions
             CreatedByDisplayName = context.ResolveUserDisplayName(
                 ticket.CreatedBy,
                 ticket.CreatedByUser),
+            CreatedByEmail = context.ResolveUserEmail(
+                ticket.CreatedBy,
+                ticket.CreatedByUser),
+            CreatedByAuth0Id = context.ResolveUserAuth0Id(
+                ticket.CreatedBy,
+                ticket.CreatedByUser),
+            ApprovedAt = ticket.ApprovedAt,
+            ApprovedBy = ticket.ApprovedBy,
+            RejectedAt = ticket.RejectedAt,
+            RejectedBy = ticket.RejectedBy,
+            RejectionReason = ticket.RejectionReason,
+            ReturnedForDetailAt = ticket.ReturnedForDetailAt,
+            ReturnedForDetailBy = ticket.ReturnedForDetailBy,
+            ReturnReason = ticket.ReturnReason,
+            ApprovalTriagePreview = MapApprovalTriagePreview(ticket),
             SlaTargetDate = slaSnapshot.TargetDateUtc,
             SlaCompletedDate = slaSnapshot.CompletedDateUtc,
             SlaStatus = slaSnapshot.Status,
@@ -183,6 +200,59 @@ public static class TicketResponseExtensions
             ConcurrencyToken = ticket.RowVersion is { Length: > 0 }
                 ? Convert.ToBase64String(ticket.RowVersion)
                 : string.Empty
+        };
+    }
+
+    private static ApprovalTriagePreviewDto? MapApprovalTriagePreview(Ticket ticket)
+    {
+        List<string> hints = [];
+        if (!string.IsNullOrWhiteSpace(ticket.AiTriageMissingDetailsJson))
+        {
+            try
+            {
+                hints = JsonSerializer.Deserialize<List<string>>(ticket.AiTriageMissingDetailsJson) ?? [];
+            }
+            catch (JsonException)
+            {
+                hints = [];
+            }
+        }
+
+        var hasAny =
+            !string.IsNullOrWhiteSpace(ticket.AiTriageSummary)
+            || !string.IsNullOrWhiteSpace(ticket.AiTriageSuggestedPriority)
+            || !string.IsNullOrWhiteSpace(ticket.AiTriagePriorityReason)
+            || !string.IsNullOrWhiteSpace(ticket.AiTriageSuggestedStatus)
+            || !string.IsNullOrWhiteSpace(ticket.AiTriagePotentialSlaRisk)
+            || !string.IsNullOrWhiteSpace(ticket.AiTriageSlaRiskReason)
+            || hints.Count > 0;
+
+        if (!hasAny)
+        {
+            return null;
+        }
+
+        return new ApprovalTriagePreviewDto
+        {
+            Summary = string.IsNullOrWhiteSpace(ticket.AiTriageSummary)
+                ? null
+                : ticket.AiTriageSummary.Trim(),
+            SuggestedPriority = string.IsNullOrWhiteSpace(ticket.AiTriageSuggestedPriority)
+                ? null
+                : ticket.AiTriageSuggestedPriority.Trim(),
+            PriorityReason = string.IsNullOrWhiteSpace(ticket.AiTriagePriorityReason)
+                ? null
+                : ticket.AiTriagePriorityReason.Trim(),
+            SuggestedStatus = string.IsNullOrWhiteSpace(ticket.AiTriageSuggestedStatus)
+                ? null
+                : ticket.AiTriageSuggestedStatus.Trim(),
+            MissingDetailHints = hints,
+            PotentialSlaRisk = string.IsNullOrWhiteSpace(ticket.AiTriagePotentialSlaRisk)
+                ? null
+                : ticket.AiTriagePotentialSlaRisk.Trim(),
+            SlaRiskReason = string.IsNullOrWhiteSpace(ticket.AiTriageSlaRiskReason)
+                ? null
+                : ticket.AiTriageSlaRiskReason.Trim(),
         };
     }
 }
@@ -396,6 +466,29 @@ public static class TicketRoutingDecisionMappings
             ExplanationText = decision.ExplanationText,
             EngineVersion = decision.EngineVersion,
             CreatedDateUtc = decision.CreatedDateUtc
+        };
+    }
+
+    public static TicketRoutingDecisionResponse ToPreviewResponse(
+        this RoutingDecisionResult result,
+        string ticketId)
+    {
+        return new TicketRoutingDecisionResponse
+        {
+            Id = 0,
+            TicketId = ticketId,
+            MatchedRuleId = result.MatchedRuleId,
+            OutcomeType = result.OutcomeType.ToString(),
+            ConfidenceLevel = result.ConfidenceLevel.ToString(),
+            NoMatchReason = result.NoMatchReason?.ToString(),
+            ChosenSynitiOwner = result.RecommendedSynitiOwner ?? string.Empty,
+            ChosenBusinessOwner = result.RecommendedBusinessOwner ?? string.Empty,
+            PrecedenceScore = result.PrecedenceScore,
+            TieBreakKey = result.TieBreakKey,
+            ExplanationJson = result.ExplanationJson,
+            ExplanationText = result.ExplanationText,
+            EngineVersion = result.EngineVersion,
+            CreatedDateUtc = DateTime.UtcNow
         };
     }
 

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { AdminLogExportFormat } from "../services/reportService";
 import type { ArchiveConfiguration } from "../types/archiveConfiguration";
 import type {
   CustomReportDefinition,
@@ -116,7 +117,11 @@ interface ConfigurationPageProps {
   roleDefinitionLoading: boolean;
   roleDefinitionSaving: boolean;
   roleDefinitionDeletingId: number | null;
+  /** True after the first successful load of role definitions from the API. */
+  roleDefinitionsLoadedOnce: boolean;
+  roleDefinitionSyncingFromAuth0: boolean;
   onRefreshRoleDefinitions: () => void;
+  onSyncRoleDefinitionsFromAuth0: () => void;
   onCreateRoleDefinition: () => void;
   onSelectRoleDefinition: (id: number) => void;
   onRoleDefinitionChange: <K extends keyof RoleDefinition>(
@@ -175,7 +180,11 @@ interface ConfigurationPageProps {
   ) => Promise<void>;
   onDeleteStoredProcedure: (id: number) => Promise<void>;
   canExportAdminLogs: boolean;
-  onExportAdminLogs: (fromUtcIso: string, toUtcIso: string) => Promise<void>;
+  onExportAdminLogs: (
+    fromUtcIso: string,
+    toUtcIso: string,
+    format: AdminLogExportFormat,
+  ) => Promise<void>;
   canManageJobs: boolean;
   jobs: ScheduledJob[];
   jobsLoading: boolean;
@@ -270,7 +279,10 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     roleDefinitionLoading,
     roleDefinitionSaving,
     roleDefinitionDeletingId,
+    roleDefinitionsLoadedOnce,
+    roleDefinitionSyncingFromAuth0,
     onRefreshRoleDefinitions,
+    onSyncRoleDefinitionsFromAuth0,
     onCreateRoleDefinition,
     onSelectRoleDefinition,
     onRoleDefinitionChange,
@@ -345,17 +357,49 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
   const [logExporting, setLogExporting] = useState(false);
   const [logExportError, setLogExportError] = useState<string | null>(null);
   const [logExportSuccess, setLogExportSuccess] = useState<string | null>(null);
+  const [logExportMenuOpen, setLogExportMenuOpen] = useState(false);
+  const logExportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeSection !== "routing" && activeSection !== "roles") {
+      return;
+    }
+    if (!roleDefinitionsLoadedOnce && !roleDefinitionLoading) {
+      onRefreshRoleDefinitions();
+    }
+  }, [
+    activeSection,
+    roleDefinitionsLoadedOnce,
+    roleDefinitionLoading,
+    onRefreshRoleDefinitions,
+  ]);
+
+  useEffect(() => {
+    if (!logExportMenuOpen) {
+      return;
+    }
+    const handleMouseDown = (event: MouseEvent) => {
+      if (
+        logExportMenuRef.current &&
+        !logExportMenuRef.current.contains(event.target as Node)
+      ) {
+        setLogExportMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [logExportMenuOpen]);
 
   const navItems: Array<{ id: ConfigSection; label: string; description: string }> = [
     { id: "general", label: "General", description: "SLA, session, and archive policy setup" },
     { id: "boards", label: "Boards", description: "Ticket board setup and behavior" },
     { id: "statuses", label: "Statuses", description: "Define workflow stages for tickets" },
-    { id: "routing", label: "Routing", description: "Automatically assign tickets based on structured rules and ownership logic." },
     {
       id: "roles",
-      label: "User roles",
-      description: "Define roles and permissions. Assign users in the Users section.",
+      label: "Role definitions",
+      description: "How Auth0 roles behave in Cortex. Assign people to roles in Users.",
     },
+    { id: "routing", label: "Routing", description: "Automatically assign tickets based on structured rules and ownership logic." },
     { id: "notifications", label: "Notifications", description: "Notification policy and delivery defaults" },
     {
       id: "jobs",
@@ -366,9 +410,10 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     { id: "logs", label: "Log Export", description: "Administrative request log export" },
   ];
 
-  const handleExportLogs = async () => {
+  const handleExportLogs = async (format: AdminLogExportFormat) => {
     setLogExportError(null);
     setLogExportSuccess(null);
+    setLogExportMenuOpen(false);
 
     if (!logExportFromDate || !logExportToDate) {
       setLogExportError("Select both a start date and end date.");
@@ -385,8 +430,10 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
 
     try {
       setLogExporting(true);
-      await onExportAdminLogs(fromUtcIso, toUtcIso);
-      setLogExportSuccess("Log export started. Your CSV download should begin shortly.");
+      await onExportAdminLogs(fromUtcIso, toUtcIso, format);
+      setLogExportSuccess(
+        "Log export started. Your download should begin shortly.",
+      );
     } catch {
       setLogExportError("Unable to export logs. Please try again.");
     } finally {
@@ -529,6 +576,8 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
               <TicketRoutingSection
                 rules={ticketRoutingRules}
                 boards={ticketBoards}
+                roleDefinitions={roleDefinitions}
+                roleDefinitionsLoadedOnce={roleDefinitionsLoadedOnce}
                 selectedRule={selectedTicketRoutingRule}
                 loading={ticketRoutingLoading}
                 saving={ticketRoutingSaving}
@@ -552,8 +601,10 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                   loading={roleDefinitionLoading}
                   saving={roleDefinitionSaving}
                   deletingId={roleDefinitionDeletingId}
+                  syncingFromAuth0={roleDefinitionSyncingFromAuth0}
                   error={roleDefinitionError}
                   onRefresh={onRefreshRoleDefinitions}
+                  onSyncFromAuth0={onSyncRoleDefinitionsFromAuth0}
                   onNew={onCreateRoleDefinition}
                   onSelect={onSelectRoleDefinition}
                   onChange={onRoleDefinitionChange}
@@ -562,7 +613,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                 />
                 <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
                   <p className="text-sm text-gray-500 dark:text-slate-400">
-                    Users are assigned roles in the Users section.
+                    To assign someone a role, use Users—not this screen.
                   </p>
                   {onOpenUsers && (
                     <button
@@ -657,7 +708,9 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
               <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                 <div className="border-b border-gray-100 px-6 py-5 dark:border-slate-800">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Admin Log Export</h3>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">Export request logs as CSV for a selected UTC date range.</p>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                    Export request logs (CSV, JSON, plain text, Excel, or Google Sheets) for a selected UTC date range.
+                  </p>
                 </div>
                 <div className="space-y-4 px-6 py-6">
                   {!canExportAdminLogs ? (
@@ -668,7 +721,68 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                         <div><label className="block text-sm font-medium text-gray-700 dark:text-slate-300">From (UTC date)</label><input type="date" value={logExportFromDate} onChange={(event) => setLogExportFromDate(event.target.value)} className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" /></div>
                         <div><label className="block text-sm font-medium text-gray-700 dark:text-slate-300">To (UTC date)</label><input type="date" value={logExportToDate} onChange={(event) => setLogExportToDate(event.target.value)} className="mt-2 w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" /></div>
                       </div>
-                      <button onClick={() => void handleExportLogs()} disabled={logExporting} className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60">{logExporting ? "Exporting..." : "Export Logs (CSV)"}</button>
+                      <div className="relative inline-block text-left" ref={logExportMenuRef}>
+                        <button
+                          type="button"
+                          onClick={() => setLogExportMenuOpen((open) => !open)}
+                          disabled={logExporting}
+                          className="inline-flex items-center gap-2 rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60"
+                          aria-expanded={logExportMenuOpen}
+                          aria-haspopup="menu"
+                        >
+                          {logExporting ? "Exporting..." : "Export"}
+                          <span className="text-xs" aria-hidden>
+                            ▾
+                          </span>
+                        </button>
+                        {logExportMenuOpen && !logExporting && (
+                          <div
+                            className="absolute left-0 z-20 mt-1 min-w-[14rem] rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
+                            role="menu"
+                          >
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                              onClick={() => void handleExportLogs("csv")}
+                            >
+                              Export CSV
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                              onClick={() => void handleExportLogs("json")}
+                            >
+                              Export JSON
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                              onClick={() => void handleExportLogs("txt")}
+                            >
+                              Export TXT
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                              onClick={() => void handleExportLogs("xlsx")}
+                            >
+                              Export Excel
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                              onClick={() => void handleExportLogs("sheets")}
+                            >
+                              Google Sheets
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </>
                   )}
                   {logExportError && <div className="rounded border-l-4 border-red-500 bg-red-50 px-4 py-3 dark:bg-red-950/40"><p className="text-red-700 dark:text-red-300">{logExportError}</p></div>}

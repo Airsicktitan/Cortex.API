@@ -7,6 +7,7 @@ public interface IRoleDefinitionRepository
     Task<List<RoleDefinition>> GetAllAsync();
     Task<RoleDefinition?> GetByIdAsync(int id);
     Task<RoleDefinition?> GetByNameAsync(string name);
+    Task<RoleDefinition?> GetByNameIgnoreCaseAsync(string name);
     Task AddAsync(RoleDefinition definition);
     void Delete(RoleDefinition definition);
     Task SaveChangesAsync();

@@ -24,6 +24,15 @@ public static class TicketEndpoints
             .WithName("GetTicketBoardCounts")
             .Produces<List<TicketBoardCountResponse>>(StatusCodes.Status200OK);
 
+        tickets.MapGet("/my-submissions", TicketHandlers.GetTicketsByUser)
+            .WithName("GetMyTicketSubmissions")
+            .Produces<List<TicketResponse>>(StatusCodes.Status200OK);
+
+        tickets.MapGet("/pending-approval", TicketHandlers.GetTicketsPendingApproval)
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .WithName("GetTicketsPendingApproval")
+            .Produces<PagedTicketListResponse>(StatusCodes.Status200OK);
+
         tickets.MapGet("/", TicketHandlers.GetAllTickets)
             .WithName("GetAllTickets")
             .Produces<PagedTicketListResponse>(StatusCodes.Status200OK);
@@ -33,6 +42,13 @@ public static class TicketEndpoints
             .Produces<Ticket>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        tickets.MapPost("/{id}/triage", TicketHandlers.GenerateTicketTriage)
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .WithName("GenerateTicketTriage")
+            .Produces<TicketTriageGenerateResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
+
         tickets.MapGet("/{id}/history", TicketHandlers.GetTicketHistory)
             .WithName("GetTicketHistory")
             .Produces(StatusCodes.Status200OK)
@@ -41,6 +57,42 @@ public static class TicketEndpoints
         tickets.MapGet("/{id}/routing/latest", TicketHandlers.GetLatestRoutingDecision)
             .WithName("GetLatestTicketRoutingDecision")
             .Produces<TicketRoutingLatestResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
+        tickets.MapPost("/routing/workload-preview", TicketHandlers.PostOwnerWorkloadPreview)
+            .WithName("PostOwnerWorkloadPreview")
+            .Produces<OwnerWorkloadPreviewResponse>(StatusCodes.Status200OK);
+
+        tickets.MapPost("/{id}/approve", TicketHandlers.ApproveTicket)
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .WithName("ApproveTicket")
+            .Accepts<TicketApprovalActionRequest>("application/json")
+            .Produces<TicketResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
+
+        tickets.MapPost("/{id}/return", TicketHandlers.ReturnTicketForDetail)
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .WithName("ReturnTicketForDetail")
+            .Accepts<TicketApprovalActionRequest>("application/json")
+            .Produces<TicketResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
+
+        tickets.MapPost("/{id}/reject", TicketHandlers.RejectTicket)
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .WithName("RejectTicket")
+            .Accepts<TicketApprovalActionRequest>("application/json")
+            .Produces<TicketResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
+
+        tickets.MapPost("/routing/preview", TicketHandlers.PostRoutingPreview)
+            .WithName("PostTicketRoutingPreview")
+            .Produces<RoutingPreviewResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapGet("/status/{status}", TicketHandlers.GetTicketsByStatus)
@@ -59,7 +111,7 @@ public static class TicketEndpoints
             .Produces<Ticket>(StatusCodes.Status201Created);
 
         tickets.MapPut("/{id}", TicketHandlers.UpdateTicket)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
             .WithName("UpdateTicket")
             .Produces<Ticket>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);

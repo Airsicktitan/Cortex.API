@@ -372,13 +372,20 @@ namespace Cortex.API.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
 
+                    b.Property<string>("NameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
                     b.Property<string>("PermissionsJson")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("Name");
+
+                    b.HasIndex("NameNormalized")
                         .IsUnique();
 
                     b.ToTable("RoleDefinitions");
@@ -539,6 +546,38 @@ namespace Cortex.API.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<string>("AiTriageMissingDetailsJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AiTriagePotentialSlaRisk")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AiTriagePriorityReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AiTriageSlaRiskReason")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AiTriageSuggestedPriority")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AiTriageSuggestedStatus")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AiTriageSummary")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ApprovalStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ApprovedBy")
+                        .HasColumnType("int");
+
                     b.Property<int>("BoardId")
                         .HasColumnType("int");
 
@@ -565,6 +604,26 @@ namespace Cortex.API.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<DateTime?>("RejectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("RejectedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("ReturnReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("ReturnedForDetailAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ReturnedForDetailBy")
+                        .HasColumnType("int");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -587,6 +646,8 @@ namespace Cortex.API.Migrations
                         .HasColumnType("nvarchar(200)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
 
                     b.HasIndex("BoardId");
 

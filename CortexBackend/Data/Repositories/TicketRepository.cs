@@ -21,6 +21,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         var query = _context.Tickets
             .AsNoTracking()
             .Include(ticket => ticket.BoardDefinition)
+            .WhereApprovedForActiveWork()
             .AsQueryable();
 
         if (boardId.HasValue)
@@ -58,6 +59,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         var filtered = _context.Tickets
             .AsNoTracking()
             .Include(ticket => ticket.BoardDefinition)
+            .WhereApprovedForActiveWork()
             .WhereVisibleTo(visibility)
             .AsQueryable();
 
@@ -82,6 +84,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
     {
         var counts = await _context.Tickets
             .AsNoTracking()
+            .WhereApprovedForActiveWork()
             .WhereVisibleTo(visibility)
             .GroupBy(ticket => ticket.BoardId)
             .Select(group => new
@@ -92,6 +95,21 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
             .ToListAsync(cancellationToken);
 
         return counts.ToDictionary(entry => entry.BoardId, entry => entry.Count);
+    }
+
+    public async Task<IReadOnlyList<Ticket>> GetIntakeQueueTicketsAsync(
+        TicketVisibilityContext visibility,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.Tickets
+            .AsNoTracking()
+            .Include(ticket => ticket.BoardDefinition)
+            .Include(ticket => ticket.CreatedByUser)
+            .Where(ticket => ticket.ApprovalStatus == ApprovalStatus.PendingApproval)
+            .WhereVisibleTo(visibility)
+            .OrderByDescending(ticket => ticket.CreatedDate)
+            .ThenByDescending(ticket => ticket.Id)
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<ArchivedTicket>> GetArchivedTicketsAsync(
@@ -167,6 +185,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         }
 
         return await _context.Tickets
+            .WhereApprovedForActiveWork()
             .Where(ticket =>
                 statuses.Contains(ticket.Status) &&
                 (ticket.LastModifiedDate ?? ticket.CreatedDate) <= olderThanUtc)
@@ -185,12 +204,49 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
             .FirstOrDefaultAsync(ticket => ticket.Id == id);
     }
 
-    public async Task<IEnumerable<Ticket>> GetTicketByUserAsync(int user)
+    public async Task<IEnumerable<Ticket>> GetTicketByUserAsync(User user)
     {
+        ArgumentNullException.ThrowIfNull(user);
+
+        var normalizedAuth0Id = NormalizeForMatch(user.Auth0Id);
+        var normalizedEmail = NormalizeForMatch(user.Email);
+        var normalizedDisplayName = NormalizeForMatch(user.DisplayName);
+        var userIdToken = NormalizeForMatch(
+            $"{OwnerFieldResolution.UserIdTokenPrefix}{user.Id.ToString(CultureInfo.InvariantCulture)}")
+            ?? string.Empty;
+
         return await _context.Tickets
             .AsNoTracking()
             .Include(t => t.BoardDefinition)
-            .Where(t => t.CreatedBy == user)
+            .Include(t => t.CreatedByUser)
+            .Where(t =>
+                t.CreatedBy == user.Id ||
+                (normalizedAuth0Id != null &&
+                 t.CreatedByUser != null &&
+                 t.CreatedByUser.Auth0Id != null &&
+                 t.CreatedByUser.Auth0Id.Trim().ToLower() == normalizedAuth0Id) ||
+                (normalizedEmail != null &&
+                 t.CreatedByUser != null &&
+                 t.CreatedByUser.Email != null &&
+                 t.CreatedByUser.Email.Trim().ToLower() == normalizedEmail) ||
+                (normalizedDisplayName != null &&
+                 t.SynitiOwner != null &&
+                 t.SynitiOwner.Trim().ToLower() == normalizedDisplayName) ||
+                (normalizedEmail != null &&
+                 t.SynitiOwner != null &&
+                 t.SynitiOwner.Trim().ToLower() == normalizedEmail) ||
+                (t.SynitiOwner != null &&
+                 t.SynitiOwner.Trim().ToLower() == userIdToken) ||
+                (normalizedDisplayName != null &&
+                 t.BusinessOwner != null &&
+                 t.BusinessOwner.Trim().ToLower() == normalizedDisplayName) ||
+                (normalizedEmail != null &&
+                 t.BusinessOwner != null &&
+                 t.BusinessOwner.Trim().ToLower() == normalizedEmail) ||
+                (t.BusinessOwner != null &&
+                 t.BusinessOwner.Trim().ToLower() == userIdToken))
+            .OrderByDescending(t => t.CreatedDate)
+            .ThenByDescending(t => t.Id)
             .ToListAsync();
     }
 
@@ -199,6 +255,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         return await _context.Tickets
             .AsNoTracking()
             .Include(t => t.BoardDefinition)
+            .WhereApprovedForActiveWork()
             .Where(t => t.Status == status)
             .ToListAsync();
     }
@@ -208,6 +265,7 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         return await _context.Tickets
             .AsNoTracking()
             .Include(t => t.BoardDefinition)
+            .WhereApprovedForActiveWork()
             .Where(t => t.Priority == priority)
             .ToListAsync();
     }
@@ -306,6 +364,9 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
             Title = archivedTicket.Title,
             Description = archivedTicket.Description,
             Status = restoredStatus,
+            ApprovalStatus = ApprovalStatus.Approved,
+            ApprovedAt = DateTime.UtcNow,
+            ApprovedBy = reactivatedBy,
             Priority = archivedTicket.Priority,
             BoardId = archivedTicket.BoardId,
             StoryPoints = archivedTicket.StoryPoints,
@@ -430,5 +491,12 @@ public class TicketRepository(CortexDbContext context) : ITicketRepository
         }
 
         return attachment.FileName;
+    }
+
+    private static string? NormalizeForMatch(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim().ToLowerInvariant();
     }
 }

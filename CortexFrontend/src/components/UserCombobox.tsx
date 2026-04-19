@@ -152,6 +152,11 @@ export default function UserCombobox({
     }
 
     if (event.key === "Enter" && isOpen) {
+      // TicketModal (and similar UIs) attach window-level Enter handlers for save.
+      // Stop propagation so selection wins and the modal does not submit/close.
+      event.preventDefault();
+      event.stopPropagation();
+
       const highlightedUser =
         filteredUsers[
           filteredUsers.length <= 0
@@ -159,7 +164,6 @@ export default function UserCombobox({
             : Math.min(highlightedIndex, filteredUsers.length - 1)
         ];
       if (highlightedUser) {
-        event.preventDefault();
         selectUser(highlightedUser);
       }
       return;

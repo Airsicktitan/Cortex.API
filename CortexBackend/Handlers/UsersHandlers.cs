@@ -94,6 +94,33 @@ public static class UserHandlers
         }
     }
 
+    public static async Task<IResult> SyncUsersFromAuth0(
+        IAuth0UserDirectorySyncService syncService,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await syncService.SyncFromAuth0Async(cancellationToken);
+            return Results.Ok(result);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Results.Problem(
+                title: "Auth0 management is not configured",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+        catch (Auth0ManagementException exception)
+        {
+            return Results.Problem(
+                title: "Failed to sync users from Auth0",
+                detail: exception.Message,
+                statusCode: exception.StatusCode is >= 400 and < 500
+                    ? exception.StatusCode
+                    : StatusCodes.Status502BadGateway);
+        }
+    }
+
     public static async Task<IResult> GetUserAuth0Roles(
         int id,
         IUserRepository repo,

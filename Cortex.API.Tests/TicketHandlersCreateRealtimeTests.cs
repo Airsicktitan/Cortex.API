@@ -87,27 +87,40 @@ public class TicketHandlersCreateRealtimeTests
         ticketBoardService
             .Setup(service => service.GetDefaultCreateBoardAsync())
             .ReturnsAsync(board);
+        ticketBoardService
+            .Setup(service => service.GetByIdAsync(It.Is<int>(id => id == board.Id)))
+            .ReturnsAsync(board);
+
+        var userRepository = new Mock<IUserRepository>(MockBehavior.Strict);
+        userRepository
+            .Setup(repository => repository.GetByIdAsync(currentUser.Id))
+            .ReturnsAsync(currentUser);
+
+        var triageAi = new Mock<ITicketTriageAiService>(MockBehavior.Strict);
+        triageAi
+            .Setup(service => service.GenerateTriageAsync(
+                It.IsAny<TicketTriageInput>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TicketTriageGenerateResponse { Unavailable = true });
+
+        var triageVocabulary = new Mock<ITicketTriageVocabularyProvider>(MockBehavior.Strict);
+        triageVocabulary
+            .Setup(v => v.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TicketTriageVocabularySnapshot
+            {
+                Statuses = [new TicketTriageStatusOption("New", null, 1)],
+                Priorities =
+                [
+                    new TicketTriagePriorityOption("Low", 48, 24),
+                    new TicketTriagePriorityOption("Medium", 24, 12),
+                    new TicketTriagePriorityOption("High", 8, 4),
+                ],
+            });
 
         var ticketRoutingRuleService = new Mock<ITicketRoutingRuleService>(MockBehavior.Strict);
         ticketRoutingRuleService
             .Setup(service => service.EvaluateAsync(It.IsAny<RoutingFactors>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(routingDecision);
-        ticketRoutingRuleService
-            .Setup(service => service.RecordDecisionAsync(ticketId, routingDecision, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TicketRoutingDecision
-            {
-                TicketId = ticketId,
-                MatchedRuleId = routingDecision.MatchedRuleId,
-                ChosenSynitiOwner = routingDecision.RecommendedSynitiOwner,
-                ChosenBusinessOwner = routingDecision.RecommendedBusinessOwner,
-                OutcomeType = routingDecision.OutcomeType,
-                ConfidenceLevel = routingDecision.ConfidenceLevel,
-                PrecedenceScore = routingDecision.PrecedenceScore,
-                TieBreakKey = routingDecision.TieBreakKey,
-                ExplanationJson = routingDecision.ExplanationJson,
-                ExplanationText = routingDecision.ExplanationText,
-                EngineVersion = routingDecision.EngineVersion,
-            });
 
         var ticketAuditService = new Mock<ITicketAuditService>(MockBehavior.Strict);
         ticketAuditService
@@ -115,9 +128,6 @@ public class TicketHandlersCreateRealtimeTests
             .Returns(Task.CompletedTask);
 
         var notificationService = new Mock<INotificationService>(MockBehavior.Strict);
-        notificationService
-            .Setup(service => service.CreateAssignmentNotificationsForNewTicketAsync(It.IsAny<Ticket>(), currentUser))
-            .ReturnsAsync(0);
 
         var realtimeMessages = new List<RealtimeEventMessage>();
         var realtimeEventService = new Mock<IRealtimeEventService>(MockBehavior.Strict);
@@ -146,11 +156,13 @@ public class TicketHandlersCreateRealtimeTests
             request,
             ticketRepository.Object,
             userContext.Object,
-            Mock.Of<IUserRepository>(),
+            userRepository.Object,
             slaConfigurationService.Object,
             Mock.Of<ITicketStatusService>(),
             ticketBoardService.Object,
             ticketRoutingRuleService.Object,
+            triageAi.Object,
+            triageVocabulary.Object,
             ticketAuditService.Object,
             notificationService.Object,
             realtimeEventService.Object,
@@ -168,5 +180,6 @@ public class TicketHandlersCreateRealtimeTests
         Assert.NotNull(realtimeMessage.Ticket);
         Assert.Equal("Syniti Owner", realtimeMessage.Ticket!.SynitiOwner);
         Assert.Equal("Business Owner", realtimeMessage.Ticket.BusinessOwner);
+        Assert.Equal(ApprovalStatus.PendingApproval, realtimeMessage.Ticket.ApprovalStatus);
     }
 }

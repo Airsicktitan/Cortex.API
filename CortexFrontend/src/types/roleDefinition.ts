@@ -14,3 +14,9 @@ export interface UpsertRoleDefinitionInput {
   permissions: string[];
   isEnabled: boolean;
 }
+
+export interface SyncRoleDefinitionsFromAuth0Result {
+  created: number;
+  skippedExisting: number;
+  totalFromAuth0: number;
+}

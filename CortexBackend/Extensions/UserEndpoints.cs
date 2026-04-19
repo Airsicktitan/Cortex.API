@@ -25,6 +25,13 @@ public static class UserEndpoints
             .WithName("GetAvailableAuth0Roles")
             .Produces<List<Auth0RoleDto>>(StatusCodes.Status200OK);
 
+        users.MapPost("/sync-from-auth0", UserHandlers.SyncUsersFromAuth0)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
+            .WithName("SyncUsersFromAuth0")
+            .Produces<SyncUsersFromAuth0Response>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
         users.MapGet("/{id:int}/roles", UserHandlers.GetUserAuth0Roles)
             .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("GetUserAuth0Roles")

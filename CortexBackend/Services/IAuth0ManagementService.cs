@@ -18,4 +18,7 @@ public interface IAuth0ManagementService
 
     /// <summary>DELETE /api/v2/users/{id}/roles — remove roles by Auth0 role id.</summary>
     Task RemoveRolesFromUserAsync(string auth0UserId, IReadOnlyList<string> roleIds, CancellationToken cancellationToken = default);
+
+    /// <summary>GET /api/v2/users (paginated) — all users in the Auth0 tenant for directory sync.</summary>
+    Task<IReadOnlyList<Auth0DirectoryUserDto>> GetAllDirectoryUsersAsync(CancellationToken cancellationToken = default);
 }

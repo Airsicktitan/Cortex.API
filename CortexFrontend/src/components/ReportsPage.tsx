@@ -22,6 +22,7 @@ import {
   readOnlyBusinessOwnerLabel,
   readOnlySynitiOwnerLabel,
 } from "../utils/ownerIdentity";
+import { isOpenTicket } from "../utils/ticketLifecycle";
 
 type ReportSection = "sla" | "online-users" | "custom";
 
@@ -85,6 +86,68 @@ function getOwnerLabel(ticket: Ticket) {
   return formatDisplayValue(readOnlyBusinessOwnerLabel(ticket));
 }
 
+function buildSlaExecutiveSummary(openTickets: Ticket[]) {
+  const openCount = openTickets.length;
+  const atRiskOpen = openTickets.filter((t) => t.slaStatus === "At Risk").length;
+  const breachedOpen = openTickets.filter((t) => t.slaStatus === "Breached").length;
+
+  if (openCount === 0) {
+    return {
+      tone: "neutral" as const,
+      headline: "No open tickets in this report.",
+      supporting:
+        "Figures below still reflect your full visible ticket set, including resolved work.",
+    };
+  }
+
+  if (breachedOpen === 0 && atRiskOpen === 0) {
+    return {
+      tone: "positive" as const,
+      headline: "All active tickets are currently within SLA.",
+      supporting: `${openCount} open ticket${openCount === 1 ? "" : "s"} — none are at risk or overdue.`,
+    };
+  }
+
+  if (breachedOpen > 0 && atRiskOpen > 0) {
+    return {
+      tone: "critical" as const,
+      headline: `${breachedOpen} ticket${breachedOpen === 1 ? "" : "s"} ${breachedOpen === 1 ? "has" : "have"} breached SLA; ${atRiskOpen} ${atRiskOpen === 1 ? "is" : "are"} at risk.`,
+      supporting: "Prioritize overdue items, then work through at-risk tickets before they breach.",
+    };
+  }
+
+  if (breachedOpen > 0) {
+    return {
+      tone: "critical" as const,
+      headline: `${breachedOpen} ticket${breachedOpen === 1 ? "" : "s"} ${breachedOpen === 1 ? "has" : "have"} breached SLA and need attention.`,
+      supporting: "These items are past their SLA target—reassign, escalate, or resolve as soon as practical.",
+    };
+  }
+
+  return {
+    tone: "warning" as const,
+    headline: `${atRiskOpen} ticket${atRiskOpen === 1 ? "" : "s"} ${atRiskOpen === 1 ? "is" : "are"} at risk of breaching SLA.`,
+    supporting: "They are still inside the warning window—act before the deadline passes.",
+  };
+}
+
+function executiveSummaryAccentClass(
+  tone: "positive" | "warning" | "critical" | "neutral",
+) {
+  const base =
+    "rounded-xl border border-gray-200 bg-white px-6 py-5 shadow-sm dark:border-slate-700 dark:bg-slate-900";
+  switch (tone) {
+    case "positive":
+      return `${base} border-l-[5px] border-l-emerald-500 dark:border-l-emerald-400`;
+    case "warning":
+      return `${base} border-l-[5px] border-l-amber-500 dark:border-l-amber-400`;
+    case "critical":
+      return `${base} border-l-[5px] border-l-red-500 dark:border-l-red-400`;
+    default:
+      return `${base} border-l-[5px] border-l-slate-400 dark:border-l-slate-500`;
+  }
+}
+
 function sortByUrgency(tickets: Ticket[]) {
   return [...tickets].sort((leftTicket, rightTicket) => {
     if (leftTicket.slaStatus === "Breached" && rightTicket.slaStatus !== "Breached") {
@@ -104,12 +167,17 @@ function RiskTable({
   description,
   tickets,
   emptyMessage,
+  emptySupporting,
+  emptyVariant = "default",
   onOpenTicket,
 }: {
   title: string;
   description: string;
   tickets: Ticket[];
   emptyMessage: string;
+  /** Shown under the primary empty line when using compact-balanced variant. */
+  emptySupporting?: string;
+  emptyVariant?: "default" | "compact-balanced";
   onOpenTicket: (ticket: Ticket) => void;
 }) {
   return (
@@ -124,9 +192,24 @@ function RiskTable({
       </div>
 
       {tickets.length === 0 ? (
-        <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">
-          {emptyMessage}
-        </div>
+        emptyVariant === "compact-balanced" ? (
+          <div className="px-6 py-5">
+            <div className="border-l-2 border-slate-300 py-0.5 pl-4 dark:border-slate-600">
+              <p className="text-sm font-medium text-gray-800 dark:text-slate-200">
+                {emptyMessage}
+              </p>
+              {emptySupporting ? (
+                <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+                  {emptySupporting}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">
+            {emptyMessage}
+          </div>
+        )
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -171,6 +254,91 @@ function RiskTable({
                     </div>
                   </td>
                   <td className="px-4 py-3 align-top whitespace-nowrap">
+                    {formatDisplayDateTime(ticket.slaTargetDate)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AttentionNeededTable({
+  tickets,
+  onOpenTicket,
+}: {
+  tickets: Ticket[];
+  onOpenTicket: (ticket: Ticket) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="border-b border-gray-100 px-6 py-4 dark:border-slate-800">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+          Attention needed
+        </h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+          Open tickets in the warning window or already past their SLA—open a row to act in the ticket
+          modal.
+        </p>
+      </div>
+
+      {tickets.length === 0 ? (
+        <div className="px-6 py-5">
+          <div className="border-l-2 border-emerald-500/40 py-0.5 pl-4 dark:border-emerald-500/35">
+            <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100">
+              Nothing urgent on SLA right now
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-emerald-900/75 dark:text-emerald-200/80">
+              No open tickets are at risk or overdue in this view. Lists update when you refresh.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-left text-gray-600 dark:bg-slate-800/80 dark:text-slate-300">
+              <tr>
+                <th className="px-4 py-3 font-medium">Work item</th>
+                <th className="px-4 py-3 font-medium">Owner</th>
+                <th className="px-4 py-3 font-medium">Priority</th>
+                <th className="px-4 py-3 font-medium">SLA</th>
+                <th className="px-4 py-3 font-medium">Timing</th>
+                <th className="px-4 py-3 font-medium">Due</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tickets.map((ticket) => (
+                <tr
+                  key={ticket.id}
+                  className="cursor-pointer border-t border-gray-100 text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/50"
+                  onClick={() => onOpenTicket(ticket)}
+                >
+                  <td className="max-w-[min(100vw,28rem)] px-4 py-3 align-top">
+                    <p className="font-medium leading-snug text-gray-900 dark:text-slate-100">
+                      {ticket.title}
+                    </p>
+                    <p className="mt-1 font-mono text-xs text-gray-500 dark:text-slate-400">
+                      {ticket.id}
+                    </p>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 align-top text-gray-800 dark:text-slate-200">
+                    {getOwnerLabel(ticket)}
+                  </td>
+                  <td className="px-4 py-3 align-top">{ticket.priority}</td>
+                  <td className="px-4 py-3 align-top">
+                    <span
+                      className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-medium ${getSlaBadgeClass(getSlaDisplayLabel(ticket))}`}
+                    >
+                      {getSlaDisplayLabel(ticket)}
+                    </span>
+                  </td>
+                  <td className="max-w-xs px-4 py-3 align-top text-gray-700 dark:text-slate-300">
+                    <span className="text-sm">{formatSlaSummary(ticket)}</span>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 align-top text-gray-600 dark:text-slate-400">
                     {formatDisplayDateTime(ticket.slaTargetDate)}
                   </td>
                 </tr>
@@ -401,6 +569,9 @@ export default function ReportsPage({
     tickets.filter((ticket) => ticket.slaStatus === "Resolved Late"),
   );
 
+  const openTickets = tickets.filter(isOpenTicket);
+  const executiveSummary = buildSlaExecutiveSummary(openTickets);
+
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
@@ -452,10 +623,11 @@ export default function ReportsPage({
                     )}
                   </div>
                   <button
+                    type="button"
                     onClick={onToggleSlaLegend}
-                    className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
-                    {showSlaLegend ? "Hide SLA Legend" : "Show SLA Legend"}
+                    {showSlaLegend ? "Hide SLA definitions" : "SLA definitions"}
                   </button>
                   <button
                     onClick={onRefresh}
@@ -547,7 +719,25 @@ export default function ReportsPage({
               No ticket data is available for reporting yet.
             </section>
           ) : (
-            <>
+            <div className="space-y-6">
+              <section
+                className={executiveSummaryAccentClass(executiveSummary.tone)}
+                aria-labelledby="sla-executive-summary-heading"
+              >
+                <h3
+                  id="sla-executive-summary-heading"
+                  className="sr-only"
+                >
+                  Executive summary
+                </h3>
+                <p className="text-xl font-semibold leading-snug tracking-tight text-gray-900 dark:text-slate-50 sm:text-2xl">
+                  {executiveSummary.headline}
+                </p>
+                <p className="mt-2 max-w-4xl text-sm leading-relaxed text-gray-600 dark:text-slate-400">
+                  {executiveSummary.supporting}
+                </p>
+              </section>
+
               <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                   <p className="text-sm font-medium text-gray-500 dark:text-slate-400">
@@ -597,6 +787,8 @@ export default function ReportsPage({
                   </p>
                 </div>
               </section>
+
+              {/* Future: drop a full-width SLA trend chart here without changing the outer layout. */}
 
               <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                 <div className="border-b border-gray-100 px-6 py-4 dark:border-slate-800">
@@ -648,11 +840,8 @@ export default function ReportsPage({
               </section>
 
               <div className="grid gap-6 xl:grid-cols-2">
-                <RiskTable
-                  title="Attention Needed"
-                  description="Open tickets that are nearing or already past their SLA target."
+                <AttentionNeededTable
                   tickets={actionableTickets}
-                  emptyMessage="No tickets currently need SLA attention."
                   onOpenTicket={onOpenTicket}
                 />
 
@@ -661,10 +850,12 @@ export default function ReportsPage({
                   description="Tickets that were completed after their SLA target."
                   tickets={resolvedLateTickets}
                   emptyMessage="No tickets have been resolved late."
+                  emptySupporting="Closures after the SLA deadline will appear here."
+                  emptyVariant="compact-balanced"
                   onOpenTicket={onOpenTicket}
                 />
               </div>
-            </>
+            </div>
           )}
         </>
       ) : activeSection === "online-users" ? (

@@ -54,7 +54,7 @@ import {
 import { archiveConfigurationService } from "../services/archiveConfigurationService";
 import { customReportService } from "../services/customReportService";
 import { notificationChannelConfigurationService } from "../services/notificationChannelConfigurationService";
-import { reportService } from "../services/reportService";
+import { reportService, type AdminLogExportFormat } from "../services/reportService";
 import { scheduledJobService } from "../services/scheduledJobService";
 import { sessionConfigurationService } from "../services/sessionConfigurationService";
 import { slaService } from "../services/slaService";
@@ -265,6 +265,9 @@ export function useConfiguration({
     null,
   );
   const [roleDefinitionError, setRoleDefinitionError] = useState<string | null>(null);
+  const [roleDefinitionSyncingFromAuth0, setRoleDefinitionSyncingFromAuth0] =
+    useState(false);
+  const [roleDefinitionsLoadedOnce, setRoleDefinitionsLoadedOnce] = useState(false);
 
   // ── Archive configuration ─────────────────────────────────────────────────
   const [archiveConfigurations, setArchiveConfigurations] = useState<
@@ -524,6 +527,7 @@ export function useConfiguration({
         ]);
         const sorted = sortRoleDefinitions(roles);
         setRoleDefinitions(sorted);
+        setRoleDefinitionsLoadedOnce(true);
         setRolePermissionOptions(permissions);
         setSelectedRoleDefinition((currentRole) => {
           if (currentRole?.id === 0) return currentRole;
@@ -553,6 +557,41 @@ export function useConfiguration({
     },
     [getApiToken, setApiUnavailable],
   );
+
+  const syncRoleDefinitionsFromAuth0 = useCallback(async () => {
+    setRoleDefinitionSyncingFromAuth0(true);
+    setRoleDefinitionError(null);
+    try {
+      const token = await getApiToken();
+      const result = await roleDefinitionService.syncFromAuth0(token);
+      await loadRoleDefinitions(token);
+      const total = result.totalFromAuth0;
+      if (total === 0) {
+        toast.success("Auth0 returned no roles with names; nothing to import.");
+      } else {
+        toast.success(
+          `Import from Auth0: ${result.created} new, ${result.skippedExisting} already in Cortex (${total} Auth0 role name(s) processed). Existing definitions are not updated or removed.`,
+        );
+      }
+    } catch (error) {
+      console.error("Failed to sync role definitions from Auth0", error);
+      if (isForbiddenError(error)) {
+        setApiUnavailable(false);
+        setRoleDefinitionError(
+          "You do not have permission to sync role definitions.",
+        );
+      } else if (isLikelyNetworkError(error)) {
+        setApiUnavailable(true);
+      } else {
+        setApiUnavailable(false);
+        setRoleDefinitionError(
+          getUserFacingErrorMessage(error, "Failed to import new roles from Auth0."),
+        );
+      }
+    } finally {
+      setRoleDefinitionSyncingFromAuth0(false);
+    }
+  }, [getApiToken, loadRoleDefinitions, setApiUnavailable]);
 
   const loadArchiveConfigurations = useCallback(
     async (providedToken?: string) => {
@@ -798,15 +837,14 @@ export function useConfiguration({
     [getApiToken],
   );
 
-  const exportAdminLogsCsv = useCallback(
-    async (fromUtcIso: string, toUtcIso: string) => {
+  const exportAdminLogs = useCallback(
+    async (
+      fromUtcIso: string,
+      toUtcIso: string,
+      format: AdminLogExportFormat,
+    ) => {
       const token = await getApiToken();
-      await reportService.exportAdminLogsCsv(
-        token,
-        fromUtcIso,
-        toUtcIso,
-        "cortex-request-logs.csv",
-      );
+      await reportService.exportAdminLogs(token, fromUtcIso, toUtcIso, format);
     },
     [getApiToken],
   );
@@ -1927,7 +1965,10 @@ export function useConfiguration({
     roleDefinitionSaving,
     roleDefinitionDeletingId,
     roleDefinitionError,
+    roleDefinitionSyncingFromAuth0,
+    roleDefinitionsLoadedOnce,
     loadRoleDefinitions,
+    syncRoleDefinitionsFromAuth0,
     handleRoleDefinitionChange,
     createRoleDefinition,
     selectRoleDefinition,
@@ -1969,7 +2010,7 @@ export function useConfiguration({
     updateCustomReport,
     deleteCustomReport,
     exportReportCsv,
-    exportAdminLogsCsv,
+    exportAdminLogs,
     // Stored procedures
     storedProcedures,
     databaseStoredProcedures,

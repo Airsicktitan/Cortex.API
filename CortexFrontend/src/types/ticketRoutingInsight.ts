@@ -44,3 +44,33 @@ export interface RoutingExplanationPayload {
   candidateCount?: number;
   noMatchReason?: string;
 }
+
+/** POST /api/tickets/routing/workload-preview */
+export interface OwnerWorkloadPreviewRequest {
+  ownerKeys: string[];
+  excludeTicketId?: string | null;
+}
+
+export interface OwnerWorkloadSummaryDto {
+  ownerKey: string;
+  activeTicketCount: number;
+  atRiskTicketCount: number;
+  outsideSlaOpenCount: number;
+}
+
+export interface OwnerWorkloadPreviewResponse {
+  summaries: OwnerWorkloadSummaryDto[];
+}
+
+/** POST /api/tickets/routing/preview — live evaluation from draft fields (no save). */
+export interface RoutingPreviewRequest {
+  ticketId: string;
+  boardId: number;
+  priority: string;
+  title?: string;
+  department?: string;
+}
+
+export interface RoutingPreviewResponse {
+  decision: TicketRoutingDecisionDto;
+}

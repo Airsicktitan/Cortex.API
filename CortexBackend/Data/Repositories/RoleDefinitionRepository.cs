@@ -26,6 +26,19 @@ public class RoleDefinitionRepository(CortexDbContext context) : IRoleDefinition
         return _context.RoleDefinitions.FirstOrDefaultAsync(definition => definition.Name == name);
     }
 
+    public Task<RoleDefinition?> GetByNameIgnoreCaseAsync(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Task.FromResult<RoleDefinition?>(null);
+        }
+
+        var trimmed = name.Trim();
+        var key = trimmed.ToUpperInvariant();
+        return _context.RoleDefinitions.FirstOrDefaultAsync(definition =>
+            definition.NameNormalized == key);
+    }
+
     public async Task AddAsync(RoleDefinition definition)
     {
         await _context.RoleDefinitions.AddAsync(definition);

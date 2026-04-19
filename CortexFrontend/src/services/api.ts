@@ -1,4 +1,9 @@
-import type { CreateTicketInput, Ticket, TicketMutationInput } from "../types/ticket";
+import type {
+  CreateTicketInput,
+  Ticket,
+  TicketMutationInput,
+  TicketTriageGenerateApiResponse,
+} from "../types/ticket";
 import type { ArchivedTicket } from "../types/archivedTicket";
 import type {
   PagedArchivedTicketList,
@@ -6,12 +11,19 @@ import type {
 } from "../types/pagedList";
 import type { TicketAttachment } from "../types/attachment";
 import type { TicketAuditEntry } from "../types/ticketAudit";
-import type { TicketRoutingLatestResponse } from "../types/ticketRoutingInsight";
+import type {
+  OwnerWorkloadPreviewRequest,
+  OwnerWorkloadPreviewResponse,
+  RoutingPreviewRequest,
+  RoutingPreviewResponse,
+  TicketRoutingLatestResponse,
+} from "../types/ticketRoutingInsight";
 import type {
   AdminUpdateUserInput,
   Auth0RoleOption,
   CreateUserInput,
   OnlineUser,
+  SyncUsersFromAuth0Result,
   UpdateUserProfileInput,
   UserAuth0RolesResponse,
   UserDirectoryEntry,
@@ -199,6 +211,15 @@ export const ticketService = {
     return response.json() as Promise<PagedTicketList>;
   },
 
+  async getMySubmissions(token: string): Promise<Ticket[]> {
+    const response = await fetch(`${API_BASE_URL}/tickets/my-submissions`, {
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, API_USER_MESSAGES.loadTickets);
+    return response.json() as Promise<Ticket[]>;
+  },
+
   async getBoardCounts(token: string): Promise<Record<number, number>> {
     const response = await fetch(`${API_BASE_URL}/tickets/board-counts`, {
       headers: authHeaders(token),
@@ -298,6 +319,46 @@ export const ticketService = {
     return response.json() as Promise<TicketRoutingLatestResponse>;
   },
 
+  async postWorkloadPreview(
+    body: OwnerWorkloadPreviewRequest,
+    token: string,
+  ): Promise<OwnerWorkloadPreviewResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/routing/workload-preview`,
+      {
+        method: "POST",
+        headers: authHeaders(token, true),
+        body: JSON.stringify({
+          ownerKeys: body.ownerKeys,
+          excludeTicketId: body.excludeTicketId ?? undefined,
+        }),
+      },
+    );
+
+    await ensureSuccess(response, "Workload preview unavailable");
+    return response.json() as Promise<OwnerWorkloadPreviewResponse>;
+  },
+
+  async postRoutingPreview(
+    body: RoutingPreviewRequest,
+    token: string,
+  ): Promise<RoutingPreviewResponse> {
+    const response = await fetch(`${API_BASE_URL}/tickets/routing/preview`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({
+        ticketId: body.ticketId,
+        boardId: body.boardId,
+        priority: body.priority,
+        title: body.title,
+        department: body.department,
+      }),
+    });
+
+    await ensureSuccess(response, "Routing preview unavailable");
+    return response.json() as Promise<RoutingPreviewResponse>;
+  },
+
   // Create ticket
   async create(
     ticket: CreateTicketInput,
@@ -386,6 +447,73 @@ export const ticketService = {
 
     await ensureSuccess(response, "Unable to delete ticket");
   },
+
+  async getPendingApproval(token: string): Promise<PagedTicketList> {
+    const response = await fetch(`${API_BASE_URL}/tickets/pending-approval`, {
+      headers: authHeaders(token),
+    });
+
+    await ensureSuccess(response, API_USER_MESSAGES.loadTickets);
+    return response.json() as Promise<PagedTicketList>;
+  },
+
+  /** Phase 1 advisory triage for PendingApproval intake review (200 OK may include `unavailable: true`). */
+  async generateTriage(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<TicketTriageGenerateApiResponse> {
+    const response = await fetch(`${API_BASE_URL}/tickets/${encodeURIComponent(id)}/triage`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({}),
+      signal,
+    });
+
+    await ensureSuccess(response, "Unable to load AI triage");
+    return response.json() as Promise<TicketTriageGenerateApiResponse>;
+  },
+
+  async approveTicket(id: string, token: string): Promise<Ticket> {
+    const response = await fetch(`${API_BASE_URL}/tickets/${id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({}),
+    });
+
+    await ensureSuccess(response, "Unable to approve ticket");
+    return response.json() as Promise<Ticket>;
+  },
+
+  async returnTicketForDetail(
+    id: string,
+    token: string,
+    reason: string,
+  ): Promise<Ticket> {
+    const response = await fetch(`${API_BASE_URL}/tickets/${id}/return`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({ reason }),
+    });
+
+    await ensureSuccess(response, "Unable to return ticket");
+    return response.json() as Promise<Ticket>;
+  },
+
+  async rejectTicket(
+    id: string,
+    token: string,
+    reason: string,
+  ): Promise<Ticket> {
+    const response = await fetch(`${API_BASE_URL}/tickets/${id}/reject`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({ reason }),
+    });
+
+    await ensureSuccess(response, "Unable to reject ticket");
+    return response.json() as Promise<Ticket>;
+  },
 };
 
 export const attachmentService = {
@@ -460,6 +588,15 @@ export const attachmentService = {
 let userDirectoryCache: UserDirectoryEntry[] | null = null;
 let userDirectoryRequest: Promise<UserDirectoryEntry[]> | null = null;
 
+/** Fired on `window` after directory cache is cleared so owner pickers refetch. */
+export const USER_DIRECTORY_INVALIDATED_EVENT = "cortex-user-directory-invalidated";
+
+function notifyUserDirectoryInvalidated() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(USER_DIRECTORY_INVALIDATED_EVENT));
+  }
+}
+
 export const userService = {
   async getCurrentUser(token: string): Promise<UserProfile> {
     const response = await fetch(`${API_BASE_URL}/users/me`, {
@@ -477,6 +614,19 @@ export const userService = {
 
     await ensureSuccess(response, "Unable to load users");
     return response.json();
+  },
+
+  async syncFromAuth0(token: string): Promise<SyncUsersFromAuth0Result> {
+    const response = await fetch(`${API_BASE_URL}/users/sync-from-auth0`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: "{}",
+    });
+
+    await ensureSuccess(response, "Unable to import users from Auth0");
+    const result = (await response.json()) as SyncUsersFromAuth0Result;
+    userService.clearDirectoryCache();
+    return result;
   },
 
   async getDirectory(token: string): Promise<UserDirectoryEntry[]> {
@@ -509,6 +659,7 @@ export const userService = {
   clearDirectoryCache() {
     userDirectoryCache = null;
     userDirectoryRequest = null;
+    notifyUserDirectoryInvalidated();
   },
 
   async getOnlineUsers(token: string): Promise<OnlineUser[]> {

@@ -68,6 +68,7 @@ export function useUsers({
   const [debouncedUsersSearchQuery, setDebouncedUsersSearchQuery] = useState("");
   const [usersRenderedCount, setUsersRenderedCount] = useState(USER_RENDER_PAGE_SIZE);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [usersSyncingFromAuth0, setUsersSyncingFromAuth0] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
 
   // ── Online users (reports view) ───────────────────────────────────────────
@@ -111,8 +112,14 @@ export function useUsers({
   // ── Data loaders ──────────────────────────────────────────────────────────
 
   const loadUsers = useCallback(
-    async (providedToken?: string) => {
-      setUsersLoading(true);
+    async (
+      providedToken?: string,
+      options?: { skipLoadingSpinner?: boolean },
+    ) => {
+      const skipSpinner = options?.skipLoadingSpinner === true;
+      if (!skipSpinner) {
+        setUsersLoading(true);
+      }
       setUsersError(null);
 
       try {
@@ -133,11 +140,49 @@ export function useUsers({
           setUsersError("Failed to load users.");
         }
       } finally {
-        setUsersLoading(false);
+        if (!skipSpinner) {
+          setUsersLoading(false);
+        }
       }
     },
     [getApiToken, setApiUnavailable],
   );
+
+  const syncUsersFromAuth0 = useCallback(async () => {
+    setUsersSyncingFromAuth0(true);
+    setUsersError(null);
+    try {
+      const token = await getApiToken();
+      const result = await userService.syncFromAuth0(token);
+      await loadUsers(token, { skipLoadingSpinner: true });
+      const parts = [
+        result.created > 0 ? `${result.created} created` : null,
+        result.linkedByEmail > 0 ? `${result.linkedByEmail} linked by email` : null,
+        result.updated > 0 ? `${result.updated} updated` : null,
+        result.unchanged > 0 ? `${result.unchanged} unchanged` : null,
+      ].filter(Boolean);
+      let detail = parts.length > 0 ? parts.join(", ") : "Directory already matched.";
+      if (result.skippedNoEmail > 0 || result.skippedEmailConflict > 0) {
+        detail += ` (${result.skippedNoEmail} without email, ${result.skippedEmailConflict} email conflict)`;
+      }
+      toast.success(`Auth0: ${result.totalFromAuth0} user(s). ${detail}`);
+    } catch (error) {
+      console.error("Failed to sync users from Auth0", error);
+      if (isForbiddenError(error)) {
+        setApiUnavailable(false);
+        setUsersError("You do not have permission to import users from Auth0.");
+      } else if (isLikelyNetworkError(error)) {
+        setApiUnavailable(true);
+      } else {
+        setApiUnavailable(false);
+        setUsersError(
+          getUserFacingErrorMessage(error, "Failed to import users from Auth0."),
+        );
+      }
+    } finally {
+      setUsersSyncingFromAuth0(false);
+    }
+  }, [getApiToken, loadUsers, setApiUnavailable]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -628,6 +673,7 @@ export function useUsers({
     usersHasMore,
     loadMoreUsers,
     usersLoading,
+    usersSyncingFromAuth0,
     usersError,
     onlineUsers,
     onlineUsersLoading,
@@ -649,6 +695,7 @@ export function useUsers({
     deletingUserId,
     // Handlers
     loadUsers,
+    syncUsersFromAuth0,
     loadOnlineUsers,
     openCreateUserModal,
     closeCreateUserModal,

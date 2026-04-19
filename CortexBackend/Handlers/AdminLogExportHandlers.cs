@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Text;
+using ClosedXML.Excel;
 using Cortex.API.Data.Repositories;
 using Cortex.API.Models;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace Cortex.API.Handlers;
 
@@ -16,9 +19,13 @@ public static class AdminLogExportHandlers
         string? format,
         IHttpRequestLogRepository repository)
     {
-        if (!string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase))
+        var normalizedFormat = string.IsNullOrWhiteSpace(format)
+            ? "csv"
+            : format.Trim().ToLowerInvariant();
+
+        if (normalizedFormat is not ("csv" or "json" or "txt" or "xlsx" or "sheets"))
         {
-            return Results.BadRequest(new { message = "Only CSV export is supported. Use format=csv." });
+            return Results.BadRequest(new { message = "Invalid format. Supported values: csv, json, txt, xlsx, sheets." });
         }
 
         if (!TryParseUtcParameter(from, out var fromUtc, out var fromError))
@@ -45,13 +52,64 @@ public static class AdminLogExportHandlers
         }
 
         var rows = await repository.GetBetweenAsync(fromUtc, toUtc, MaxExportRows);
-        var csv = BuildCsv(rows);
-        var fileName = $"cortex-request-logs-{fromUtc:yyyyMMdd}-{toUtc:yyyyMMdd}.csv";
+        var logs = rows.Select(AdminRequestLogExportRow.FromEntry).ToList();
+
+        var fileStamp = DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var fileName = GetExportFileName(normalizedFormat, fileStamp);
+
+        return normalizedFormat switch
+        {
+            "csv" => BuildCsvFileResult(logs, fileName),
+            "json" => BuildJsonFileResult(logs, fileName),
+            "txt" => BuildTextFileResult(logs, fileName),
+            "xlsx" => BuildExcelFileResult(logs, fileName),
+            "sheets" => BuildExcelFileResult(logs, fileName),
+            _ => Results.BadRequest(new { message = "Invalid format. Supported values: csv, json, txt, xlsx, sheets." })
+        };
+    }
+
+    private static string GetExportFileName(string normalizedFormat, string fileStamp) =>
+        normalizedFormat switch
+        {
+            "csv" => $"cortex-logs-{fileStamp}.csv",
+            "json" => $"cortex-logs-{fileStamp}.json",
+            "txt" => $"cortex-logs-{fileStamp}.txt",
+            "xlsx" => $"cortex-logs-{fileStamp}.xlsx",
+            "sheets" => $"cortex-logs-{fileStamp}-google-sheets.xlsx",
+            _ => $"cortex-logs-{fileStamp}.csv"
+        };
+
+    private static IResult BuildCsvFileResult(IReadOnlyList<AdminRequestLogExportRow> logs, string fileName)
+    {
+        var csv = BuildCsv(logs);
         var bytes = Encoding.UTF8.GetPreamble()
             .Concat(Encoding.UTF8.GetBytes(csv))
             .ToArray();
 
         return Results.File(bytes, "text/csv; charset=utf-8", fileName);
+    }
+
+    private static IResult BuildJsonFileResult(IReadOnlyList<AdminRequestLogExportRow> logs, string fileName)
+    {
+        var json = BuildJson(logs);
+        var bytes = Encoding.UTF8.GetBytes(json);
+        return Results.File(bytes, "application/json", fileName);
+    }
+
+    private static IResult BuildTextFileResult(IReadOnlyList<AdminRequestLogExportRow> logs, string fileName)
+    {
+        var text = BuildText(logs);
+        var bytes = Encoding.UTF8.GetBytes(text);
+        return Results.File(bytes, "text/plain", fileName);
+    }
+
+    private static IResult BuildExcelFileResult(IReadOnlyList<AdminRequestLogExportRow> logs, string fileName)
+    {
+        var bytes = BuildExcel(logs);
+        return Results.File(
+            bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            fileName);
     }
 
     private static bool TryParseUtcParameter(string? value, out DateTime utc, out string errorMessage)
@@ -79,7 +137,7 @@ public static class AdminLogExportHandlers
         return false;
     }
 
-    private static string BuildCsv(IReadOnlyList<HttpRequestLogEntry> rows)
+    private static string BuildCsv(IReadOnlyList<AdminRequestLogExportRow> rows)
     {
         var builder = new StringBuilder();
         var headers = new[]
@@ -112,6 +170,71 @@ public static class AdminLogExportHandlers
         }
 
         return builder.ToString();
+    }
+
+    private static string BuildJson(IReadOnlyList<AdminRequestLogExportRow> rows) =>
+        JsonConvert.SerializeObject(
+            rows,
+            new JsonSerializerSettings
+            {
+                Formatting = Formatting.Indented,
+                ContractResolver = new CamelCasePropertyNamesContractResolver()
+            });
+
+    private static string BuildText(IReadOnlyList<AdminRequestLogExportRow> rows)
+    {
+        var builder = new StringBuilder();
+        foreach (var row in rows)
+        {
+            var occurred = row.OccurredUtc.ToString("O", CultureInfo.InvariantCulture);
+            builder.Append(occurred);
+            builder.Append("  ");
+            builder.Append(row.Method);
+            builder.Append("  ");
+            builder.Append(row.Path);
+            builder.Append("  ");
+            builder.Append(row.StatusCode.ToString(CultureInfo.InvariantCulture));
+            builder.Append("  ");
+            builder.Append(row.DurationMs.ToString(CultureInfo.InvariantCulture));
+            builder.Append("ms  trace=");
+            builder.Append(row.TraceId);
+            builder.Append("  authenticated=");
+            builder.Append(row.IsAuthenticated ? "true" : "false");
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
+    }
+
+    private static byte[] BuildExcel(IReadOnlyList<AdminRequestLogExportRow> rows)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Logs");
+
+        worksheet.Cell(1, 1).Value = "OccurredUtc";
+        worksheet.Cell(1, 2).Value = "Method";
+        worksheet.Cell(1, 3).Value = "Path";
+        worksheet.Cell(1, 4).Value = "StatusCode";
+        worksheet.Cell(1, 5).Value = "DurationMs";
+        worksheet.Cell(1, 6).Value = "TraceId";
+        worksheet.Cell(1, 7).Value = "IsAuthenticated";
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var excelRow = i + 2;
+            worksheet.Cell(excelRow, 1).Value = row.OccurredUtc;
+            worksheet.Cell(excelRow, 2).Value = row.Method;
+            worksheet.Cell(excelRow, 3).Value = row.Path;
+            worksheet.Cell(excelRow, 4).Value = row.StatusCode;
+            worksheet.Cell(excelRow, 5).Value = row.DurationMs;
+            worksheet.Cell(excelRow, 6).Value = row.TraceId;
+            worksheet.Cell(excelRow, 7).Value = row.IsAuthenticated;
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 
     private static string EscapeCsv(string? value)

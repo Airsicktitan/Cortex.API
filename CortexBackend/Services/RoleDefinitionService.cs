@@ -1,5 +1,6 @@
 using Cortex.API.Data.Repositories;
 using Cortex.API.Database;
+using Cortex.API.DTO;
 using Cortex.API.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,10 +8,12 @@ namespace Cortex.API.Services;
 
 public class RoleDefinitionService(
     IRoleDefinitionRepository repository,
-    CortexDbContext context) : IRoleDefinitionService
+    CortexDbContext context,
+    IAuth0ManagementService auth0Management) : IRoleDefinitionService
 {
     private readonly IRoleDefinitionRepository _repository = repository;
     private readonly CortexDbContext _context = context;
+    private readonly IAuth0ManagementService _auth0Management = auth0Management;
     private static readonly string[] PermissionCatalog =
     [
         "View Tickets",
@@ -45,6 +48,7 @@ public class RoleDefinitionService(
         await ValidateAsync(normalized, id);
 
         existing.Name = normalized.Name;
+        existing.NameNormalized = normalized.NameNormalized;
         existing.Description = normalized.Description;
         existing.Permissions = normalized.Permissions;
         existing.IsEnabled = normalized.IsEnabled;
@@ -60,7 +64,7 @@ public class RoleDefinitionService(
             ?? throw new KeyNotFoundException("Role definition was not found.");
 
         var assignedUsers = await _context.Users
-            .Where(user => user.Role == existing.Name)
+            .Where(user => user.Role.ToLower() == existing.Name.ToLower())
             .Select(user => user.DisplayName ?? user.Email)
             .OrderBy(name => name)
             .ToListAsync();
@@ -76,6 +80,106 @@ public class RoleDefinitionService(
         await _repository.SaveChangesAsync();
     }
 
+    public async Task<SyncRoleDefinitionsFromAuth0Response> SyncFromAuth0Async(
+        CancellationToken cancellationToken = default)
+    {
+        var auth0Roles = await _auth0Management.GetAllRolesAsync(cancellationToken);
+        var existing = await _repository.GetAllAsync();
+        var existingNames = new HashSet<string>(
+            existing.Select(role => role.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        var created = 0;
+        var skippedExisting = 0;
+        var totalFromAuth0 = 0;
+
+        foreach (var auth0 in auth0Roles.OrderBy(role => role.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var trimmed = auth0.Name.Trim();
+            if (string.IsNullOrEmpty(trimmed))
+            {
+                continue;
+            }
+
+            totalFromAuth0++;
+
+            if (existingNames.Contains(trimmed))
+            {
+                skippedExisting++;
+                continue;
+            }
+
+            var draft = new RoleDefinition
+            {
+                Name = trimmed,
+                Description = null,
+                Permissions = DefaultPermissionsForAuth0RoleName(trimmed),
+                IsEnabled = true,
+                CreatedDateUtc = DateTime.UtcNow,
+            };
+
+            var normalized = Normalize(draft);
+            await _repository.AddAsync(normalized);
+            existingNames.Add(trimmed);
+            created++;
+        }
+
+        if (created > 0)
+        {
+            await _repository.SaveChangesAsync();
+        }
+
+        return new SyncRoleDefinitionsFromAuth0Response
+        {
+            Created = created,
+            SkippedExisting = skippedExisting,
+            TotalFromAuth0 = totalFromAuth0,
+        };
+    }
+
+    /// <summary>Default Cortex permissions when bootstrapping from Auth0 (subset of <see cref="PermissionCatalog"/>; may be empty).</summary>
+    private static List<string> DefaultPermissionsForAuth0RoleName(string name)
+    {
+        if (name.Equals(Auth0Roles.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            return PermissionCatalog.ToList();
+        }
+
+        if (name.Equals(Auth0Roles.Developer, StringComparison.OrdinalIgnoreCase))
+        {
+            return
+            [
+                "View Tickets",
+                "Edit Tickets",
+                "Assign Tickets",
+                "Manage Routing",
+            ];
+        }
+
+        if (name.Equals(Auth0Roles.BusinessManager, StringComparison.OrdinalIgnoreCase))
+        {
+            return
+            [
+                "View Tickets",
+                "Edit Tickets",
+                "Assign Tickets",
+            ];
+        }
+
+        if (name.Equals(Auth0Roles.User, StringComparison.OrdinalIgnoreCase))
+        {
+            return ["View Tickets", "Edit Tickets"];
+        }
+
+        if (name.Equals(Auth0Roles.Guest, StringComparison.OrdinalIgnoreCase))
+        {
+            return ["View Tickets"];
+        }
+
+        // Custom Auth0 roles: no Cortex permissions until an admin configures them.
+        return [];
+    }
+
     private async Task ValidateAsync(RoleDefinition definition, int? existingId)
     {
         if (string.IsNullOrWhiteSpace(definition.Name))
@@ -83,12 +187,7 @@ public class RoleDefinitionService(
             throw new ArgumentException("Role name is required.");
         }
 
-        if (definition.Permissions.Count == 0)
-        {
-            throw new ArgumentException("Select at least one permission.");
-        }
-
-        var duplicate = await _repository.GetByNameAsync(definition.Name);
+        var duplicate = await _repository.GetByNameIgnoreCaseAsync(definition.Name);
         if (duplicate is not null && duplicate.Id != existingId)
         {
             throw new ArgumentException("A role with this name already exists.");
@@ -104,9 +203,11 @@ public class RoleDefinitionService(
 
     private static RoleDefinition Normalize(RoleDefinition definition)
     {
+        var name = definition.Name.Trim();
         return new RoleDefinition
         {
-            Name = definition.Name.Trim(),
+            Name = name,
+            NameNormalized = name.ToUpperInvariant(),
             Description = string.IsNullOrWhiteSpace(definition.Description)
                 ? null
                 : definition.Description.Trim(),
@@ -119,7 +220,7 @@ public class RoleDefinitionService(
             CreatedDateUtc = definition.CreatedDateUtc == default
                 ? DateTime.UtcNow
                 : definition.CreatedDateUtc,
-            LastModifiedDateUtc = definition.LastModifiedDateUtc
+            LastModifiedDateUtc = definition.LastModifiedDateUtc,
         };
     }
 }

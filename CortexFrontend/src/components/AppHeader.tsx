@@ -7,6 +7,7 @@ import TicketHeaderActions from "./TicketHeaderActions";
 type AppHeaderView =
   | "dashboard"
   | "tickets"
+  | "approval"
   | "archived"
   | "reports"
   | "sla"

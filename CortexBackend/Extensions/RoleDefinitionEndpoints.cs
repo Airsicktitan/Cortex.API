@@ -22,12 +22,20 @@ public static class RoleDefinitionEndpoints
             .WithName("GetRoleDefinitionPermissions")
             .Produces<List<string>>(StatusCodes.Status200OK);
 
+        roles.MapPost("/sync-from-auth0", RoleDefinitionHandlers.SyncFromAuth0)
+            .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
+            .WithName("SyncRoleDefinitionsFromAuth0")
+            .Produces<SyncRoleDefinitionsFromAuth0Response>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
         roles.MapPost("/", RoleDefinitionHandlers.CreateRole)
             .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("CreateRoleDefinition")
             .Accepts<UpsertRoleDefinitionRequest>("application/json")
             .Produces<RoleDefinitionResponse>(StatusCodes.Status201Created)
-            .Produces(StatusCodes.Status400BadRequest);
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status409Conflict);
 
         roles.MapPut("/{id:int}", RoleDefinitionHandlers.UpdateRole)
             .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
@@ -35,7 +43,8 @@ public static class RoleDefinitionEndpoints
             .Accepts<UpsertRoleDefinitionRequest>("application/json")
             .Produces<RoleDefinitionResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
-            .Produces(StatusCodes.Status404NotFound);
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
 
         roles.MapDelete("/{id:int}", RoleDefinitionHandlers.DeleteRole)
             .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)

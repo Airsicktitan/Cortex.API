@@ -51,9 +51,18 @@ public class CortexDbContext : DbContext
             entity.Property(t => t.Priority)
                 .IsRequired();
 
+            entity.Property(t => t.ApprovalStatus)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+
+            entity.Property(t => t.RejectionReason).HasMaxLength(2000);
+            entity.Property(t => t.ReturnReason).HasMaxLength(2000);
+
             entity.Property(t => t.BoardId)
                 .IsRequired();
 
+            entity.HasIndex(t => t.ApprovalStatus);
             entity.HasIndex(t => t.Status);
             entity.HasIndex(t => t.Priority);
             entity.HasIndex(t => t.BoardId);
@@ -290,6 +299,10 @@ public class CortexDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(120);
 
+            entity.Property(definition => definition.NameNormalized)
+                .IsRequired()
+                .HasMaxLength(120);
+
             entity.Property(definition => definition.Description)
                 .HasMaxLength(500);
 
@@ -299,7 +312,9 @@ public class CortexDbContext : DbContext
             entity.Property(definition => definition.IsEnabled)
                 .IsRequired();
 
-            entity.HasIndex(definition => definition.Name)
+            entity.HasIndex(definition => definition.Name);
+
+            entity.HasIndex(definition => definition.NameNormalized)
                 .IsUnique();
         });
 

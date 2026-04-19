@@ -3,7 +3,9 @@ import TicketCard from "./TicketCard";
 import { TicketGridSkeleton } from "./LoadingSkeletons";
 import {
   type FilterOption,
+  type MyTicketApprovalFilter,
   type PageSizeOption,
+  type RequesterLifecycleSummary,
   type TicketListSortOption,
   isTicketListSortOption,
 } from "../hooks/useTickets";
@@ -46,6 +48,8 @@ export type TicketsContainerProps = {
   setSelectedBoardId: Dispatch<SetStateAction<number | "all">>;
   myTicketsOnly: boolean;
   setMyTicketsOnly: Dispatch<SetStateAction<boolean>>;
+  myTicketApprovalFilter: MyTicketApprovalFilter;
+  setMyTicketApprovalFilter: Dispatch<SetStateAction<MyTicketApprovalFilter>>;
   ticketListSort: TicketListSortOption;
   setTicketListSort: Dispatch<SetStateAction<TicketListSortOption>>;
   tickets: Ticket[];
@@ -56,6 +60,7 @@ export type TicketsContainerProps = {
   setCurrentPage: Dispatch<SetStateAction<number>>;
   showingStart: number;
   showingEnd: number;
+  requesterLifecycleSummary: RequesterLifecycleSummary | null;
   isModalOpen: boolean;
   syncTicketChangesSilently: (providedToken?: string) => Promise<void>;
   openTicket: (ticket: Ticket) => void;
@@ -91,6 +96,8 @@ export default function TicketsContainer({
   setSelectedBoardId,
   myTicketsOnly,
   setMyTicketsOnly,
+  myTicketApprovalFilter,
+  setMyTicketApprovalFilter,
   ticketListSort,
   setTicketListSort,
   tickets,
@@ -101,6 +108,7 @@ export default function TicketsContainer({
   setCurrentPage,
   showingStart,
   showingEnd,
+  requesterLifecycleSummary,
   isModalOpen,
   syncTicketChangesSilently,
   openTicket,
@@ -109,6 +117,19 @@ export default function TicketsContainer({
     () => boardTabs.reduce((sum, board) => sum + (boardCountsById[board.id] ?? 0), 0),
     [boardCountsById, boardTabs],
   );
+  const approvalFilterCounts = useMemo(
+    () => ({
+      all: requesterLifecycleSummary?.total ?? 0,
+      NeedsMoreInfo: requesterLifecycleSummary?.needsAttention ?? 0,
+      PendingApproval: requesterLifecycleSummary?.pendingApproval ?? 0,
+      Approved: requesterLifecycleSummary?.activeWork ?? 0,
+      Rejected: requesterLifecycleSummary?.rejected ?? 0,
+    }),
+    [requesterLifecycleSummary],
+  );
+  const searchPlaceholder = myTicketsOnly
+    ? "Search my requests..."
+    : "Search tickets...";
 
   useEffect(() => {
     if (
@@ -164,10 +185,12 @@ export default function TicketsContainer({
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-              Ticket Filters
+              {myTicketsOnly ? "My Tickets" : "Ticket Filters"}
             </h3>
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              Search, narrow, and save ticket views without crowding the header.
+              {myTicketsOnly
+                ? "Track what you submitted, what needs your attention, and what is already active work."
+                : "Search, narrow, and save ticket views without crowding the header."}
             </p>
           </div>
 
@@ -229,6 +252,13 @@ export default function TicketsContainer({
             );
           })}
         </div>
+
+        {myTicketsOnly ? (
+          <p className="mt-3 text-xs text-gray-500 dark:text-slate-400">
+            Boards matter most once a request becomes active work. Use board filters
+            here when you want to narrow approved requests further.
+          </p>
+        ) : null}
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <select
@@ -303,67 +333,122 @@ export default function TicketsContainer({
           </select>
         </div>
 
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div
-            className="flex shrink-0 gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 dark:border-slate-700 dark:bg-slate-800"
-            role="group"
-            aria-label="Ticket scope"
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedSavedFilterId("");
-                setMyTicketsOnly(false);
-              }}
-              className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                !myTicketsOnly
-                  ? "bg-cortex-blue text-white"
-                  : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
-              }`}
+        <div className="mt-3 flex flex-col gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div
+              className="flex shrink-0 gap-1 rounded-full border border-gray-200 bg-gray-50 p-1 dark:border-slate-700 dark:bg-slate-800"
+              role="group"
+              aria-label="Ticket scope"
             >
-              All Tickets
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedSavedFilterId("");
-                setMyTicketsOnly(true);
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSavedFilterId("");
+                  setMyTicketsOnly(false);
+                  setMyTicketApprovalFilter("all");
+                }}
+                className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                  !myTicketsOnly
+                    ? "bg-cortex-blue text-white"
+                    : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                All Tickets
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSavedFilterId("");
+                  setMyTicketsOnly(true);
+                }}
+                className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                  myTicketsOnly
+                    ? "bg-cortex-blue text-white"
+                    : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                My Tickets
+              </button>
+            </div>
+            <input
+              type="text"
+              placeholder={searchPlaceholder}
+              value={searchQuery}
+              onChange={(event) => handleSearchChange(event.target.value)}
+              className="min-w-0 flex-1 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+            />
+            <select
+              aria-label="Sort tickets"
+              value={ticketListSort}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (isTicketListSortOption(value)) {
+                  setSelectedSavedFilterId("");
+                  setTicketListSort(value);
+                }
               }}
-              className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                myTicketsOnly
-                  ? "bg-cortex-blue text-white"
-                  : "text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
-              }`}
+              className="w-full shrink-0 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm sm:w-52 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             >
-              My Tickets
-            </button>
+              <option value="newest-first">
+                {myTicketsOnly ? "Most relevant first" : "Newest first"}
+              </option>
+              <option value="oldest-first">Oldest first</option>
+              <option value="priority-high-low">Priority (high → low)</option>
+              <option value="priority-low-high">Priority (low → high)</option>
+              <option value="due-soonest">Due soonest</option>
+              <option value="most-overdue">Most overdue</option>
+            </select>
           </div>
-          <input
-            type="text"
-            placeholder="Search tickets..."
-            value={searchQuery}
-            onChange={(event) => handleSearchChange(event.target.value)}
-            className="min-w-0 flex-1 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-          />
-          <select
-            aria-label="Sort tickets"
-            value={ticketListSort}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (isTicketListSortOption(value)) {
-                setSelectedSavedFilterId("");
-                setTicketListSort(value);
-              }
-            }}
-            className="w-full shrink-0 rounded-md border-gray-300 bg-white text-gray-900 shadow-sm sm:w-52 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          >
-            <option value="newest-first">Newest first</option>
-            <option value="oldest-first">Oldest first</option>
-            <option value="priority-high-low">Priority (high → low)</option>
-            <option value="priority-low-high">Priority (low → high)</option>
-            <option value="due-soonest">Due soonest</option>
-            <option value="most-overdue">Most overdue</option>
-          </select>
+          {myTicketsOnly ? (
+            <div>
+              <p className="text-sm text-gray-500 dark:text-slate-400">
+                Request lifecycle
+              </p>
+              <p className="mt-0.5 text-xs text-gray-400 dark:text-slate-500">
+                Action-needed and waiting-review requests surface first in the
+                default sort so you can see what matters fastest.
+              </p>
+              <div
+                className="mt-2 flex flex-wrap gap-2"
+                role="group"
+                aria-label="Filter by approval status"
+              >
+                {(
+                  [
+                    { value: "all" as const, label: "All states" },
+                    {
+                      value: "NeedsMoreInfo" as const,
+                      label: "Needs More Info",
+                    },
+                    {
+                      value: "PendingApproval" as const,
+                      label: "Pending Approval",
+                    },
+                    { value: "Approved" as const, label: "Approved" },
+                    { value: "Rejected" as const, label: "Rejected" },
+                  ] as const
+                ).map((option) => {
+                  const active = myTicketApprovalFilter === option.value;
+                  const count = approvalFilterCounts[option.value];
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setMyTicketApprovalFilter(option.value)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                        active
+                          ? "bg-cortex-blue text-white"
+                          : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      {option.label}
+                      <span className="ml-2 text-[11px] opacity-75">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -376,9 +461,16 @@ export default function TicketsContainer({
       )}
 
       {!loading && !apiUnavailable && !error && tickets.length === 0 && (
-        <p className="text-gray-600 dark:text-slate-400 text-center">
-          No tickets found
-        </p>
+        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-6 py-16 text-center dark:border-slate-800 dark:bg-slate-900/40">
+          <p className="text-lg font-semibold text-gray-800 dark:text-slate-100">
+            {myTicketsOnly ? "No requests match this view" : "No tickets found"}
+          </p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
+            {myTicketsOnly
+              ? "Try another lifecycle filter, board, or search term."
+              : "Adjust your filters or try another board."}
+          </p>
+        </div>
       )}
 
       {!loading && !apiUnavailable && !error && tickets.length > 0 && (
@@ -389,6 +481,7 @@ export default function TicketsContainer({
                 key={ticket.id}
                 ticket={ticket}
                 onClick={() => openTicket(ticket)}
+                approvalDisplayContext={myTicketsOnly ? "requester" : "active"}
               />
             ))}
           </div>

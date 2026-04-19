@@ -13,7 +13,7 @@ public static class AdminLogEndpoints
 
         admin.MapGet("/export", AdminLogExportHandlers.ExportRequestLogs)
             .WithName("ExportRequestLogs")
-            .Produces(StatusCodes.Status200OK, contentType: "text/csv")
+            .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest);
     }
 }

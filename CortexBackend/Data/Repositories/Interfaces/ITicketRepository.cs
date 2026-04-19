@@ -21,6 +21,11 @@ public interface ITicketRepository
         TicketVisibilityContext visibility,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Intake queue: pending first review and items returned for more detail.</summary>
+    public Task<IReadOnlyList<Ticket>> GetIntakeQueueTicketsAsync(
+        TicketVisibilityContext visibility,
+        CancellationToken cancellationToken = default);
+
     public Task<IReadOnlyList<ArchivedTicket>> GetArchivedTicketsAsync(
         DateTime? modifiedSinceUtc = null,
         int? boardId = null,
@@ -43,7 +48,7 @@ public interface ITicketRepository
     public Task<bool> ArchiveTicketAsync(string id, int archivedBy);
     public Task<bool> ReactivateArchivedTicketAsync(string id, int reactivatedBy, string restoredStatus);
     public Task<bool> DeleteTicketAsync(string id); 
-    public Task<IEnumerable<Ticket>> GetTicketByUserAsync (int id); 
+    public Task<IEnumerable<Ticket>> GetTicketByUserAsync(User user); 
 
     Task SaveChangesAsync();
 }

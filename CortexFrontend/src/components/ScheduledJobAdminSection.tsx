@@ -5,6 +5,19 @@ import type {
   UpsertScheduledJobInput,
 } from "../types/scheduledJob";
 import type { StoredProcedureDefinition } from "../types/storedProcedure";
+import {
+  ConfigDetailCard,
+  ConfigErrorBanner,
+  ConfigGhostButton,
+  ConfigPageBody,
+  ConfigPageHeader,
+  ConfigPageShell,
+  ConfigPrimaryButton,
+  ConfigSecondaryButton,
+  ConfigTwoColumnWideCatalog,
+  configCatalogItemClass,
+  configFieldClass,
+} from "./configurationAdminUi";
 
 interface ScheduledJobAdminSectionProps {
   jobs: ScheduledJob[];
@@ -61,11 +74,13 @@ export default function ScheduledJobAdminSection({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<UpsertScheduledJobInput>(EMPTY_DRAFT);
 
+  const isBusy = saving || runningJobId !== null;
+
   const saveLabel = useMemo(() => {
     if (saving) {
-      return editingId ? "Saving..." : "Creating...";
+      return editingId ? "Saving…" : "Creating…";
     }
-    return editingId ? "Save Job" : "Create Job";
+    return editingId ? "Save changes" : "Create job";
   }, [editingId, saving]);
 
   const resetForm = () => {
@@ -109,213 +124,240 @@ export default function ScheduledJobAdminSection({
     resetForm();
   };
 
+  const isNewMode = editingId === null;
+
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-            Scheduled Jobs
-          </h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-            Define automation schedule and execution behavior.
-          </p>
-        </div>
-        <button
-          onClick={onRefresh}
-          className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
-          Refresh
-        </button>
-      </div>
+    <ConfigPageShell>
+      <ConfigPageHeader
+        title="Scheduled jobs"
+        description="Automated tasks on a fixed interval (archive, stored procedures, and more)."
+        actions={
+          <>
+            <ConfigPrimaryButton onClick={resetForm} disabled={isBusy}>
+              New job
+            </ConfigPrimaryButton>
+            <ConfigGhostButton onClick={onRefresh} disabled={isBusy}>
+              Reload
+            </ConfigGhostButton>
+          </>
+        }
+      />
 
-      {error && (
-        <div className="mt-4 rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
-          <p className="text-red-700 dark:text-red-300">{error}</p>
-        </div>
-      )}
+      {error ? <ConfigErrorBanner>{error}</ConfigErrorBanner> : null}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
-        <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-slate-800">
-          {loading ? (
-            <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">
-              Loading jobs...
-            </div>
-          ) : jobs.length === 0 ? (
-            <div className="px-6 py-10 text-center text-gray-500 dark:text-slate-400">
-              No jobs configured yet.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-left text-gray-600 dark:bg-slate-800/80 dark:text-slate-300">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Job</th>
-                    <th className="px-4 py-3 font-medium">Schedule</th>
-                    <th className="px-4 py-3 font-medium">Last Run</th>
-                    <th className="px-4 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((job) => (
-                    <tr
-                      key={job.id}
-                      className="border-t border-gray-100 dark:border-slate-800"
-                    >
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-gray-900 dark:text-slate-100">
-                          {job.name}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-slate-400">
-                          {job.jobType === "ArchiveEligibleTickets"
-                            ? "Archive Eligible Tickets"
-                            : job.storedProcedureName || "Stored procedure"}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3">Every {formatInterval(job.intervalMinutes)}</td>
-                      <td className="px-4 py-3">
-                        <p>{job.lastRunStatus || "Never run"}</p>
-                        <p className="text-xs text-gray-500 dark:text-slate-400">
-                          {formatDateTime(job.lastRunDateUtc)}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-2">
+      <ConfigPageBody>
+        <ConfigTwoColumnWideCatalog
+          left={
+            <div className="flex min-h-[200px] flex-col gap-2">
+              {loading ? (
+                <p className="py-8 text-center text-sm text-gray-500 dark:text-slate-400">Loading jobs…</p>
+              ) : jobs.length === 0 ? (
+                <div className="flex flex-1 flex-col justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-8 text-center dark:border-slate-700 dark:bg-slate-800/30">
+                  <p className="text-sm font-medium text-gray-800 dark:text-slate-200">No jobs yet</p>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                    Create a job to run on a schedule.
+                  </p>
+                  <div className="mt-4 flex justify-center">
+                    <ConfigPrimaryButton onClick={resetForm} disabled={isBusy}>
+                      New job
+                    </ConfigPrimaryButton>
+                  </div>
+                </div>
+              ) : (
+                <ul className="max-h-[min(420px,50vh)] space-y-1 overflow-y-auto pr-0.5">
+                  {jobs.map((job) => {
+                    const selected = editingId === job.id;
+                    return (
+                      <li key={job.id}>
+                        <div
+                          className={`rounded-lg border px-3 py-2.5 ${configCatalogItemClass(selected)}`}
+                        >
                           <button
+                            type="button"
                             onClick={() => startEdit(job)}
-                            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            disabled={isBusy}
+                            className="w-full text-left text-sm disabled:opacity-50"
                           >
-                            Edit
+                            <div className="flex items-start justify-between gap-2">
+                              <span
+                                className={`font-medium ${
+                                  selected
+                                    ? "text-cortex-blue dark:text-cortex-cyan"
+                                    : "text-gray-900 dark:text-slate-100"
+                                }`}
+                              >
+                                {job.name}
+                              </span>
+                              <span
+                                className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                  job.isEnabled
+                                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                    : "bg-gray-200 text-gray-600 dark:bg-slate-600 dark:text-slate-300"
+                                }`}
+                              >
+                                {job.isEnabled ? "On" : "Off"}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                              Every {formatInterval(job.intervalMinutes)} ·{" "}
+                              {job.lastRunStatus || "Never run"} · {formatDateTime(job.lastRunDateUtc)}
+                            </p>
                           </button>
-                          <button
-                            onClick={() => void onRunNow(job.id)}
-                            disabled={runningJobId === job.id}
-                            className="rounded-md bg-cortex-blue px-3 py-2 text-sm text-white hover:bg-cortex-blue-dark disabled:opacity-60"
-                          >
-                            {runningJobId === job.id ? "Running..." : "Run Now"}
-                          </button>
+                          <div className="mt-2 flex gap-2 border-t border-gray-100 pt-2 dark:border-slate-700">
+                            <ConfigSecondaryButton
+                              className="flex-1 px-2 py-1.5 text-xs"
+                              onClick={() => void onRunNow(job.id)}
+                              disabled={runningJobId === job.id}
+                            >
+                              {runningJobId === job.id ? "Running…" : "Run now"}
+                            </ConfigSecondaryButton>
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
-          )}
-        </div>
+          }
+          right={
+            <div className="min-w-0 space-y-4">
+              <ConfigDetailCard title={isNewMode ? "New job" : "Edit job"}>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                      Name
+                    </label>
+                    <input
+                      type="text"
+                      value={draft.name}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, name: event.target.value }))
+                      }
+                      className={configFieldClass}
+                      placeholder="Job name"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                      Description
+                    </label>
+                    <textarea
+                      value={draft.description ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, description: event.target.value }))
+                      }
+                      rows={3}
+                      className={configFieldClass}
+                      placeholder="Optional"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                      Job type
+                    </label>
+                    <select
+                      value={draft.jobType}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          jobType: event.target.value as ScheduledJobType,
+                          storedProcedureDefinitionId:
+                            event.target.value === "RunStoredProcedure"
+                              ? current.storedProcedureDefinitionId
+                              : undefined,
+                        }))
+                      }
+                      className={configFieldClass}
+                    >
+                      <option value="ArchiveEligibleTickets">Archive eligible tickets</option>
+                      <option value="RunStoredProcedure">Run stored procedure</option>
+                    </select>
+                  </div>
+                  {draft.jobType === "RunStoredProcedure" ? (
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                        Stored procedure
+                      </label>
+                      <select
+                        value={draft.storedProcedureDefinitionId ?? ""}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            storedProcedureDefinitionId: event.target.value
+                              ? Number(event.target.value)
+                              : undefined,
+                          }))
+                        }
+                        className={configFieldClass}
+                      >
+                        <option value="">Select…</option>
+                        {storedProcedures.map((definition) => (
+                          <option key={definition.id} value={definition.id}>
+                            {definition.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                      Interval (minutes)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={draft.intervalMinutes}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          intervalMinutes: Number(event.target.value),
+                        }))
+                      }
+                      className={configFieldClass}
+                    />
+                  </div>
+                </div>
+              </ConfigDetailCard>
 
-        <div className="rounded-lg border border-gray-200 p-5 dark:border-slate-800">
-          <h4 className="text-base font-semibold text-gray-900 dark:text-slate-100">
-            {editingId ? "Edit Job" : "Create Job"}
-          </h4>
-          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-            Manage scheduling, enablement, and execution behavior.
-          </p>
+              <ConfigDetailCard title="Status">
+                <label className="flex cursor-pointer items-center gap-3">
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300 text-cortex-blue focus:ring-cortex-blue"
+                    checked={draft.isEnabled}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, isEnabled: event.target.checked }))
+                    }
+                  />
+                  <span className="text-sm text-gray-800 dark:text-slate-200">Job is enabled</span>
+                </label>
+              </ConfigDetailCard>
 
-          <div className="mt-4 space-y-3">
-            <input
-              type="text"
-              placeholder="Job name"
-              value={draft.name}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, name: event.target.value }))
-              }
-              className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-            />
-            <textarea
-              placeholder="Description (optional)"
-              value={draft.description ?? ""}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, description: event.target.value }))
-              }
-              rows={3}
-              className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-            />
-            <select
-              value={draft.jobType}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  jobType: event.target.value as ScheduledJobType,
-                  storedProcedureDefinitionId:
-                    event.target.value === "RunStoredProcedure"
-                      ? current.storedProcedureDefinitionId
-                      : undefined,
-                }))
-              }
-              className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-            >
-              <option value="ArchiveEligibleTickets">Archive Eligible Tickets</option>
-              <option value="RunStoredProcedure">Run Stored Procedure</option>
-            </select>
-            {draft.jobType === "RunStoredProcedure" && (
-              <select
-                value={draft.storedProcedureDefinitionId ?? ""}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    storedProcedureDefinitionId: event.target.value
-                      ? Number(event.target.value)
-                      : undefined,
-                  }))
-                }
-                className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              >
-                <option value="">Select a stored procedure</option>
-                {storedProcedures.map((definition) => (
-                  <option key={definition.id} value={definition.id}>
-                    {definition.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={draft.intervalMinutes}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  intervalMinutes: Number(event.target.value),
-                }))
-              }
-              className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-            />
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={draft.isEnabled}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, isEnabled: event.target.checked }))
-                }
-              />
-              Job enabled
-            </label>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => void saveJob()}
-                disabled={
-                  saving ||
-                  !draft.name.trim() ||
-                  draft.intervalMinutes <= 0 ||
-                  (draft.jobType === "RunStoredProcedure" &&
-                    !draft.storedProcedureDefinitionId)
-                }
-                className="rounded-md bg-cortex-blue px-4 py-2 text-white hover:bg-cortex-blue-dark disabled:opacity-60"
-              >
-                {saveLabel}
-              </button>
-              <button
-                onClick={resetForm}
-                className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                Clear
-              </button>
+              <ConfigDetailCard title="Actions">
+                <div className="flex flex-wrap gap-2">
+                  <ConfigPrimaryButton
+                    onClick={() => void saveJob()}
+                    disabled={
+                      saving ||
+                      !draft.name.trim() ||
+                      draft.intervalMinutes <= 0 ||
+                      (draft.jobType === "RunStoredProcedure" &&
+                        !draft.storedProcedureDefinitionId)
+                    }
+                  >
+                    {saveLabel}
+                  </ConfigPrimaryButton>
+                  <ConfigSecondaryButton onClick={resetForm} disabled={isBusy}>
+                    Clear
+                  </ConfigSecondaryButton>
+                </div>
+              </ConfigDetailCard>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
+          }
+        />
+      </ConfigPageBody>
+    </ConfigPageShell>
   );
 }

@@ -220,6 +220,11 @@ public class NotificationService(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (ticket.ApprovalStatus != ApprovalStatus.Approved)
+            {
+                continue;
+            }
+
             if (!usersById.ContainsKey(ticket.CreatedBy) &&
                 string.IsNullOrWhiteSpace(ticket.SynitiOwner) &&
                 string.IsNullOrWhiteSpace(ticket.BusinessOwner))

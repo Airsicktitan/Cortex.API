@@ -1,4 +1,5 @@
 import {
+  createElement,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -9,11 +10,13 @@ import {
 import type { Dispatch, SetStateAction } from "react";
 import type { ArchivedTicket } from "../types/archivedTicket";
 import type {
+  ApprovalStatus,
   CreateTicketInput,
   Ticket,
   TicketMutationInput,
   TicketSaveOutcome,
 } from "../types/ticket";
+import { isTicketApproved } from "../types/ticket";
 import type { UserProfile } from "../types/user";
 import type { TicketListQueryOptions } from "../services/api";
 import {
@@ -25,6 +28,96 @@ import {
 } from "../services/api";
 import type { PagedTicketList } from "../types/pagedList";
 import toast from "react-hot-toast";
+
+/**
+ * Submission confirmation for intake (PendingApproval). Future phases may add
+ * similar toasts or notifications for Approved / Returned for Detail / Rejected.
+ */
+function notifyTicketSaveSuccess(
+  isCreate: boolean,
+  savedTicket: Ticket,
+  message: string,
+  attachmentCount = 0,
+  options?: { resubmittedForReview?: boolean },
+) {
+  if (options?.resubmittedForReview) {
+    toast.success(
+      () =>
+        createElement(
+          "div",
+          { className: "text-left max-w-sm" },
+          createElement(
+            "p",
+            { className: "font-semibold" },
+            "Ticket resubmitted for review.",
+          ),
+          createElement(
+            "p",
+            { className: "mt-1 text-sm opacity-90 leading-snug" },
+            "Your updated request has been sent back to the Approval Queue.",
+          ),
+          attachmentCount > 0
+            ? createElement(
+                "p",
+                { className: "mt-2 text-xs opacity-80" },
+                attachmentCount === 1
+                  ? "One file was attached."
+                  : `${attachmentCount} files were attached.`,
+              )
+            : null,
+        ),
+      { id: "ticket-save-success", duration: 8000 },
+    );
+    return;
+  }
+
+  const isAwaitingReview =
+    isCreate &&
+    (savedTicket.approvalStatus === "PendingApproval" ||
+      savedTicket.approvalStatus === undefined);
+
+  if (isAwaitingReview) {
+    toast.success(
+      () =>
+        createElement(
+          "div",
+          { className: "text-left max-w-sm" },
+          createElement(
+            "p",
+            { className: "font-semibold" },
+            "Ticket submitted for review.",
+          ),
+          createElement(
+            "p",
+            { className: "mt-1 text-sm opacity-90 leading-snug" },
+            "Your request is awaiting approval before it enters active work. It stays in the Approval Queue until a reviewer responds.",
+          ),
+          attachmentCount > 0
+            ? createElement(
+                "p",
+                { className: "mt-2 text-xs opacity-80" },
+                attachmentCount === 1
+                  ? "One file was attached."
+                  : `${attachmentCount} files were attached.`,
+              )
+            : null,
+        ),
+      { id: "ticket-save-success", duration: 8000 },
+    );
+    return;
+  }
+
+  toast.success(message, { id: "ticket-save-success" });
+}
+
+export type MyTicketApprovalFilter = "all" | ApprovalStatus;
+export type RequesterLifecycleSummary = {
+  total: number;
+  needsAttention: number;
+  pendingApproval: number;
+  activeWork: number;
+  rejected: number;
+};
 
 export type FilterOption = "all" | "status" | "priority" | "sla";
 export type PageSizeOption = 10 | 25 | 50 | "all";
@@ -105,6 +198,42 @@ function getOwnerMatchCandidates(
   return candidates;
 }
 
+function getCreatorMatchCandidates(
+  profile: UserProfile | null,
+  auth0Sub: string | undefined,
+  auth0Email: string | undefined,
+): Set<string> {
+  const candidates = new Set<string>();
+  for (const value of [profile?.email, auth0Email, auth0Sub]) {
+    const normalized = normalize(String(value ?? ""));
+    if (normalized) {
+      candidates.add(normalized);
+    }
+  }
+  return candidates;
+}
+
+function ticketIsCreatedByCurrentUser(
+  ticket: Ticket,
+  currentUser: UserProfile | null,
+  creatorCandidates: Set<string>,
+): boolean {
+  if (
+    currentUser?.id != null &&
+    String(ticket.createdBy).trim() === String(currentUser.id)
+  ) {
+    return true;
+  }
+
+  const createdByAuth0Id = normalize(String(ticket.createdByAuth0Id ?? ""));
+  if (createdByAuth0Id && creatorCandidates.has(createdByAuth0Id)) {
+    return true;
+  }
+
+  const createdByEmail = normalize(String(ticket.createdByEmail ?? ""));
+  return createdByEmail !== "" && creatorCandidates.has(createdByEmail);
+}
+
 function ticketIsOwnedByCurrentUser(ticket: Ticket, candidates: Set<string>): boolean {
   const syn = normalize(String(ticket.synitiOwner ?? ""));
   const bus = normalize(String(ticket.businessOwner ?? ""));
@@ -112,6 +241,19 @@ function ticketIsOwnedByCurrentUser(ticket: Ticket, candidates: Set<string>): bo
     return false;
   }
   return (syn !== "" && candidates.has(syn)) || (bus !== "" && candidates.has(bus));
+}
+
+/** "My Tickets" includes items you created (e.g. intake) and items where you are an owner. */
+function ticketMatchesMyTicketsScope(
+  ticket: Ticket,
+  currentUser: UserProfile | null,
+  creatorCandidates: Set<string>,
+  ownerCandidates: Set<string>,
+): boolean {
+  if (ticketIsCreatedByCurrentUser(ticket, currentUser, creatorCandidates)) {
+    return true;
+  }
+  return ticketIsOwnedByCurrentUser(ticket, ownerCandidates);
 }
 
 const PRIORITY_RANK: Record<string, number> = {
@@ -134,11 +276,47 @@ function parseTicketTime(value: string | undefined): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function sortTicketsForList(tickets: Ticket[], sort: TicketListSortOption): Ticket[] {
+function getTicketApprovalStatus(ticket: Ticket): ApprovalStatus {
+  return ticket.approvalStatus ?? "Approved";
+}
+
+function getRequesterLifecycleRank(ticket: Ticket): number {
+  switch (getTicketApprovalStatus(ticket)) {
+    case "NeedsMoreInfo":
+      return 0;
+    case "PendingApproval":
+      return 1;
+    case "Approved":
+      return 2;
+    case "Rejected":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function compareRequesterRelevance(a: Ticket, b: Ticket): number {
+  const lifecycleDiff = getRequesterLifecycleRank(a) - getRequesterLifecycleRank(b);
+  if (lifecycleDiff !== 0) {
+    return lifecycleDiff;
+  }
+
+  return parseTicketTime(b.createdDate) - parseTicketTime(a.createdDate);
+}
+
+function sortTicketsForList(
+  tickets: Ticket[],
+  sort: TicketListSortOption,
+  options?: { requesterContext?: boolean },
+): Ticket[] {
   const copy = [...tickets];
+  const requesterContext = options?.requesterContext === true;
 
   switch (sort) {
     case "newest-first":
+      if (requesterContext) {
+        return copy.sort(compareRequesterRelevance);
+      }
       return copy.sort(
         (a, b) => parseTicketTime(b.createdDate) - parseTicketTime(a.createdDate),
       );
@@ -195,6 +373,7 @@ interface UseTicketsParams {
   setError: Dispatch<SetStateAction<string | null>>;
   setNeedsConsent: Dispatch<SetStateAction<boolean>>;
   currentUser: UserProfile | null;
+  auth0Sub?: string;
   auth0Name?: string;
   auth0Email?: string;
   isConsentRequiredError: (error: unknown) => boolean;
@@ -209,6 +388,7 @@ export function useTickets({
   setError,
   setNeedsConsent,
   currentUser,
+  auth0Sub,
   auth0Name,
   auth0Email,
   isConsentRequiredError,
@@ -217,7 +397,10 @@ export function useTickets({
 }: UseTicketsParams) {
   const ARCHIVED_PAGE_SIZE = 50;
   const ARCHIVED_CACHE_TTL_MS = 5 * 60 * 1000;
-  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+  /** Approved operational work from `getAll` (approved-only server filter). */
+  const [operationalTickets, setOperationalTickets] = useState<Ticket[]>([]);
+  /** Requester/owner scope from `getMySubmissions` (includes intake / non-approved). */
+  const [mySubmissionsTickets, setMySubmissionsTickets] = useState<Ticket[]>([]);
   const [boardCountsById, setBoardCountsById] = useState<Record<number, number>>(
     {},
   );
@@ -235,6 +418,8 @@ export function useTickets({
   const [ticketListSort, setTicketListSort] =
     useState<TicketListSortOption>("newest-first");
   const [myTicketsOnly, setMyTicketsOnly] = useState(false);
+  const [myTicketApprovalFilter, setMyTicketApprovalFilter] =
+    useState<MyTicketApprovalFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -263,7 +448,8 @@ export function useTickets({
     Map<string, { items: Ticket[]; meta: { totalCount: number; totalPages: number } }>
   >(new Map());
   const boardSwitchFallbackTicketsRef = useRef<Ticket[]>([]);
-  const allTicketsRef = useRef<Ticket[]>(allTickets);
+  const operationalTicketsRef = useRef<Ticket[]>([]);
+  const mySubmissionsTicketsRef = useRef<Ticket[]>([]);
   const archivedCacheRef = useRef<
     Map<
       string,
@@ -279,8 +465,25 @@ export function useTickets({
   const skipNextServerPagingEffectRef = useRef(false);
 
   useEffect(() => {
-    allTicketsRef.current = allTickets;
-  }, [allTickets]);
+    operationalTicketsRef.current = operationalTickets;
+  }, [operationalTickets]);
+
+  useEffect(() => {
+    mySubmissionsTicketsRef.current = mySubmissionsTickets;
+  }, [mySubmissionsTickets]);
+
+  const listForTicketViews = useMemo(
+    () => (myTicketsOnly ? mySubmissionsTickets : operationalTickets),
+    [mySubmissionsTickets, myTicketsOnly, operationalTickets],
+  );
+
+  /** Board counts, dashboard, and reports use operational (approved) data only. */
+  const allTickets = operationalTickets;
+
+  const setAllTickets = useCallback((update: SetStateAction<Ticket[]>) => {
+    setOperationalTickets(update);
+    setMySubmissionsTickets(update);
+  }, []);
 
   const useClientFilterMode = useMemo(
     () =>
@@ -332,17 +535,23 @@ export function useTickets({
   ]);
 
   const applyTicketPageResponse = useCallback(
-    (data: PagedTicketList) => {
+    (data: PagedTicketList, scope: "operational" | "mySubmissions") => {
+      if (scope === "mySubmissions") {
+        setMySubmissionsTickets(data.items);
+        setServerTicketListMeta(null);
+        return;
+      }
+
       const boardScope =
         selectedBoardId === "all" ? undefined : selectedBoardId;
 
       if (useClientFilterMode && boardScope !== undefined) {
-        setAllTickets((prev) => {
+        setOperationalTickets((prev) => {
           const others = prev.filter((ticket) => ticket.boardId !== boardScope);
           return [...others, ...data.items];
         });
       } else {
-        setAllTickets(data.items);
+        setOperationalTickets(data.items);
       }
 
       if (useServerDrivenPaging) {
@@ -379,13 +588,77 @@ export function useTickets({
   const upsertActiveTicketLocally = useCallback(
     (incomingTicket: Ticket, options?: { syncSelectedTicket?: boolean }) => {
       const previousTicket =
-        allTicketsRef.current.find((ticket) => ticket.id === incomingTicket.id) ??
+        operationalTicketsRef.current.find((ticket) => ticket.id === incomingTicket.id) ??
+        mySubmissionsTicketsRef.current.find((ticket) => ticket.id === incomingTicket.id) ??
         (selectedTicket?.id === incomingTicket.id ? selectedTicket : null);
 
-      setAllTickets((currentTickets) => upsertById(currentTickets, incomingTicket));
+      const wasApproved = previousTicket ? isTicketApproved(previousTicket) : false;
+      const nowApproved = isTicketApproved(incomingTicket);
+
+      const creatorCandidates = getCreatorMatchCandidates(
+        currentUser,
+        auth0Sub,
+        auth0Email,
+      );
+      const ownerCandidates = getOwnerMatchCandidates(
+        currentUser,
+        auth0Name,
+        auth0Email,
+      );
+
       setArchivedTickets((currentTickets) => removeById(currentTickets, incomingTicket.id));
+
+      setOperationalTickets((currentTickets) => {
+        if (!nowApproved) {
+          return removeById(currentTickets, incomingTicket.id);
+        }
+        return upsertById(currentTickets, incomingTicket);
+      });
+
+      setMySubmissionsTickets((currentTickets) => {
+        const mine = ticketMatchesMyTicketsScope(
+          incomingTicket,
+          currentUser,
+          creatorCandidates,
+          ownerCandidates,
+        );
+        const had = currentTickets.some((t) => t.id === incomingTicket.id);
+        if (!mine && !had) {
+          return currentTickets;
+        }
+        if (!mine && had) {
+          return removeById(currentTickets, incomingTicket.id);
+        }
+        return upsertById(currentTickets, incomingTicket);
+      });
       setBoardCountsById((currentCounts) => {
+        if (!wasApproved && !nowApproved) {
+          return currentCounts;
+        }
+
+        if (!previousTicket && nowApproved) {
+          return {
+            ...currentCounts,
+            [incomingTicket.boardId]:
+              (currentCounts[incomingTicket.boardId] ?? 0) + 1,
+          };
+        }
+
+        if (previousTicket && wasApproved && !nowApproved) {
+          return {
+            ...currentCounts,
+            [previousTicket.boardId]: Math.max(
+              0,
+              (currentCounts[previousTicket.boardId] ?? 0) - 1,
+            ),
+          };
+        }
+
         if (!previousTicket) {
+          return currentCounts;
+        }
+
+        if (!wasApproved && nowApproved) {
           return {
             ...currentCounts,
             [incomingTicket.boardId]:
@@ -408,7 +681,10 @@ export function useTickets({
         };
       });
 
-      if (options?.syncSelectedTicket === false || isModalOpen) {
+      if (
+        options?.syncSelectedTicket === false ||
+        (isModalOpen && options?.syncSelectedTicket !== true)
+      ) {
         return;
       }
 
@@ -416,12 +692,24 @@ export function useTickets({
         currentTicket?.id === incomingTicket.id ? incomingTicket : currentTicket,
       );
     },
-    [isModalOpen, selectedTicket],
+    [
+      auth0Email,
+      auth0Name,
+      auth0Sub,
+      currentUser,
+      isModalOpen,
+      selectedTicket,
+    ],
   );
 
   const applyArchivedTicketLocally = useCallback(
     (incomingTicket: ArchivedTicket) => {
-      setAllTickets((currentTickets) => removeById(currentTickets, incomingTicket.id));
+      setOperationalTickets((currentTickets) =>
+        removeById(currentTickets, incomingTicket.id),
+      );
+      setMySubmissionsTickets((currentTickets) =>
+        removeById(currentTickets, incomingTicket.id),
+      );
       setArchivedTickets((currentTickets) => upsertById(currentTickets, incomingTicket));
 
       setBoardCountsById((currentCounts) => ({
@@ -447,12 +735,17 @@ export function useTickets({
         return;
       }
 
-      setAllTickets((currentTickets) => removeById(currentTickets, normalizedTicketId));
+      setOperationalTickets((currentTickets) =>
+        removeById(currentTickets, normalizedTicketId),
+      );
+      setMySubmissionsTickets((currentTickets) =>
+        removeById(currentTickets, normalizedTicketId),
+      );
       setArchivedTickets((currentTickets) => removeById(currentTickets, normalizedTicketId));
 
-      const removedTicket = allTicketsRef.current.find(
-        (ticket) => ticket.id === normalizedTicketId,
-      );
+      const removedTicket =
+        operationalTicketsRef.current.find((ticket) => ticket.id === normalizedTicketId) ??
+        mySubmissionsTicketsRef.current.find((ticket) => ticket.id === normalizedTicketId);
       if (removedTicket) {
         setBoardCountsById((currentCounts) => ({
           ...currentCounts,
@@ -471,6 +764,47 @@ export function useTickets({
     [selectedTicket],
   );
 
+  /** Operational list (paged or unpaged per `buildActiveTicketQueryOptions`). */
+  const loadOperationalTicketsFromServer = useCallback(
+    async (
+      token: string,
+      options?: { isCancelled?: () => boolean },
+    ) => {
+      const data = await ticketService.getAll(
+        token,
+        buildActiveTicketQueryOptions(),
+      );
+      if (options?.isCancelled?.()) {
+        return;
+      }
+      applyTicketPageResponse(data, "operational");
+    },
+    [applyTicketPageResponse, buildActiveTicketQueryOptions],
+  );
+
+  /** Requester / owner scope (always full list from API). */
+  const loadMySubmissionsFromServer = useCallback(
+    async (
+      token: string,
+      options?: { isCancelled?: () => boolean },
+    ) => {
+      const items = await ticketService.getMySubmissions(token);
+      if (options?.isCancelled?.()) {
+        return;
+      }
+      const page: PagedTicketList = {
+        items,
+        page: 1,
+        pageSize: Math.max(items.length, 1),
+        totalCount: items.length,
+        totalPages: 1,
+      };
+      applyTicketPageResponse(page, "mySubmissions");
+    },
+    [applyTicketPageResponse],
+  );
+
+  /** Full refresh: approved operational work + my submissions (for tab switches without extra round-trips). */
   const fetchActiveTicketList = useCallback(
     async (
       providedToken?: string,
@@ -480,16 +814,22 @@ export function useTickets({
       if (options?.isCancelled?.()) {
         return;
       }
-      const data = await ticketService.getAll(token, buildActiveTicketQueryOptions());
-      if (options?.isCancelled?.()) {
-        return;
-      }
-      applyTicketPageResponse(data);
+
+      await Promise.all([
+        loadOperationalTicketsFromServer(token, options),
+        loadMySubmissionsFromServer(token, options),
+      ]);
+
       setApiUnavailable(false);
       lastTicketChangeSyncUtcRef.current = new Date().toISOString();
       lastTicketFullRefreshAtRef.current = Date.now();
     },
-    [applyTicketPageResponse, buildActiveTicketQueryOptions, getApiToken, setApiUnavailable],
+    [
+      getApiToken,
+      loadMySubmissionsFromServer,
+      loadOperationalTicketsFromServer,
+      setApiUnavailable,
+    ],
   );
 
   const refreshTicketsSilently = useCallback(
@@ -591,6 +931,11 @@ export function useTickets({
         return;
       }
 
+      if (myTicketsOnly) {
+        await refreshTicketsSilently(providedToken);
+        return;
+      }
+
       const sinceUtc = lastTicketChangeSyncUtcRef.current;
       if (!sinceUtc) {
         await refreshTicketsSilently(providedToken);
@@ -625,7 +970,7 @@ export function useTickets({
           archivedTicketsDelta.map((ticket) => ticket.id),
         );
 
-        setAllTickets((currentTickets) => {
+        setOperationalTickets((currentTickets) => {
           let nextTickets =
             archivedTicketIds.size > 0
               ? currentTickets.filter((ticket) => !archivedTicketIds.has(ticket.id))
@@ -636,6 +981,20 @@ export function useTickets({
           }
 
           return nextTickets;
+        });
+
+        setMySubmissionsTickets((currentTickets) => {
+          let next =
+            archivedTicketIds.size > 0
+              ? currentTickets.filter((ticket) => !archivedTicketIds.has(ticket.id))
+              : currentTickets;
+          const hadIds = new Set(currentTickets.map((t) => t.id));
+          for (const ticket of updatedTickets) {
+            if (hadIds.has(ticket.id)) {
+              next = upsertById(next, ticket);
+            }
+          }
+          return next;
         });
 
         setArchivedTickets((currentTickets) => {
@@ -679,6 +1038,7 @@ export function useTickets({
       getApiToken,
       isLikelyNetworkError,
       isModalOpen,
+      myTicketsOnly,
       refreshTicketsSilently,
       selectedBoardId,
       selectedTicket,
@@ -687,22 +1047,29 @@ export function useTickets({
   );
 
   const reconcileTicketByIdSilently = useCallback(
-    async (ticketId: string, providedToken?: string) => {
+    async (
+      ticketId: string,
+      providedToken?: string,
+      options?: { syncSelectedTicket?: boolean },
+    ): Promise<Ticket | null> => {
       const normalizedTicketId = ticketId.trim();
       if (!normalizedTicketId) {
-        return;
+        return null;
       }
 
       if (ticketReconcileInFlightRef.current.has(normalizedTicketId)) {
-        return;
+        return null;
       }
 
       ticketReconcileInFlightRef.current.add(normalizedTicketId);
       try {
         const token = providedToken ?? (await getApiToken());
         const fetchedTicket = await ticketService.getById(normalizedTicketId, token);
-        upsertActiveTicketLocally(fetchedTicket);
+        upsertActiveTicketLocally(fetchedTicket, {
+          syncSelectedTicket: options?.syncSelectedTicket,
+        });
         setApiUnavailable(false);
+        return fetchedTicket;
       } catch (error) {
         if (
           isForbiddenError(error) ||
@@ -711,13 +1078,14 @@ export function useTickets({
             (error as { status?: number }).status === 404)
         ) {
           removeTicketLocally(normalizedTicketId);
-          return;
+          return null;
         }
 
         console.error("Failed to reconcile ticket", error);
         if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         }
+        return null;
       } finally {
         ticketReconcileInFlightRef.current.delete(normalizedTicketId);
       }
@@ -882,7 +1250,7 @@ export function useTickets({
     const cacheKey = selectedBoardId === "all" ? "all" : `board:${selectedBoardId}`;
     const cached = activeBoardPageCacheRef.current.get(cacheKey);
     if (cached) {
-      setAllTickets(cached.items);
+      setOperationalTickets(cached.items);
       setServerTicketListMeta(cached.meta);
     }
   }, [selectedBoardId, useServerDrivenPaging]);
@@ -901,7 +1269,15 @@ export function useTickets({
     void (async () => {
       try {
         const token = await getApiToken();
-        await fetchActiveTicketList(token, { isCancelled: () => cancelled });
+        await loadOperationalTicketsFromServer(token, {
+          isCancelled: () => cancelled,
+        });
+        if (cancelled) {
+          return;
+        }
+        setApiUnavailable(false);
+        lastTicketChangeSyncUtcRef.current = new Date().toISOString();
+        lastTicketFullRefreshAtRef.current = Date.now();
       } catch (e) {
         console.error("Failed to load ticket page", e);
       }
@@ -913,12 +1289,13 @@ export function useTickets({
   }, [
     currentPage,
     debouncedSearchQuery,
-    fetchActiveTicketList,
     filter,
     getApiToken,
+    loadOperationalTicketsFromServer,
     myTicketsOnly,
     pageSize,
     selectedBoardId,
+    setApiUnavailable,
     ticketListSort,
     useClientFilterMode,
     useServerDrivenPaging,
@@ -929,8 +1306,8 @@ export function useTickets({
     const searchInput = normalize(debouncedSearchQuery);
     let filteredTickets =
       selectedBoardId === "all"
-        ? allTickets
-        : allTickets.filter((ticket) => ticket.boardId === selectedBoardId);
+        ? listForTicketViews
+        : listForTicketViews.filter((ticket) => ticket.boardId === selectedBoardId);
 
     if (filter !== "all" && filterInput) {
       if (filter === "status") {
@@ -949,12 +1326,30 @@ export function useTickets({
     }
 
     if (myTicketsOnly) {
-      const candidates = getOwnerMatchCandidates(currentUser, auth0Name, auth0Email);
-      if (candidates.size === 0) {
+      const creatorCandidates = getCreatorMatchCandidates(
+        currentUser,
+        auth0Sub,
+        auth0Email,
+      );
+      const ownerCandidates = getOwnerMatchCandidates(
+        currentUser,
+        auth0Name,
+        auth0Email,
+      );
+      if (
+        creatorCandidates.size === 0 &&
+        ownerCandidates.size === 0 &&
+        currentUser?.id == null
+      ) {
         filteredTickets = [];
       } else {
         filteredTickets = filteredTickets.filter((ticket) =>
-          ticketIsOwnedByCurrentUser(ticket, candidates),
+          ticketMatchesMyTicketsScope(
+            ticket,
+            currentUser,
+            creatorCandidates,
+            ownerCandidates,
+          ),
         );
       }
     }
@@ -965,38 +1360,88 @@ export function useTickets({
 
     return filteredTickets.filter((ticket) => ticketMatchesSearch(ticket, searchInput));
   }, [
-    allTickets,
+    listForTicketViews,
+    auth0Sub,
     auth0Email,
     auth0Name,
     currentUser,
     debouncedFilterValue,
     debouncedSearchQuery,
     filter,
+    myTicketApprovalFilter,
     myTicketsOnly,
     selectedBoardId,
   ]);
+
+  const approvalFilteredTicketsForBoard = useMemo(() => {
+    if (!myTicketsOnly || myTicketApprovalFilter === "all") {
+      return ticketsForBoard;
+    }
+
+    return ticketsForBoard.filter(
+      (ticket) => getTicketApprovalStatus(ticket) === myTicketApprovalFilter,
+    );
+  }, [myTicketApprovalFilter, myTicketsOnly, ticketsForBoard]);
+
+  const requesterLifecycleSummary = useMemo<RequesterLifecycleSummary | null>(() => {
+    if (!myTicketsOnly) {
+      return null;
+    }
+
+    return mySubmissionsTickets.reduce<RequesterLifecycleSummary>(
+      (summary, ticket) => {
+        const status = getTicketApprovalStatus(ticket);
+        summary.total += 1;
+        if (status === "NeedsMoreInfo") {
+          summary.needsAttention += 1;
+        } else if (status === "PendingApproval") {
+          summary.pendingApproval += 1;
+        } else if (status === "Approved") {
+          summary.activeWork += 1;
+        } else if (status === "Rejected") {
+          summary.rejected += 1;
+        }
+        return summary;
+      },
+      {
+        total: 0,
+        needsAttention: 0,
+        pendingApproval: 0,
+        activeWork: 0,
+        rejected: 0,
+      },
+    );
+  }, [myTicketsOnly, mySubmissionsTickets]);
 
   const shouldUseBoardSwitchFallback = useMemo(() => {
     if (!useServerDrivenPaging) {
       return false;
     }
-    if (ticketsForBoard.length > 0) {
+    if (approvalFilteredTicketsForBoard.length > 0) {
       return false;
     }
     if (selectedBoardId === "all") {
       return false;
     }
-    if (allTickets.length === 0) {
+    const sourceList = myTicketsOnly ? mySubmissionsTickets : operationalTickets;
+    if (sourceList.length === 0) {
       return false;
     }
-    return allTickets.every((ticket) => ticket.boardId !== selectedBoardId);
-  }, [allTickets, selectedBoardId, ticketsForBoard.length, useServerDrivenPaging]);
+    return sourceList.every((ticket) => ticket.boardId !== selectedBoardId);
+  }, [
+    approvalFilteredTicketsForBoard.length,
+    mySubmissionsTickets,
+    myTicketsOnly,
+    operationalTickets,
+    selectedBoardId,
+    useServerDrivenPaging,
+  ]);
 
   useEffect(() => {
-    if (ticketsForBoard.length > 0) {
-      boardSwitchFallbackTicketsRef.current = ticketsForBoard;
+    if (approvalFilteredTicketsForBoard.length > 0) {
+      boardSwitchFallbackTicketsRef.current = approvalFilteredTicketsForBoard;
     }
-  }, [ticketsForBoard]);
+  }, [approvalFilteredTicketsForBoard]);
 
   const tickets = useMemo(() => {
     if (
@@ -1005,15 +1450,17 @@ export function useTickets({
     ) {
       return boardSwitchFallbackTicketsRef.current;
     }
-    return ticketsForBoard;
-  }, [shouldUseBoardSwitchFallback, ticketsForBoard]);
+    return approvalFilteredTicketsForBoard;
+  }, [approvalFilteredTicketsForBoard, shouldUseBoardSwitchFallback]);
 
   const sortedTickets = useMemo(() => {
     if (useServerDrivenPaging) {
       return tickets;
     }
-    return sortTicketsForList(tickets, ticketListSort);
-  }, [ticketListSort, tickets, useServerDrivenPaging]);
+    return sortTicketsForList(tickets, ticketListSort, {
+      requesterContext: myTicketsOnly,
+    });
+  }, [myTicketsOnly, ticketListSort, tickets, useServerDrivenPaging]);
 
   const totalTickets = useMemo(() => {
     if (
@@ -1099,6 +1546,8 @@ export function useTickets({
       if (!selectedTicket) return undefined;
       const isCreateAction = !selectedTicket.id;
       const actionLabel = isCreateAction ? "create" : "update";
+      const wasNeedsMoreInfo =
+        !isCreateAction && selectedTicket.approvalStatus === "NeedsMoreInfo";
 
       try {
         const token = await getApiToken();
@@ -1133,7 +1582,18 @@ export function useTickets({
                 : ` with ${attachments.length} attachments`;
           } catch (attachmentError) {
             console.error("Failed to upload attachments", attachmentError);
-            toast.success(successMessage, { id: "ticket-save-success" });
+            notifyTicketSaveSuccess(
+              isCreateAction,
+              savedTicket,
+              successMessage,
+              0,
+              {
+                resubmittedForReview:
+                  !isCreateAction &&
+                  wasNeedsMoreInfo &&
+                  savedTicket.approvalStatus === "PendingApproval",
+              },
+            );
             toast.error(
               getUserFacingErrorMessage(
                 attachmentError,
@@ -1146,7 +1606,18 @@ export function useTickets({
           }
         }
 
-        toast.success(successMessage, { id: "ticket-save-success" });
+        notifyTicketSaveSuccess(
+          isCreateAction,
+          savedTicket,
+          successMessage,
+          attachments.length,
+          {
+            resubmittedForReview:
+              !isCreateAction &&
+              wasNeedsMoreInfo &&
+              savedTicket.approvalStatus === "PendingApproval",
+          },
+        );
         setIsModalOpen(false);
         setSelectedTicket(null);
         return "saved";
@@ -1282,7 +1753,9 @@ export function useTickets({
 
   const openTicketById = useCallback(
     async (ticketId: string, providedToken?: string) => {
-      const existingTicket = allTickets.find((ticket) => ticket.id === ticketId);
+      const existingTicket =
+        operationalTickets.find((ticket) => ticket.id === ticketId) ??
+        mySubmissionsTickets.find((ticket) => ticket.id === ticketId);
       if (existingTicket) {
         openTicket(existingTicket);
         return;
@@ -1291,17 +1764,17 @@ export function useTickets({
       const token = providedToken ?? (await getApiToken());
       const fetchedTicket = await ticketService.getById(ticketId, token);
 
-      setAllTickets((currentTickets) => {
-        if (currentTickets.some((ticket) => ticket.id === fetchedTicket.id)) {
-          return currentTickets;
-        }
-
-        return [fetchedTicket, ...currentTickets];
-      });
+      upsertActiveTicketLocally(fetchedTicket, { syncSelectedTicket: false });
 
       openTicket(fetchedTicket);
     },
-    [allTickets, getApiToken, openTicket],
+    [
+      getApiToken,
+      mySubmissionsTickets,
+      openTicket,
+      operationalTickets,
+      upsertActiveTicketLocally,
+    ],
   );
 
   return {
@@ -1322,6 +1795,8 @@ export function useTickets({
     setTicketListSort,
     myTicketsOnly,
     setMyTicketsOnly,
+    myTicketApprovalFilter,
+    setMyTicketApprovalFilter,
     currentPage,
     setCurrentPage,
     selectedTicket,
@@ -1337,6 +1812,7 @@ export function useTickets({
     archivedLoadingMore,
     archivedHasMore,
     archivedError,
+    requesterLifecycleSummary,
     highlightedArchivedTicketId,
     setHighlightedArchivedTicketId,
     reactivatingArchivedTicketId,

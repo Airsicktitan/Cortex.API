@@ -14,12 +14,19 @@ using Cortex.API;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.SignalR;
 using Cortex.API.Services;
+using Cortex.API.Configuration;
 using Cortex.API.Authorization;
 using Cortex.API.Hubs;
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 
 var connectionString = DatabaseConnectionConfiguration.ResolveFirstNonEmpty(builder.Configuration)
     ?? throw new InvalidOperationException(
@@ -85,6 +92,7 @@ builder.Services.AddHttpClient<IAuth0UserRoleSyncService, Auth0UserRoleSyncServi
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IAuth0UserDirectorySyncService, Auth0UserDirectorySyncService>();
 builder.Services.AddScoped<ICommentRepository, CommentRepository>();
 builder.Services.AddScoped<ISlaConfigurationRepository, SlaConfigurationRepository>();
 builder.Services.AddScoped<IArchiveConfigurationRepository, ArchiveConfigurationRepository>();
@@ -115,6 +123,7 @@ builder.Services.AddScoped<IScheduledJobService, ScheduledJobService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ITicketArchivalService, TicketArchivalService>();
 builder.Services.AddScoped<ITicketVisibilityService, TicketVisibilityService>();
+builder.Services.AddScoped<IOwnerWorkloadPreviewService, OwnerWorkloadPreviewService>();
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
 builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabilityService>();
 builder.Services.AddScoped<IResponseMappingContextFactory, ResponseMappingContextFactory>();
@@ -122,6 +131,12 @@ builder.Services.AddScoped<IRealtimeAudienceResolver, RealtimeAudienceResolver>(
 builder.Services.AddHttpClient<INotificationDeliveryService, NotificationDeliveryService>();
 builder.Services.Configure<EmailNotificationOptions>(builder.Configuration.GetSection("Notifications:Email"));
 builder.Services.Configure<TeamsNotificationOptions>(builder.Configuration.GetSection("Notifications:Teams"));
+builder.Services.Configure<OpenAiOptions>(builder.Configuration.GetSection(OpenAiOptions.SectionName));
+builder.Services.AddHttpClient<ITicketTriageAiService, TicketTriageAiService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(90);
+});
+builder.Services.AddScoped<ITicketTriageVocabularyProvider, TicketTriageVocabularyProvider>();
 builder.Services.AddSingleton<IRealtimeEventService, RealtimeEventService>();
 builder.Services.AddHostedService<ScheduledJobHostedService>();
 builder.Services.AddHostedService<SlaNotificationHostedService>();

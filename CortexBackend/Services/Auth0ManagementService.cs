@@ -387,4 +387,53 @@ public class Auth0ManagementService(
 
         return new Auth0ManagementException(message, (int)response.StatusCode);
     }
+
+    public async Task<IReadOnlyList<Auth0DirectoryUserDto>> GetAllDirectoryUsersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        EnsureManagementApiConfigured();
+        var accessToken = await GetManagementTokenAsync(cancellationToken);
+        var all = new List<Auth0DirectoryUserDto>();
+        var page = 0;
+        const int perPage = 100;
+
+        while (true)
+        {
+            var path = $"/api/v2/users?per_page={perPage}&page={page}";
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Get, BuildPath(path));
+            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw await CreateExceptionAsync(response, "Failed to list Auth0 users.", cancellationToken);
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            List<Auth0DirectoryUserDto>? batch;
+            try
+            {
+                batch = JsonSerializer.Deserialize<List<Auth0DirectoryUserDto>>(json, JsonOptions);
+            }
+            catch (JsonException)
+            {
+                throw new Auth0ManagementException("Auth0 returned an invalid user list response.", 502);
+            }
+
+            if (batch is null || batch.Count == 0)
+            {
+                break;
+            }
+
+            all.AddRange(batch);
+            if (batch.Count < perPage)
+            {
+                break;
+            }
+
+            page++;
+        }
+
+        return all;
+    }
 }

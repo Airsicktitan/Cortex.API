@@ -1,3 +1,5 @@
+using Cortex.API.Models;
+
 namespace Cortex.API.DTO;
 
 public class TicketResponse
@@ -6,6 +8,7 @@ public class TicketResponse
     public string Title { get; set; } = string.Empty;
     public string Description { get; set;} = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public ApprovalStatus ApprovalStatus { get; set; }
     public string Priority { get; set; } = string.Empty;
     public int BoardId { get; set; }
     public string BoardName { get; set; } = string.Empty;
@@ -21,7 +24,21 @@ public class TicketResponse
     public DateTime? LastModifiedDate { get; set;} = DateTime.UtcNow;
 
     public string CreatedByDisplayName { get; set; } = string.Empty;
+    public string? CreatedByEmail { get; set; }
+    public string? CreatedByAuth0Id { get; set; }
     public DateTime CreatedDate { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public int? ApprovedBy { get; set; }
+    public DateTime? RejectedAt { get; set; }
+    public int? RejectedBy { get; set; }
+    public string? RejectionReason { get; set; }
+    public DateTime? ReturnedForDetailAt { get; set; }
+    public int? ReturnedForDetailBy { get; set; }
+    public string? ReturnReason { get; set; }
+
+    /// <summary>Persisted Phase 1 AI triage for intake review (advisory).</summary>
+    public ApprovalTriagePreviewDto? ApprovalTriagePreview { get; set; }
+
     public DateTime SlaTargetDate { get; set; }
     public DateTime? SlaCompletedDate { get; set; }
     public string SlaStatus { get; set; } = string.Empty;

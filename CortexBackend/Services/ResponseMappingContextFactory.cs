@@ -30,8 +30,8 @@ public class ResponseMappingContextFactory(CortexDbContext context)
             .Distinct()
             .ToArray();
 
-        var userDisplayNames = distinctUserIds.Length == 0
-            ? new Dictionary<int, string>()
+        var userIdentities = distinctUserIds.Length == 0
+            ? new Dictionary<int, ResponseMappingUserIdentity>()
             : await _context.Users
                 .AsNoTracking()
                 .Where(user => distinctUserIds.Contains(user.Id))
@@ -40,11 +40,16 @@ public class ResponseMappingContextFactory(CortexDbContext context)
                     user.Id,
                     DisplayName = string.IsNullOrWhiteSpace(user.DisplayName)
                         ? user.Email
-                        : user.DisplayName
+                        : user.DisplayName,
+                    user.Email,
+                    user.Auth0Id
                 })
                 .ToDictionaryAsync(
                     user => user.Id,
-                    user => user.DisplayName ?? "Unknown User",
+                    user => new ResponseMappingUserIdentity(
+                        user.DisplayName ?? "Unknown User",
+                        user.Email,
+                        user.Auth0Id),
                     cancellationToken);
 
         var storedProcedureLabels = distinctStoredProcedureIds.Length == 0
@@ -82,6 +87,6 @@ public class ResponseMappingContextFactory(CortexDbContext context)
             .ToListAsync(cancellationToken);
         var ownerAliases = OwnerFieldResolution.BuildAliasLookup(ownerAliasUsers);
 
-        return new ResponseMappingContext(userDisplayNames, storedProcedureLabels, boardNames, ownerAliases);
+        return new ResponseMappingContext(userIdentities, storedProcedureLabels, boardNames, ownerAliases);
     }
 }

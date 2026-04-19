@@ -2,6 +2,8 @@ import { ensureSuccess } from "./api";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
+export type AdminLogExportFormat = "csv" | "json" | "txt" | "xlsx" | "sheets";
+
 function getDownloadFileName(response: Response, fallbackFileName: string) {
   const contentDisposition = response.headers.get("content-disposition");
   if (!contentDisposition) {
@@ -41,17 +43,25 @@ export const reportService = {
     triggerDownload(blob, fileName);
   },
 
-  async exportAdminLogsCsv(
+  async exportAdminLogs(
     token: string,
     fromUtcIso: string,
     toUtcIso: string,
-    fallbackFileName = "cortex-request-logs.csv",
+    format: AdminLogExportFormat,
   ): Promise<void> {
     const searchParams = new URLSearchParams({
-      format: "csv",
+      format,
       from: fromUtcIso,
       to: toUtcIso,
     });
+
+    const fallbackFileNames: Record<AdminLogExportFormat, string> = {
+      csv: "cortex-logs.csv",
+      json: "cortex-logs.json",
+      txt: "cortex-logs.txt",
+      xlsx: "cortex-logs.xlsx",
+      sheets: "cortex-logs-google-sheets.xlsx",
+    };
 
     const response = await fetch(
       `${API_BASE_URL}/admin/logs/export?${searchParams.toString()}`,
@@ -65,7 +75,10 @@ export const reportService = {
     await ensureSuccess(response, "Failed to export logs");
 
     const blob = await response.blob();
-    const fileName = getDownloadFileName(response, fallbackFileName);
+    const fileName = getDownloadFileName(
+      response,
+      fallbackFileNames[format],
+    );
     triggerDownload(blob, fileName);
   },
 };
