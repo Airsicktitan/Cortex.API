@@ -1,6 +1,7 @@
 namespace Cortex.API.Extensions;
 
 using Cortex.API.Authorization;
+using Cortex.API.Configuration;
 using Cortex.API.Handlers;
 using Cortex.API.DTO;
 using Cortex.API.Models;
@@ -44,6 +45,7 @@ public static class TicketEndpoints
 
         tickets.MapPost("/{id}/triage", TicketHandlers.GenerateTicketTriage)
             .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
             .WithName("GenerateTicketTriage")
             .Produces<TicketTriageGenerateResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound)
@@ -51,6 +53,7 @@ public static class TicketEndpoints
 
         tickets.MapPost("/{id}/triage/apply", TicketHandlers.ApplyTicketTriageSuggestions)
             .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
             .WithName("ApplyTicketTriageSuggestions")
             .Accepts<TicketTriageApplyRequest>("application/json")
             .Produces<TicketResponse>(StatusCodes.Status200OK)
@@ -62,6 +65,7 @@ public static class TicketEndpoints
         // Gated by StandardWriteAccess so only users who can actually submit tickets can invoke it.
         tickets.MapPost("/intake-assist", TicketIntakeAssistHandlers.ImproveIntake)
             .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
+            .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
             .WithName("ImproveTicketIntake")
             .Accepts<IntakeAssistRequest>("application/json")
             .Produces<IntakeAssistResponse>(StatusCodes.Status200OK)

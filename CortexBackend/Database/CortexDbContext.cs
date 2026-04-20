@@ -23,6 +23,8 @@ public class CortexDbContext : DbContext
     public DbSet<ArchiveConfiguration> ArchiveConfigurations => Set<ArchiveConfiguration>();
     public DbSet<SessionConfiguration> SessionConfigurations => Set<SessionConfiguration>();
     public DbSet<NotificationChannelConfiguration> NotificationChannelConfigurations => Set<NotificationChannelConfiguration>();
+    public DbSet<AiSettingsConfiguration> AiSettingsConfigurations => Set<AiSettingsConfiguration>();
+    public DbSet<AiSettingsAuditEntry> AiSettingsAuditEntries => Set<AiSettingsAuditEntry>();
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<StoredProcedureDefinition> StoredProcedureDefinitions => Set<StoredProcedureDefinition>();
     public DbSet<TicketStatusDefinition> TicketStatusDefinitions => Set<TicketStatusDefinition>();
@@ -500,6 +502,63 @@ public class CortexDbContext : DbContext
                 .HasConversion<string>()
                 .HasMaxLength(20)
                 .IsRequired();
+        });
+
+        modelBuilder.Entity<AiSettingsConfiguration>(entity =>
+        {
+            entity.HasKey(configuration => configuration.Id);
+
+            entity.Property(configuration => configuration.DefaultTextModel)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(configuration => configuration.DefaultVisionModel)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(configuration => configuration.Temperature)
+                .IsRequired();
+
+            entity.Property(configuration => configuration.MaxTokens)
+                .IsRequired();
+
+            entity.Property(configuration => configuration.TimeoutSeconds)
+                .IsRequired();
+
+            entity.Property(configuration => configuration.RetryCount)
+                .IsRequired();
+
+            entity.Property(configuration => configuration.ConfidenceThreshold)
+                .IsRequired();
+
+            entity.Property(configuration => configuration.MaxScreenshotAttachmentCount)
+                .IsRequired();
+
+            entity.HasOne(configuration => configuration.LastModifiedByUser)
+                .WithMany()
+                .HasForeignKey(configuration => configuration.LastModifiedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AiSettingsAuditEntry>(entity =>
+        {
+            entity.HasKey(entry => entry.Id);
+
+            entity.Property(entry => entry.ChangedDateUtc)
+                .IsRequired();
+
+            entity.Property(entry => entry.BeforeSnapshotJson)
+                .IsRequired();
+
+            entity.Property(entry => entry.AfterSnapshotJson)
+                .IsRequired();
+
+            entity.HasIndex(entry => entry.ChangedDateUtc);
+
+            entity.HasOne(entry => entry.ChangedByUser)
+                .WithMany()
+                .HasForeignKey(entry => entry.ChangedBy)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ReportDefinition>(entity =>

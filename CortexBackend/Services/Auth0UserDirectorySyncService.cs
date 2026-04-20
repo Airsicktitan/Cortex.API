@@ -86,7 +86,10 @@ public class Auth0UserDirectorySyncService(
                 PhoneNumber = null,
                 Department = null,
                 Role = Auth0Roles.GetHighestRole(roleNames),
-                IsActive = !remote.Blocked,
+                // Newly discovered Auth0 users land as inactive/pending. An admin must
+                // explicitly approve them via the user-management endpoints before the
+                // approval gate (see IAccessApprovalService) will let them in.
+                IsActive = false,
                 CreatedDate = DateTime.UtcNow,
                 LastModifiedDate = DateTime.UtcNow,
             };
@@ -127,10 +130,13 @@ public class Auth0UserDirectorySyncService(
             changed = true;
         }
 
-        var desiredActive = !remote.Blocked;
-        if (local.IsActive != desiredActive)
+        // Sync must not approve access. We honor remote-side blocks (active → inactive)
+        // as a hygiene signal, but we never silently flip a local inactive user active
+        // based on Auth0 directory state alone — approval requires an explicit admin
+        // action through the user-management endpoints.
+        if (local.IsActive && remote.Blocked)
         {
-            local.IsActive = desiredActive;
+            local.IsActive = false;
             changed = true;
         }
 
@@ -163,7 +169,12 @@ public class Auth0UserDirectorySyncService(
     private static void ApplyIdentityFieldsFromAuth0(User local, string normalizedEmail, Auth0DirectoryUserDto remote)
     {
         local.Email = normalizedEmail;
-        local.IsActive = !remote.Blocked;
+        // See TryApplyIdentityUpdateAsync: honor a remote block but never grant access
+        // via sync. An inactive local row stays inactive until an admin approves it.
+        if (local.IsActive && remote.Blocked)
+        {
+            local.IsActive = false;
+        }
         var displayName = PickDisplayName(remote, normalizedEmail);
         if (!string.IsNullOrWhiteSpace(displayName))
         {

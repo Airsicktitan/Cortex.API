@@ -23,6 +23,11 @@ import type {
 } from "../types/ticketRoutingInsight";
 import type { WorkflowMetricsSnapshot } from "../types/workflowMetrics";
 import type {
+  RepeatIssueAiReviewResponse,
+  RepeatIssueGroupDetailResponse,
+  RepeatIssueOverviewResponse,
+} from "../types/repeatIssues";
+import type {
   AdminUpdateUserInput,
   Auth0RoleOption,
   CreateUserInput,
@@ -99,44 +104,68 @@ export class ApiError extends Error {
   status: number;
   /** Parsed server body for diagnostics; never display to end users. */
   rawMessage?: string;
+  /** Optional machine-readable sentinel from the backend (e.g. ACCESS_NOT_APPROVED). */
+  code?: string;
 
-  constructor(message: string, status: number, rawMessage?: string) {
+  constructor(
+    message: string,
+    status: number,
+    rawMessage?: string,
+    code?: string,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.rawMessage = rawMessage;
+    this.code = code;
   }
 }
 
-async function readErrorMessage(response: Response, fallbackMessage: string) {
+interface ParsedErrorBody {
+  message: string;
+  code?: string;
+}
+
+async function readErrorMessage(
+  response: Response,
+  fallbackMessage: string,
+): Promise<ParsedErrorBody> {
   try {
     const data = (await response.json()) as unknown;
 
     if (typeof data === "string" && data.trim()) {
-      return data;
+      return { message: data };
     }
 
     if (typeof data === "object" && data !== null) {
+      const codeRaw = "code" in data ? (data as { code?: unknown }).code : undefined;
+      const code =
+        typeof codeRaw === "string" && codeRaw.trim() ? codeRaw.trim() : undefined;
+
       const detail = "detail" in data ? data.detail : undefined;
       if (typeof detail === "string" && detail.trim()) {
-        return detail;
+        return { message: detail, code };
       }
 
       const message = "message" in data ? data.message : undefined;
       if (typeof message === "string" && message.trim()) {
-        return message;
+        return { message, code };
       }
 
       const title = "title" in data ? data.title : undefined;
       if (typeof title === "string" && title.trim()) {
-        return title;
+        return { message: title, code };
+      }
+
+      if (code) {
+        return { message: fallbackMessage, code };
       }
     }
   } catch {
     // Ignore unreadable response bodies and fall back to the provided message.
   }
 
-  return fallbackMessage;
+  return { message: fallbackMessage };
 }
 
 /** Always throws with a caller-supplied, user-safe `userMessage`. Raw bodies are kept on `rawMessage` for dev logging only. */
@@ -150,7 +179,9 @@ export async function ensureSuccess(
 
   const parsed = await readErrorMessage(response, userMessage);
   const effectiveMessage =
-    parsed.trim() && parsed !== userMessage ? parsed : userMessage;
+    parsed.message.trim() && parsed.message !== userMessage
+      ? parsed.message
+      : userMessage;
   const rawMessage =
     effectiveMessage !== userMessage ? effectiveMessage : undefined;
 
@@ -158,7 +189,19 @@ export async function ensureSuccess(
     console.warn("[API error]", response.status, userMessage, rawMessage);
   }
 
-  throw new ApiError(effectiveMessage, response.status, rawMessage);
+  throw new ApiError(effectiveMessage, response.status, rawMessage, parsed.code);
+}
+
+/**
+ * True when the backend explicitly signalled that the authenticated identity is not
+ * approved for Cortex (distinct from a generic 403 "missing permission" case).
+ */
+export function isAccessNotApprovedError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 403 &&
+    error.code === "ACCESS_NOT_APPROVED"
+  );
 }
 
 export function isLikelyNetworkError(error: unknown): boolean {
@@ -632,6 +675,47 @@ export const metricsService = {
     });
     await ensureSuccess(response, "Unable to load workflow metrics");
     return response.json() as Promise<WorkflowMetricsSnapshot>;
+  },
+};
+
+export const repeatIssuesService = {
+  async getOverview(
+    token: string,
+    topN = 8,
+  ): Promise<RepeatIssueOverviewResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/metrics/repeat-issues/?topN=${topN}`,
+      { headers: authHeaders(token) },
+    );
+    await ensureSuccess(response, "Unable to load recurring issue overview");
+    return response.json() as Promise<RepeatIssueOverviewResponse>;
+  },
+
+  async getGroupDetail(
+    groupKey: string,
+    token: string,
+  ): Promise<RepeatIssueGroupDetailResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/metrics/repeat-issues/${encodeURIComponent(groupKey)}`,
+      { headers: authHeaders(token) },
+    );
+    await ensureSuccess(response, "Unable to load recurring issue detail");
+    return response.json() as Promise<RepeatIssueGroupDetailResponse>;
+  },
+
+  async generateAiReview(
+    groupKey: string,
+    token: string,
+  ): Promise<RepeatIssueAiReviewResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/metrics/repeat-issues/${encodeURIComponent(groupKey)}/ai-review`,
+      {
+        method: "POST",
+        headers: authHeaders(token),
+      },
+    );
+    await ensureSuccess(response, "Unable to generate AI review");
+    return response.json() as Promise<RepeatIssueAiReviewResponse>;
   },
 };
 

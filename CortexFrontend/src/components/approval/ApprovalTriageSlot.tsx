@@ -455,7 +455,7 @@ export function ApprovalTriageModalColumn({
               onClick={() => void onRegenerateAnalysis?.()}
               disabled={regenerateLoading || triageActionPending}
               aria-busy={regenerateLoading}
-              className="ai-button rounded-md border-2 border-cortex-blue bg-white px-3 py-1.5 text-xs font-semibold text-cortex-blue-dark transition-colors hover:border-cortex-blue-dark hover:bg-cortex-blue-soft disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/85 dark:bg-slate-800 dark:text-emerald-300 dark:hover:border-emerald-300 dark:hover:bg-emerald-950/40"
+              className="ai-button ai-button--ready rounded-md px-3 py-1.5 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
             >
               <span>
                 {regenerateLoading ? "Regenerating…" : "Regenerate Analysis"}

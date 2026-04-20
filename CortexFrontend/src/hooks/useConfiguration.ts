@@ -1,8 +1,8 @@
 /**
  * useConfiguration — owns all configuration-domain state and handlers:
- * SLA, session config, notification channels, ticket boards, ticket statuses,
- * ticket routing rules, archive configuration, custom reports, stored
- * procedures, and scheduled jobs.
+ * SLA, session config, AI settings, notification channels, ticket boards,
+ * ticket statuses, ticket routing rules, archive configuration, custom
+ * reports, stored procedures, and scheduled jobs.
  *
  * Cross-domain side-effects (renaming a board/status updates active tickets,
  * running an archive job refreshes the ticket list, etc.) are handled via
@@ -12,6 +12,7 @@
 
 import { useState, useCallback } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import type { AiSettingsConfiguration } from "../types/aiSettings";
 import type { ArchiveConfiguration } from "../types/archiveConfiguration";
 import type {
   CustomReportDefinition,
@@ -51,6 +52,7 @@ import {
   isLikelyNetworkError,
   ApiError,
 } from "../services/api";
+import { aiSettingsConfigurationService } from "../services/aiSettingsConfigurationService";
 import { archiveConfigurationService } from "../services/archiveConfigurationService";
 import { customReportService } from "../services/customReportService";
 import { notificationChannelConfigurationService } from "../services/notificationChannelConfigurationService";
@@ -162,7 +164,12 @@ function createDraftArchiveConfiguration(
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type ReportSection = "sla" | "online-users" | "custom";
+type ReportSection =
+  | "sla"
+  | "telemetry"
+  | "recurring-issues"
+  | "online-users"
+  | "custom";
 
 export interface UseConfigurationParams {
   getApiToken: () => Promise<string>;
@@ -215,6 +222,15 @@ export function useConfiguration({
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionSaving, setSessionSaving] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
+
+  // ── AI settings ──────────────────────────────────────────────────────────
+  const [aiSettings, setAiSettings] = useState<AiSettingsConfiguration | null>(
+    null,
+  );
+  const [aiSettingsLoadedOnce, setAiSettingsLoadedOnce] = useState(false);
+  const [aiSettingsLoading, setAiSettingsLoading] = useState(false);
+  const [aiSettingsSaving, setAiSettingsSaving] = useState(false);
+  const [aiSettingsError, setAiSettingsError] = useState<string | null>(null);
 
   // ── Notification channels ─────────────────────────────────────────────────
   const [notificationChannelConfiguration, setNotificationChannelConfiguration] =
@@ -381,6 +397,34 @@ export function useConfiguration({
       } finally {
         setSessionLoadedOnce(true);
         setSessionLoading(false);
+      }
+    },
+    [getApiToken, setApiUnavailable],
+  );
+
+  const loadAiSettings = useCallback(
+    async (providedToken?: string) => {
+      setAiSettingsLoading(true);
+      setAiSettingsError(null);
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const data = await aiSettingsConfigurationService.get(token);
+        setAiSettings(data);
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to load AI settings", error);
+        if (isLikelyNetworkError(error)) {
+          setApiUnavailable(true);
+        } else if (isForbiddenError(error)) {
+          setApiUnavailable(false);
+          setAiSettingsError("You do not have permission to view AI settings.");
+        } else {
+          setApiUnavailable(false);
+          setAiSettingsError("Failed to load AI settings.");
+        }
+      } finally {
+        setAiSettingsLoadedOnce(true);
+        setAiSettingsLoading(false);
       }
     },
     [getApiToken, setApiUnavailable],
@@ -925,6 +969,53 @@ export function useConfiguration({
       setSessionSaving(false);
     }
   }, [getApiToken, sessionConfiguration]);
+
+  // ── AI settings handlers ────────────────────────────────────────────────
+
+  const handleAiSettingsChange = useCallback(
+    <K extends keyof AiSettingsConfiguration>(
+      field: K,
+      value: AiSettingsConfiguration[K],
+    ) => {
+      setAiSettings((currentConfiguration) =>
+        currentConfiguration
+          ? {
+              ...currentConfiguration,
+              [field]:
+                typeof value === "number"
+                  ? Number.isNaN(value)
+                    ? 0
+                    : value
+                  : value,
+            }
+          : currentConfiguration,
+      );
+    },
+    [],
+  );
+
+  const saveAiSettings = useCallback(async () => {
+    if (!aiSettings) return;
+    try {
+      setAiSettingsSaving(true);
+      setAiSettingsError(null);
+      const token = await getApiToken();
+      const savedConfiguration = await aiSettingsConfigurationService.update(
+        aiSettings,
+        token,
+      );
+      setAiSettings(savedConfiguration);
+      toast.success("AI settings saved");
+    } catch (error) {
+      console.error("Failed to save AI settings", error);
+      setAiSettingsError(
+        getUserFacingErrorMessage(error, "Failed to save AI settings."),
+      );
+      toast.error("Failed to save AI settings");
+    } finally {
+      setAiSettingsSaving(false);
+    }
+  }, [aiSettings, getApiToken]);
 
   // ── Notification channel handlers ─────────────────────────────────────────
 
@@ -1914,6 +2005,15 @@ export function useConfiguration({
     loadSessionConfiguration,
     handleSessionConfigurationChange,
     saveSessionConfiguration,
+    // AI settings
+    aiSettings,
+    aiSettingsLoadedOnce,
+    aiSettingsLoading,
+    aiSettingsSaving,
+    aiSettingsError,
+    loadAiSettings,
+    handleAiSettingsChange,
+    saveAiSettings,
     // Notification channels
     notificationChannelConfiguration,
     notificationChannelsLoadedOnce,

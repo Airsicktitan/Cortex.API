@@ -9,7 +9,6 @@ namespace Cortex.API.Handlers;
 /// <summary>Approver-facing screenshot analysis. Persists the latest successful insight on the ticket (advisory JSON).</summary>
 public static class ScreenshotInsightHandlers
 {
-    private const int MaxImagesPerRequest = 5;
     private const long MaxBytesPerImage = 8 * 1024 * 1024;
 
     private static readonly JsonSerializerOptions PersistJsonOptions = new()
@@ -27,6 +26,7 @@ public static class ScreenshotInsightHandlers
         ITicketAttachmentRepository attachmentRepository,
         ICommentRepository commentRepository,
         ITicketVisibilityService ticketVisibilityService,
+        IAiSettingsService aiSettingsService,
         IScreenshotInsightAiService insightAi,
         IWorkflowMetricsService metrics,
         ILogger<ScreenshotInsightLogCategory> logger,
@@ -44,6 +44,7 @@ public static class ScreenshotInsightHandlers
             return Results.NotFound();
         }
 
+        var aiSettings = await aiSettingsService.GetAsync();
         var all = (await attachmentRepository.GetByTicketIdAsync(ticketId)).ToList();
         var images = new List<(string FileName, string ContentType, byte[] Content)>();
 
@@ -64,7 +65,7 @@ public static class ScreenshotInsightHandlers
             }
 
             images.Add((attachment.FileName, attachment.ContentType, attachment.Content));
-            if (images.Count >= MaxImagesPerRequest)
+            if (images.Count >= aiSettings.MaxScreenshotAttachmentCount)
             {
                 break;
             }

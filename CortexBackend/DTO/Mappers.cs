@@ -594,6 +594,39 @@ public static class NotificationChannelConfigurationMappings
     }
 }
 
+public static class AiSettingsMappings
+{
+    public static AiSettingsResponse ToResponse(this AiSettingsConfiguration configuration)
+    {
+        return new AiSettingsResponse
+        {
+            IsIntakeAssistEnabled = configuration.IsIntakeAssistEnabled,
+            IsTriageEnabled = configuration.IsTriageEnabled,
+            IsScreenshotInsightEnabled = configuration.IsScreenshotInsightEnabled,
+            IsSuggestedUpdatesEnabled = configuration.IsSuggestedUpdatesEnabled,
+            IsPriorityRecommendationEnabled = configuration.IsPriorityRecommendationEnabled,
+            IsStatusRecommendationEnabled = configuration.IsStatusRecommendationEnabled,
+            DefaultTextModel = configuration.DefaultTextModel,
+            DefaultVisionModel = configuration.DefaultVisionModel,
+            Temperature = configuration.Temperature,
+            MaxTokens = configuration.MaxTokens,
+            TimeoutSeconds = configuration.TimeoutSeconds,
+            RetryCount = configuration.RetryCount,
+            AdvisoryOnlyMode = configuration.AdvisoryOnlyMode,
+            AllowStatusRecommendation = configuration.AllowStatusRecommendation,
+            AllowPriorityRecommendation = configuration.AllowPriorityRecommendation,
+            SuggestionOnlyMode = configuration.SuggestionOnlyMode,
+            ConfidenceThreshold = configuration.ConfidenceThreshold,
+            MaxScreenshotAttachmentCount = configuration.MaxScreenshotAttachmentCount,
+            LastModifiedByUserId = configuration.LastModifiedBy,
+            LastModifiedByDisplayName = string.IsNullOrWhiteSpace(configuration.LastModifiedByUser?.DisplayName)
+                ? configuration.LastModifiedByUser?.Email
+                : configuration.LastModifiedByUser.DisplayName,
+            LastModifiedDateUtc = configuration.LastModifiedDateUtc?.ToString("O"),
+        };
+    }
+}
+
 public static class ReportDefinitionMappings
 {
     public static ReportDefinitionResponse ToResponse(this ReportDefinition definition)

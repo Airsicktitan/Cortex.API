@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AdminLogExportFormat } from "../services/reportService";
+import type { AiSettingsConfiguration } from "../types/aiSettings";
 import type { ArchiveConfiguration } from "../types/archiveConfiguration";
 import type {
   CustomReportDefinition,
@@ -25,6 +26,7 @@ import type {
   UpsertTicketStatusDefinitionInput,
 } from "../types/ticketStatus";
 import type { TicketRoutingRule } from "../types/ticketRouting";
+import AiSettingsSection from "./AiSettingsSection";
 import ArchivePolicySection from "./ArchivePolicySection";
 import CustomReportRegistrySection from "./CustomReportRegistrySection";
 import NotificationChannelSection from "./NotificationChannelSection";
@@ -57,6 +59,16 @@ interface ConfigurationPageProps {
   ) => void;
   onRefreshSession: () => void;
   onSaveSession: () => void;
+  aiSettings: AiSettingsConfiguration | null;
+  aiSettingsError: string | null;
+  aiSettingsLoading: boolean;
+  aiSettingsSaving: boolean;
+  onAiSettingsChange: <K extends keyof AiSettingsConfiguration>(
+    field: K,
+    value: AiSettingsConfiguration[K],
+  ) => void;
+  onRefreshAiSettings: () => void;
+  onSaveAiSettings: () => void;
   notificationChannelConfiguration: NotificationChannelConfiguration | null;
   notificationChannelError: string | null;
   notificationChannelLoading: boolean;
@@ -186,6 +198,7 @@ interface ConfigurationPageProps {
     format: AdminLogExportFormat,
   ) => Promise<void>;
   canManageJobs: boolean;
+  canManageAiSettings: boolean;
   jobs: ScheduledJob[];
   jobsLoading: boolean;
   jobsError: string | null;
@@ -212,6 +225,7 @@ type ConfigSection =
   | "roles"
   | "notifications"
   | "jobs"
+  | "ai"
   | "reports"
   | "logs";
 
@@ -235,6 +249,13 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     onSessionChange,
     onRefreshSession,
     onSaveSession,
+    aiSettings,
+    aiSettingsError,
+    aiSettingsLoading,
+    aiSettingsSaving,
+    onAiSettingsChange,
+    onRefreshAiSettings,
+    onSaveAiSettings,
     notificationChannelConfiguration,
     notificationChannelError,
     notificationChannelLoading,
@@ -327,6 +348,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     canExportAdminLogs,
     onExportAdminLogs,
     canManageJobs,
+    canManageAiSettings,
     jobs,
     jobsLoading,
     jobsError,
@@ -390,25 +412,68 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [logExportMenuOpen]);
 
-  const navItems: Array<{ id: ConfigSection; label: string; description: string }> = [
-    { id: "general", label: "General", description: "SLA, session, and archive policy setup" },
-    { id: "boards", label: "Boards", description: "Ticket board setup and behavior" },
-    { id: "statuses", label: "Statuses", description: "Define workflow stages for tickets" },
-    {
-      id: "roles",
-      label: "Role definitions",
-      description: "How Auth0 roles behave in Cortex. Assign people to roles in Users.",
-    },
-    { id: "routing", label: "Routing", description: "Automatically assign tickets based on structured rules and ownership logic." },
-    { id: "notifications", label: "Notifications", description: "Notification policy and delivery defaults" },
-    {
-      id: "jobs",
-      label: "Scheduled Jobs",
-      description: "Configure automation. Monitor execution in Job Activity.",
-    },
-    { id: "reports", label: "Reports", description: "Report definitions and procedure setup" },
-    { id: "logs", label: "Log Export", description: "Administrative request log export" },
-  ];
+  useEffect(() => {
+    if (activeSection === "ai" && !canManageAiSettings) {
+      setActiveSection("general");
+    }
+  }, [activeSection, canManageAiSettings]);
+
+  const navItems = useMemo<
+    Array<{ id: ConfigSection; label: string; description: string }>
+  >(() => {
+    const items: Array<{ id: ConfigSection; label: string; description: string }> = [
+      {
+        id: "general",
+        label: "General",
+        description: "SLA, session, and archive policy setup",
+      },
+      { id: "boards", label: "Boards", description: "Ticket board setup and behavior" },
+      { id: "statuses", label: "Statuses", description: "Define workflow stages for tickets" },
+      {
+        id: "roles",
+        label: "User Roles",
+        description: "How Auth0 roles behave in Cortex. Assign people to roles in Users.",
+      },
+      {
+        id: "routing",
+        label: "Routing",
+        description: "Automatically assign tickets based on structured rules and ownership logic.",
+      },
+      {
+        id: "notifications",
+        label: "Notifications",
+        description: "Notification policy and delivery defaults",
+      },
+      {
+        id: "jobs",
+        label: "Scheduled Jobs",
+        description: "Configure automation. Monitor execution in Job Activity.",
+      },
+    ];
+
+    if (canManageAiSettings) {
+      items.push({
+        id: "ai",
+        label: "AI Settings",
+        description: "Govern AI capabilities, model execution defaults, and guardrails.",
+      });
+    }
+
+    items.push(
+      {
+        id: "reports",
+        label: "Reports",
+        description: "Report definitions and procedure setup",
+      },
+      {
+        id: "logs",
+        label: "Log Export",
+        description: "Administrative request log export",
+      },
+    );
+
+    return items;
+  }, [canManageAiSettings]);
 
   const handleExportLogs = async (format: AdminLogExportFormat) => {
     setLogExportError(null);
@@ -669,6 +734,18 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                   </section>
                 )}
               </div>
+            )}
+
+            {activeSection === "ai" && canManageAiSettings && (
+              <AiSettingsSection
+                configuration={aiSettings}
+                loading={aiSettingsLoading}
+                saving={aiSettingsSaving}
+                error={aiSettingsError}
+                onChange={onAiSettingsChange}
+                onRefresh={onRefreshAiSettings}
+                onSave={onSaveAiSettings}
+              />
             )}
 
             {activeSection === "reports" && (

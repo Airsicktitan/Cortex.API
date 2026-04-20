@@ -84,6 +84,11 @@ public class TicketHandlersCreateRealtimeTests
             .Setup(service => service.GetPriorityMapAsync())
             .ReturnsAsync(new Dictionary<string, SlaConfiguration>());
 
+        var aiSettingsService = new Mock<IAiSettingsService>(MockBehavior.Strict);
+        aiSettingsService
+            .Setup(service => service.GetAsync())
+            .ReturnsAsync(CreateDefaultAiSettings());
+
         var ticketBoardService = new Mock<ITicketBoardService>(MockBehavior.Strict);
         ticketBoardService
             .Setup(service => service.GetDefaultCreateBoardAsync())
@@ -158,6 +163,7 @@ public class TicketHandlersCreateRealtimeTests
             ticketRepository.Object,
             userContext.Object,
             userRepository.Object,
+            aiSettingsService.Object,
             slaConfigurationService.Object,
             Mock.Of<ITicketStatusService>(),
             ticketBoardService.Object,
@@ -261,6 +267,11 @@ public class TicketHandlersCreateRealtimeTests
             .Setup(service => service.GetPriorityMapAsync())
             .ReturnsAsync(new Dictionary<string, SlaConfiguration>());
 
+        var aiSettingsService = new Mock<IAiSettingsService>(MockBehavior.Strict);
+        aiSettingsService
+            .Setup(service => service.GetAsync())
+            .ReturnsAsync(CreateDefaultAiSettings());
+
         var ticketBoardService = new Mock<ITicketBoardService>(MockBehavior.Strict);
         ticketBoardService
             .Setup(service => service.GetDefaultCreateBoardAsync())
@@ -348,6 +359,7 @@ public class TicketHandlersCreateRealtimeTests
             ticketRepository.Object,
             userContext.Object,
             userRepository.Object,
+            aiSettingsService.Object,
             slaConfigurationService.Object,
             Mock.Of<ITicketStatusService>(),
             ticketBoardService.Object,
@@ -390,4 +402,27 @@ public class TicketHandlersCreateRealtimeTests
         ticketRepository.Verify(repository => repository.UpdateTicketAsync(It.IsAny<Ticket>()), Times.Once);
         ticketRepository.Verify(repository => repository.SaveChangesAsync(), Times.Exactly(2));
     }
+
+    private static AiSettingsConfiguration CreateDefaultAiSettings() =>
+        new()
+        {
+            IsIntakeAssistEnabled = true,
+            IsTriageEnabled = true,
+            IsScreenshotInsightEnabled = true,
+            IsSuggestedUpdatesEnabled = false,
+            IsPriorityRecommendationEnabled = true,
+            IsStatusRecommendationEnabled = true,
+            DefaultTextModel = "gpt-4o-mini",
+            DefaultVisionModel = "gpt-4o-mini",
+            Temperature = 0.2,
+            MaxTokens = 1800,
+            TimeoutSeconds = 120,
+            RetryCount = 0,
+            AdvisoryOnlyMode = false,
+            AllowStatusRecommendation = true,
+            AllowPriorityRecommendation = true,
+            SuggestionOnlyMode = false,
+            ConfidenceThreshold = 0.7,
+            MaxScreenshotAttachmentCount = 5,
+        };
 }

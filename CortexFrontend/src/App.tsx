@@ -11,6 +11,7 @@ import {
   API_USER_MESSAGES,
   ApiError,
   getUserFacingErrorMessage,
+  isAccessNotApprovedError,
   isLikelyNetworkError,
   ticketService,
   userService,
@@ -125,7 +126,12 @@ type AppView =
   | "sla"
   | "jobs"
   | "users";
-type ReportSection = "sla" | "online-users" | "custom";
+type ReportSection =
+  | "sla"
+  | "telemetry"
+  | "recurring-issues"
+  | "online-users"
+  | "custom";
 type SessionPromptState = "warning" | "expired" | null;
 type NavigationItem = {
   view: AppView;
@@ -332,6 +338,11 @@ function getDefaultTicketBoard(boards: TicketBoardDefinition[]) {
 
 async function loadBootstrapCurrentUser(token: string) {
   return await userService.getCurrentUser(token).catch((error) => {
+    // Access-denial must bubble up so callers can render the blocked state
+    // instead of treating the user as anonymously logged in.
+    if (isAccessNotApprovedError(error)) {
+      throw error;
+    }
     console.warn("Current user profile could not be loaded", error);
     return null;
   });
@@ -399,6 +410,7 @@ function App() {
 
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const [needsConsent, setNeedsConsent] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   // Configuration domain state is owned by useConfiguration (wired below after loadArchivedTickets).
 
@@ -983,6 +995,14 @@ function App() {
     loadSessionConfiguration,
     handleSessionConfigurationChange,
     saveSessionConfiguration,
+    aiSettings,
+    aiSettingsLoadedOnce,
+    aiSettingsLoading,
+    aiSettingsSaving,
+    aiSettingsError,
+    loadAiSettings,
+    handleAiSettingsChange,
+    saveAiSettings,
     notificationChannelConfiguration,
     notificationChannelsLoadedOnce,
     notificationChannelLoading,
@@ -1718,6 +1738,7 @@ function App() {
         if (cancelled) return;
 
         setCurrentUser(fetchedCurrentUser);
+        setAccessDenied(false);
         await loadAllTickets(token);
         setNeedsConsent(false);
         setApiUnavailable(false);
@@ -1729,19 +1750,29 @@ function App() {
 
         if (cancelled) return;
 
-        if (isConsentRequiredError(error)) {
+        if (isAccessNotApprovedError(error)) {
+          setAccessDenied(true);
+          setCurrentUser(null);
+          setNeedsConsent(false);
+          setApiUnavailable(false);
+          setError(null);
+        } else if (isConsentRequiredError(error)) {
+          setAccessDenied(false);
           setNeedsConsent(true);
           setApiUnavailable(false);
           setError("CORTEX API consent is required before the app can load.");
         } else if (isForbiddenError(error)) {
+          setAccessDenied(false);
           setNeedsConsent(false);
           setApiUnavailable(false);
           setError("You do not have permission to view tickets.");
         } else if (isLikelyNetworkError(error)) {
+          setAccessDenied(false);
           setNeedsConsent(false);
           setApiUnavailable(true);
           setError(null);
         } else {
+          setAccessDenied(false);
           setNeedsConsent(false);
           setApiUnavailable(false);
           setError(API_USER_MESSAGES.generic);
@@ -1833,6 +1864,10 @@ function App() {
       void loadSessionConfiguration();
     }
 
+    if (isAdmin && !aiSettingsLoadedOnce) {
+      void loadAiSettings();
+    }
+
     if (!notificationChannelsLoadedOnce) {
       void loadNotificationChannelConfiguration();
     }
@@ -1858,6 +1893,7 @@ function App() {
     }
   }, [
     activeView,
+    aiSettingsLoadedOnce,
     archiveLoadedOnce,
     canManageConfiguration,
     customReportsLoadedOnce,
@@ -1867,6 +1903,7 @@ function App() {
     canManageCustomReportDefinitions,
     loadCustomReportDefinitions,
     loadArchiveConfigurations,
+    loadAiSettings,
     loadDatabaseStoredProcedures,
     loadDatabaseViews,
     loadSessionConfiguration,
@@ -1876,6 +1913,7 @@ function App() {
     loadTicketStatuses,
     loadSlaConfigurations,
     notificationChannelsLoadedOnce,
+    isAdmin,
     sessionLoadedOnce,
     slaConfigurations.length,
     storedProcedures.length,
@@ -2175,6 +2213,41 @@ function App() {
       ),
     );
   });
+
+  const handleCreateRootCauseTask = useStableCallback(
+    ({
+      title,
+      description,
+      boardId,
+      priority,
+    }: {
+      title: string;
+      description: string;
+      boardId?: number;
+      priority?: string;
+    }) => {
+      const availableBoards =
+        ticketBoards.length > 0 ? ticketBoards : [...DEFAULT_TICKET_BOARDS];
+      const draftTicket = createDraftTicket(
+        ticketStatuses,
+        availableBoards,
+        currentUser?.displayName ?? user?.name ?? "",
+        currentUser?.department ?? "",
+      );
+      const requestedBoard = boardId
+        ? availableBoards.find((board) => board.id === boardId)
+        : undefined;
+      openTicket({
+        ...draftTicket,
+        title,
+        description,
+        ...(requestedBoard
+          ? { boardId: requestedBoard.id, boardName: requestedBoard.name }
+          : {}),
+        ...(priority ? { priority } : {}),
+      });
+    },
+  );
 
   const openFailedJobsQueue = useStableCallback(() => {
     if (!canManageJobsNav) {
@@ -2486,6 +2559,31 @@ function App() {
     );
   }
 
+  if (accessDenied) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center px-6 text-gray-900 dark:text-slate-100">
+        <div className="max-w-xl rounded-2xl border border-amber-200 bg-white/90 px-8 py-10 text-center shadow-xl backdrop-blur dark:border-amber-900/40 dark:bg-slate-900/90">
+          <h1 className="mb-4 text-3xl font-bold">Access not approved</h1>
+          <p className="text-gray-600 dark:text-slate-400">
+            Your account is authenticated, but access to Cortex has not been
+            approved yet.
+          </p>
+          <p className="mt-3 text-sm text-gray-500 dark:text-slate-500">
+            Please contact a Cortex administrator to request access.
+          </p>
+          <div className="mt-6 flex justify-center">
+            <button
+              onClick={performLogout}
+              className="rounded-md bg-amber-600 px-4 py-2 text-white transition-colors hover:bg-amber-700"
+            >
+              Log Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isAccountExpired) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center px-6 text-gray-900 dark:text-slate-100">
@@ -2716,6 +2814,7 @@ function App() {
               onExportCsv={() => void exportReportCsv(false)}
               onExportGoogleSheets={() => void exportReportCsv(true)}
               onOpenTicket={openTicket}
+              onCreateRootCauseTask={handleCreateRootCauseTask}
             />
           ) : activeView === "jobs" && canViewJobActivityNav ? (
             <JobsPage
@@ -2747,6 +2846,13 @@ function App() {
                 onSessionChange={handleSessionConfigurationChange}
                 onRefreshSession={() => void loadSessionConfiguration()}
                 onSaveSession={() => void saveSessionConfiguration()}
+                aiSettings={aiSettings}
+                aiSettingsError={aiSettingsError}
+                aiSettingsLoading={aiSettingsLoading}
+                aiSettingsSaving={aiSettingsSaving}
+                onAiSettingsChange={handleAiSettingsChange}
+                onRefreshAiSettings={() => void loadAiSettings()}
+                onSaveAiSettings={() => void saveAiSettings()}
                 notificationChannelConfiguration={
                   notificationChannelConfiguration
                 }
@@ -2853,6 +2959,7 @@ function App() {
                 canExportAdminLogs={isAdmin}
                 onExportAdminLogs={exportAdminLogs}
                 canManageJobs={canManageJobsNav}
+                canManageAiSettings={isAdmin}
                 jobs={jobs}
                 jobsLoading={jobsLoading}
                 jobsError={jobsError}

@@ -1,1 +1,73 @@
+# ---- Repo-specific ----
 *.local.md
+
+# ---- .NET build output ----
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+publish/
+_build_out/
+_test_out/
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+# ---- .NET binaries / intermediate ----
+*.dll
+*.exe
+*.pdb
+*.cache
+*.user
+*.userprefs
+*.suo
+*.rsuser
+*.userosscache
+*.sln.docstates
+*.VisualState.xml
+*.coverage
+*.coveragexml
+*.tlog
+*.trx
+
+# ---- Visual Studio / Rider / VS Code ----
+.vs/
+.vscode/
+.idea/
+*.ide/
+
+# ---- .NET tooling ----
+.dotnet/
+project.lock.json
+project.fragment.lock.json
+*.nuget.props
+*.nuget.targets
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+build/
+.vite/
+.parcel-cache/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# ---- Environment / secrets ----
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.*.Local.json
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini

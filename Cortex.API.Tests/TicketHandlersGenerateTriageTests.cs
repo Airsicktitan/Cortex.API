@@ -105,12 +105,18 @@ public class TicketHandlersGenerateTriageTests
                 ],
             });
 
+        var aiSettingsService = new Mock<IAiSettingsService>(MockBehavior.Strict);
+        aiSettingsService
+            .Setup(service => service.GetAsync())
+            .ReturnsAsync(CreateDefaultAiSettings());
+
         var result = await TicketHandlers.GenerateTicketTriage(
             ticket.Id,
             repo.Object,
             visibilityService.Object,
             ticketBoardService.Object,
             userRepository.Object,
+            aiSettingsService.Object,
             triageAi.Object,
             triageVocabulary.Object,
             NullLogger<TicketHandlersLogCategory>.Instance,
@@ -239,12 +245,18 @@ public class TicketHandlersGenerateTriageTests
                 ],
             });
 
+        var aiSettingsService = new Mock<IAiSettingsService>(MockBehavior.Strict);
+        aiSettingsService
+            .Setup(service => service.GetAsync())
+            .ReturnsAsync(CreateDefaultAiSettings());
+
         var result = await TicketHandlers.GenerateTicketTriage(
             ticket.Id,
             repo.Object,
             visibilityService.Object,
             ticketBoardService.Object,
             userRepository.Object,
+            aiSettingsService.Object,
             triageAi.Object,
             triageVocabulary.Object,
             NullLogger<TicketHandlersLogCategory>.Instance,
@@ -317,4 +329,27 @@ public class TicketHandlersGenerateTriageTests
 
         return JsonSerializer.Deserialize<List<string>>(json) ?? [];
     }
+
+    private static AiSettingsConfiguration CreateDefaultAiSettings() =>
+        new()
+        {
+            IsIntakeAssistEnabled = true,
+            IsTriageEnabled = true,
+            IsScreenshotInsightEnabled = true,
+            IsSuggestedUpdatesEnabled = false,
+            IsPriorityRecommendationEnabled = true,
+            IsStatusRecommendationEnabled = true,
+            DefaultTextModel = "gpt-4o-mini",
+            DefaultVisionModel = "gpt-4o-mini",
+            Temperature = 0.2,
+            MaxTokens = 1800,
+            TimeoutSeconds = 120,
+            RetryCount = 0,
+            AdvisoryOnlyMode = false,
+            AllowStatusRecommendation = true,
+            AllowPriorityRecommendation = true,
+            SuggestionOnlyMode = false,
+            ConfidenceThreshold = 0.7,
+            MaxScreenshotAttachmentCount = 5,
+        };
 }

@@ -22,6 +22,116 @@ namespace Cortex.API.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Cortex.API.Models.AiSettingsAuditEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AfterSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("BeforeSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("ChangedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("ChangedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangedBy");
+
+                    b.HasIndex("ChangedDateUtc");
+
+                    b.ToTable("AiSettingsAuditEntries");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.AiSettingsConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("AdvisoryOnlyMode")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("AllowPriorityRecommendation")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("AllowStatusRecommendation")
+                        .HasColumnType("bit");
+
+                    b.Property<double>("ConfidenceThreshold")
+                        .HasColumnType("float");
+
+                    b.Property<string>("DefaultTextModel")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DefaultVisionModel")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsIntakeAssistEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsPriorityRecommendationEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsScreenshotInsightEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsStatusRecommendationEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsSuggestedUpdatesEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsTriageEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("LastModifiedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("LastModifiedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("MaxScreenshotAttachmentCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MaxTokens")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("SuggestionOnlyMode")
+                        .HasColumnType("bit");
+
+                    b.Property<double>("Temperature")
+                        .HasColumnType("float");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastModifiedBy");
+
+                    b.ToTable("AiSettingsConfigurations");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.ArchiveConfiguration", b =>
                 {
                     b.Property<int>("Id")
@@ -1250,6 +1360,26 @@ namespace Cortex.API.Migrations
                     b.HasIndex("TicketId");
 
                     b.ToTable("WorkflowMetricEvents");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.AiSettingsAuditEntry", b =>
+                {
+                    b.HasOne("Cortex.API.Models.User", "ChangedByUser")
+                        .WithMany()
+                        .HasForeignKey("ChangedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ChangedByUser");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.AiSettingsConfiguration", b =>
+                {
+                    b.HasOne("Cortex.API.Models.User", "LastModifiedByUser")
+                        .WithMany()
+                        .HasForeignKey("LastModifiedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("LastModifiedByUser");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.ArchivedComment", b =>

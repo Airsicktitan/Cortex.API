@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Cortex.API.Services;
 using Microsoft.AspNetCore.Diagnostics;
 
 namespace Cortex.API.ExceptionHandling;
@@ -26,6 +27,46 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
         var method = httpContext.Request.Method;
         var userSub = httpContext.User.FindFirst("sub")?.Value
             ?? httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        // Access denials are expected enforcement, not failures — log at Warning and
+        // translate to a clean 403 with a sentinel code the frontend can recognize.
+        if (exception is AccessNotApprovedException accessDenied)
+        {
+            using (_logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["TraceId"] = traceId,
+                ["HttpMethod"] = method,
+                ["RequestPath"] = path,
+                ["UserSub"] = userSub ?? accessDenied.Auth0Id ?? "(anonymous)",
+                ["DeniedEmail"] = accessDenied.Email ?? "(unknown)",
+                ["DenialReason"] = accessDenied.Reason,
+            }))
+            {
+                _logger.LogWarning(
+                    "Blocked unapproved Cortex access for {Email} (reason: {Reason}).",
+                    accessDenied.Email ?? "(unknown)",
+                    accessDenied.Reason);
+            }
+
+            if (httpContext.Response.HasStarted)
+            {
+                return false;
+            }
+
+            httpContext.Response.StatusCode = StatusCodes.Status403Forbidden;
+            httpContext.Response.ContentType = "application/json; charset=utf-8";
+
+            await httpContext.Response.WriteAsJsonAsync(
+                new
+                {
+                    message = "Your account is authenticated, but access to Cortex has not been approved yet.",
+                    code = "ACCESS_NOT_APPROVED",
+                    traceId,
+                },
+                cancellationToken: cancellationToken);
+
+            return true;
+        }
 
         using (_logger.BeginScope(new Dictionary<string, object?>
         {

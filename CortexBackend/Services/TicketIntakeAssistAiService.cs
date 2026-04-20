@@ -23,6 +23,7 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
     private const int MaxSummaryLength = 240;
     private const int MaxImprovedDescriptionLength = 4000;
     private const int MaxGuidanceLength = 240;
+    private const int FeatureMaxTokens = 1400;
 
     private static readonly JsonSerializerOptions JsonSerializerOptions = new()
     {
@@ -33,17 +34,20 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
 
     private readonly HttpClient _httpClient;
     private readonly OpenAiOptions _options;
+    private readonly IAiSettingsService _aiSettingsService;
     private readonly ITicketIntakeAssistPromptBuilder _promptBuilder;
     private readonly ILogger<TicketIntakeAssistAiService> _logger;
 
     public TicketIntakeAssistAiService(
         HttpClient httpClient,
         IOptions<OpenAiOptions> options,
+        IAiSettingsService aiSettingsService,
         ITicketIntakeAssistPromptBuilder promptBuilder,
         ILogger<TicketIntakeAssistAiService> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _aiSettingsService = aiSettingsService;
         _promptBuilder = promptBuilder;
         _logger = logger;
     }
@@ -52,9 +56,20 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
         IntakeAssistInput input,
         CancellationToken cancellationToken = default)
     {
-        if (!_options.IsConfigured)
+        if (string.IsNullOrWhiteSpace(_options.ApiKey))
         {
-            return Unavailable("Improve Request is not configured. Set OpenAI:ApiKey and OpenAI:Model.");
+            return Unavailable("Improve Request is not configured. Set OpenAI:ApiKey.");
+        }
+
+        var aiSettings = await _aiSettingsService.GetAsync();
+        if (!aiSettings.IsIntakeAssistEnabled)
+        {
+            return Unavailable("Improve Request is disabled by an administrator.");
+        }
+
+        if (string.IsNullOrWhiteSpace(aiSettings.DefaultTextModel))
+        {
+            return Unavailable("Improve Request is not configured. Set a default text model.");
         }
 
         var systemPrompt = _promptBuilder.BuildSystemPrompt();
@@ -62,97 +77,146 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
 
         var requestBody = new OpenAiChatRequest
         {
-            Model = _options.Model!.Trim(),
+            Model = aiSettings.DefaultTextModel.Trim(),
             Messages =
             [
                 new ChatMessage { Role = "system", Content = systemPrompt },
                 new ChatMessage { Role = "user", Content = userPrompt },
             ],
-            Temperature = 0.2,
-            MaxTokens = 1400,
+            Temperature = aiSettings.Temperature,
+            MaxTokens = AiRequestExecution.ResolveMaxTokens(aiSettings.MaxTokens, FeatureMaxTokens),
             ResponseFormat = new ResponseFormatPayload { Type = "json_object" },
         };
 
-        int? httpStatusCode = null;
-        string? reasonPhrase = null;
-        string? responseBody = null;
-
-        try
+        for (var attempt = 0; attempt <= aiSettings.RetryCount; attempt++)
         {
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, OpenAiChatCompletionsUrl);
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Headers.Authorization =
-                new AuthenticationHeaderValue("Bearer", _options.ApiKey!.Trim());
+            using var timeoutScope = AiRequestExecution.CreateTimeoutScope(
+                cancellationToken,
+                aiSettings.TimeoutSeconds);
 
-            var json = JsonSerializer.Serialize(requestBody, JsonSerializerOptions);
-            httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            int? httpStatusCode = null;
+            string? reasonPhrase = null;
+            string? responseBody = null;
 
-            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-            httpStatusCode = (int)response.StatusCode;
-            reasonPhrase = response.ReasonPhrase;
-            responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            try
+            {
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, OpenAiChatCompletionsUrl);
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                httpRequest.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", _options.ApiKey.Trim());
 
-            if (!response.IsSuccessStatusCode)
+                var json = JsonSerializer.Serialize(requestBody, JsonSerializerOptions);
+                httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                using var response = await _httpClient.SendAsync(httpRequest, timeoutScope.Token);
+                httpStatusCode = (int)response.StatusCode;
+                reasonPhrase = response.ReasonPhrase;
+                responseBody = await response.Content.ReadAsStringAsync(timeoutScope.Token);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "OpenAI intake-assist error response. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} Body={ResponseBody}",
+                        attempt + 1,
+                        httpStatusCode,
+                        reasonPhrase,
+                        responseBody);
+
+                    if (attempt < aiSettings.RetryCount
+                        && AiRequestExecution.ShouldRetry(response.StatusCode))
+                    {
+                        await Task.Delay(
+                            AiRequestExecution.GetRetryDelay(attempt + 1),
+                            cancellationToken);
+                        continue;
+                    }
+
+                    return Unavailable("Improve Request is unavailable right now. Try again in a moment.");
+                }
+
+                var outer = JsonSerializer.Deserialize<OpenAiChatCompletionResponse>(
+                    responseBody,
+                    JsonSerializerOptions);
+                var content = outer?.Choices?.FirstOrDefault()?.Message?.Content;
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    return Unavailable("Improve Request returned no content.");
+                }
+
+                IntakeAssistAiResponse? parsed;
+                try
+                {
+                    parsed = JsonSerializer.Deserialize<IntakeAssistAiResponse>(
+                        content,
+                        JsonSerializerOptions);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Improve Request returned non-JSON content. Content={Content}",
+                        content);
+                    return Unavailable("Improve Request returned an unexpected response.");
+                }
+
+                if (parsed is null)
+                {
+                    return Unavailable("Improve Request returned no content.");
+                }
+
+                return Sanitize(parsed, input);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning(
-                    "OpenAI intake-assist error response. StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} Body={ResponseBody}",
+                    "OpenAI intake-assist timed out. Attempt={Attempt} TimeoutSeconds={TimeoutSeconds}",
+                    attempt + 1,
+                    aiSettings.TimeoutSeconds);
+
+                if (attempt < aiSettings.RetryCount)
+                {
+                    await Task.Delay(
+                        AiRequestExecution.GetRetryDelay(attempt + 1),
+                        cancellationToken);
+                    continue;
+                }
+
+                return Unavailable("Improve Request timed out. Try again in a moment.");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var httpRequestException = ex as HttpRequestException;
+                var httpRequestStatus = httpRequestException?.StatusCode;
+
+                _logger.LogWarning(
+                    ex,
+                    "OpenAI intake-assist request failed. Attempt={Attempt} ExceptionMessage={ExceptionMessage} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseBody={ResponseBody} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
+                    attempt + 1,
+                    ex.Message,
                     httpStatusCode,
                     reasonPhrase,
-                    responseBody);
+                    responseBody ?? "(not available)",
+                    httpRequestStatus);
+
+                if (attempt < aiSettings.RetryCount
+                    && httpRequestException is not null
+                    && AiRequestExecution.ShouldRetry(httpRequestStatus))
+                {
+                    await Task.Delay(
+                        AiRequestExecution.GetRetryDelay(attempt + 1),
+                        cancellationToken);
+                    continue;
+                }
 
                 return Unavailable("Improve Request is unavailable right now. Try again in a moment.");
             }
-
-            var outer = JsonSerializer.Deserialize<OpenAiChatCompletionResponse>(responseBody, JsonSerializerOptions);
-            var content = outer?.Choices?.FirstOrDefault()?.Message?.Content;
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                return Unavailable("Improve Request returned no content.");
-            }
-
-            IntakeAssistAiResponse? parsed;
-            try
-            {
-                parsed = JsonSerializer.Deserialize<IntakeAssistAiResponse>(content, JsonSerializerOptions);
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Improve Request returned non-JSON content. Content={Content}",
-                    content);
-                return Unavailable("Improve Request returned an unexpected response.");
-            }
-
-            if (parsed is null)
-            {
-                return Unavailable("Improve Request returned no content.");
-            }
-
-            return Sanitize(parsed, input);
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            var httpRequestStatus =
-                ex is HttpRequestException httpEx && httpEx.StatusCode.HasValue
-                    ? (int?)httpEx.StatusCode.Value
-                    : null;
 
-            _logger.LogWarning(
-                ex,
-                "OpenAI intake-assist request failed. ExceptionMessage={ExceptionMessage} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseBody={ResponseBody} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
-                ex.Message,
-                httpStatusCode,
-                reasonPhrase,
-                responseBody ?? "(not available)",
-                httpRequestStatus);
-
-            return Unavailable("Improve Request is unavailable right now. Try again in a moment.");
-        }
+        return Unavailable("Improve Request is unavailable right now. Try again in a moment.");
     }
 
     private static string BuildUserPrompt(IntakeAssistInput input)
@@ -196,7 +260,6 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
 
         var clarityState = NormalizeClarityState(raw.ClarityState, missingDetails.Count);
 
-        // Enforce invariant: ready_for_execution implies no missing details.
         if (clarityState == IntakeAssistClarityStates.ReadyForExecution)
         {
             missingDetails.Clear();
@@ -206,8 +269,6 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
             Truncate(raw.GuidanceMessage?.Trim(), MaxGuidanceLength)
             ?? DefaultGuidance(clarityState);
 
-        // If the model returned nothing useful, fall back to the requester's own text so the UI
-        // never shows an empty "improved" panel that looks broken.
         if (string.IsNullOrWhiteSpace(suggestedSummary))
         {
             suggestedSummary = Truncate(input.Title?.Trim(), MaxSummaryLength);
@@ -240,7 +301,6 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
             return candidate!;
         }
 
-        // Unknown or missing value: pick the least-alarming state that matches the missingDetails count.
         return missingCount == 0
             ? IntakeAssistClarityStates.ReadyForExecution
             : IntakeAssistClarityStates.RequiresClarification;
@@ -276,7 +336,7 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
 
     private sealed class OpenAiChatRequest
     {
-        public string Model { get; set; } = "";
+        public string Model { get; set; } = string.Empty;
         public List<ChatMessage> Messages { get; set; } = [];
         public double Temperature { get; set; }
 
@@ -294,8 +354,8 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
 
     private sealed class ChatMessage
     {
-        public string Role { get; set; } = "";
-        public string Content { get; set; } = "";
+        public string Role { get; set; } = string.Empty;
+        public string Content { get; set; } = string.Empty;
     }
 
     private sealed class OpenAiChatCompletionResponse

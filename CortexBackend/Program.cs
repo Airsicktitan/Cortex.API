@@ -13,6 +13,7 @@ using Cortex.API;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.SignalR;
+using Microsoft.AspNetCore.RateLimiting;
 using Cortex.API.Services;
 using Cortex.API.Configuration;
 using Cortex.API.Authorization;
@@ -89,6 +90,7 @@ builder.Services.AddHttpClient<IAuth0UserRoleSyncService, Auth0UserRoleSyncServi
             client.BaseAddress = baseAddress;
         }
     });
+builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -98,6 +100,7 @@ builder.Services.AddScoped<ISlaConfigurationRepository, SlaConfigurationReposito
 builder.Services.AddScoped<IArchiveConfigurationRepository, ArchiveConfigurationRepository>();
 builder.Services.AddScoped<ISessionConfigurationRepository, SessionConfigurationRepository>();
 builder.Services.AddScoped<INotificationChannelConfigurationRepository, NotificationChannelConfigurationRepository>();
+builder.Services.AddScoped<IAiSettingsConfigurationRepository, AiSettingsConfigurationRepository>();
 builder.Services.AddScoped<IRoleDefinitionRepository, RoleDefinitionRepository>();
 builder.Services.AddScoped<IReportDefinitionRepository, ReportDefinitionRepository>();
 builder.Services.AddScoped<IStoredProcedureDefinitionRepository, StoredProcedureDefinitionRepository>();
@@ -107,12 +110,14 @@ builder.Services.AddScoped<ITicketBoardDefinitionRepository, TicketBoardDefiniti
 builder.Services.AddScoped<IScheduledJobRepository, ScheduledJobRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IHttpRequestLogRepository, HttpRequestLogRepository>();
+builder.Services.AddSingleton<IAccessApprovalService, AccessApprovalService>();
 builder.Services.AddScoped<IUserContextService, UserContextService>();
 builder.Services.AddScoped<ISlaConfigurationService, SlaConfigurationService>();
 builder.Services.AddScoped<IArchiveConfigurationService, ArchiveConfigurationService>();
 builder.Services.AddScoped<IArchiveAutomationService, ArchiveAutomationService>();
 builder.Services.AddScoped<ISessionConfigurationService, SessionConfigurationService>();
 builder.Services.AddScoped<INotificationChannelConfigurationService, NotificationChannelConfigurationService>();
+builder.Services.AddScoped<IAiSettingsService, AiSettingsService>();
 builder.Services.AddScoped<IRoleDefinitionService, RoleDefinitionService>();
 builder.Services.AddScoped<IReportDefinitionService, ReportDefinitionService>();
 builder.Services.AddScoped<IStoredProcedureDefinitionService, StoredProcedureDefinitionService>();
@@ -135,18 +140,23 @@ builder.Services.Configure<TeamsNotificationOptions>(builder.Configuration.GetSe
 builder.Services.Configure<OpenAiOptions>(builder.Configuration.GetSection(OpenAiOptions.SectionName));
 builder.Services.AddHttpClient<ITicketTriageAiService, TicketTriageAiService>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(90);
+    client.Timeout = TimeSpan.FromSeconds(300);
 });
 builder.Services.AddScoped<ITicketTriageVocabularyProvider, TicketTriageVocabularyProvider>();
 builder.Services.AddScoped<ITicketIntakeAssistPromptBuilder, TicketIntakeAssistPromptBuilder>();
 builder.Services.AddHttpClient<ITicketIntakeAssistAiService, TicketIntakeAssistAiService>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(45);
+    client.Timeout = TimeSpan.FromSeconds(300);
 });
 builder.Services.AddScoped<IScreenshotInsightPromptBuilder, ScreenshotInsightPromptBuilder>();
 builder.Services.AddHttpClient<IScreenshotInsightAiService, ScreenshotInsightAiService>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(120);
+    client.Timeout = TimeSpan.FromSeconds(300);
+});
+builder.Services.AddScoped<IRepeatIssueAnalyticsService, RepeatIssueAnalyticsService>();
+builder.Services.AddHttpClient<IRepeatIssueAiReviewService, RepeatIssueAiReviewService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(300);
 });
 builder.Services.AddSingleton<IRealtimeEventService, RealtimeEventService>();
 builder.Services.AddHostedService<ScheduledJobHostedService>();
@@ -387,6 +397,7 @@ app.UseCors();
 // Authentication and Authorization middleware
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 var healthJsonWriter = MinimalHealthCheckResponseWriter.WriteAsync;
 
@@ -413,9 +424,11 @@ app.MapSlaConfigurationEndpoints();
 app.MapArchiveConfigurationEndpoints();
 app.MapSessionConfigurationEndpoints();
 app.MapNotificationChannelConfigurationEndpoints();
+app.MapAiSettingsEndpoints();
 app.MapRoleDefinitionEndpoints();
 app.MapReportDefinitionEndpoints();
 app.MapMetricsEndpoints();
+app.MapRepeatIssueEndpoints();
 app.MapAdminLogEndpoints();
 app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();

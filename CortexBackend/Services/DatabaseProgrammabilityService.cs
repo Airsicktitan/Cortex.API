@@ -1,15 +1,23 @@
 using System.Data;
+using System.Security.Claims;
 using System.Text.RegularExpressions;
 using Cortex.API.Database;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 
 namespace Cortex.API.Services;
 
-public partial class DatabaseProgrammabilityService(CortexDbContext context)
+public partial class DatabaseProgrammabilityService(
+    CortexDbContext context,
+    ILogger<DatabaseProgrammabilityService> logger,
+    IHttpContextAccessor httpContextAccessor)
     : IDatabaseProgrammabilityService
 {
     private readonly CortexDbContext _context = context;
+    private readonly ILogger<DatabaseProgrammabilityService> _logger = logger;
+    private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)?$")]
     private static partial Regex QualifiedObjectNamePattern();
@@ -59,6 +67,7 @@ public partial class DatabaseProgrammabilityService(CortexDbContext context)
     public async Task CreateOrAlterViewAsync(string viewName, string definitionSql)
     {
         var qualifiedName = QuoteQualifiedName(viewName);
+        AuditDdlExecution("CreateOrAlterView", viewName);
         await ExecuteNonQueryAsync(
             $"""
             CREATE OR ALTER VIEW {qualifiedName}
@@ -70,6 +79,7 @@ public partial class DatabaseProgrammabilityService(CortexDbContext context)
     public async Task DropViewAsync(string viewName)
     {
         var (schemaName, objectName) = SplitQualifiedName(viewName);
+        AuditDdlExecution("DropView", viewName);
         await ExecuteNonQueryAsync(
             $"""
             IF OBJECT_ID(N'{schemaName}.{objectName}', N'V') IS NOT NULL
@@ -80,6 +90,7 @@ public partial class DatabaseProgrammabilityService(CortexDbContext context)
     public async Task CreateOrAlterStoredProcedureAsync(string procedureName, string definitionSql)
     {
         var qualifiedName = QuoteQualifiedName(procedureName);
+        AuditDdlExecution("CreateOrAlterProcedure", procedureName);
         await ExecuteNonQueryAsync(
             $"""
             CREATE OR ALTER PROCEDURE {qualifiedName}
@@ -91,11 +102,42 @@ public partial class DatabaseProgrammabilityService(CortexDbContext context)
     public async Task DropStoredProcedureAsync(string procedureName)
     {
         var (schemaName, objectName) = SplitQualifiedName(procedureName);
+        AuditDdlExecution("DropProcedure", procedureName);
         await ExecuteNonQueryAsync(
             $"""
             IF OBJECT_ID(N'{schemaName}.{objectName}', N'P') IS NOT NULL
                 DROP PROCEDURE {QuoteIdentifier(schemaName)}.{QuoteIdentifier(objectName)}
             """);
+    }
+
+    /// <summary>
+    /// Emits a structured audit event for any user-driven DDL mutation routed
+    /// through this service. Fields are intentionally stable so downstream log
+    /// sinks (Serilog, App Insights, etc.) can alert on them. The event is
+    /// best-effort — an audit failure must never block the DDL itself.
+    /// </summary>
+    private void AuditDdlExecution(string operation, string objectName)
+    {
+        try
+        {
+            var httpContext = _httpContextAccessor.HttpContext;
+            var actorUserId = httpContext?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? httpContext?.User.FindFirst("sub")?.Value
+                ?? "system";
+            var clientIp = httpContext?.Connection.RemoteIpAddress?.ToString();
+
+            _logger.LogInformation(
+                "cortex.ddl.executed Operation={Operation} ObjectName={ObjectName} ActorUserId={ActorUserId} ClientIp={ClientIp} TimestampUtc={TimestampUtc}",
+                operation,
+                objectName,
+                actorUserId,
+                clientIp,
+                DateTime.UtcNow);
+        }
+        catch
+        {
+            // Audit must never block DDL.
+        }
     }
 
     private async Task<IReadOnlyList<T>> QueryDefinitionsAsync<T>(

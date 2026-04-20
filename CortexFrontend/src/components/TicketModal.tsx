@@ -2025,8 +2025,10 @@ export default function TicketModal({
   const hasPersistedSla = Boolean(ticket.id);
   const requesterApprovalStatus = getTicketApprovalStatus(ticket);
   const isRequesterContext = approvalDisplayContext === "requester";
+  const isApprovalQueueContext = approvalDisplayContext === "reviewer";
   const isRequesterIntakeTicket =
     isRequesterContext && requesterApprovalStatus !== "Approved";
+  const showChangeReasonField = Boolean(ticket.id) && !isApprovalQueueContext;
   /** Reviewer + requester PendingApproval: no comment thread (intake vs collaboration). */
   const showCommentsColumn = commentsColumnEnabled;
   const canOfferTriageRegenerate =
@@ -2423,7 +2425,9 @@ export default function TicketModal({
                           intakeAssistLoading || !description.trim()
                         }
                         aria-busy={intakeAssistLoading}
-                        className="ai-button inline-flex shrink-0 items-center gap-1 rounded-md border-2 border-cortex-blue bg-white px-2.5 py-1.5 text-xs font-semibold text-cortex-blue-dark transition-colors hover:border-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-55 dark:border-emerald-400/85 dark:bg-slate-900 dark:text-emerald-300 dark:hover:border-emerald-300 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-200"
+                        className={`ai-button inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-55 dark:text-emerald-300 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-200 ${
+                          description.trim() ? "ai-button--ready" : ""
+                        }`}
                       >
                         <span className="inline-flex items-center gap-1">
                           {intakeAssistLoading ? "Improving…" : "Improve for review"}
@@ -2466,7 +2470,7 @@ export default function TicketModal({
                   readOnly={formReadOnly}
                   rows={4}
                   placeholder="Enter ticket description..."
-                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 read-only:cursor-not-allowed read-only:opacity-80"
+                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 leading-[1.5] shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 read-only:cursor-not-allowed read-only:opacity-80"
                 />
                 {isCreateMode && validationErrors.description && (
                   <p className="mt-2 text-xs text-red-600 dark:text-red-400">
@@ -2672,7 +2676,7 @@ export default function TicketModal({
                 />
               ) : null}
 
-              {ticket.id && !isRequesterContext && (
+              {showChangeReasonField && (
                 <div className="mb-6">
                   <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
                     Change Reason
@@ -2716,7 +2720,7 @@ export default function TicketModal({
                         onClick={() => void handleAnalyzeScreenshots()}
                         disabled={screenshotInsightLoading}
                         aria-busy={screenshotInsightLoading}
-                        className="ai-button inline-flex min-h-[2.5rem] shrink-0 items-center justify-center rounded-md border-2 border-cortex-blue bg-white px-3 py-2 text-xs font-semibold text-cortex-blue-dark transition-opacity hover:border-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/85 dark:bg-slate-900 dark:text-emerald-300 dark:hover:border-emerald-300 dark:hover:bg-emerald-950/40"
+                        className="ai-button ai-button--ready inline-flex min-h-[2.5rem] shrink-0 items-center justify-center rounded-md px-3 py-2 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
                       >
                         {screenshotInsightLoading ? (
                           <span className="inline-flex items-center">

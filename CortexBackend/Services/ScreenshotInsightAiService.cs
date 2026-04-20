@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -15,6 +16,7 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
     private const int MaxSummaryLength = 1200;
     private const int MaxListItems = 8;
     private const int MaxBulletLength = 400;
+    private const int FeatureMaxTokens = 1800;
 
     private static readonly JsonSerializerOptions JsonSerializerOptions = new()
     {
@@ -25,17 +27,20 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
 
     private readonly HttpClient _httpClient;
     private readonly OpenAiOptions _options;
+    private readonly IAiSettingsService _aiSettingsService;
     private readonly IScreenshotInsightPromptBuilder _promptBuilder;
     private readonly ILogger<ScreenshotInsightAiService> _logger;
 
     public ScreenshotInsightAiService(
         HttpClient httpClient,
         IOptions<OpenAiOptions> options,
+        IAiSettingsService aiSettingsService,
         IScreenshotInsightPromptBuilder promptBuilder,
         ILogger<ScreenshotInsightAiService> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _aiSettingsService = aiSettingsService;
         _promptBuilder = promptBuilder;
         _logger = logger;
     }
@@ -45,9 +50,9 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
         IReadOnlyList<(string FileName, string ContentType, byte[] Content)> images,
         CancellationToken cancellationToken = default)
     {
-        if (!_options.IsConfigured)
+        if (string.IsNullOrWhiteSpace(_options.ApiKey))
         {
-            return Unavailable("Screenshot insight is not configured. Set OpenAI:ApiKey and OpenAI:Model.");
+            return Unavailable("Screenshot insight is not configured. Set OpenAI:ApiKey.");
         }
 
         if (images.Count == 0)
@@ -55,8 +60,19 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
             return Unavailable("No images to analyze.");
         }
 
+        var aiSettings = await _aiSettingsService.GetAsync();
+        if (!aiSettings.IsScreenshotInsightEnabled)
+        {
+            return Unavailable("Screenshot insight is disabled by an administrator.");
+        }
+
+        if (string.IsNullOrWhiteSpace(aiSettings.DefaultVisionModel))
+        {
+            return Unavailable("Screenshot insight is not configured. Set a default vision model.");
+        }
+
         var systemPrompt = _promptBuilder.BuildSystemPrompt();
-        var names = images.Select(i => i.FileName).ToList();
+        var names = images.Select(image => image.FileName).ToList();
         var userText = _promptBuilder.BuildUserIntro(ticketTitle, names);
 
         var userContentParts = new List<object>
@@ -64,10 +80,10 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
             new { type = "text", text = userText },
         };
 
-        foreach (var img in images)
+        foreach (var image in images)
         {
-            var mime = NormalizeImageMimeType(img.ContentType, img.FileName);
-            var b64 = Convert.ToBase64String(img.Content);
+            var mime = NormalizeImageMimeType(image.ContentType, image.FileName);
+            var b64 = Convert.ToBase64String(image.Content);
             var dataUrl = $"data:{mime};base64,{b64}";
             userContentParts.Add(new
             {
@@ -78,9 +94,9 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
 
         var requestPayload = new
         {
-            model = _options.Model!.Trim(),
-            temperature = 0.2,
-            max_tokens = 1800,
+            model = aiSettings.DefaultVisionModel.Trim(),
+            temperature = aiSettings.Temperature,
+            max_tokens = AiRequestExecution.ResolveMaxTokens(aiSettings.MaxTokens, FeatureMaxTokens),
             response_format = new { type = "json_object" },
             messages = new object[]
             {
@@ -91,83 +107,144 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
 
         var json = JsonSerializer.Serialize(requestPayload, JsonSerializerOptions);
 
-        try
+        for (var attempt = 0; attempt <= aiSettings.RetryCount; attempt++)
         {
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, OpenAiChatCompletionsUrl);
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Headers.Authorization =
-                new AuthenticationHeaderValue("Bearer", _options.ApiKey!.Trim());
-            httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var timeoutScope = AiRequestExecution.CreateTimeoutScope(
+                cancellationToken,
+                aiSettings.TimeoutSeconds);
 
-            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            string? responseBody = null;
+            HttpStatusCode? statusCode = null;
 
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "OpenAI screenshot-insight error. StatusCode={StatusCode} Body={Body}",
-                    (int)response.StatusCode,
-                    responseBody);
-                return Unavailable("Unable to analyze screenshots right now. Try again later.");
-            }
-
-            var outer = JsonSerializer.Deserialize<OpenAiChatCompletionResponse>(responseBody, JsonSerializerOptions);
-            var content = outer?.Choices?.FirstOrDefault()?.Message?.Content;
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                return Unavailable("Unable to analyze screenshots right now. Try again later.");
-            }
-
-            ScreenshotInsightAiRaw? parsed;
             try
             {
-                parsed = JsonSerializer.Deserialize<ScreenshotInsightAiRaw>(content, JsonSerializerOptions);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, OpenAiChatCompletionsUrl);
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                httpRequest.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", _options.ApiKey.Trim());
+                httpRequest.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                using var response = await _httpClient.SendAsync(httpRequest, timeoutScope.Token);
+                statusCode = response.StatusCode;
+                responseBody = await response.Content.ReadAsStringAsync(timeoutScope.Token);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "OpenAI screenshot-insight error. Attempt={Attempt} StatusCode={StatusCode} Body={Body}",
+                        attempt + 1,
+                        (int)response.StatusCode,
+                        responseBody);
+
+                    if (attempt < aiSettings.RetryCount
+                        && AiRequestExecution.ShouldRetry(response.StatusCode))
+                    {
+                        await Task.Delay(
+                            AiRequestExecution.GetRetryDelay(attempt + 1),
+                            cancellationToken);
+                        continue;
+                    }
+
+                    return Unavailable("Unable to analyze screenshots right now. Try again later.");
+                }
+
+                var outer = JsonSerializer.Deserialize<OpenAiChatCompletionResponse>(
+                    responseBody,
+                    JsonSerializerOptions);
+                var content = outer?.Choices?.FirstOrDefault()?.Message?.Content;
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    return Unavailable("Unable to analyze screenshots right now. Try again later.");
+                }
+
+                ScreenshotInsightAiRaw? parsed;
+                try
+                {
+                    parsed = JsonSerializer.Deserialize<ScreenshotInsightAiRaw>(
+                        content,
+                        JsonSerializerOptions);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Screenshot insight returned non-JSON. Content={Content}", content);
+                    return Unavailable("Unable to analyze screenshots right now. Try again later.");
+                }
+
+                if (parsed is null)
+                {
+                    return Unavailable("Unable to analyze screenshots right now. Try again later.");
+                }
+
+                return Sanitize(parsed);
             }
-            catch (JsonException ex)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "Screenshot insight returned non-JSON. Content={Content}", content);
+                _logger.LogWarning(
+                    "Screenshot insight timed out. Attempt={Attempt} TimeoutSeconds={TimeoutSeconds}",
+                    attempt + 1,
+                    aiSettings.TimeoutSeconds);
+
+                if (attempt < aiSettings.RetryCount)
+                {
+                    await Task.Delay(
+                        AiRequestExecution.GetRetryDelay(attempt + 1),
+                        cancellationToken);
+                    continue;
+                }
+
                 return Unavailable("Unable to analyze screenshots right now. Try again later.");
             }
-
-            if (parsed is null)
+            catch (OperationCanceledException)
             {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Screenshot insight request failed. Attempt={Attempt} HttpStatusCode={HttpStatusCode}",
+                    attempt + 1,
+                    statusCode);
+
+                if (attempt < aiSettings.RetryCount && ex is HttpRequestException httpException)
+                {
+                    if (AiRequestExecution.ShouldRetry(httpException.StatusCode))
+                    {
+                        await Task.Delay(
+                            AiRequestExecution.GetRetryDelay(attempt + 1),
+                            cancellationToken);
+                        continue;
+                    }
+                }
+
                 return Unavailable("Unable to analyze screenshots right now. Try again later.");
             }
+        }
 
-            return Sanitize(parsed);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Screenshot insight request failed.");
-            return Unavailable("Unable to analyze screenshots right now. Try again later.");
-        }
+        return Unavailable("Unable to analyze screenshots right now. Try again later.");
     }
 
     private static string NormalizeImageMimeType(string contentType, string fileName)
     {
-        var ct = contentType.Trim().ToLowerInvariant();
-        var semicolon = ct.IndexOf(';');
+        var normalizedContentType = contentType.Trim().ToLowerInvariant();
+        var semicolon = normalizedContentType.IndexOf(';');
         if (semicolon >= 0)
         {
-            ct = ct[..semicolon].Trim();
+            normalizedContentType = normalizedContentType[..semicolon].Trim();
         }
 
-        if (ct is "image/jpg")
+        if (normalizedContentType is "image/jpg")
         {
-            ct = "image/jpeg";
+            normalizedContentType = "image/jpeg";
         }
 
-        if (ct is "image/png" or "image/jpeg" or "image/webp")
+        if (normalizedContentType is "image/png" or "image/jpeg" or "image/webp")
         {
-            return ct;
+            return normalizedContentType;
         }
 
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        return ext switch
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension switch
         {
             ".png" => "image/png",
             ".jpg" or ".jpeg" => "image/jpeg",
@@ -186,14 +263,14 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
             }
 
             return list
-                .Select(s => s?.Trim())
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .Select(s => Truncate(s!, MaxBulletLength)!)
+                .Select(value => value?.Trim())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => Truncate(value!, MaxBulletLength)!)
                 .Take(MaxListItems)
                 .ToList();
         }
 
-        var summary = Truncate(raw.Summary?.Trim(), MaxSummaryLength) ?? "";
+        var summary = Truncate(raw.Summary?.Trim(), MaxSummaryLength) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(summary))
         {
             summary = "No summary was returned for these image(s).";

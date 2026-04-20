@@ -61,6 +61,7 @@ public class TicketHandlersUpdateConcurrencyTests
             repo.Object,
             userContext.Object,
             Mock.Of<IUserRepository>(),
+            Mock.Of<IAiSettingsService>(),
             Mock.Of<ISlaConfigurationService>(),
             Mock.Of<ITicketStatusService>(),
             Mock.Of<ITicketBoardService>(),

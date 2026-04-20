@@ -1,5 +1,5 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Ticket } from "../types/ticket";
 import type {
   CustomReportDefinition,
@@ -25,11 +25,23 @@ import {
 } from "../utils/ownerIdentity";
 import { isOpenTicket } from "../utils/ticketLifecycle";
 import type { WorkflowMetricsSnapshot } from "../types/workflowMetrics";
-import { metricsService } from "../services/api";
+import type {
+  RepeatIssueAiReviewResponse,
+  RepeatIssueGroupDetailResponse,
+  RepeatIssueGroupSummary,
+  RepeatIssueOverviewResponse,
+} from "../types/repeatIssues";
+import { metricsService, repeatIssuesService } from "../services/api";
+import { CortexTooltip } from "./ui/Tooltip";
 
 const API_AUDIENCE = "https://cortex-api";
 
-type ReportSection = "sla" | "online-users" | "custom";
+type ReportSection =
+  | "sla"
+  | "telemetry"
+  | "recurring-issues"
+  | "online-users"
+  | "custom";
 
 function formatWorkflowAvg(value: number): string {
   if (!Number.isFinite(value)) {
@@ -46,9 +58,7 @@ function formatWorkflowCount(value: number): string {
 }
 
 /** When follow-up averages are comparable and Ready &lt; Needs detail, surface a subtle insight. */
-function getWorkflowFollowUpInsight(
-  m: WorkflowMetricsSnapshot,
-): string | null {
+function getWorkflowFollowUpInsight(m: WorkflowMetricsSnapshot): string | null {
   const readyAvg = m.avgCommentCountBySignal.ready;
   const needsAvg = m.avgCommentCountBySignal.needs_detail;
   if (!Number.isFinite(readyAvg) || !Number.isFinite(needsAvg)) {
@@ -60,104 +70,174 @@ function getWorkflowFollowUpInsight(
   return "So far, tickets labeled Ready for review show lower average follow-up comments than those labeled Needs detail first.";
 }
 
-function WorkflowSectionBlock({
-  title,
-  children,
-  intro,
-}: {
-  title: string;
-  children: ReactNode;
-  /** Muted helper shown under the section title (e.g. Follow-Up Proxy). */
-  intro?: ReactNode;
-}) {
-  return (
-    <div className="rounded-lg bg-slate-50/90 px-3 py-2.5 ring-1 ring-gray-100/80 dark:bg-slate-800/35 dark:ring-slate-700/50">
-      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-600 dark:text-slate-300">
-        {title}
-      </p>
-      {intro}
-      <div className="space-y-1.5">{children}</div>
-    </div>
-  );
-}
-
-function WorkflowMetricRow({
+function TelemetrySummaryChip({
   label,
   value,
-  valueIsAverage = false,
-  labelEmphasis = "default",
+  hint,
 }: {
   label: string;
   value: string;
-  valueIsAverage?: boolean;
-  /** Stronger label copy for reviewer readiness (still neutral). */
-  labelEmphasis?: "default" | "readiness";
+  hint?: string;
 }) {
-  const labelClass =
-    labelEmphasis === "readiness"
-      ? "text-sm font-medium text-gray-700 dark:text-slate-300"
-      : "text-xs text-gray-500 dark:text-slate-400";
-
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-gray-100/80 pb-1.5 last:border-b-0 last:pb-0 dark:border-slate-700/40">
-      <span className={`min-w-0 leading-snug ${labelClass}`}>{label}</span>
-      <span
-        className={`shrink-0 text-right text-base font-semibold tabular-nums tracking-tight text-gray-900 dark:text-slate-50 ${
-          valueIsAverage ? "min-w-[3.25rem]" : "min-w-[2.5rem]"
-        }`}
-      >
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-gray-900 dark:text-slate-50">
         {value}
-      </span>
+      </p>
+      {hint ? (
+        <p className="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-slate-500">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function ReviewerReadinessDistributionBar({
-  ready,
-  gaps,
-  needsDetail,
-}: {
-  ready: number;
-  gaps: number;
-  needsDetail: number;
-}) {
-  const r = Math.max(0, Math.round(ready));
-  const g = Math.max(0, Math.round(gaps));
-  const n = Math.max(0, Math.round(needsDetail));
-  const total = r + g + n;
-  const pct = (x: number) => (total > 0 ? (x / total) * 100 : 0);
+type TelemetryDonutSlice = {
+  label: string;
+  count: number;
+  total: number;
+  colorClass: string;
+};
+
+/**
+ * Compact donut chart for reviewer readiness distribution.
+ * The current telemetry payload is aggregate (not time-series), so share-based
+ * composition best communicates submission quality at a glance.
+ */
+function TelemetryDonutChart({ slices }: { slices: TelemetryDonutSlice[] }) {
+  const total = Math.max(
+    1,
+    slices.reduce((sum, slice) => sum + slice.count, 0),
+  );
+  const radius = 62;
+  const strokeWidth = 24;
+  const center = 90;
+  const circumference = 2 * Math.PI * radius;
+  let runningFraction = 0;
 
   return (
-    <div
-      className="mb-2.5"
-      role="img"
-      aria-label="Reviewer readiness distribution: Ready, Small gaps, and Needs detail shares of total signals."
-    >
-      <div className="flex h-2 w-full overflow-hidden rounded-full bg-gray-200/90 dark:bg-slate-700/90">
-        {total > 0 ? (
-          <>
+    <div className="grid gap-4 lg:grid-cols-[13rem_minmax(0,1fr)]">
+      <div
+        className="mx-auto flex h-[11.25rem] w-[11.25rem] items-center justify-center"
+        role="img"
+        aria-label="Reviewer readiness distribution donut chart"
+      >
+        <svg viewBox="0 0 180 180" className="h-full w-full">
+          <circle
+            cx={center}
+            cy={center}
+            r={radius}
+            fill="none"
+            strokeWidth={strokeWidth}
+            className="stroke-gray-100 dark:stroke-slate-800"
+          />
+          {slices.map((slice) => {
+            const fraction = slice.count / total;
+            const dash = fraction * circumference;
+            const offset = -runningFraction * circumference;
+            runningFraction += fraction;
+            return (
+              <circle
+                key={slice.label}
+                cx={center}
+                cy={center}
+                r={radius}
+                fill="none"
+                strokeWidth={strokeWidth}
+                strokeLinecap="butt"
+                strokeDasharray={`${dash} ${circumference - dash}`}
+                strokeDashoffset={offset}
+                transform={`rotate(-90 ${center} ${center})`}
+                className={slice.colorClass}
+              />
+            );
+          })}
+          <text
+            x={center}
+            y={center - 4}
+            textAnchor="middle"
+            className="fill-gray-900 text-xl font-semibold tabular-nums dark:fill-slate-100"
+          >
+            {formatWorkflowCount(total)}
+          </text>
+          <text
+            x={center}
+            y={center + 13}
+            textAnchor="middle"
+            className="fill-gray-500 text-[11px] dark:fill-slate-400"
+          >
+            signals
+          </text>
+        </svg>
+      </div>
+
+      <div className="space-y-2.5 self-center">
+        {slices.map((slice) => {
+          const pct =
+            slice.total > 0 ? Math.round((slice.count / slice.total) * 100) : 0;
+          return (
             <div
-              style={{ width: `${pct(r)}%` }}
-              className="min-w-0 shrink-0 bg-emerald-500/75 dark:bg-emerald-500/55"
-            />
-            <div
-              style={{ width: `${pct(g)}%` }}
-              className="min-w-0 shrink-0 bg-amber-400/85 dark:bg-amber-500/50"
-            />
-            <div
-              style={{ width: `${pct(n)}%` }}
-              className="min-w-0 shrink-0 bg-rose-500/70 dark:bg-rose-500/48"
-            />
-          </>
-        ) : (
-          <div className="h-full w-full bg-gray-300/60 dark:bg-slate-600/60" />
-        )}
+              key={slice.label}
+              className="flex items-center justify-between gap-3 rounded-md border border-gray-100 bg-gray-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className={`inline-block h-2.5 w-2.5 rounded-full ${slice.colorClass}`}
+                />
+                <span className="truncate text-xs font-medium text-gray-700 dark:text-slate-300">
+                  {slice.label}
+                </span>
+              </div>
+              <span className="shrink-0 text-xs tabular-nums text-gray-600 dark:text-slate-400">
+                <span className="font-semibold text-gray-900 dark:text-slate-100">
+                  {formatWorkflowCount(slice.count)}
+                </span>{" "}
+                ({pct}%)
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function WorkflowFollowUpRow({
+function getReviewerReadinessInsight(
+  readyCount: number,
+  gapsCount: number,
+  needsCount: number,
+  total: number,
+): string | null {
+  if (total <= 0) {
+    return null;
+  }
+
+  if (needsCount === total) {
+    return "100% of reviewer signals currently require more detail before review.";
+  }
+
+  const needsShare = needsCount / total;
+  if (needsShare >= 0.6) {
+    return "Most reviewer signals currently need more detail, indicating an intake quality gap.";
+  }
+
+  const readyShare = readyCount / total;
+  if (readyShare >= 0.6) {
+    return "Most reviewer signals are already ready for review, indicating strong intake quality.";
+  }
+
+  if (gapsCount / total >= 0.5) {
+    return "A large share of submissions have small gaps, suggesting targeted form improvements could quickly raise readiness.";
+  }
+
+  return null;
+}
+
+function TelemetryFollowUpRow({
   label,
   value,
   valueNum,
@@ -173,32 +253,66 @@ function WorkflowFollowUpRow({
   const fillPct = Math.min(100, (safe / max) * 100);
 
   return (
-    <div className="flex items-center gap-2 border-b border-gray-100/80 pb-1.5 last:border-b-0 last:pb-0 dark:border-slate-700/40">
-      <span className="min-w-0 flex-1 text-xs leading-snug text-gray-500 dark:text-slate-400">
+    <div className="flex items-center gap-3">
+      <span className="min-w-0 flex-1 text-xs leading-snug text-gray-600 dark:text-slate-400">
         {label}
       </span>
       <div
-        className="h-1.5 w-[5.5rem] shrink-0 overflow-hidden rounded-full bg-gray-200/90 dark:bg-slate-700/80"
+        className="h-1.5 w-[5rem] shrink-0 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800"
         aria-hidden
       >
         <div
-          className="h-full rounded-full bg-slate-500/75 dark:bg-slate-400/55"
+          className="h-full rounded-full bg-slate-400/80 dark:bg-slate-400/60"
           style={{ width: `${fillPct}%` }}
         />
       </div>
-      <span className="w-[2.75rem] shrink-0 text-right text-base font-semibold tabular-nums tracking-tight text-gray-900 dark:text-slate-50">
+      <span className="w-[2.25rem] shrink-0 text-right text-sm font-semibold tabular-nums tracking-tight text-gray-900 dark:text-slate-100">
         {value}
       </span>
     </div>
   );
 }
 
-function WorkflowMetricsSnapshotContent({
-  data,
-}: {
-  data: WorkflowMetricsSnapshot;
-}) {
-  const insight = getWorkflowFollowUpInsight(data);
+function TelemetryEmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50/70 px-6 py-8 text-center dark:border-slate-700 dark:bg-slate-900/40">
+      <p className="text-sm font-medium text-gray-700 dark:text-slate-200">
+        No telemetry yet
+      </p>
+      <p className="mt-1 max-w-sm text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+        Reviewer readiness, intake assist, and screenshot insight activity will
+        appear here as users interact with AI-assisted tickets.
+      </p>
+    </div>
+  );
+}
+
+function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
+  const readyCount = Math.max(0, Math.round(data.reviewerSignalCounts.ready));
+  const gapsCount = Math.max(0, Math.round(data.reviewerSignalCounts.gaps));
+  const needsCount = Math.max(
+    0,
+    Math.round(data.reviewerSignalCounts.needs_detail),
+  );
+  const reviewerTotal = readyCount + gapsCount + needsCount;
+
+  const intakeUsed = Math.max(0, Math.round(data.intakeAssistUsageCount));
+  const screenshotUsed = Math.max(
+    0,
+    Math.round(data.screenshotInsightUsageCount),
+  );
+
+  const totalEvents = reviewerTotal + intakeUsed + screenshotUsed;
+
+  if (totalEvents === 0) {
+    return <TelemetryEmptyState />;
+  }
+
+  const readyRateLabel =
+    reviewerTotal > 0
+      ? `${Math.round((readyCount / reviewerTotal) * 100)}%`
+      : "—";
+
   const readyAvg = data.avgCommentCountBySignal.ready;
   const gapsAvg = data.avgCommentCountBySignal.gaps;
   const needsAvg = data.avgCommentCountBySignal.needs_detail;
@@ -208,138 +322,153 @@ function WorkflowMetricsSnapshotContent({
     Number.isFinite(gapsAvg) ? gapsAvg : 0,
     Number.isFinite(needsAvg) ? needsAvg : 0,
   );
+  const followUpAllZero = followUpMax <= 0;
 
-  const readinessTotal =
-    Math.max(0, Math.round(data.reviewerSignalCounts.ready)) +
-    Math.max(0, Math.round(data.reviewerSignalCounts.gaps)) +
-    Math.max(0, Math.round(data.reviewerSignalCounts.needs_detail));
+  const readinessSlices: TelemetryDonutSlice[] = [
+    {
+      label: "Ready for review",
+      count: readyCount,
+      total: reviewerTotal,
+      colorClass:
+        "stroke-emerald-500 bg-emerald-500 dark:stroke-emerald-400 dark:bg-emerald-400",
+    },
+    {
+      label: "Small gaps remain",
+      count: gapsCount,
+      total: reviewerTotal,
+      colorClass:
+        "stroke-amber-500 bg-amber-500 dark:stroke-amber-400 dark:bg-amber-400",
+    },
+    {
+      label: "Needs detail first",
+      count: needsCount,
+      total: reviewerTotal,
+      colorClass:
+        "stroke-rose-500 bg-rose-500 dark:stroke-rose-400 dark:bg-rose-400",
+    },
+  ];
 
-  const followUpAllZero =
-    (!Number.isFinite(readyAvg) || readyAvg <= 0) &&
-    (!Number.isFinite(gapsAvg) || gapsAvg <= 0) &&
-    (!Number.isFinite(needsAvg) || needsAvg <= 0);
-
-  const requesterAllZero =
-    data.intakeAssistUsageCount === 0 &&
-    data.intakeAssistSavedCount === 0 &&
-    (!Number.isFinite(data.avgMissingDetailCount) ||
-      data.avgMissingDetailCount <= 0);
-
-  const insightLine = insight ?? "Not enough data to identify patterns yet.";
+  const insight =
+    getWorkflowFollowUpInsight(data) ??
+    "Reviewer readiness reflects how ticket detail is trending across submissions.";
+  const readinessInsight = getReviewerReadinessInsight(
+    readyCount,
+    gapsCount,
+    needsCount,
+    reviewerTotal,
+  );
 
   return (
-    <div className="space-y-5 text-sm text-gray-800 dark:text-slate-200">
-      <WorkflowSectionBlock title="Requester Assist">
-        {requesterAllZero ? (
-          <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-500">
-            No assist activity recorded yet.
-          </p>
-        ) : (
-          <>
-            <WorkflowMetricRow
-              label="Intake Assist Used"
-              value={formatWorkflowCount(data.intakeAssistUsageCount)}
-            />
-            <WorkflowMetricRow
-              label="Tickets Saved After Assist"
-              value={formatWorkflowCount(data.intakeAssistSavedCount)}
-            />
-            <WorkflowMetricRow
-              label="Average Missing Details"
-              value={formatWorkflowAvg(data.avgMissingDetailCount)}
-              valueIsAverage
-            />
-          </>
-        )}
-      </WorkflowSectionBlock>
+    <div className="space-y-5">
+      <section
+        className="grid grid-cols-2 gap-3 md:grid-cols-4"
+        aria-label="Telemetry summary metrics"
+      >
+        <TelemetrySummaryChip
+          label="Total Events"
+          value={formatWorkflowCount(totalEvents)}
+          hint="All-time telemetry signals"
+        />
+        <TelemetrySummaryChip
+          label="Ready Rate"
+          value={readyRateLabel}
+          hint={
+            reviewerTotal > 0
+              ? `${formatWorkflowCount(readyCount)} of ${formatWorkflowCount(reviewerTotal)} reviewer signals`
+              : "Awaiting reviewer activity"
+          }
+        />
+        <TelemetrySummaryChip
+          label="Intake Assist"
+          value={formatWorkflowCount(intakeUsed)}
+          hint={
+            intakeUsed > 0
+              ? `${formatWorkflowCount(data.intakeAssistSavedCount)} saved after assist`
+              : "Not yet used"
+          }
+        />
+        <TelemetrySummaryChip
+          label="Screenshot Insight"
+          value={formatWorkflowCount(screenshotUsed)}
+          hint={screenshotUsed > 0 ? "Analyses run" : "Not yet used"}
+        />
+      </section>
 
-      <WorkflowSectionBlock title="Reviewer Readiness">
-        {readinessTotal === 0 ? (
-          <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-500">
+      <section
+        className="rounded-lg border border-gray-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60"
+        aria-labelledby="telemetry-chart-heading"
+      >
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <div>
+            <h4
+              id="telemetry-chart-heading"
+              className="text-sm font-semibold text-gray-900 dark:text-slate-100"
+            >
+              Reviewer readiness distribution
+            </h4>
+            <p className="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-slate-400">
+              Share of reviewer signals by readiness state.
+            </p>
+          </div>
+          <p className="shrink-0 text-[11px] tabular-nums text-gray-500 dark:text-slate-500">
+            {formatWorkflowCount(reviewerTotal)} signals
+          </p>
+        </div>
+
+        {reviewerTotal === 0 ? (
+          <p className="py-2 text-xs text-gray-500 dark:text-slate-500">
             No reviewer activity yet.
           </p>
         ) : (
-          <>
-            <ReviewerReadinessDistributionBar
-              ready={data.reviewerSignalCounts.ready}
-              gaps={data.reviewerSignalCounts.gaps}
-              needsDetail={data.reviewerSignalCounts.needs_detail}
-            />
-            <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-gray-100/80 pb-1.5 text-xs dark:border-slate-700/40">
-              <span className="text-gray-600 dark:text-slate-400">
-                Ready:{" "}
-                <span className="font-semibold tabular-nums text-gray-900 dark:text-slate-100">
-                  {formatWorkflowCount(data.reviewerSignalCounts.ready)}
-                </span>
-              </span>
-              <span className="text-gray-600 dark:text-slate-400">
-                Gaps:{" "}
-                <span className="font-semibold tabular-nums text-gray-900 dark:text-slate-100">
-                  {formatWorkflowCount(data.reviewerSignalCounts.gaps)}
-                </span>
-              </span>
-              <span className="text-gray-600 dark:text-slate-400">
-                Needs detail:{" "}
-                <span className="font-semibold tabular-nums text-gray-900 dark:text-slate-100">
-                  {formatWorkflowCount(data.reviewerSignalCounts.needs_detail)}
-                </span>
-              </span>
-            </div>
-          </>
+          <div className="space-y-2">
+            <TelemetryDonutChart slices={readinessSlices} />
+            {readinessInsight ? (
+              <p className="text-xs text-gray-600 dark:text-slate-400">
+                {readinessInsight}
+              </p>
+            ) : null}
+          </div>
         )}
-      </WorkflowSectionBlock>
+      </section>
 
-      <WorkflowSectionBlock title="Screenshot Insight">
-        {data.screenshotInsightUsageCount === 0 ? (
-          <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-500">
-            No screenshot insight usage yet.
-          </p>
-        ) : (
-          <WorkflowMetricRow
-            label="Screenshot Insight Used"
-            value={formatWorkflowCount(data.screenshotInsightUsageCount)}
-          />
-        )}
-      </WorkflowSectionBlock>
-
-      <WorkflowSectionBlock
-        title="Follow-Up Proxy"
-        intro={
-          <p className="mb-1.5 text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
-            Average comment activity when this signal was shown.
-          </p>
-        }
-      >
-        {followUpAllZero ? (
-          <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-500">
-            No follow-up data available yet.
-          </p>
-        ) : (
-          <>
-            <WorkflowFollowUpRow
-              label="Ready for Review"
+      {!followUpAllZero && (
+        <section
+          className="rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/30"
+          aria-label="Average follow-up comments by reviewer signal"
+        >
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-slate-300">
+              Avg follow-ups by signal
+            </p>
+            <p className="text-[11px] text-gray-500 dark:text-slate-500">
+              Comments per ticket
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <TelemetryFollowUpRow
+              label="Ready for review"
               value={formatWorkflowAvg(readyAvg)}
               valueNum={readyAvg}
               maxInSection={followUpMax}
             />
-            <WorkflowFollowUpRow
-              label="Small Gaps Remain"
+            <TelemetryFollowUpRow
+              label="Small gaps remain"
               value={formatWorkflowAvg(gapsAvg)}
               valueNum={gapsAvg}
               maxInSection={followUpMax}
             />
-            <WorkflowFollowUpRow
-              label="Needs Detail First"
+            <TelemetryFollowUpRow
+              label="Needs detail first"
               value={formatWorkflowAvg(needsAvg)}
               valueNum={needsAvg}
               maxInSection={followUpMax}
             />
-          </>
-        )}
-      </WorkflowSectionBlock>
+          </div>
+        </section>
+      )}
 
-      <p className="rounded-r-md border border-gray-100 border-l-[3px] border-l-slate-400 bg-white py-1.5 pl-3.5 pr-3 text-[11px] leading-relaxed text-gray-500 dark:border-slate-700/60 dark:border-l-slate-500 dark:bg-slate-800/40 dark:text-slate-500">
-        {insightLine}
+      <p className="text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
+        {insight}
       </p>
     </div>
   );
@@ -370,7 +499,15 @@ interface ReportsPageProps {
   onExportCsv: () => void;
   onExportGoogleSheets: () => void;
   onOpenTicket: (ticket: Ticket) => void;
+  onCreateRootCauseTask: (draft: RootCauseTaskDraftInput) => void;
 }
+
+type RootCauseTaskDraftInput = {
+  title: string;
+  description: string;
+  boardId?: number;
+  priority?: string;
+};
 
 const STATUS_ORDER = [
   "On Track",
@@ -407,8 +544,12 @@ function getOwnerLabel(ticket: Ticket) {
 
 function buildSlaExecutiveSummary(openTickets: Ticket[]) {
   const openCount = openTickets.length;
-  const atRiskOpen = openTickets.filter((t) => t.slaStatus === "At Risk").length;
-  const breachedOpen = openTickets.filter((t) => t.slaStatus === "Breached").length;
+  const atRiskOpen = openTickets.filter(
+    (t) => t.slaStatus === "At Risk",
+  ).length;
+  const breachedOpen = openTickets.filter(
+    (t) => t.slaStatus === "Breached",
+  ).length;
 
   if (openCount === 0) {
     return {
@@ -431,7 +572,8 @@ function buildSlaExecutiveSummary(openTickets: Ticket[]) {
     return {
       tone: "critical" as const,
       headline: `${breachedOpen} ticket${breachedOpen === 1 ? "" : "s"} ${breachedOpen === 1 ? "has" : "have"} breached SLA; ${atRiskOpen} ${atRiskOpen === 1 ? "is" : "are"} at risk.`,
-      supporting: "Prioritize overdue items, then work through at-risk tickets before they breach.",
+      supporting:
+        "Prioritize overdue items, then work through at-risk tickets before they breach.",
     };
   }
 
@@ -439,14 +581,16 @@ function buildSlaExecutiveSummary(openTickets: Ticket[]) {
     return {
       tone: "critical" as const,
       headline: `${breachedOpen} ticket${breachedOpen === 1 ? "" : "s"} ${breachedOpen === 1 ? "has" : "have"} breached SLA and need attention.`,
-      supporting: "These items are past their SLA target—reassign, escalate, or resolve as soon as practical.",
+      supporting:
+        "These items are past their SLA target—reassign, escalate, or resolve as soon as practical.",
     };
   }
 
   return {
     tone: "warning" as const,
     headline: `${atRiskOpen} ticket${atRiskOpen === 1 ? "" : "s"} ${atRiskOpen === 1 ? "is" : "are"} at risk of breaching SLA.`,
-    supporting: "They are still inside the warning window—act before the deadline passes.",
+    supporting:
+      "They are still inside the warning window—act before the deadline passes.",
   };
 }
 
@@ -469,11 +613,17 @@ function executiveSummaryAccentClass(
 
 function sortByUrgency(tickets: Ticket[]) {
   return [...tickets].sort((leftTicket, rightTicket) => {
-    if (leftTicket.slaStatus === "Breached" && rightTicket.slaStatus !== "Breached") {
+    if (
+      leftTicket.slaStatus === "Breached" &&
+      rightTicket.slaStatus !== "Breached"
+    ) {
       return -1;
     }
 
-    if (leftTicket.slaStatus !== "Breached" && rightTicket.slaStatus === "Breached") {
+    if (
+      leftTicket.slaStatus !== "Breached" &&
+      rightTicket.slaStatus === "Breached"
+    ) {
       return 1;
     }
 
@@ -559,7 +709,9 @@ function RiskTable({
                     </div>
                   </td>
                   <td className="px-4 py-3 align-top">{ticket.priority}</td>
-                  <td className="px-4 py-3 align-top">{getOwnerLabel(ticket)}</td>
+                  <td className="px-4 py-3 align-top">
+                    {getOwnerLabel(ticket)}
+                  </td>
                   <td className="px-4 py-3 align-top">
                     <div className="flex flex-col gap-1">
                       <span
@@ -599,8 +751,8 @@ function AttentionNeededTable({
           Attention needed
         </h3>
         <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-          Open tickets in the warning window or already past their SLA—open a row to act in the ticket
-          modal.
+          Open tickets in the warning window or already past their SLA—open a
+          row to act in the ticket modal.
         </p>
       </div>
 
@@ -611,7 +763,8 @@ function AttentionNeededTable({
               Nothing urgent on SLA right now
             </p>
             <p className="mt-1 text-xs leading-relaxed text-emerald-900/75 dark:text-emerald-200/80">
-              No open tickets are at risk or overdue in this view. Lists update when you refresh.
+              No open tickets are at risk or overdue in this view. Lists update
+              when you refresh.
             </p>
           </div>
         </div>
@@ -753,8 +906,8 @@ function OnlineUsersReport({
             Online Users
           </h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-            Presence is based on recent activity heartbeats within the configured
-            inactivity timeout.
+            Presence is based on recent activity heartbeats within the
+            configured inactivity timeout.
           </p>
         </div>
 
@@ -793,7 +946,9 @@ function OnlineUsersReport({
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 align-top">{humanizeEnumLabel(user.role)}</td>
+                    <td className="px-4 py-3 align-top">
+                      {humanizeEnumLabel(user.role)}
+                    </td>
                     <td className="px-4 py-3 align-top">
                       {formatDisplayValue(user.department)}
                     </td>
@@ -812,6 +967,873 @@ function OnlineUsersReport({
         )}
       </section>
     </>
+  );
+}
+
+function formatHoursLabel(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined || !Number.isFinite(hours)) {
+    return "—";
+  }
+  if (hours < 1) {
+    const minutes = Math.max(0, Math.round(hours * 60));
+    return `${minutes}m`;
+  }
+  if (hours < 72) {
+    return `${hours.toFixed(1)}h`;
+  }
+  return `${(hours / 24).toFixed(1)}d`;
+}
+
+function formatIsoDate(iso: string | null | undefined): string {
+  if (!iso) {
+    return "—";
+  }
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) {
+    return "—";
+  }
+  return parsed.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatCountLabel(
+  value: number,
+  singular: string,
+  plural: string,
+): string {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+function buildRecurringIssueInsight(summary: RepeatIssueGroupSummary): {
+  headline: string;
+  impact: string;
+} {
+  const headline = `This issue has been handled ${formatCountLabel(summary.repeatCount, "time", "times")} and still has ${formatCountLabel(summary.openCount, "open ticket", "open tickets")}.`;
+
+  if (summary.openCount > 0) {
+    return {
+      headline,
+      impact:
+        "It is consuming repeated effort instead of being resolved at the source.",
+    };
+  }
+
+  if (summary.trendLabel === "rising") {
+    return {
+      headline,
+      impact:
+        "The trend is rising, which suggests the underlying cause is still active.",
+    };
+  }
+
+  return {
+    headline,
+    impact:
+      "The pattern keeps reappearing, so a root-cause fix can prevent repeat work.",
+  };
+}
+
+function buildRootCauseTaskDraft(
+  detail: RepeatIssueGroupDetailResponse,
+  review: RepeatIssueAiReviewResponse | null,
+): RootCauseTaskDraftInput {
+  const summary = detail.summary;
+  const safeTitle =
+    summary.representativeTitle?.trim() || "Recurring issue pattern";
+  const trendToneLabel =
+    summary.trendLabel === "rising"
+      ? "increasing"
+      : summary.trendLabel === "falling"
+        ? "decreasing"
+        : "stable";
+  const trendDescriptor =
+    summary.trendDelta === 0
+      ? `${trendToneLabel} (no change vs prior period)`
+      : `${trendToneLabel} (${summary.trendDelta > 0 ? "+" : ""}${summary.trendDelta} vs prior period)`;
+  const repeatedEffort = formatHoursLabel(summary.totalResolutionHours);
+
+  const signatureSummary =
+    summary.signatureTokens.length > 0
+      ? summary.signatureTokens.join(", ")
+      : "No clear recurring pattern keywords identified";
+
+  const descriptionLines = [
+    `⚠︎ This issue has been handled ${summary.repeatCount} times and still has ${summary.openCount} open tickets, indicating the problem is being repeatedly addressed instead of resolved at the source.`,
+    "",
+    `Total repeated effort: ${repeatedEffort}`,
+    `Trend: ${trendDescriptor}`,
+    "",
+    "Context:",
+    `- Recurring issue: ${safeTitle}`,
+    `- Board: ${summary.boardName}`,
+    `- Pattern: ${signatureSummary}`,
+    "",
+    "Define and execute a root-cause fix to eliminate this issue at the source.",
+  ];
+
+  if (review && !review.unavailable) {
+    const summaryText = review.summary?.trim();
+    if (summaryText) {
+      descriptionLines.push("", `AI review summary: ${summaryText}`);
+    }
+
+    if (review.suggestedNextSteps.length > 0) {
+      const compactSteps = review.suggestedNextSteps
+        .slice(0, 2)
+        .map((step) => `${step.category}: ${step.rationale}`)
+        .join("; ");
+      if (compactSteps) {
+        descriptionLines.push(`Suggested next steps: ${compactSteps}`);
+      }
+    }
+  }
+
+  const normalizedPriority = detail.dominantPriority?.trim();
+  const safePriority =
+    normalizedPriority &&
+    ["Critical", "High", "Medium", "Low"].includes(normalizedPriority)
+      ? normalizedPriority
+      : undefined;
+
+  return {
+    title: `Root cause review: ${safeTitle}`,
+    description: descriptionLines.join("\n"),
+    boardId: summary.boardId,
+    priority: safePriority,
+  };
+}
+
+function RepeatIssueTrendBadge({
+  label,
+  delta,
+}: {
+  label: string;
+  delta: number;
+}) {
+  const toneClass =
+    label === "rising"
+      ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+      : label === "falling"
+        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+        : "bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300";
+  const arrow = label === "rising" ? "↑" : label === "falling" ? "↓" : "→";
+  const signedDelta = delta > 0 ? `+${delta}` : String(delta);
+  const deltaText = delta === 0 ? "" : ` ${signedDelta}`;
+  return (
+    <span
+      aria-label={`Trend ${label} (${signedDelta} vs prior 30 days)`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${toneClass}`}
+    >
+      <span aria-hidden="true">{arrow}</span>
+      <span className="capitalize">{label}</span>
+      {deltaText ? (
+        <span className="text-[10px] opacity-80">{deltaText}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function RepeatIssueSummaryChip({
+  label,
+  value,
+  hint,
+  tooltip,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tooltip: string;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+      <div className="flex items-baseline gap-1">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+          {label}
+        </p>
+        <CortexTooltip content={tooltip}>
+          <button
+            type="button"
+            aria-label={`About ${label}`}
+            className="relative top-[1px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[9px] font-semibold leading-none text-gray-400 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-cortex-blue dark:text-slate-500 dark:hover:text-slate-300"
+          >
+            <span aria-hidden="true">i</span>
+          </button>
+        </CortexTooltip>
+      </div>
+      <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-gray-900 dark:text-slate-50">
+        {value}
+      </p>
+      {hint ? (
+        <p className="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-slate-500">
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function RepeatIssueRankTable({
+  groups,
+  selectedKey,
+  onSelect,
+}: {
+  groups: RepeatIssueGroupSummary[];
+  selectedKey: string | null;
+  onSelect: (groupKey: string) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-800">
+      <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-800">
+        <thead className="bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:bg-slate-900/70 dark:text-slate-400">
+          <tr>
+            <th scope="col" className="px-4 py-2.5">
+              Recurring issue
+            </th>
+            <th scope="col" className="px-4 py-2.5 text-right">
+              Repeats
+            </th>
+            <th scope="col" className="px-4 py-2.5 text-right">
+              Open
+            </th>
+            <th scope="col" className="px-4 py-2.5 text-right">
+              Last seen
+            </th>
+            <th scope="col" className="px-4 py-2.5 text-right">
+              <CortexTooltip content="Sum of lifecycle durations (created → closed) across tickets in this group. This is a duration proxy, not human work time.">
+                <span className="inline-flex items-baseline gap-1 underline decoration-dotted decoration-gray-400 underline-offset-2">
+                  Repeated effort
+                </span>
+              </CortexTooltip>
+            </th>
+            <th scope="col" className="px-4 py-2.5">
+              Trend
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+          {groups.map((group) => {
+            const isSelected = group.groupKey === selectedKey;
+            return (
+              <tr
+                key={group.groupKey}
+                onClick={() => onSelect(group.groupKey)}
+                className={`cursor-pointer transition-colors ${
+                  isSelected
+                    ? "bg-cortex-blue/5 dark:bg-cortex-blue/10"
+                    : "hover:bg-gray-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <td className="px-4 py-3 align-top">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelect(group.groupKey);
+                    }}
+                    className="text-left"
+                  >
+                    <p className="font-medium text-gray-900 dark:text-slate-100 line-clamp-1">
+                      {group.representativeTitle || "(untitled)"}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-gray-500 dark:text-slate-500">
+                      <span className="font-medium">{group.boardName}</span>
+                      {group.signatureTokens.length > 0 ? (
+                        <span>
+                          {" · "}
+                          {group.signatureTokens.join(", ")}
+                        </span>
+                      ) : null}
+                    </p>
+                  </button>
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums font-semibold text-gray-900 dark:text-slate-100">
+                  {group.repeatCount}
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-gray-700 dark:text-slate-300">
+                  {group.openCount}
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-gray-600 dark:text-slate-400">
+                  {formatIsoDate(group.lastSeenUtc)}
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-gray-700 dark:text-slate-300">
+                  {formatHoursLabel(group.totalResolutionHours)}
+                </td>
+                <td className="px-4 py-3 align-top">
+                  <RepeatIssueTrendBadge
+                    label={group.trendLabel}
+                    delta={group.trendDelta}
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RepeatIssueAiReviewPanel({
+  review,
+  loading,
+  error,
+  onGenerate,
+  disabled,
+}: {
+  review: RepeatIssueAiReviewResponse | null;
+  loading: boolean;
+  error: string | null;
+  onGenerate: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h5 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+            AI review
+          </h5>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
+            Advisory summary of the recurring pattern. Does not take action.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onGenerate}
+          disabled={disabled || loading}
+          className="ai-button ai-button--ready inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-cortex-blue focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+        >
+          {loading
+            ? "Generating…"
+            : review
+              ? "Regenerate"
+              : "Generate AI review"}
+        </button>
+      </div>
+
+      {error ? (
+        <p className="mt-3 text-xs text-red-700 dark:text-red-300">{error}</p>
+      ) : null}
+
+      {!loading && !error && !review ? (
+        <p className="mt-3 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+          Generate an AI review to summarize this recurring pattern, describe
+          its operational impact, and propose next-step categories.
+        </p>
+      ) : null}
+
+      {review?.unavailable ? (
+        <p className="mt-3 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
+          {review.unavailableReason ?? "AI review is not available right now."}
+        </p>
+      ) : null}
+
+      {review && !review.unavailable ? (
+        <div className="mt-3 space-y-3 text-sm">
+          {review.summary ? (
+            <p className="text-gray-900 dark:text-slate-100">
+              {review.summary}
+            </p>
+          ) : null}
+
+          <dl className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {review.impact ? (
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                  Impact
+                </dt>
+                <dd className="mt-0.5 text-xs leading-relaxed text-gray-700 dark:text-slate-300">
+                  {review.impact}
+                </dd>
+              </div>
+            ) : null}
+            {review.trendCommentary ? (
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                  Trend
+                </dt>
+                <dd className="mt-0.5 text-xs leading-relaxed text-gray-700 dark:text-slate-300">
+                  {review.trendCommentary}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+
+          {review.commonCharacteristics.length > 0 ? (
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                Shared characteristics
+              </p>
+              <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-gray-700 dark:text-slate-300">
+                {review.commonCharacteristics.map((item, index) => (
+                  <li key={`char-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {review.suggestedNextSteps.length > 0 ? (
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                Suggested next steps
+              </p>
+              <ul className="mt-1 space-y-1.5">
+                {review.suggestedNextSteps.map((step, index) => (
+                  <li
+                    key={`step-${index}`}
+                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    <span className="mr-2 inline-flex items-center rounded-full bg-cortex-blue/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cortex-blue dark:bg-cortex-blue/20">
+                      {step.category}
+                    </span>
+                    <span className="text-gray-700 dark:text-slate-300">
+                      {step.rationale}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RepeatIssueGroupDetailPanel({
+  detail,
+  loading,
+  error,
+  review,
+  reviewLoading,
+  reviewError,
+  onGenerateReview,
+  onCreateRootCauseTask,
+}: {
+  detail: RepeatIssueGroupDetailResponse | null;
+  loading: boolean;
+  error: string | null;
+  review: RepeatIssueAiReviewResponse | null;
+  reviewLoading: boolean;
+  reviewError: string | null;
+  onGenerateReview: () => void;
+  onCreateRootCauseTask: (draft: RootCauseTaskDraftInput) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+        Loading recurring issue detail…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+        {error}
+      </div>
+    );
+  }
+
+  if (!detail) {
+    return null;
+  }
+
+  const summary = detail.summary;
+  const insight = buildRecurringIssueInsight(summary);
+  const rootCauseTaskDraft = buildRootCauseTaskDraft(detail, review);
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+            {summary.representativeTitle || "(untitled)"}
+          </h4>
+          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-slate-500">
+            {summary.boardName}
+            {summary.signatureTokens.length > 0
+              ? ` · signature: ${summary.signatureTokens.join(", ")}`
+              : ""}
+          </p>
+        </div>
+        <RepeatIssueTrendBadge
+          label={summary.trendLabel}
+          delta={summary.trendDelta}
+        />
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div>
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+            First seen
+          </dt>
+          <dd className="mt-0.5 text-xs tabular-nums text-gray-700 dark:text-slate-300">
+            {formatIsoDate(summary.firstSeenUtc)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+            Avg resolution time
+          </dt>
+          <dd className="mt-0.5 text-xs tabular-nums text-gray-700 dark:text-slate-300">
+            {formatHoursLabel(summary.avgResolutionHours)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+            Touch count
+          </dt>
+          <dd className="mt-0.5 text-xs tabular-nums text-gray-700 dark:text-slate-300">
+            {summary.operationalTouchCount} comments
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+            Owners
+          </dt>
+          <dd className="mt-0.5 text-xs text-gray-700 dark:text-slate-300 line-clamp-2">
+            {detail.owners.length === 0 ? "—" : detail.owners.join(", ")}
+          </dd>
+        </div>
+      </dl>
+
+      {detail.dominantPriority || detail.dominantStatus ? (
+        <p className="mt-3 text-[11px] text-gray-500 dark:text-slate-500">
+          {detail.dominantPriority
+            ? `Dominant priority: ${detail.dominantPriority}`
+            : null}
+          {detail.dominantPriority && detail.dominantStatus ? " · " : null}
+          {detail.dominantStatus
+            ? `dominant status: ${detail.dominantStatus}`
+            : null}
+        </p>
+      ) : null}
+
+      <div className="mt-4 rounded-md border border-amber-200/70 bg-amber-50/60 px-3.5 py-3 dark:border-amber-500/20 dark:bg-amber-950/20">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-relaxed text-amber-950 dark:text-amber-200">
+              {insight.headline}
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-amber-900/90 dark:text-amber-300/90">
+              {insight.impact}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onCreateRootCauseTask(rootCauseTaskDraft)}
+            className="shrink-0 rounded-md bg-cortex-blue px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-cortex-blue-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-cortex-blue focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+          >
+            Create root cause task
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto rounded-md border border-gray-200 dark:border-slate-800">
+        <table className="min-w-full divide-y divide-gray-200 text-xs dark:divide-slate-800">
+          <thead className="bg-gray-50 text-left font-semibold uppercase tracking-wider text-gray-500 dark:bg-slate-900/70 dark:text-slate-400">
+            <tr>
+              <th scope="col" className="px-3 py-2">
+                Ticket
+              </th>
+              <th scope="col" className="px-3 py-2">
+                Priority
+              </th>
+              <th scope="col" className="px-3 py-2">
+                Status
+              </th>
+              <th scope="col" className="px-3 py-2">
+                Created
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Resolution
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Comments
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+            {detail.tickets.map((ticket) => (
+              <tr key={ticket.ticketId}>
+                <td className="px-3 py-2 align-top">
+                  <p className="font-medium text-gray-900 dark:text-slate-100 line-clamp-1">
+                    {ticket.title}
+                  </p>
+                  <p className="text-[10px] text-gray-500 dark:text-slate-500">
+                    {ticket.ticketId}
+                    {ticket.isArchived ? " · archived" : ""}
+                  </p>
+                </td>
+                <td className="px-3 py-2 align-top text-gray-700 dark:text-slate-300">
+                  {ticket.priority}
+                </td>
+                <td className="px-3 py-2 align-top text-gray-700 dark:text-slate-300">
+                  {ticket.status}
+                </td>
+                <td className="px-3 py-2 align-top tabular-nums text-gray-600 dark:text-slate-400">
+                  {formatIsoDate(ticket.createdDate)}
+                </td>
+                <td className="px-3 py-2 align-top text-right tabular-nums text-gray-700 dark:text-slate-300">
+                  {formatHoursLabel(ticket.resolutionHours)}
+                </td>
+                <td className="px-3 py-2 align-top text-right tabular-nums text-gray-700 dark:text-slate-300">
+                  {ticket.commentCount}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4">
+        <RepeatIssueAiReviewPanel
+          review={review}
+          loading={reviewLoading}
+          error={reviewError}
+          onGenerate={onGenerateReview}
+          disabled={false}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RepeatIssueIntelligenceSection({
+  isActive,
+  onCreateRootCauseTask,
+}: {
+  isActive: boolean;
+  onCreateRootCauseTask: (draft: RootCauseTaskDraftInput) => void;
+}) {
+  const { getAccessTokenSilently } = useAuth0();
+  const [overview, setOverview] = useState<RepeatIssueOverviewResponse | null>(
+    null,
+  );
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [detail, setDetail] = useState<RepeatIssueGroupDetailResponse | null>(
+    null,
+  );
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  const [review, setReview] = useState<RepeatIssueAiReviewResponse | null>(
+    null,
+  );
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: { audience: API_AUDIENCE },
+        });
+        const data = await repeatIssuesService.getOverview(token, 8);
+        if (!cancelled) {
+          setOverview(data);
+          setOverviewError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setOverview(null);
+          setOverviewError(
+            "Unable to load recurring issue intelligence right now.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setOverviewLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getAccessTokenSilently]);
+
+  useEffect(() => {
+    if (!selectedKey) {
+      setDetail(null);
+      setDetailError(null);
+      setReview(null);
+      setReviewError(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    setReview(null);
+    setReviewError(null);
+
+    (async () => {
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: { audience: API_AUDIENCE },
+        });
+        const data = await repeatIssuesService.getGroupDetail(
+          selectedKey,
+          token,
+        );
+        if (!cancelled) {
+          setDetail(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setDetail(null);
+          setDetailError("Unable to load recurring issue detail.");
+        }
+      } finally {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedKey, getAccessTokenSilently]);
+
+  const handleGenerateReview = async () => {
+    if (!selectedKey) {
+      return;
+    }
+
+    setReviewLoading(true);
+    setReviewError(null);
+    try {
+      const token = await getAccessTokenSilently({
+        authorizationParams: { audience: API_AUDIENCE },
+      });
+      const data = await repeatIssuesService.generateAiReview(
+        selectedKey,
+        token,
+      );
+      setReview(data);
+    } catch {
+      setReview(null);
+      setReviewError(
+        "Unable to generate AI review right now. Try again shortly.",
+      );
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const groups = overview?.groups ?? [];
+  const hasGroups = groups.length > 0;
+
+  if (!isActive) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-gray-100 px-6 py-3.5 dark:border-slate-800">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold tracking-tight text-gray-900 dark:text-slate-100">
+            Recurring Issue Intelligence
+          </h3>
+          <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+            Spot repeating operational pain across tickets and surface advisory
+            AI reviews.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-gray-600 dark:bg-slate-800 dark:text-slate-400">
+          Advisory · v1
+        </span>
+      </div>
+
+      <div className="space-y-5 px-6 py-4">
+        {overviewLoading ? (
+          <p className="text-sm text-gray-500 dark:text-slate-400">Loading…</p>
+        ) : overviewError ? (
+          <p className="text-sm text-gray-600 dark:text-slate-400">
+            {overviewError}
+          </p>
+        ) : !overview || !hasGroups ? (
+          <div className="rounded-md border border-dashed border-gray-200 bg-gray-50/60 px-4 py-5 text-center dark:border-slate-800 dark:bg-slate-900/40">
+            <p className="text-sm font-medium text-gray-700 dark:text-slate-200">
+              No recurring issue patterns detected yet.
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-slate-500">
+              Groups appear once{" "}
+              <span className="font-semibold">
+                {overview?.minimumGroupSize ?? 3}
+              </span>{" "}
+              or more tickets share the same board and keyword signature.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <RepeatIssueSummaryChip
+                label="Recurring groups"
+                value={String(overview.totalRecurringGroups)}
+                hint={`Min. ${overview.minimumGroupSize} tickets to qualify`}
+                tooltip="Distinct issue patterns where at least N tickets share the same board and keyword signature."
+              />
+              <RepeatIssueSummaryChip
+                label="Repeat tickets"
+                value={String(overview.ticketsInRecurringGroups)}
+                hint="Across all recurring groups"
+                tooltip="Total tickets falling into any recurring group. This counts repeat volume, not unique issues."
+              />
+              <RepeatIssueSummaryChip
+                label="Still open"
+                value={String(overview.openTicketsInRecurringGroups)}
+                hint="Open tickets tied to recurring issues"
+                tooltip="Tickets in a recurring group that are not in a terminal status (Resolved, Closed, Done, etc.)."
+              />
+              <RepeatIssueSummaryChip
+                label="Repeated effort"
+                value={formatHoursLabel(
+                  overview.totalResolutionHoursInRecurringGroups,
+                )}
+                hint="Total lifecycle time"
+                tooltip="Sum of lifecycle durations (created → closed) across closed tickets in recurring groups. Proxy for repeated operational effort — not human work hours."
+              />
+            </div>
+
+            <RepeatIssueRankTable
+              groups={groups}
+              selectedKey={selectedKey}
+              onSelect={(key) =>
+                setSelectedKey((current) => (current === key ? null : key))
+              }
+            />
+
+            {selectedKey ? (
+              <RepeatIssueGroupDetailPanel
+                detail={detail}
+                loading={detailLoading}
+                error={detailError}
+                review={review}
+                reviewLoading={reviewLoading}
+                reviewError={reviewError}
+                onGenerateReview={handleGenerateReview}
+                onCreateRootCauseTask={onCreateRootCauseTask}
+              />
+            ) : (
+              <p className="text-[11px] text-gray-500 dark:text-slate-500">
+                Select a row to see contributing tickets and request an AI
+                review.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -840,6 +1862,7 @@ export default function ReportsPage({
   onExportCsv,
   onExportGoogleSheets,
   onOpenTicket,
+  onCreateRootCauseTask,
 }: ReportsPageProps) {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
@@ -916,7 +1939,8 @@ export default function ReportsPage({
 
   const actionableTickets = sortByUrgency(
     tickets.filter(
-      (ticket) => ticket.slaStatus === "At Risk" || ticket.slaStatus === "Breached",
+      (ticket) =>
+        ticket.slaStatus === "At Risk" || ticket.slaStatus === "Breached",
     ),
   );
   const resolvedLateTickets = sortByUrgency(
@@ -1024,6 +2048,28 @@ export default function ReportsPage({
               SLA Report
             </button>
 
+            <button
+              onClick={() => onChangeSection("telemetry")}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                activeSection === "telemetry"
+                  ? "bg-cortex-blue text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              }`}
+            >
+              Telemetry
+            </button>
+
+            <button
+              onClick={() => onChangeSection("recurring-issues")}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                activeSection === "recurring-issues"
+                  ? "bg-cortex-blue text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              }`}
+            >
+              Recurring Issues
+            </button>
+
             {canViewOnlineUsers && (
               <button
                 onClick={() => onChangeSection("online-users")}
@@ -1048,7 +2094,8 @@ export default function ReportsPage({
                       onSelectCustomReport(report.id);
                     }}
                     className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                      activeSection === "custom" && selectedCustomReportId === report.id
+                      activeSection === "custom" &&
+                      selectedCustomReportId === report.id
                         ? "bg-cortex-blue text-white"
                         : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     }`}
@@ -1060,31 +2107,10 @@ export default function ReportsPage({
         </div>
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="border-b border-gray-100 px-6 py-4 dark:border-slate-800">
-          <h3 className="text-lg font-bold tracking-tight text-gray-900 dark:text-slate-100">
-            Workflow Metrics (Preview)
-          </h3>
-          <p className="mt-1.5 text-sm leading-relaxed text-gray-500 dark:text-slate-400">
-            Operational snapshot of intake quality, reviewer readiness, and
-            follow-up signals.
-          </p>
-          <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
-            Early metrics from real Cortex usage (all-time, v1).
-          </p>
-        </div>
-        <div className="px-6 py-4">
-          {workflowMetricsLoading ? (
-            <p className="text-sm text-gray-500 dark:text-slate-400">Loading…</p>
-          ) : workflowMetricsError ? (
-            <p className="text-sm text-gray-600 dark:text-slate-400">
-              {workflowMetricsError}
-            </p>
-          ) : workflowMetrics ? (
-            <WorkflowMetricsSnapshotContent data={workflowMetrics} />
-          ) : null}
-        </div>
-      </section>
+      <RepeatIssueIntelligenceSection
+        isActive={activeSection === "recurring-issues"}
+        onCreateRootCauseTask={onCreateRootCauseTask}
+      />
 
       {activeSection === "sla" ? (
         <>
@@ -1104,10 +2130,7 @@ export default function ReportsPage({
                 className={executiveSummaryAccentClass(executiveSummary.tone)}
                 aria-labelledby="sla-executive-summary-heading"
               >
-                <h3
-                  id="sla-executive-summary-heading"
-                  className="sr-only"
-                >
+                <h3 id="sla-executive-summary-heading" className="sr-only">
                   Executive summary
                 </h3>
                 <p className="text-xl font-semibold leading-snug tracking-tight text-gray-900 dark:text-slate-50 sm:text-2xl">
@@ -1207,7 +2230,10 @@ export default function ReportsPage({
                             {statusCounts[status]}
                           </td>
                           <td className="px-4 py-3 align-top">
-                            {formatPercentage(statusCounts[status], totalTickets)}
+                            {formatPercentage(
+                              statusCounts[status],
+                              totalTickets,
+                            )}
                           </td>
                           <td className="px-4 py-3 align-top text-gray-500 dark:text-slate-400">
                             {STATUS_DESCRIPTIONS[status]}
@@ -1238,6 +2264,38 @@ export default function ReportsPage({
             </div>
           )}
         </>
+      ) : activeSection === "telemetry" ? (
+        <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-gray-100 px-6 py-3.5 dark:border-slate-800">
+            <div className="min-w-0">
+              <h3 className="text-base font-semibold tracking-tight text-gray-900 dark:text-slate-100">
+                Telemetry Overview
+              </h3>
+              <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+                Track operational activity and report health trends across
+                AI-assisted workflows.
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-gray-600 dark:bg-slate-800 dark:text-slate-400">
+              All-time · v1
+            </span>
+          </div>
+          <div className="px-6 py-4">
+            {workflowMetricsLoading ? (
+              <p className="text-sm text-gray-500 dark:text-slate-400">
+                Loading…
+              </p>
+            ) : workflowMetricsError ? (
+              <p className="text-sm text-gray-600 dark:text-slate-400">
+                {workflowMetricsError}
+              </p>
+            ) : workflowMetrics ? (
+              <TelemetryOverviewContent data={workflowMetrics} />
+            ) : (
+              <TelemetryEmptyState />
+            )}
+          </div>
+        </section>
       ) : activeSection === "online-users" ? (
         <OnlineUsersReport
           users={onlineUsers}
@@ -1251,7 +2309,9 @@ export default function ReportsPage({
           <div className="border-b border-gray-100 px-6 py-4 dark:border-slate-800">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
               {customReportResult?.reportName ??
-                customReports.find((report) => report.id === selectedCustomReportId)?.name ??
+                customReports.find(
+                  (report) => report.id === selectedCustomReportId,
+                )?.name ??
                 "Custom Report"}
             </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
@@ -1261,7 +2321,9 @@ export default function ReportsPage({
 
           {customReportError ? (
             <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
-              <p className="text-red-700 dark:text-red-300">{customReportError}</p>
+              <p className="text-red-700 dark:text-red-300">
+                {customReportError}
+              </p>
             </div>
           ) : !customReportResult ? (
             <div className="px-6 py-12 text-center text-gray-500 dark:text-slate-400">
@@ -1270,7 +2332,10 @@ export default function ReportsPage({
           ) : (
             <div className="space-y-4 px-6 py-6">
               <div className="flex flex-col gap-2 text-sm text-gray-500 dark:text-slate-400">
-                <span>Generated {formatDisplayDateTime(customReportResult.generatedDateUtc)}</span>
+                <span>
+                  Generated{" "}
+                  {formatDisplayDateTime(customReportResult.generatedDateUtc)}
+                </span>
                 {customReportResult.isTruncated && (
                   <span className="text-amber-700 dark:text-amber-300">
                     Showing the first 500 rows for performance.
@@ -1301,7 +2366,10 @@ export default function ReportsPage({
                           className="border-t border-gray-100 text-gray-700 dark:border-slate-800 dark:text-slate-200"
                         >
                           {customReportResult.columns.map((column) => (
-                            <td key={`${rowIndex}-${column}`} className="px-4 py-3 align-top">
+                            <td
+                              key={`${rowIndex}-${column}`}
+                              className="px-4 py-3 align-top"
+                            >
                               {String(row[column] ?? "—")}
                             </td>
                           ))}

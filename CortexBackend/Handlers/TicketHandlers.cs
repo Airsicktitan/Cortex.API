@@ -955,6 +955,7 @@ public static class TicketHandlers
         ITicketRepository repo,
         IUserContextService userContext,
         IUserRepository userRepository,
+        IAiSettingsService aiSettingsService,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketBoardService ticketBoardService,
@@ -975,6 +976,7 @@ public static class TicketHandlers
 
             var nextTicketId = await repo.GetNextTicketIdAsync();
             var currentUser = await userContext.GetCurrentUserAsync();
+            var aiSettings = await aiSettingsService.GetAsync();
             var createStatus = "New";
             var normalizedPriority = NormalizePriority(request.Priority!);
 
@@ -1029,6 +1031,7 @@ public static class TicketHandlers
                 triageVocabulary,
                 userRepository,
                 ticketBoardService,
+                aiSettings,
                 logger,
                 CancellationToken.None);
 
@@ -1091,6 +1094,7 @@ public static class TicketHandlers
         ITicketRepository repo,
         IUserContextService userContext,
         IUserRepository userRepository,
+        IAiSettingsService aiSettingsService,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketBoardService ticketBoardService,
@@ -1111,6 +1115,7 @@ public static class TicketHandlers
 
             var existing = await repo.GetTicketByIdAsync(id);
             var currentUser = await userContext.GetCurrentUserAsync();
+            var aiSettings = await aiSettingsService.GetAsync();
 
             if (existing is null)
                 return Results.NotFound();
@@ -1295,6 +1300,7 @@ public static class TicketHandlers
                     triageVocabulary,
                     userRepository,
                     ticketBoardService,
+                    aiSettings,
                     logger,
                     CancellationToken.None);
                 updatedTicket = await repo.GetTicketByIdAsync(id);
@@ -2099,6 +2105,7 @@ public static class TicketHandlers
         ITicketVisibilityService ticketVisibilityService,
         ITicketBoardService ticketBoardService,
         IUserRepository userRepository,
+        IAiSettingsService aiSettingsService,
         ITicketTriageAiService triageAi,
         ITicketTriageVocabularyProvider triageVocabulary,
         ILogger<TicketHandlersLogCategory> logger,
@@ -2128,6 +2135,7 @@ public static class TicketHandlers
         var boardName = board?.Name ?? $"Board #{ticket.BoardId}";
 
         var requester = await userRepository.GetByIdAsync(ticket.CreatedBy);
+        var aiSettings = await aiSettingsService.GetAsync();
         var vocabulary = await triageVocabulary.GetAsync(cancellationToken);
 
         var input = new TicketTriageInput
@@ -2144,7 +2152,12 @@ public static class TicketHandlers
         var result = await triageAi.GenerateTriageAsync(input, cancellationToken);
         if (!result.Unavailable)
         {
-            TicketTriagePersistence.ApplyPersistedResult(ticket, result, vocabulary, logger);
+            TicketTriagePersistence.ApplyPersistedResult(
+                ticket,
+                result,
+                vocabulary,
+                aiSettings,
+                logger);
             await repo.UpdateTicketAsync(ticket);
             await repo.SaveChangesAsync();
         }

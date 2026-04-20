@@ -170,8 +170,13 @@ public static class UserHandlers
         IUserRepository repo,
         IAuth0ManagementService auth0Management,
         IAuth0UserRoleSyncService roleSync,
+        IUserContextService userContext,
+        IHttpContextAccessor httpContextAccessor,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var accessControlLogger = loggerFactory.CreateLogger("Cortex.Api.Security.UserAccessControl");
+
         var action = request.Action?.Trim().ToLowerInvariant();
         if (action is not ("add" or "remove"))
         {
@@ -193,6 +198,37 @@ public static class UserHandlers
         if (user is null)
         {
             return Results.NotFound($"User {id} was not found.");
+        }
+
+        var caller = await userContext.GetCurrentUserAsync();
+        var isAdminCaller = httpContextAccessor.HttpContext?.User.IsInRole(Auth0Roles.Admin) == true;
+        var isSelfTarget = caller.Id == user.Id;
+        var callerAuth0Id = httpContextAccessor.HttpContext?.User.FindFirst("sub")?.Value;
+
+        // Self-target role changes are never allowed — even for Admins — so a single
+        // compromised session cannot escalate or lock itself out in one call. Admins can
+        // still adjust their own role through a second Admin account.
+        if (isSelfTarget)
+        {
+            accessControlLogger.LogWarning(
+                "Blocked self-target role mutation. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}, Action={Action}, RoleName={RoleName}",
+                callerAuth0Id,
+                user.Id,
+                action,
+                canonicalName);
+            return Results.Forbid();
+        }
+
+        // Admin-only gate: only callers who currently hold Admin may add or remove the
+        // Admin role on any user. This closes the Developer → Admin escalation path.
+        if (canonicalName.Equals(Auth0Roles.Admin, StringComparison.Ordinal) && !isAdminCaller)
+        {
+            accessControlLogger.LogWarning(
+                "Blocked non-admin attempt to {Action} the Admin role. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}",
+                action,
+                callerAuth0Id,
+                user.Id);
+            return Results.Forbid();
         }
 
         if (string.IsNullOrWhiteSpace(user.Auth0Id))
@@ -381,8 +417,13 @@ public static class UserHandlers
         IUserRepository repo,
         IAuth0ManagementService auth0Management,
         IAuth0UserRoleSyncService roleSync,
+        IUserContextService userContext,
+        IHttpContextAccessor httpContextAccessor,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var accessControlLogger = loggerFactory.CreateLogger("Cortex.Api.Security.UserAccessControl");
+
         var user = await repo.GetByIdAsync(id);
         if (user is null)
         {
@@ -403,6 +444,59 @@ public static class UserHandlers
 
             role = parsed;
             roleExplicitlyChanged = !string.Equals(user.Role, parsed, StringComparison.Ordinal);
+        }
+
+        // --- Access-control guards ------------------------------------------------
+        // Centralized here so every code path below sees the same decision. These
+        // guards intentionally run after payload parsing but before any persistence.
+        var caller = await userContext.GetCurrentUserAsync();
+        var isAdminCaller = httpContextAccessor.HttpContext?.User.IsInRole(Auth0Roles.Admin) == true;
+        var isSelfTarget = caller.Id == user.Id;
+        var callerAuth0Id = httpContextAccessor.HttpContext?.User.FindFirst("sub")?.Value;
+        var targetWasAdmin = string.Equals(user.Role, Auth0Roles.Admin, StringComparison.Ordinal);
+        var proposedAdmin = string.Equals(role, Auth0Roles.Admin, StringComparison.Ordinal);
+        var activeChanged = user.IsActive != request.IsActive;
+        var expiryChanged = user.ExpiryDate != request.ExpiryDate;
+
+        if (isSelfTarget && roleExplicitlyChanged)
+        {
+            accessControlLogger.LogWarning(
+                "Blocked self-target role change via UpdateUser. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}, NewRole={NewRole}",
+                callerAuth0Id,
+                user.Id,
+                role);
+            return Results.Forbid();
+        }
+
+        if (isSelfTarget && (activeChanged || expiryChanged))
+        {
+            accessControlLogger.LogWarning(
+                "Blocked self-target governance change via UpdateUser. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}, ActiveChanged={ActiveChanged}, ExpiryChanged={ExpiryChanged}",
+                callerAuth0Id,
+                user.Id,
+                activeChanged,
+                expiryChanged);
+            return Results.Forbid();
+        }
+
+        if (!isAdminCaller && proposedAdmin)
+        {
+            accessControlLogger.LogWarning(
+                "Blocked non-admin attempt to assign Admin via UpdateUser. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}",
+                callerAuth0Id,
+                user.Id);
+            return Results.Forbid();
+        }
+
+        // Non-admin callers must not touch users who already hold Admin. This blocks
+        // demotion/disabling/expiry changes against existing admins by a Developer.
+        if (!isAdminCaller && targetWasAdmin)
+        {
+            accessControlLogger.LogWarning(
+                "Blocked non-admin attempt to modify an Admin user via UpdateUser. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}",
+                callerAuth0Id,
+                user.Id);
+            return Results.Forbid();
         }
 
         try

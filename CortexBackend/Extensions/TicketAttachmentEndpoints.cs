@@ -1,4 +1,5 @@
 using Cortex.API.Authorization;
+using Cortex.API.Configuration;
 using Cortex.API.DTO;
 using Cortex.API.Handlers;
 
@@ -26,6 +27,8 @@ public static class TicketAttachmentEndpoints
             .Produces(StatusCodes.Status404NotFound);
 
         attachments.MapPost("/screenshot-insight", ScreenshotInsightHandlers.AnalyzeScreenshotAttachments)
+            .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
+            .RequireRateLimiting(AiRateLimitPolicies.VisionPolicyName)
             .WithName("AnalyzeScreenshotAttachments")
             .Produces<ScreenshotInsightResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
