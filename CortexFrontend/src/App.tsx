@@ -25,6 +25,7 @@ import ArchivedTicketsPage from "./components/ArchivedTicketsPage";
 import ReportsPage from "./components/ReportsPage";
 import ConfigurationPage from "./components/ConfigurationPage";
 import JobsPage from "./components/JobsPage";
+import RebalanceOverviewPanel from "./components/RebalanceOverviewPanel"; // Operational Rebalance Layer v1
 import SessionTimeoutModal from "./components/SessionTimeoutModal";
 import UsersPage from "./components/UsersPage";
 import UserProfileModal from "./components/UserProfileModal";
@@ -53,6 +54,7 @@ import {
   canManageReportDefinitions,
   canCreateTickets,
   canEditTickets,
+  hasElevatedAccess,
 } from "./utils/role";
 
 const API_AUDIENCE = "https://cortex-api";
@@ -110,6 +112,7 @@ const APP_VIEW_LABELS: Record<AppView, string> = {
   approval: "Approval Queue",
   archived: "Archived Tickets",
   reports: "Reports",
+  rebalance: "Rebalance",
   sla: "Configuration",
   jobs: "Jobs",
   users: "Users",
@@ -123,6 +126,7 @@ type AppView =
   | "approval"
   | "archived"
   | "reports"
+  | "rebalance"
   | "sla"
   | "jobs"
   | "users";
@@ -203,6 +207,13 @@ const NAVIGATION_ITEM_DEFINITIONS: ReadonlyArray<NavigationItem> = [
     group: "workspace",
     label: "Reports",
     description: "Drill into SLA trends and detailed reporting.",
+  },
+  {
+    view: "rebalance",
+    group: "workspace",
+    label: "Rebalance",
+    description:
+      "Spot overloaded owners and candidate tickets to rebalance.",
   },
   {
     view: "jobs",
@@ -508,6 +519,9 @@ function App() {
   const canViewTicketSections = sessionUnlocked;
   const canViewDashboard = canViewTicketSections;
   const canViewReportsNav = sessionUnlocked && canViewReports(effectiveAuthRoles);
+  /** Rebalance panel mirrors the backend ElevatedAccess policy (Admin + Developer). */
+  const canViewRebalanceNav =
+    sessionUnlocked && hasElevatedAccess(effectiveAuthRoles);
   const canViewOnlineUsersReport = canViewReportsNav;
   const canManageCustomReportDefinitions =
     sessionUnlocked && canManageReportDefinitions(effectiveAuthRoles);
@@ -531,6 +545,7 @@ function App() {
       approval: canEditTicketsCap,
       archived: canViewArchived,
       reports: canViewReportsNav,
+      rebalance: canViewRebalanceNav,
       jobs: canViewJobActivityNav,
       sla: canManageConfiguration,
       users: canViewUsers,
@@ -545,6 +560,7 @@ function App() {
     canEditTicketsCap,
     canViewArchived,
     canViewReportsNav,
+    canViewRebalanceNav,
     canViewJobActivityNav,
     canManageConfiguration,
     canViewUsers,
@@ -559,6 +575,7 @@ function App() {
       (view === "approval" && canEditTicketsCap) ||
       view === "archived" ||
       (view === "reports" && canViewReportsNav) ||
+      (view === "rebalance" && canViewRebalanceNav) ||
       (view === "jobs" && canViewJobActivityNav) ||
       (view === "sla" && canManageConfiguration) ||
       (view === "users" && canViewUsers),
@@ -567,6 +584,7 @@ function App() {
       canManageConfiguration,
       canViewJobActivityNav,
       canViewReportsNav,
+      canViewRebalanceNav,
       canViewUsers,
     ],
   );
@@ -2816,6 +2834,13 @@ function App() {
               onOpenTicket={openTicket}
               onCreateRootCauseTask={handleCreateRootCauseTask}
             />
+          ) : activeView === "rebalance" && canViewRebalanceNav ? (
+            <RebalanceOverviewPanel
+              getApiToken={getApiToken}
+              onOpenTicket={async (ticketId) => {
+                await openTicketById(ticketId);
+              }}
+            />
           ) : activeView === "jobs" && canViewJobActivityNav ? (
             <JobsPage
               jobs={jobs}
@@ -3145,3 +3170,4 @@ function App() {
 }
 
 export default App;
+
