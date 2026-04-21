@@ -479,7 +479,7 @@ public static class TicketRoutingDecisionMappings
         return new TicketRoutingDecisionResponse
         {
             Id = decision.Id,
-            TicketId = decision.TicketId,
+            TicketId = decision.TicketId ?? string.Empty,
             MatchedRuleId = decision.MatchedRuleId,
             OutcomeType = decision.OutcomeType.ToString(),
             ConfidenceLevel = decision.ConfidenceLevel.ToString(),
@@ -487,10 +487,12 @@ public static class TicketRoutingDecisionMappings
             ChosenSynitiOwner = decision.ChosenSynitiOwner ?? string.Empty,
             ChosenBusinessOwner = decision.ChosenBusinessOwner ?? string.Empty,
             PrecedenceScore = decision.PrecedenceScore,
-            TieBreakKey = decision.TieBreakKey,
-            ExplanationJson = decision.ExplanationJson,
-            ExplanationText = decision.ExplanationText,
-            EngineVersion = decision.EngineVersion,
+            TieBreakKey = decision.TieBreakKey ?? string.Empty,
+            ExplanationJson = string.IsNullOrWhiteSpace(decision.ExplanationJson)
+                ? "{}"
+                : decision.ExplanationJson,
+            ExplanationText = decision.ExplanationText ?? string.Empty,
+            EngineVersion = decision.EngineVersion ?? string.Empty,
             CreatedDateUtc = decision.CreatedDateUtc
         };
     }
@@ -523,7 +525,7 @@ public static class TicketRoutingDecisionMappings
         return new TicketRoutingOverrideResponse
         {
             Id = @override.Id,
-            TicketId = @override.TicketId,
+            TicketId = @override.TicketId ?? string.Empty,
             OverriddenByUserId = @override.OverriddenByUserId,
             PreviousSynitiOwner = @override.PreviousSynitiOwner ?? string.Empty,
             PreviousBusinessOwner = @override.PreviousBusinessOwner ?? string.Empty,

@@ -1,4 +1,6 @@
+import { useRef } from "react";
 import type { UserNotification } from "../types/notification";
+import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 
 interface NotificationPanelProps {
   notifications: UserNotification[];
@@ -53,6 +55,8 @@ export default function NotificationPanel({
   onMarkAllRead,
   onOpenNotification,
 }: NotificationPanelProps) {
+  const notificationListScrollRef = useRef<HTMLDivElement | null>(null);
+
   return (
     <div className="absolute right-0 top-full z-[90] mt-2 w-[24rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-4 py-3 dark:border-slate-800">
@@ -108,52 +112,61 @@ export default function NotificationPanel({
           No notifications yet.
         </div>
       ) : (
-        <div className="scroll-surface max-h-[26rem] overflow-y-auto bg-white dark:bg-slate-900">
-          <div className="divide-y divide-gray-100 dark:divide-slate-800">
-            {notifications.map((notification) => (
-              <button
-                key={notification.id}
-                onClick={() => void onOpenNotification(notification)}
-                className={`w-full px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-slate-800/80 ${
-                  notification.isRead ? "" : "bg-cortex-blue-soft/40 dark:bg-cortex-blue/10"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${getTypeClass(notification.type)}`}
-                      >
-                        {getTypeLabel(notification.type)}
-                      </span>
-                      {notification.ticketId && (
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-slate-800 dark:text-slate-300">
-                          Ticket {notification.ticketId}
+        <div className="relative">
+          <div
+            ref={notificationListScrollRef}
+            className="scroll-surface max-h-[26rem] overflow-y-auto bg-white dark:bg-slate-900"
+          >
+            <div className="divide-y divide-gray-100 dark:divide-slate-800">
+              {notifications.map((notification) => (
+                <button
+                  key={notification.id}
+                  onClick={() => void onOpenNotification(notification)}
+                  className={`w-full px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-slate-800/80 ${
+                    notification.isRead ? "" : "bg-cortex-blue-soft/40 dark:bg-cortex-blue/10"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${getTypeClass(notification.type)}`}
+                        >
+                          {getTypeLabel(notification.type)}
                         </span>
-                      )}
-                      {!notification.isRead && (
-                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-cortex-cyan" />
-                      )}
+                        {notification.ticketId && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-slate-800 dark:text-slate-300">
+                            Ticket {notification.ticketId}
+                          </span>
+                        )}
+                        {!notification.isRead && (
+                          <span className="inline-flex h-2.5 w-2.5 rounded-full bg-cortex-cyan" />
+                        )}
+                      </div>
+                      <p className="mt-2 font-medium text-gray-900 dark:text-slate-100">
+                        {notification.title}
+                      </p>
+                      <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                        {notification.message}
+                      </p>
+                      <p className="mt-2 text-xs text-gray-500 dark:text-slate-500">
+                        {formatDateTime(notification.createdAt ?? notification.createdDateUtc)}
+                      </p>
                     </div>
-                    <p className="mt-2 font-medium text-gray-900 dark:text-slate-100">
-                      {notification.title}
-                    </p>
-                    <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
-                      {notification.message}
-                    </p>
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-500">
-                      {formatDateTime(notification.createdAt ?? notification.createdDateUtc)}
-                    </p>
+                    {markingNotificationId === notification.id && (
+                      <span className="text-xs text-gray-500 dark:text-slate-400">
+                        Opening...
+                      </span>
+                    )}
                   </div>
-                  {markingNotificationId === notification.id && (
-                    <span className="text-xs text-gray-500 dark:text-slate-400">
-                      Opening...
-                    </span>
-                  )}
-                </div>
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
           </div>
+          <ScrollToBottomButton
+            containerRef={notificationListScrollRef}
+            aria-label="Scroll notifications to bottom"
+          />
         </div>
       )}
     </div>

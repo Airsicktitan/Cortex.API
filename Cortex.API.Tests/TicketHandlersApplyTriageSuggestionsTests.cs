@@ -58,6 +58,15 @@ public class TicketHandlersApplyTriageSuggestionsTests
                 It.Is<IEnumerable<int>>(boardIds => boardIds.SequenceEqual(new[] { ticket.BoardId })),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ResponseMappingContext.Empty);
+        var operationalRiskService = new Mock<IOperationalRiskService>(MockBehavior.Strict);
+        operationalRiskService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OperationalRiskResponse());
+        var reassignmentRecommendationService =
+            new Mock<IReassignmentRecommendationService>(MockBehavior.Strict);
+        reassignmentRecommendationService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReassignmentRecommendationResponse());
 
         var realtimeEventService = new Mock<IRealtimeEventService>(MockBehavior.Strict);
         realtimeEventService
@@ -87,6 +96,8 @@ public class TicketHandlersApplyTriageSuggestionsTests
             ticketAuditService.Object,
             slaConfigurationService.Object,
             mappingContextFactory.Object,
+            operationalRiskService.Object,
+            reassignmentRecommendationService.Object,
             realtimeEventService.Object,
             realtimeAudienceResolver.Object,
             NullLogger<TicketHandlersLogCategory>.Instance,
@@ -161,6 +172,15 @@ public class TicketHandlersApplyTriageSuggestionsTests
                 It.Is<IEnumerable<int>>(boardIds => boardIds.SequenceEqual(new[] { ticket.BoardId })),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ResponseMappingContext.Empty);
+        var operationalRiskService = new Mock<IOperationalRiskService>(MockBehavior.Strict);
+        operationalRiskService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OperationalRiskResponse());
+        var reassignmentRecommendationService =
+            new Mock<IReassignmentRecommendationService>(MockBehavior.Strict);
+        reassignmentRecommendationService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReassignmentRecommendationResponse());
 
         var realtimeEventService = new Mock<IRealtimeEventService>(MockBehavior.Strict);
         realtimeEventService
@@ -188,6 +208,8 @@ public class TicketHandlersApplyTriageSuggestionsTests
             ticketAuditService.Object,
             slaConfigurationService.Object,
             mappingContextFactory.Object,
+            operationalRiskService.Object,
+            reassignmentRecommendationService.Object,
             realtimeEventService.Object,
             realtimeAudienceResolver.Object,
             NullLogger<TicketHandlersLogCategory>.Instance,
@@ -248,6 +270,15 @@ public class TicketHandlersApplyTriageSuggestionsTests
                 It.Is<IEnumerable<int>>(boardIds => boardIds.SequenceEqual(new[] { ticket.BoardId })),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ResponseMappingContext.Empty);
+        var operationalRiskService = new Mock<IOperationalRiskService>(MockBehavior.Strict);
+        operationalRiskService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OperationalRiskResponse());
+        var reassignmentRecommendationService =
+            new Mock<IReassignmentRecommendationService>(MockBehavior.Strict);
+        reassignmentRecommendationService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReassignmentRecommendationResponse());
 
         var realtimeEventService = new Mock<IRealtimeEventService>(MockBehavior.Strict);
         realtimeEventService
@@ -275,6 +306,8 @@ public class TicketHandlersApplyTriageSuggestionsTests
             ticketAuditService.Object,
             slaConfigurationService.Object,
             mappingContextFactory.Object,
+            operationalRiskService.Object,
+            reassignmentRecommendationService.Object,
             realtimeEventService.Object,
             realtimeAudienceResolver.Object,
             NullLogger<TicketHandlersLogCategory>.Instance,
@@ -312,6 +345,9 @@ public class TicketHandlersApplyTriageSuggestionsTests
         var ticketAuditService = new Mock<ITicketAuditService>(MockBehavior.Strict);
         var slaConfigurationService = new Mock<ISlaConfigurationService>(MockBehavior.Strict);
         var mappingContextFactory = new Mock<IResponseMappingContextFactory>(MockBehavior.Strict);
+        var operationalRiskService = new Mock<IOperationalRiskService>(MockBehavior.Strict);
+        var reassignmentRecommendationService =
+            new Mock<IReassignmentRecommendationService>(MockBehavior.Strict);
         var realtimeEventService = new Mock<IRealtimeEventService>(MockBehavior.Strict);
         var realtimeAudienceResolver = new Mock<IRealtimeAudienceResolver>(MockBehavior.Strict);
 
@@ -329,6 +365,8 @@ public class TicketHandlersApplyTriageSuggestionsTests
             ticketAuditService.Object,
             slaConfigurationService.Object,
             mappingContextFactory.Object,
+            operationalRiskService.Object,
+            reassignmentRecommendationService.Object,
             realtimeEventService.Object,
             realtimeAudienceResolver.Object,
             NullLogger<TicketHandlersLogCategory>.Instance,

@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 
 type SidebarView =
   | "dashboard"
@@ -36,6 +37,7 @@ function AppSidebar({
   const adminItems = navigationItems.filter((item) => item.group === "admin");
 
   const [isResizing, setIsResizing] = useState(false);
+  const navScrollRef = useRef<HTMLElement | null>(null);
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(width);
 
@@ -82,41 +84,45 @@ function AppSidebar({
   return (
     <aside className="relative hidden shrink-0 lg:block" style={{ width: `${width}px` }}>
       <div className="sticky top-8 flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
-        <nav className="scroll-surface flex-1 overflow-y-auto px-4 py-4">
-          <div className="space-y-8">
-            <section className="space-y-3">
-              <p className="px-4 text-xs font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-slate-400">
-                Workspace
-              </p>
-              <div className="space-y-2">
-                {workspaceItems.map((item) => {
-                  const isActive = item.view === activeView;
-                  return (
-                    <button
-                      key={item.view}
-                      onClick={() => onViewChange(item.view)}
-                      className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
-                        isActive
-                          ? "border-cortex-blue bg-cortex-blue-soft text-cortex-ink shadow-sm dark:border-cortex-blue dark:bg-cortex-blue/20 dark:text-slate-100"
-                          : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:bg-slate-900"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium">{item.label}</span>
-                        {isActive && (
-                          <span className="text-xs font-semibold uppercase tracking-wide text-cortex-blue dark:text-cortex-cyan">
-                            Active
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                        {item.description}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+        <div className="relative min-h-0 flex-1">
+          <nav
+            ref={navScrollRef}
+            className="scroll-surface h-full overflow-y-auto px-4 py-4"
+          >
+            <div className="space-y-8">
+              <section className="space-y-3">
+                <p className="px-4 text-xs font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-slate-400">
+                  Workspace
+                </p>
+                <div className="space-y-2">
+                  {workspaceItems.map((item) => {
+                    const isActive = item.view === activeView;
+                    return (
+                      <button
+                        key={item.view}
+                        onClick={() => onViewChange(item.view)}
+                        className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
+                          isActive
+                            ? "border-cortex-blue bg-cortex-blue-soft text-cortex-ink shadow-sm dark:border-cortex-blue dark:bg-cortex-blue/20 dark:text-slate-100"
+                            : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-gray-50 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:bg-slate-900"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium">{item.label}</span>
+                          {isActive && (
+                            <span className="text-xs font-semibold uppercase tracking-wide text-cortex-blue dark:text-cortex-cyan">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                          {item.description}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
 
             {adminItems.length > 0 && (
               <section className="space-y-3">
@@ -153,8 +159,13 @@ function AppSidebar({
                 </div>
               </section>
             )}
-          </div>
-        </nav>
+            </div>
+          </nav>
+          <ScrollToBottomButton
+            containerRef={navScrollRef}
+            aria-label="Scroll navigation to bottom"
+          />
+        </div>
 
         <div className="border-t border-gray-100 px-5 py-4 dark:border-slate-800">
           <p className="text-xs text-gray-500 dark:text-slate-400">

@@ -1,14 +1,9 @@
-using Cortex.API.Database;
 using Cortex.API.DTO;
-using Cortex.API.Models;
-using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Services;
 
 public sealed class OwnerWorkloadPreviewService(
-    CortexDbContext dbContext,
-    ITicketVisibilityService ticketVisibilityService,
-    ISlaConfigurationService slaConfigurationService) : IOwnerWorkloadPreviewService
+    IOwnerWorkloadScoringService ownerWorkloadScoringService) : IOwnerWorkloadPreviewService
 {
     private const int MaxOwnerKeys = 10;
 
@@ -28,75 +23,26 @@ public sealed class OwnerWorkloadPreviewService(
             return new OwnerWorkloadPreviewResponse();
         }
 
-        var visibility = await ticketVisibilityService.GetCurrentVisibilityAsync();
-        var priorityMap = await slaConfigurationService.GetPriorityMapAsync();
-        var excludeId = string.IsNullOrWhiteSpace(request.ExcludeTicketId)
-            ? null
-            : request.ExcludeTicketId.Trim();
+        var scores = await ownerWorkloadScoringService.GetScoresAsync(
+            rawKeys,
+            request.ExcludeTicketId,
+            respectCurrentVisibility: true,
+            cancellationToken);
 
-        var summaries = new List<OwnerWorkloadSummaryDto>();
-
-        foreach (var ownerKey in rawKeys)
+        return new OwnerWorkloadPreviewResponse
         {
-            // Active queue only: archived rows live in ArchivedTickets and must not be counted.
-            // Also excludes any inconsistent row still present in Tickets but with a matching ArchivedTickets id.
-            var tickets = await dbContext.Tickets
-                .AsNoTracking()
-                .Where(t =>
-                    t.SynitiOwner == ownerKey ||
-                    t.BusinessOwner == ownerKey)
-                .Where(t => t.ApprovalStatus == ApprovalStatus.Approved)
-                .Where(t => !dbContext.ArchivedTickets.Any(a => a.Id == t.Id))
-                .ToListAsync(cancellationToken);
-
-            var activeOpen = new List<Ticket>();
-            foreach (var ticket in tickets)
-            {
-                if (excludeId is not null && ticket.Id == excludeId)
+            Summaries = scores
+                .Select(score => new OwnerWorkloadSummaryDto
                 {
-                    continue;
-                }
-
-                if (TicketSlaCalculator.IsResolvedStatus(ticket.Status))
-                {
-                    continue;
-                }
-
-                if (!visibility.CanView(ticket))
-                {
-                    continue;
-                }
-
-                activeOpen.Add(ticket);
-            }
-
-            var atRisk = 0;
-            var breachedOpen = 0;
-
-            foreach (var ticket in activeOpen)
-            {
-                priorityMap.TryGetValue(ticket.Priority ?? string.Empty, out var configuration);
-                var snapshot = TicketSlaCalculator.Calculate(ticket, configuration);
-
-                if (snapshot.Status == "At Risk")
-                {
-                    atRisk++;
-                }
-                else if (snapshot.Status == "Breached")
-                {
-                    breachedOpen++;
-                }
-            }
-
-            summaries.Add(new OwnerWorkloadSummaryDto
-            {
-                OwnerKey = ownerKey!,
-                ActiveTicketCount = activeOpen.Count,
-                AtRiskTicketCount = atRisk,
-                OutsideSlaOpenCount = breachedOpen
-            });
-        }
-
-        return new OwnerWorkloadPreviewResponse { Summaries = summaries };
+                    OwnerKey = score.OwnerKey,
+                    ActiveTicketCount = score.ActiveTicketCount,
+                    HighPriorityTicketCount = score.HighPriorityTicketCount,
+                    AtRiskTicketCount = score.AtRiskTicketCount,
+                    OutsideSlaOpenCount = score.OutsideSlaOpenCount,
+                    SlaRiskTicketCount = score.SlaRiskTicketCount,
+                    WorkloadScore = score.WorkloadScore
+                })
+                .ToList()
+        };
     }
 }

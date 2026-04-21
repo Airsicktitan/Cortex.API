@@ -413,7 +413,15 @@ export default function TicketModal({
     expiresAt: number;
   } | null>(null);
   const commentThreadScrollRef = useRef<HTMLDivElement | null>(null);
-  const screenshotInsightScrollRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * The main ticket-editing column owns vertical scrolling for the modal body
+   * (Cortex Decision, Attachments, AI Analysis, AI Vision, review actions,
+   * etc.). A single jump-to-bottom control lives on this container so users
+   * can quickly reach the save/review actions after long content — the old
+   * per-section nested scroll in Cortex Decision has been removed.
+   */
+  const mainColumnScrollRef = useRef<HTMLDivElement | null>(null);
+  const ticketDetailsScrollRef = useRef<HTMLDivElement | null>(null);
   const commentThreadNearBottomRef = useRef(true);
   const commentThreadOpenScrollPendingRef = useRef(false);
   const commentThreadSendScrollPendingRef = useRef(false);
@@ -2253,8 +2261,24 @@ export default function TicketModal({
             className={`grid h-[calc(100dvh-6rem)] min-h-0 gap-6 ${ticketModalGridClass}`}
           >
             {/* ================= MAIN: ticket details / editing ================= */}
-            <div className="flex min-h-0 min-w-0 flex-col">
-              <div className="scroll-surface min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
+            <div className="relative flex min-h-0 min-w-0 flex-col">
+              {/*
+                Scroll-viewport positioning context.
+
+                The ScrollToBottomButton uses `absolute bottom-3 right-3` and
+                anchors to its nearest `relative` ancestor. This wrapper sits
+                *around the scroll viewport only* so the icon pins to the
+                bottom-right of the visible scrollable content body.
+
+                Review Actions and the Actions footer are intentionally kept
+                as SIBLINGS of this wrapper (outside its positioning context)
+                so the icon never lands on top of Save / Cancel / History.
+              */}
+              <div className="relative flex min-h-0 flex-1 flex-col">
+              <div
+                ref={mainColumnScrollRef}
+                className="scroll-surface relative min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
+              >
               {/* Header */}
               <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
                 <div className="min-w-0 flex-1">
@@ -2788,8 +2812,13 @@ export default function TicketModal({
                           Screenshot Insight
                         </p>
                         <div
-                          ref={screenshotInsightScrollRef}
+                          // `scroll-surface` applies `overscroll-behavior: contain`, which
+                          // traps wheel events at this nested scroller's bottom and freezes
+                          // the parent main-column scroll (same pattern that caused the
+                          // Cortex Decision freeze). Inline override restores default chain
+                          // behavior without losing the hidden-scrollbar styling.
                           className="scroll-surface relative max-h-[min(45vh,22rem)] overflow-y-auto pr-0.5"
+                          style={{ overscrollBehavior: "auto" }}
                         >
                         {screenshotInsightResult.unavailable ? (
                           <p
@@ -2895,10 +2924,6 @@ export default function TicketModal({
                             );
                           })()
                         )}
-                        <ScrollToBottomButton
-                          containerRef={screenshotInsightScrollRef}
-                          aria-label="Scroll screenshot insight to bottom"
-                        />
                       </div>
                       </div>
                     ) : null}
@@ -3028,6 +3053,11 @@ export default function TicketModal({
                   )}
                 </div>
               </div>
+              </div>
+              <ScrollToBottomButton
+                containerRef={mainColumnScrollRef}
+                aria-label="Scroll ticket details to bottom"
+              />
               </div>
 
               {intakeApprovalHandlers && ticket.id ? (
@@ -3221,7 +3251,7 @@ export default function TicketModal({
 
             {/* ================= COMMENTS ================= */}
             {showCommentsColumn && (
-              <div className="flex min-h-0 h-full flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30">
+              <div className="relative flex min-h-0 h-full flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30">
                 <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-slate-800">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
                     Comments
@@ -3257,11 +3287,11 @@ export default function TicketModal({
                       </button>
                     </div>
                   )}
-                  <ScrollToBottomButton
-                    containerRef={commentThreadScrollRef}
-                    aria-label="Scroll comments to bottom"
-                  />
                 </div>
+                <ScrollToBottomButton
+                  containerRef={commentThreadScrollRef}
+                  aria-label="Scroll comments to bottom"
+                />
 
                 <div className="mt-3">
                   {typingIndicatorText && (
@@ -3315,8 +3345,17 @@ export default function TicketModal({
                 </span>
               </button>
             </div>
-            <div className="scroll-surface max-h-[min(70dvh,28rem)] overflow-y-auto p-4">
-              {ticketDetailsBody}
+            <div className="relative">
+              <div
+                ref={ticketDetailsScrollRef}
+                className="scroll-surface max-h-[min(70dvh,28rem)] overflow-y-auto p-4"
+              >
+                {ticketDetailsBody}
+              </div>
+              <ScrollToBottomButton
+                containerRef={ticketDetailsScrollRef}
+                aria-label="Scroll ticket details summary to bottom"
+              />
             </div>
           </div>
         </div>

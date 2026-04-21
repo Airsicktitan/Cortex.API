@@ -8,10 +8,12 @@ namespace Cortex.API.Services;
 
 public class TicketRoutingRuleService(
     ITicketRoutingRuleRepository repository,
-    CortexDbContext dbContext) : ITicketRoutingRuleService
+    CortexDbContext dbContext,
+    IOwnerWorkloadScoringService ownerWorkloadScoringService) : ITicketRoutingRuleService
 {
     private readonly ITicketRoutingRuleRepository _repository = repository;
     private readonly CortexDbContext _dbContext = dbContext;
+    private readonly IOwnerWorkloadScoringService _ownerWorkloadScoringService = ownerWorkloadScoringService;
     private const string EngineVersion = "routing-engine-v1";
 
     public async Task<IReadOnlyList<TicketRoutingRule>> GetAllAsync()
@@ -78,8 +80,16 @@ public class TicketRoutingRuleService(
         return new TicketRoutingResolution(result.RecommendedSynitiOwner, result.RecommendedBusinessOwner);
     }
 
+    public Task<RoutingDecisionResult> EvaluateAsync(
+        RoutingFactors factors,
+        CancellationToken cancellationToken = default)
+    {
+        return EvaluateAsync(factors, excludeTicketId: null, cancellationToken);
+    }
+
     public async Task<RoutingDecisionResult> EvaluateAsync(
         RoutingFactors factors,
+        string? excludeTicketId,
         CancellationToken cancellationToken = default)
     {
         var allRules = await _repository.GetAllAsync();
@@ -98,10 +108,6 @@ public class TicketRoutingRuleService(
         var candidateMatches = enabledRules
             .Select(rule => EvaluateRuleMatch(rule, normalizedFactors))
             .Where(match => match.IsMatch)
-            .OrderByDescending(match => match.Rule.RulePriority)
-            .ThenByDescending(match => match.Rule.Weight)
-            .ThenByDescending(match => match.MatchedCriteriaCount)
-            .ThenBy(match => match.Rule.Id)
             .ToList();
 
         if (candidateMatches.Count == 0)
@@ -115,40 +121,88 @@ public class TicketRoutingRuleService(
             return BuildFallback(normalizedFactors, noMatchReason, text);
         }
 
-        var selected = candidateMatches[0];
-        var confidence = selected.MatchedCriteriaCount >= 3
+        var ownerKeys = candidateMatches
+            .SelectMany(match => GetRuleOwnerKeys(match.Rule))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var ownerScores = await _ownerWorkloadScoringService.GetScoresAsync(
+            ownerKeys,
+            excludeTicketId,
+            respectCurrentVisibility: false,
+            cancellationToken);
+        var ownerScoreMap = ownerScores.ToDictionary(score => score.OwnerKey, StringComparer.Ordinal);
+
+        var rankedCandidates = candidateMatches
+            .Select(match => BuildRankedCandidate(match, ownerScoreMap))
+            .OrderByDescending(candidate => candidate.Match.Rule.RulePriority)
+            .ThenByDescending(candidate => candidate.Match.Rule.Weight)
+            .ThenByDescending(candidate => candidate.Match.MatchedCriteriaCount)
+            .ThenBy(candidate => candidate.WorkloadScore)
+            .ThenBy(candidate => candidate.Match.Rule.Id)
+            .ToList();
+
+        var selected = rankedCandidates[0];
+        var confidence = selected.Match.MatchedCriteriaCount >= 3
             ? RoutingConfidenceLevel.High
-            : selected.MatchedCriteriaCount >= 2
+            : selected.Match.MatchedCriteriaCount >= 2
                 ? RoutingConfidenceLevel.Medium
                 : RoutingConfidenceLevel.Low;
-        var score = (selected.Rule.RulePriority * 10_000)
-            + (selected.Rule.Weight * 100)
-            + selected.MatchedCriteriaCount;
-        var tieBreakKey = $"{selected.Rule.RulePriority:D6}|{selected.Rule.Weight:D6}|{selected.MatchedCriteriaCount:D2}|{selected.Rule.Id:D10}";
+        var precedenceScore = (selected.Match.Rule.RulePriority * 10_000)
+            + (selected.Match.Rule.Weight * 100)
+            + selected.Match.MatchedCriteriaCount;
+        var tieBreakKey =
+            $"{selected.Match.Rule.RulePriority:D6}|{selected.Match.Rule.Weight:D6}|{selected.Match.MatchedCriteriaCount:D2}|{selected.WorkloadScore:D6}|{selected.Match.Rule.Id:D10}";
+        var topStaticCandidateCount = rankedCandidates.Count(candidate =>
+            candidate.Match.Rule.RulePriority == selected.Match.Rule.RulePriority &&
+            candidate.Match.Rule.Weight == selected.Match.Rule.Weight &&
+            candidate.Match.MatchedCriteriaCount == selected.Match.MatchedCriteriaCount);
+        var workloadTieBreakApplied = topStaticCandidateCount > 1;
 
         var explanationObject = new
         {
-            matchedRuleId = selected.Rule.Id,
+            matchedRuleId = selected.Match.Rule.Id,
             factors = normalizedFactors,
-            matchedCriteria = selected.MatchedCriteria,
-            rulePriority = selected.Rule.RulePriority,
-            weight = selected.Rule.Weight,
-            candidateCount = candidateMatches.Count
+            matchedCriteria = selected.Match.MatchedCriteria,
+            rulePriority = selected.Match.Rule.RulePriority,
+            weight = selected.Match.Rule.Weight,
+            candidateCount = rankedCandidates.Count,
+            topStaticCandidateCount,
+            workloadTieBreakApplied,
+            selectedWorkloadScore = selected.WorkloadScore,
+            eligibleAssignees = ownerScores
+                .OrderBy(score => score.WorkloadScore)
+                .ThenBy(score => score.OwnerKey, StringComparer.Ordinal)
+                .Select(ToWorkloadExplanation),
+            candidateAssignments = rankedCandidates.Select(candidate => new
+            {
+                matchedRuleId = candidate.Match.Rule.Id,
+                synitiOwner = NormalizeOptionalValue(candidate.Match.Rule.SynitiOwner),
+                businessOwner = NormalizeOptionalValue(candidate.Match.Rule.BusinessOwner),
+                workloadScore = candidate.WorkloadScore,
+                ownerScores = candidate.OwnerScores.Select(ToWorkloadExplanation)
+            })
         };
 
+        var explanationText = $"Matched routing rule #{selected.Match.Rule.Id} using {string.Join(", ", selected.Match.MatchedCriteria)}.";
+        if (workloadTieBreakApplied)
+        {
+            explanationText +=
+                $" Workload score broke a tie across {topStaticCandidateCount} equally ranked candidates.";
+        }
+
         return new RoutingDecisionResult(
-            MatchedRuleId: selected.Rule.Id,
+            MatchedRuleId: selected.Match.Rule.Id,
             OutcomeType: RoutingOutcomeType.RuleMatch,
             ConfidenceLevel: confidence,
             NoMatchReason: null,
-            RecommendedSynitiOwner: NormalizeOptionalValue(selected.Rule.SynitiOwner),
-            RecommendedBusinessOwner: NormalizeOptionalValue(selected.Rule.BusinessOwner),
-            PrecedenceScore: score,
+            RecommendedSynitiOwner: NormalizeOptionalValue(selected.Match.Rule.SynitiOwner),
+            RecommendedBusinessOwner: NormalizeOptionalValue(selected.Match.Rule.BusinessOwner),
+            PrecedenceScore: precedenceScore,
             TieBreakKey: tieBreakKey,
             ExplanationJson: JsonSerializer.Serialize(explanationObject),
-            ExplanationText: $"Matched routing rule #{selected.Rule.Id} using {string.Join(", ", selected.MatchedCriteria)}.",
+            ExplanationText: explanationText,
             EngineVersion: EngineVersion,
-            MatchedCriteriaCount: selected.MatchedCriteriaCount);
+            MatchedCriteriaCount: selected.Match.MatchedCriteriaCount);
     }
 
     public async Task<TicketRoutingDecision> RecordDecisionAsync(
@@ -186,6 +240,7 @@ public class TicketRoutingRuleService(
         string? newBusinessOwner,
         RoutingOverrideReasonType reasonType,
         string? reasonText,
+        DecisionImpactSnapshot? decisionImpactSnapshot = null,
         CancellationToken cancellationToken = default)
     {
         var entity = new TicketRoutingOverride
@@ -199,6 +254,18 @@ public class TicketRoutingRuleService(
             OverrideReasonType = reasonType,
             OverrideReasonText = NormalizeOptionalValue(reasonText)
         };
+
+        if (decisionImpactSnapshot is not null)
+        {
+            entity.DecisionImpactPreviousOwnerId = decisionImpactSnapshot.PreviousOwnerId;
+            entity.DecisionImpactAssignmentField = NormalizeOptionalValue(decisionImpactSnapshot.AssignmentField);
+            entity.DecisionImpactPreviousOwnerWorkload = decisionImpactSnapshot.PreviousOwnerWorkload;
+            entity.DecisionImpactPreviousPressureLevel = NormalizeOptionalValue(decisionImpactSnapshot.PreviousPressureLevel);
+            entity.DecisionImpactPreviousRiskLevel = NormalizeOptionalValue(decisionImpactSnapshot.PreviousRiskLevel);
+            entity.DecisionImpactPreviousSlaStatus = NormalizeOptionalValue(decisionImpactSnapshot.PreviousSlaStatus);
+            entity.DecisionImpactAppliedAtUtc = decisionImpactSnapshot.AppliedAtUtc;
+            entity.DecisionImpactSource = NormalizeOptionalValue(decisionImpactSnapshot.Source);
+        }
 
         await _dbContext.TicketRoutingOverrides.AddAsync(entity, cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -224,6 +291,19 @@ public class TicketRoutingRuleService(
             .AsNoTracking()
             .OrderByDescending(@override => @override.CreatedDateUtc)
             .ThenByDescending(@override => @override.Id)
+            .Select(@override => new TicketRoutingOverride
+            {
+                Id = @override.Id,
+                TicketId = @override.TicketId,
+                OverriddenByUserId = @override.OverriddenByUserId,
+                PreviousSynitiOwner = @override.PreviousSynitiOwner,
+                PreviousBusinessOwner = @override.PreviousBusinessOwner,
+                NewSynitiOwner = @override.NewSynitiOwner,
+                NewBusinessOwner = @override.NewBusinessOwner,
+                OverrideReasonType = @override.OverrideReasonType,
+                OverrideReasonText = @override.OverrideReasonText,
+                CreatedDateUtc = @override.CreatedDateUtc,
+            })
             .FirstOrDefaultAsync(@override => @override.TicketId == ticketId, cancellationToken);
     }
 
@@ -440,6 +520,49 @@ public class TicketRoutingRuleService(
         return true;
     }
 
+    private static RankedCandidate BuildRankedCandidate(
+        RuleMatchResult match,
+        IReadOnlyDictionary<string, OwnerWorkloadScoreSnapshot> ownerScoreMap)
+    {
+        var ownerKeys = GetRuleOwnerKeys(match.Rule).ToList();
+        var ownerScores = ownerKeys
+            .Select(ownerKey => ownerScoreMap.TryGetValue(ownerKey, out var score)
+                ? score
+                : new OwnerWorkloadScoreSnapshot(ownerKey, 0, 0, 0, 0, 0, 0))
+            .ToList();
+
+        // Sum unique owner workloads so dual-owner routes reflect the combined operational load.
+        var workloadScore = ownerScores.Sum(score => score.WorkloadScore);
+
+        return new RankedCandidate(match, workloadScore, ownerScores);
+    }
+
+    private static IEnumerable<string> GetRuleOwnerKeys(TicketRoutingRule rule)
+    {
+        return new string?[]
+        {
+            NormalizeOptionalValue(rule.SynitiOwner),
+            NormalizeOptionalValue(rule.BusinessOwner)
+        }
+        .Where(ownerKey => !string.IsNullOrWhiteSpace(ownerKey))
+        .Select(ownerKey => ownerKey!)
+        .Distinct(StringComparer.Ordinal);
+    }
+
+    private static object ToWorkloadExplanation(OwnerWorkloadScoreSnapshot score)
+    {
+        return new
+        {
+            ownerKey = score.OwnerKey,
+            score = score.WorkloadScore,
+            activeTicketCount = score.ActiveTicketCount,
+            highPriorityTicketCount = score.HighPriorityTicketCount,
+            atRiskTicketCount = score.AtRiskTicketCount,
+            outsideSlaOpenCount = score.OutsideSlaOpenCount,
+            slaRiskTicketCount = score.SlaRiskTicketCount
+        };
+    }
+
     private static RoutingDecisionResult BuildFallback(
         RoutingFactors factors,
         RoutingNoMatchReason noMatchReason,
@@ -510,4 +633,9 @@ public class TicketRoutingRuleService(
         public int MatchedCriteriaCount => MatchedCriteria.Count;
         public static RuleMatchResult NoMatch(TicketRoutingRule rule) => new(rule, false, []);
     }
+
+    private sealed record RankedCandidate(
+        RuleMatchResult Match,
+        int WorkloadScore,
+        IReadOnlyList<OwnerWorkloadScoreSnapshot> OwnerScores);
 }

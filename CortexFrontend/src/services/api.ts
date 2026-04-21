@@ -1,5 +1,7 @@
 import type {
   CreateTicketInput,
+  ReassignmentApplyRequest,
+  ReassignmentApplyResponse,
   ReviewerQualitySignalMetricsPayload,
   Ticket,
   TicketMutationInput,
@@ -663,6 +665,31 @@ export const ticketService = {
 
     await ensureSuccess(response, "Unable to reject ticket");
     return response.json() as Promise<Ticket>;
+  },
+
+  async applyReassignment(
+    id: string,
+    body: ReassignmentApplyRequest,
+    token: string,
+  ): Promise<ReassignmentApplyResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/reassignment/apply`,
+      {
+        method: "POST",
+        headers: authHeaders(token, true),
+        body: JSON.stringify({
+          ticketId: body.ticketId,
+          selectedOwnerId: body.selectedOwnerId,
+          reason: body.reason,
+          source: body.source,
+          concurrencyToken: body.concurrencyToken,
+          expectedCurrentOwnerKey: body.expectedCurrentOwnerKey,
+        }),
+      },
+    );
+
+    await ensureSuccess(response, "Unable to apply reassignment");
+    return response.json() as Promise<ReassignmentApplyResponse>;
   },
 };
 

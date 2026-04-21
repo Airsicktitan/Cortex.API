@@ -47,6 +47,9 @@ public class TicketResponse
     public string SlaStatus { get; set; } = string.Empty;
     public int SlaRemainingMinutes { get; set; }
     public bool IsSlaBreached { get; set; }
+    public OperationalRiskResponse? OperationalRisk { get; set; }
+    public ReassignmentRecommendationResponse? ReassignmentRecommendation { get; set; }
+    public DecisionImpactResponse? DecisionImpact { get; set; }
 
     /// <summary>Base64-encoded row version; send as <c>concurrencyToken</c> on updates.</summary>
     public string ConcurrencyToken { get; set; } = string.Empty;

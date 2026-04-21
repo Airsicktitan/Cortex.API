@@ -451,7 +451,7 @@ export function ApprovalTriageModalColumn({
       className="flex min-h-0 min-w-0 flex-col border-t border-gray-200 pt-4 dark:border-slate-800 lg:min-h-0 lg:flex-1 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0"
       aria-label="Intake insight"
     >
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/45">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/45">
         {canRegenerate ? (
           <div className="flex shrink-0 justify-end border-b border-gray-100 px-3 py-2.5 dark:border-slate-800">
             <button
@@ -467,23 +467,25 @@ export function ApprovalTriageModalColumn({
             </button>
           </div>
         ) : null}
-        <div
-          ref={triageScrollRef}
-          className={`relative min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 ${canRegenerate ? "" : "pt-4"}`}
-        >
-          <ApprovalTriagePanel
-            triage={ticket.approvalTriagePreview}
-            presentation="modalColumn"
-            ticketTitle={ticket.title}
-            ticketDescription={ticket.description}
-          />
-          {screenshotInsightPersistedHasContent(ticket.screenshotInsight) ? (
-            <div className="mt-6 border-t border-gray-200/90 pt-6 dark:border-slate-700/90">
-              <ScreenshotInsightTriagePanel
-                insight={ticket.screenshotInsight!}
-              />
-            </div>
-          ) : null}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={triageScrollRef}
+            className={`scroll-surface h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 ${canRegenerate ? "" : "pt-4"}`}
+          >
+            <ApprovalTriagePanel
+              triage={ticket.approvalTriagePreview}
+              presentation="modalColumn"
+              ticketTitle={ticket.title}
+              ticketDescription={ticket.description}
+            />
+            {screenshotInsightPersistedHasContent(ticket.screenshotInsight) ? (
+              <div className="mt-6 border-t border-gray-200/90 pt-6 dark:border-slate-700/90">
+                <ScreenshotInsightTriagePanel
+                  insight={ticket.screenshotInsight!}
+                />
+              </div>
+            ) : null}
+          </div>
           <ScrollToBottomButton
             containerRef={triageScrollRef}
             aria-label="Scroll intake insight to bottom"

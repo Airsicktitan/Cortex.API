@@ -56,6 +56,82 @@ export interface TicketTriageApplyRequest {
   changeReason?: string;
 }
 
+export type OperationalRiskLevel = "low" | "moderate" | "high" | "critical";
+export type OwnerPressureLevel = "low" | "moderate" | "high" | "critical";
+
+export interface OwnerPressureAssessment {
+  workloadScore: number;
+  pressureLevel: OwnerPressureLevel;
+}
+
+export interface OperationalRiskAssessment {
+  operationalRiskScore: number;
+  riskLevel: OperationalRiskLevel | string;
+  reasons: string[];
+  recommendedAction: string;
+  ownerPressure: OwnerPressureAssessment;
+  isAssignmentSafe: boolean;
+  isOwnerOverloaded: boolean;
+  isOwnershipComplete: boolean;
+}
+
+export interface ReassignmentOwnerSnapshot {
+  userId?: number | null;
+  ownerKey: string;
+  displayName: string;
+  workloadScore: number;
+  pressureLevel: OwnerPressureLevel | string;
+}
+
+export interface ReassignmentTarget extends ReassignmentOwnerSnapshot {
+  isBetterThanCurrent: boolean;
+  improvementReason: string;
+}
+
+export interface ReassignmentRecommendation {
+  shouldSuggestReassignment: boolean;
+  reason: string;
+  assignmentField?: "synitiOwner" | "businessOwner" | "unassigned" | string;
+  currentOwner?: ReassignmentOwnerSnapshot | null;
+  suggestedTargets: ReassignmentTarget[];
+}
+
+export interface DecisionImpact {
+  hasImpact: boolean;
+  previousRiskLevel: OperationalRiskLevel | string;
+  currentRiskLevel: OperationalRiskLevel | string;
+  riskImproved: boolean;
+  previousOwnerWorkload: number;
+  currentOwnerWorkload: number;
+  workloadImproved: boolean;
+  previousPressureLevel: OwnerPressureLevel | string;
+  currentPressureLevel: OwnerPressureLevel | string;
+  pressureImproved: boolean;
+  summary: string;
+  appliedAtUtc: string;
+  source: string;
+}
+
+export interface ReassignmentApplyRequest {
+  ticketId: string;
+  selectedOwnerId: number;
+  reason?: string;
+  source?: string;
+  concurrencyToken?: string;
+  expectedCurrentOwnerKey?: string;
+}
+
+export interface ReassignmentApplyResponse {
+  ticketId: string;
+  previousOwner: string;
+  newOwner: string;
+  applied: boolean;
+  appliedAtUtc: string;
+  auditMessage: string;
+  reassignmentSource: string;
+  ticket?: Ticket | null;
+}
+
 export interface Ticket {
   id: string;
   title: string;
@@ -102,6 +178,9 @@ export interface Ticket {
   slaStatus: string;
   slaRemainingMinutes: number;
   isSlaBreached: boolean;
+  operationalRisk?: OperationalRiskAssessment | null;
+  reassignmentRecommendation?: ReassignmentRecommendation | null;
+  decisionImpact?: DecisionImpact | null;
   /** Base64 row version from API; required when updating an existing ticket. */
   concurrencyToken?: string;
 }

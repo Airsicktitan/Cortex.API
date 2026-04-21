@@ -51,6 +51,15 @@ public class TicketHandlersUpdateConcurrencyTests
         {
             ConcurrencyToken = staleClientToken,
         };
+        var operationalRiskService = new Mock<IOperationalRiskService>(MockBehavior.Strict);
+        operationalRiskService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OperationalRiskResponse());
+        var reassignmentRecommendationService =
+            new Mock<IReassignmentRecommendationService>(MockBehavior.Strict);
+        reassignmentRecommendationService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReassignmentRecommendationResponse());
 
         var httpContext = new DefaultHttpContext();
 
@@ -69,6 +78,8 @@ public class TicketHandlersUpdateConcurrencyTests
             Mock.Of<ITicketTriageAiService>(),
             Mock.Of<ITicketTriageVocabularyProvider>(),
             Mock.Of<ITicketAuditService>(),
+            operationalRiskService.Object,
+            reassignmentRecommendationService.Object,
             Mock.Of<INotificationService>(),
             Mock.Of<IRealtimeEventService>(),
             Mock.Of<IRealtimeAudienceResolver>(),

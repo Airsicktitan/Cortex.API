@@ -415,6 +415,16 @@ public class CortexDbContext : DbContext
                 .HasMaxLength(40);
             entity.Property(@override => @override.OverrideReasonText)
                 .HasMaxLength(1000);
+            entity.Property(@override => @override.DecisionImpactAssignmentField)
+                .HasMaxLength(40);
+            entity.Property(@override => @override.DecisionImpactPreviousPressureLevel)
+                .HasMaxLength(20);
+            entity.Property(@override => @override.DecisionImpactPreviousRiskLevel)
+                .HasMaxLength(20);
+            entity.Property(@override => @override.DecisionImpactPreviousSlaStatus)
+                .HasMaxLength(40);
+            entity.Property(@override => @override.DecisionImpactSource)
+                .HasMaxLength(80);
             entity.HasIndex(@override => new { @override.TicketId, @override.CreatedDateUtc });
             entity.HasOne<Ticket>()
                 .WithMany()

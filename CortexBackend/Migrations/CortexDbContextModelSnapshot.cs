@@ -1034,6 +1034,35 @@ namespace Cortex.API.Migrations
                     b.Property<DateTime>("CreatedDateUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("DecisionImpactAppliedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DecisionImpactAssignmentField")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<int?>("DecisionImpactPreviousOwnerId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("DecisionImpactPreviousOwnerWorkload")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DecisionImpactPreviousPressureLevel")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("DecisionImpactPreviousRiskLevel")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("DecisionImpactPreviousSlaStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("DecisionImpactSource")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
                     b.Property<string>("NewBusinessOwner")
                         .HasColumnType("nvarchar(max)");
 

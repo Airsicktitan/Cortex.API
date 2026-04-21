@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { getUserFacingErrorMessage, ticketService } from "../services/api";
 import type { TicketAuditEntry } from "../types/ticketAudit";
 import { formatDisplayDateTime, formatDisplayValue } from "../utils/presentation";
+import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 
 const API_AUDIENCE = "https://cortex-api";
 
@@ -40,6 +41,7 @@ export default function TicketHistoryModal({
   const [history, setHistory] = useState<TicketAuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const historyScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -134,39 +136,43 @@ export default function TicketHistoryModal({
             </button>
           </div>
 
-          <div className="scroll-surface max-h-[calc(min(90dvh,85vh)-5.5rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-            {loading ? (
-              <div className="space-y-4">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="animate-pulse rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-slate-800 dark:bg-slate-950/40"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="h-5 w-40 rounded bg-gray-200 dark:bg-slate-800" />
-                      <div className="h-6 w-20 rounded-full bg-gray-200 dark:bg-slate-800" />
+          <div className="relative">
+            <div
+              ref={historyScrollRef}
+              className="scroll-surface max-h-[calc(min(90dvh,85vh)-5.5rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5"
+            >
+              {loading ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div
+                      key={index}
+                      className="animate-pulse rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-slate-800 dark:bg-slate-950/40"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="h-5 w-40 rounded bg-gray-200 dark:bg-slate-800" />
+                        <div className="h-6 w-20 rounded-full bg-gray-200 dark:bg-slate-800" />
+                      </div>
+                      <div className="mt-4 h-4 w-64 rounded bg-gray-200 dark:bg-slate-800" />
+                      <div className="mt-3 h-4 w-full rounded bg-gray-200 dark:bg-slate-800" />
+                      <div className="mt-2 h-4 w-5/6 rounded bg-gray-200 dark:bg-slate-800" />
                     </div>
-                    <div className="mt-4 h-4 w-64 rounded bg-gray-200 dark:bg-slate-800" />
-                    <div className="mt-3 h-4 w-full rounded bg-gray-200 dark:bg-slate-800" />
-                    <div className="mt-2 h-4 w-5/6 rounded bg-gray-200 dark:bg-slate-800" />
-                  </div>
-                ))}
-              </div>
-            ) : error ? (
-              <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
-                <p className="text-red-700 dark:text-red-300">{error}</p>
-              </div>
-            ) : history.length === 0 ? (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 px-6 py-12 text-center text-gray-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400">
-                No audit history has been recorded for this ticket yet.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {history.map((entry) => (
-                  <section
-                    key={entry.id}
-                    className="rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-slate-800 dark:bg-slate-950/40"
-                  >
+                  ))}
+                </div>
+              ) : error ? (
+                <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
+                  <p className="text-red-700 dark:text-red-300">{error}</p>
+                </div>
+              ) : history.length === 0 ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-6 py-12 text-center text-gray-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400">
+                  No audit history has been recorded for this ticket yet.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {history.map((entry) => (
+                    <section
+                      key={entry.id}
+                      className="rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-slate-800 dark:bg-slate-950/40"
+                    >
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div>
                         <div className="flex flex-wrap items-center gap-3">
@@ -223,10 +229,15 @@ export default function TicketHistoryModal({
                         </table>
                       </div>
                     )}
-                  </section>
-                ))}
-              </div>
-            )}
+                    </section>
+                  ))}
+                </div>
+              )}
+            </div>
+            <ScrollToBottomButton
+              containerRef={historyScrollRef}
+              aria-label="Scroll audit history to bottom"
+            />
           </div>
         </div>
       </div>

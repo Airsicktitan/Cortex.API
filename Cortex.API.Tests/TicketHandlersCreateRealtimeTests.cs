@@ -134,6 +134,15 @@ public class TicketHandlersCreateRealtimeTests
             .Returns(Task.CompletedTask);
 
         var notificationService = new Mock<INotificationService>(MockBehavior.Strict);
+        var operationalRiskService = new Mock<IOperationalRiskService>(MockBehavior.Strict);
+        operationalRiskService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OperationalRiskResponse());
+        var reassignmentRecommendationService =
+            new Mock<IReassignmentRecommendationService>(MockBehavior.Strict);
+        reassignmentRecommendationService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReassignmentRecommendationResponse());
 
         var realtimeMessages = new List<RealtimeEventMessage>();
         var realtimeEventService = new Mock<IRealtimeEventService>(MockBehavior.Strict);
@@ -171,6 +180,8 @@ public class TicketHandlersCreateRealtimeTests
             triageAi.Object,
             triageVocabulary.Object,
             ticketAuditService.Object,
+            operationalRiskService.Object,
+            reassignmentRecommendationService.Object,
             notificationService.Object,
             realtimeEventService.Object,
             realtimeAudienceResolver.Object,
@@ -330,6 +341,15 @@ public class TicketHandlersCreateRealtimeTests
             .Returns(Task.CompletedTask);
 
         var notificationService = new Mock<INotificationService>(MockBehavior.Strict);
+        var operationalRiskService = new Mock<IOperationalRiskService>(MockBehavior.Strict);
+        operationalRiskService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OperationalRiskResponse());
+        var reassignmentRecommendationService =
+            new Mock<IReassignmentRecommendationService>(MockBehavior.Strict);
+        reassignmentRecommendationService
+            .Setup(service => service.EvaluateAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReassignmentRecommendationResponse());
 
         var realtimeMessages = new List<RealtimeEventMessage>();
         var realtimeEventService = new Mock<IRealtimeEventService>(MockBehavior.Strict);
@@ -367,6 +387,8 @@ public class TicketHandlersCreateRealtimeTests
             triageAi.Object,
             triageVocabulary.Object,
             ticketAuditService.Object,
+            operationalRiskService.Object,
+            reassignmentRecommendationService.Object,
             notificationService.Object,
             realtimeEventService.Object,
             realtimeAudienceResolver.Object,

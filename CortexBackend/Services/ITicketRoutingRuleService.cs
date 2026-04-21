@@ -12,6 +12,10 @@ public interface ITicketRoutingRuleService
     Task DeleteAsync(int id);
     Task<TicketRoutingResolution> ResolveOwnersAsync(string? department, string? title);
     Task<RoutingDecisionResult> EvaluateAsync(RoutingFactors factors, CancellationToken cancellationToken = default);
+    Task<RoutingDecisionResult> EvaluateAsync(
+        RoutingFactors factors,
+        string? excludeTicketId,
+        CancellationToken cancellationToken = default);
     Task<TicketRoutingDecision> RecordDecisionAsync(string ticketId, RoutingDecisionResult decision, CancellationToken cancellationToken = default);
     Task<TicketRoutingOverride> RecordOverrideAsync(
         string ticketId,
@@ -22,6 +26,7 @@ public interface ITicketRoutingRuleService
         string? newBusinessOwner,
         RoutingOverrideReasonType reasonType,
         string? reasonText,
+        DecisionImpactSnapshot? decisionImpactSnapshot = null,
         CancellationToken cancellationToken = default);
     Task<TicketRoutingDecision?> GetLatestDecisionAsync(string ticketId, CancellationToken cancellationToken = default);
     Task<TicketRoutingOverride?> GetLatestOverrideAsync(string ticketId, CancellationToken cancellationToken = default);

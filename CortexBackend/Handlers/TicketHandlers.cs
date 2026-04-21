@@ -7,6 +7,7 @@ using Cortex.API.Services;
 using Cortex.API.Validation;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
@@ -36,7 +37,10 @@ public static class TicketHandlers
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
+        [FromServices] IDecisionImpactService decisionImpactService)
     {
         if (!QueryParameterValidation.TryValidateOptionalBoardId(boardId, out var normalizedBoardId, out var boardIdError))
         {
@@ -63,9 +67,13 @@ public static class TicketHandlers
                 null,
                 tickets.Select(ticket => ticket.BoardId));
 
-            var items = tickets
-                .Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext))
-                .ToList();
+            var items = await MapTicketResponsesAsync(
+                tickets,
+                slaConfigurations,
+                mappingContext,
+                operationalRiskService,
+                reassignmentRecommendationService,
+                decisionImpactService);
 
             return Results.Ok(new PagedTicketListResponse
             {
@@ -89,9 +97,13 @@ public static class TicketHandlers
                 null,
                 ordered.Select(ticket => ticket.BoardId));
 
-            var responses = ordered
-                .Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext))
-                .ToList();
+            var responses = await MapTicketResponsesAsync(
+                ordered,
+                slaConfigurations,
+                mappingContext,
+                operationalRiskService,
+                reassignmentRecommendationService,
+                decisionImpactService);
 
             if (QueryParameterValidation.IsSlaTicketListSort(normalizedSort))
             {
@@ -126,9 +138,13 @@ public static class TicketHandlers
                 null,
                 tickets.Select(ticket => ticket.BoardId));
 
-            var responses = tickets
-                .Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext))
-                .ToList();
+            var responses = await MapTicketResponsesAsync(
+                tickets,
+                slaConfigurations,
+                mappingContext,
+                operationalRiskService,
+                reassignmentRecommendationService,
+                decisionImpactService);
             responses = SortTicketResponsesBySla(responses, normalizedSort);
 
             var totalCount = responses.Count;
@@ -159,9 +175,13 @@ public static class TicketHandlers
             null,
             pageTickets.Select(ticket => ticket.BoardId));
 
-        var pagedResponses = pageTickets
-            .Select(ticket => ticket.ToResponse(slaConfigurations, pageMappingContext))
-            .ToList();
+        var pagedResponses = await MapTicketResponsesAsync(
+            pageTickets,
+            slaConfigurations,
+            pageMappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService,
+            decisionImpactService);
 
         return Results.Ok(new PagedTicketListResponse
         {
@@ -214,12 +234,81 @@ public static class TicketHandlers
     private static int ComputeTotalPages(int totalCount, int pageSize) =>
         pageSize <= 0 ? 0 : (totalCount + pageSize - 1) / pageSize;
 
+    private static async Task<List<TicketResponse>> MapTicketResponsesAsync(
+        IReadOnlyList<Ticket> tickets,
+        IReadOnlyDictionary<string, SlaConfiguration> slaConfigurations,
+        ResponseMappingContext mappingContext,
+        IOperationalRiskService operationalRiskService,
+        IReassignmentRecommendationService reassignmentRecommendationService,
+        IDecisionImpactService? decisionImpactService = null,
+        CancellationToken cancellationToken = default)
+    {
+        var responses = tickets
+            .Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext))
+            .ToList();
+        if (responses.Count == 0)
+        {
+            return responses;
+        }
+
+        var riskByTicketId = await operationalRiskService.EvaluateBatchAsync(tickets, cancellationToken);
+        var reassignmentByTicketId = await reassignmentRecommendationService.EvaluateBatchAsync(
+            tickets,
+            cancellationToken);
+        IReadOnlyDictionary<string, DecisionImpactResponse> impactByTicketId = decisionImpactService is null
+            ? new Dictionary<string, DecisionImpactResponse>(StringComparer.Ordinal)
+            : await decisionImpactService.EvaluateBatchAsync(tickets, cancellationToken);
+        foreach (var response in responses)
+        {
+            if (riskByTicketId.TryGetValue(response.Id, out var risk))
+            {
+                response.OperationalRisk = risk;
+            }
+            if (reassignmentByTicketId.TryGetValue(response.Id, out var reassignment))
+            {
+                response.ReassignmentRecommendation = reassignment;
+            }
+            if (impactByTicketId.TryGetValue(response.Id, out var impact))
+            {
+                response.DecisionImpact = impact;
+            }
+        }
+
+        return responses;
+    }
+
+    private static async Task<TicketResponse> MapTicketResponseAsync(
+        Ticket ticket,
+        IReadOnlyDictionary<string, SlaConfiguration> slaConfigurations,
+        ResponseMappingContext mappingContext,
+        IOperationalRiskService operationalRiskService,
+        IReassignmentRecommendationService reassignmentRecommendationService,
+        IDecisionImpactService? decisionImpactService = null,
+        CancellationToken cancellationToken = default)
+    {
+        var response = ticket.ToResponse(slaConfigurations, mappingContext);
+        response.OperationalRisk = await operationalRiskService.EvaluateAsync(ticket, cancellationToken);
+        response.ReassignmentRecommendation = await reassignmentRecommendationService.EvaluateAsync(
+            ticket,
+            cancellationToken);
+        if (decisionImpactService is not null)
+        {
+            response.DecisionImpact = await decisionImpactService.EvaluateAsync(
+                ticket,
+                cancellationToken);
+        }
+        return response;
+    }
+
     public static async Task<IResult> GetTicketById(
         string id,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
+        [FromServices] IDecisionImpactService decisionImpactService)
     {
         var ticket = await repo.GetTicketByIdAsync(id);
         if (ticket is null)
@@ -239,7 +328,13 @@ public static class TicketHandlers
             null,
             [ticket.BoardId]);
 
-        return Results.Ok(ticket.ToResponse(slaConfigurations, mappingContext));
+        return Results.Ok(await MapTicketResponseAsync(
+            ticket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService,
+            decisionImpactService));
     }
 
     public static async Task<IResult> GetTicketHistory(
@@ -286,7 +381,8 @@ public static class TicketHandlers
         string id,
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
-        ITicketRoutingRuleService ticketRoutingRuleService)
+        ITicketRoutingRuleService ticketRoutingRuleService,
+        ILogger<TicketHandlersLogCategory> logger)
     {
         var ticket = await repo.GetTicketByIdAsync(id);
         if (ticket is null)
@@ -300,13 +396,24 @@ public static class TicketHandlers
             return Results.NotFound();
         }
 
-        var decision = await ticketRoutingRuleService.GetLatestDecisionAsync(id);
-        var @override = await ticketRoutingRuleService.GetLatestOverrideAsync(id);
-        return Results.Ok(new TicketRoutingLatestResponse
+        try
         {
-            Decision = decision?.ToResponse(),
-            Override = @override?.ToResponse()
-        });
+            var decision = await ticketRoutingRuleService.GetLatestDecisionAsync(id);
+            var @override = await ticketRoutingRuleService.GetLatestOverrideAsync(id);
+            return Results.Ok(new TicketRoutingLatestResponse
+            {
+                Decision = decision?.ToResponse(),
+                Override = @override?.ToResponse()
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Unable to load optional routing details for ticket {TicketId}. Returning empty routing details.",
+                id);
+            return Results.Ok(new TicketRoutingLatestResponse());
+        }
     }
 
     public static async Task<IResult> PostOwnerWorkloadPreview(
@@ -378,10 +485,183 @@ public static class TicketHandlers
             legacyDepartment,
             title);
 
-        var result = await ticketRoutingRuleService.EvaluateAsync(factors);
+        var result = await ticketRoutingRuleService.EvaluateAsync(factors, body.TicketId.Trim());
         return Results.Ok(new RoutingPreviewResponse
         {
             Decision = result.ToPreviewResponse(ticket.Id)
+        });
+    }
+
+    public static async Task<IResult> ApplyGuidedReassignment(
+        string id,
+        ReassignmentApplyRequest? request,
+        HttpContext httpContext,
+        ITicketRepository repo,
+        IUserContextService userContext,
+        ITicketVisibilityService ticketVisibilityService,
+        ISlaConfigurationService slaConfigurationService,
+        ITicketAuditService ticketAuditService,
+        ITicketRoutingRuleService ticketRoutingRuleService,
+        IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
+        IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
+        [FromServices] IReassignmentExecutionService reassignmentExecutionService,
+        [FromServices] IDecisionImpactService decisionImpactService)
+    {
+        var body = request ?? new ReassignmentApplyRequest();
+        if (!string.IsNullOrWhiteSpace(body.TicketId)
+            && !string.Equals(body.TicketId.Trim(), id.Trim(), StringComparison.Ordinal))
+        {
+            return Results.BadRequest(new { message = "TicketId does not match route id." });
+        }
+
+        if (!HasBusinessTicketEditRole(httpContext.User))
+        {
+            return Results.Json(
+                new { message = "You do not have permission to update ticket ownership." },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        if (!string.IsNullOrWhiteSpace(body.ConcurrencyToken))
+        {
+            byte[] incomingRowVersion;
+            try
+            {
+                incomingRowVersion = Convert.FromBase64String(body.ConcurrencyToken.Trim());
+            }
+            catch (FormatException)
+            {
+                return Results.BadRequest(new { message = "Invalid concurrency token." });
+            }
+
+            if (ticket.RowVersion is not { Length: > 0 }
+                || !incomingRowVersion.AsSpan().SequenceEqual(ticket.RowVersion))
+            {
+                return Results.Conflict(new
+                {
+                    message =
+                        "Ticket assignment changed before reassignment could be applied.",
+                });
+            }
+        }
+
+        var originalTicket = CloneTicket(ticket);
+        var currentUser = await userContext.GetCurrentUserAsync();
+        var executionResult = await reassignmentExecutionService.ExecuteAsync(
+            ticket,
+            body,
+            currentUser);
+        if (!executionResult.Succeeded)
+        {
+            return Results.Json(
+                new { message = executionResult.Message },
+                statusCode: executionResult.StatusCode);
+        }
+
+        await repo.UpdateTicketAsync(ticket);
+        try
+        {
+            await repo.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Results.Conflict(new
+            {
+                message = "Ticket assignment changed before reassignment could be applied.",
+            });
+        }
+
+        var auditReason = string.IsNullOrWhiteSpace(body.Reason)
+            ? "Selected from suggested reassignment targets."
+            : body.Reason.Trim();
+        var auditMessage =
+            $"Owner reassigned from {executionResult.PreviousOwner} to {executionResult.NewOwner} using Cortex recommendation review flow.";
+
+        await ticketAuditService.RecordTicketUpdatedAsync(
+            originalTicket,
+            ticket,
+            currentUser,
+            $"{auditReason} Source={executionResult.ReassignmentSource}");
+
+        if (executionResult.AssignmentField == "synitiOwner")
+        {
+            await ticketRoutingRuleService.RecordOverrideAsync(
+                ticket.Id,
+                currentUser.Id,
+                executionResult.PreviousOwner,
+                ticket.BusinessOwner,
+                executionResult.NewOwner,
+                ticket.BusinessOwner,
+                RoutingOverrideReasonType.WorkloadAdjustment,
+                $"{auditReason} ({executionResult.ReassignmentSource})",
+                executionResult.DecisionImpactSnapshot);
+        }
+        else if (executionResult.AssignmentField == "businessOwner")
+        {
+            await ticketRoutingRuleService.RecordOverrideAsync(
+                ticket.Id,
+                currentUser.Id,
+                ticket.SynitiOwner,
+                executionResult.PreviousOwner,
+                ticket.SynitiOwner,
+                executionResult.NewOwner,
+                RoutingOverrideReasonType.WorkloadAdjustment,
+                $"{auditReason} ({executionResult.ReassignmentSource})",
+                executionResult.DecisionImpactSnapshot);
+        }
+
+        var refreshedTicket = await repo.GetTicketByIdAsync(ticket.Id);
+        if (refreshedTicket is null)
+        {
+            return Results.Problem("Ticket was updated but could not be retrieved.");
+        }
+
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            [refreshedTicket.CreatedBy],
+            null,
+            [refreshedTicket.BoardId]);
+        var responseTicket = await MapTicketResponseAsync(
+            refreshedTicket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService,
+            decisionImpactService);
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(refreshedTicket);
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "ticket.updated",
+            TicketId = refreshedTicket.Id,
+            EntityId = refreshedTicket.Id,
+            AudienceUserIds = audienceUserIds,
+            Ticket = responseTicket,
+        });
+
+        return Results.Ok(new ReassignmentApplyResponse
+        {
+            TicketId = refreshedTicket.Id,
+            PreviousOwner = executionResult.PreviousOwner ?? string.Empty,
+            NewOwner = executionResult.NewOwner ?? string.Empty,
+            Applied = true,
+            AppliedAtUtc = DateTime.UtcNow,
+            AuditMessage = auditMessage,
+            ReassignmentSource = executionResult.ReassignmentSource,
+            Ticket = responseTicket,
         });
     }
 
@@ -492,7 +772,9 @@ public static class TicketHandlers
         ITicketVisibilityService ticketVisibilityService,
         ITicketStatusService ticketStatusService,
         ISlaConfigurationService slaConfigurationService,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService)
     {
         if (!QueryParameterValidation.TryValidateSafeFilterString(status, out var trimmedStatus, out var statusError))
         {
@@ -527,7 +809,13 @@ public static class TicketHandlers
             null,
             visibleTickets.Select(ticket => ticket.BoardId));
 
-        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
+        var responses = await MapTicketResponsesAsync(
+            visibleTickets,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
+        return Results.Ok(responses);
     }
 
     public static async Task<IResult> GetTicketsByPriority(
@@ -535,7 +823,9 @@ public static class TicketHandlers
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService)
     {
         if (!QueryParameterValidation.TryValidateSafeFilterString(priority, out var trimmedPriority, out var priorityError))
         {
@@ -565,14 +855,22 @@ public static class TicketHandlers
             null,
             visibleTickets.Select(ticket => ticket.BoardId));
 
-        return Results.Ok(visibleTickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
+        var responses = await MapTicketResponsesAsync(
+            visibleTickets,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
+        return Results.Ok(responses);
     }
 
     public static async Task<IResult> GetTicketsByUser(
         IUserContextService userContext,
         ITicketRepository repo,
         ISlaConfigurationService slaConfigurationService,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService)
     {
         var currentUser = await userContext.GetCurrentUserAsync();
         var tickets = (await repo.GetTicketByUserAsync(currentUser)).ToList();
@@ -583,14 +881,22 @@ public static class TicketHandlers
             null,
             tickets.Select(ticket => ticket.BoardId));
 
-        return Results.Ok(tickets.Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext)));
+        var responses = await MapTicketResponsesAsync(
+            tickets,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
+        return Results.Ok(responses);
     }
 
     public static async Task<IResult> GetTicketsPendingApproval(
         ITicketRepository repo,
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
-        IResponseMappingContextFactory mappingContextFactory)
+        IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService)
     {
         var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
         var tickets = await repo.GetIntakeQueueTicketsAsync(visibilityContext);
@@ -599,9 +905,12 @@ public static class TicketHandlers
             tickets.Select(ticket => ticket.CreatedBy),
             null,
             tickets.Select(ticket => ticket.BoardId));
-        var items = tickets
-            .Select(ticket => ticket.ToResponse(slaConfigurations, mappingContext))
-            .ToList();
+        var items = await MapTicketResponsesAsync(
+            tickets,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
 
         return Results.Ok(new PagedTicketListResponse
         {
@@ -622,6 +931,8 @@ public static class TicketHandlers
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
         ITicketRoutingRuleService ticketRoutingRuleService,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
@@ -659,7 +970,8 @@ public static class TicketHandlers
                 requesterDepartment,
                 requesterRole,
                 requesterDepartment,
-                ticket.Title));
+                ticket.Title),
+            ticket.Id);
 
         var originalForAssignment = CloneTicket(ticket);
         var resolvedSynitiOwner = routingDecision.RecommendedSynitiOwner ?? ticket.SynitiOwner;
@@ -724,7 +1036,12 @@ public static class TicketHandlers
             [updatedTicket.CreatedBy],
             null,
             [updatedTicket.BoardId]);
-        var response = updatedTicket.ToResponse(slaConfigurations, mappingContext);
+        var response = await MapTicketResponseAsync(
+            updatedTicket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
         var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(updatedTicket);
 
         await notificationService.CreateAssignmentNotificationsAsync(
@@ -761,6 +1078,8 @@ public static class TicketHandlers
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
         IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver)
     {
@@ -831,7 +1150,12 @@ public static class TicketHandlers
             [updatedTicket.CreatedBy],
             null,
             [updatedTicket.BoardId]);
-        var response = updatedTicket.ToResponse(slaConfigurations, mappingContext);
+        var response = await MapTicketResponseAsync(
+            updatedTicket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
         var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(updatedTicket);
 
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
@@ -854,6 +1178,8 @@ public static class TicketHandlers
         ITicketVisibilityService ticketVisibilityService,
         ISlaConfigurationService slaConfigurationService,
         IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver)
     {
@@ -924,7 +1250,12 @@ public static class TicketHandlers
             [updatedTicket.CreatedBy],
             null,
             [updatedTicket.BoardId]);
-        var response = updatedTicket.ToResponse(slaConfigurations, mappingContext);
+        var response = await MapTicketResponseAsync(
+            updatedTicket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
         var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(updatedTicket);
 
         await realtimeEventService.PublishAsync(new RealtimeEventMessage
@@ -963,6 +1294,8 @@ public static class TicketHandlers
         ITicketTriageAiService triageAi,
         ITicketTriageVocabularyProvider triageVocabulary,
         ITicketAuditService ticketAuditService,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
@@ -1044,7 +1377,12 @@ public static class TicketHandlers
                 [createdTicket.CreatedBy],
                 null,
                 [createdTicket.BoardId]);
-            var createdTicketResponse = createdTicket.ToResponse(slaConfigurations, mappingContext);
+            var createdTicketResponse = await MapTicketResponseAsync(
+                createdTicket,
+                slaConfigurations,
+                mappingContext,
+                operationalRiskService,
+                reassignmentRecommendationService);
             var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(createdTicket);
 
             await ticketAuditService.RecordTicketCreatedAsync(
@@ -1102,6 +1440,8 @@ public static class TicketHandlers
         ITicketTriageAiService triageAi,
         ITicketTriageVocabularyProvider triageVocabulary,
         ITicketAuditService ticketAuditService,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
@@ -1215,7 +1555,8 @@ public static class TicketHandlers
                         requesterDepartment: requesterDepartment,
                         requesterRole: requesterRole,
                         legacyDepartment: legacyDepartment,
-                        legacyTitle: resolvedTitle));
+                        legacyTitle: resolvedTitle),
+                    existing.Id);
                 await ticketRoutingRuleService.RecordDecisionAsync(existing.Id, routingDecision);
             }
 
@@ -1313,7 +1654,12 @@ public static class TicketHandlers
                 [updatedTicket.CreatedBy],
                 null,
                 [updatedTicket.BoardId]);
-            var updatedTicketResponse = updatedTicket.ToResponse(slaConfigurations, mappingContext);
+            var updatedTicketResponse = await MapTicketResponseAsync(
+                updatedTicket,
+                slaConfigurations,
+                mappingContext,
+                operationalRiskService,
+                reassignmentRecommendationService);
             var originalAudienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(originalTicket);
             var updatedAudienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(updatedTicket);
             var removedAudienceUserIds = originalAudienceUserIds
@@ -1479,6 +1825,8 @@ public static class TicketHandlers
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketAuditService ticketAuditService,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         INotificationService notificationService,
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
@@ -1524,7 +1872,12 @@ public static class TicketHandlers
             [restoredTicket.CreatedBy],
             null,
             [restoredTicket.BoardId]);
-        var restoredTicketResponse = restoredTicket.ToResponse(slaConfigurations, mappingContext);
+        var restoredTicketResponse = await MapTicketResponseAsync(
+            restoredTicket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
         var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(restoredTicket);
 
         await ticketAuditService.RecordTicketReactivatedAsync(
@@ -1948,10 +2301,12 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         ISlaConfigurationService slaConfigurationService,
         IResponseMappingContextFactory mappingContextFactory,
+        [FromServices] IOperationalRiskService operationalRiskService,
+        [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
         ILogger<TicketHandlersLogCategory> logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
         if (ticket is null)
@@ -2060,7 +2415,13 @@ public static class TicketHandlers
             null,
             [ticket.BoardId],
             cancellationToken);
-        var response = ticket.ToResponse(slaConfigurations, mappingContext);
+        var response = await MapTicketResponseAsync(
+            ticket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService,
+            cancellationToken: cancellationToken);
 
         var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(
             ticket,

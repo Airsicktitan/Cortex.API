@@ -92,6 +92,16 @@ public static class TicketEndpoints
             .WithName("PostOwnerWorkloadPreview")
             .Produces<OwnerWorkloadPreviewResponse>(StatusCodes.Status200OK);
 
+        tickets.MapPost("/{id}/reassignment/apply", TicketHandlers.ApplyGuidedReassignment)
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .WithName("ApplyGuidedReassignment")
+            .Accepts<ReassignmentApplyRequest>("application/json")
+            .Produces<ReassignmentApplyResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
+
         tickets.MapPost("/{id}/approve", TicketHandlers.ApproveTicket)
             .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .WithName("ApproveTicket")
