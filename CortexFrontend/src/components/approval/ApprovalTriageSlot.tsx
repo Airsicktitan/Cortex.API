@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import {
   type ScreenshotInsightPersisted,
   screenshotInsightPersistedHasContent,
@@ -9,6 +10,7 @@ import {
 } from "../../utils/approvalTriage";
 import { filterScreenshotInsightNoise } from "../../utils/screenshotInsightDisplay";
 import { getTriageClarityIndicator } from "../../utils/triageClarity";
+import { ScrollToBottomButton } from "../ui/ScrollToBottomButton";
 
 function priorityBadgeClass(priorityRaw: string): string {
   const p = priorityRaw.trim().toLowerCase();
@@ -434,6 +436,8 @@ export function ApprovalTriageModalColumn({
   regenerateLoading?: boolean;
   applyControls?: ApprovalTriageApplyControls;
 }) {
+  const triageScrollRef = useRef<HTMLDivElement | null>(null);
+
   if (!shouldShowApprovalTriageModalPanel(ticket)) {
     return null;
   }
@@ -464,7 +468,8 @@ export function ApprovalTriageModalColumn({
           </div>
         ) : null}
         <div
-          className={`min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 ${canRegenerate ? "" : "pt-4"}`}
+          ref={triageScrollRef}
+          className={`relative min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 ${canRegenerate ? "" : "pt-4"}`}
         >
           <ApprovalTriagePanel
             triage={ticket.approvalTriagePreview}
@@ -479,6 +484,10 @@ export function ApprovalTriageModalColumn({
               />
             </div>
           ) : null}
+          <ScrollToBottomButton
+            containerRef={triageScrollRef}
+            aria-label="Scroll intake insight to bottom"
+          />
         </div>
         {applyControls ? (
           <div className="shrink-0 border-t border-gray-100 px-3 py-3 dark:border-slate-800 sm:px-4">

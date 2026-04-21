@@ -50,6 +50,7 @@ import TicketRoutingInsight from "./TicketRoutingInsight";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
+import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 import {
   deriveReviewerIntakeQualitySignal,
   getReviewerIntakeQualityCopy,
@@ -412,6 +413,7 @@ export default function TicketModal({
     expiresAt: number;
   } | null>(null);
   const commentThreadScrollRef = useRef<HTMLDivElement | null>(null);
+  const screenshotInsightScrollRef = useRef<HTMLDivElement | null>(null);
   const commentThreadNearBottomRef = useRef(true);
   const commentThreadOpenScrollPendingRef = useRef(false);
   const commentThreadSendScrollPendingRef = useRef(false);
@@ -1721,9 +1723,7 @@ export default function TicketModal({
     if (!el) {
       return;
     }
-    el.scrollTop = el.scrollHeight;
-    commentThreadNearBottomRef.current = true;
-    setPendingNewCommentsCount(0);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, []);
 
   const handleCommentThreadScroll = useCallback(() => {
@@ -2673,6 +2673,10 @@ export default function TicketModal({
                   isModalOpen={isOpen}
                   ticketBoards={ticketBoards}
                   livePreview={routingLivePreviewInput}
+                  onReassignmentApplied={(updatedTicket) => {
+                    applyServerTicketToForm(updatedTicket);
+                    onTriageApplySuccess?.(updatedTicket);
+                  }}
                 />
               ) : null}
 
@@ -2783,6 +2787,10 @@ export default function TicketModal({
                         <p className="mb-3 text-xs font-semibold tracking-wide text-gray-700 dark:text-slate-300">
                           Screenshot Insight
                         </p>
+                        <div
+                          ref={screenshotInsightScrollRef}
+                          className="scroll-surface relative max-h-[min(45vh,22rem)] overflow-y-auto pr-0.5"
+                        >
                         {screenshotInsightResult.unavailable ? (
                           <p
                             className="text-sm text-amber-900 dark:text-amber-100"
@@ -2887,6 +2895,11 @@ export default function TicketModal({
                             );
                           })()
                         )}
+                        <ScrollToBottomButton
+                          containerRef={screenshotInsightScrollRef}
+                          aria-label="Scroll screenshot insight to bottom"
+                        />
+                      </div>
                       </div>
                     ) : null}
                   </div>
@@ -3244,6 +3257,10 @@ export default function TicketModal({
                       </button>
                     </div>
                   )}
+                  <ScrollToBottomButton
+                    containerRef={commentThreadScrollRef}
+                    aria-label="Scroll comments to bottom"
+                  />
                 </div>
 
                 <div className="mt-3">

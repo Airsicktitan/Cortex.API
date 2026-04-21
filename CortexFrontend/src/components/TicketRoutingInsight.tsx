@@ -1,9 +1,10 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Ticket } from "../types/ticket";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type {
   OwnerWorkloadPreviewResponse,
+  RoutingExplanationOwnerWorkloadDto,
   OwnerWorkloadSummaryDto,
   RoutingExplanationPayload,
   RoutingPreviewRequest,
@@ -11,9 +12,10 @@ import type {
   TicketRoutingLatestResponse,
   TicketRoutingOverrideDto,
 } from "../types/ticketRoutingInsight";
-import { ticketService } from "../services/api";
+import { getUserFacingErrorMessage, ticketService } from "../services/api";
 import { formatDisplayValue } from "../utils/presentation";
 import { formatOwnerFieldForDisplay } from "../utils/ownerIdentity";
+import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 
 const API_AUDIENCE = "https://cortex-api";
 
@@ -113,6 +115,15 @@ function humanizeOverrideReason(type: string): string {
       return "Other";
     default:
       return type.replace(/([A-Z])/g, " $1").trim();
+  }
+}
+
+function humanizeImpactSource(source: string | undefined | null): string {
+  switch (source) {
+    case "cortex_recommendation_review":
+      return "Cortex recommendation";
+    default:
+      return source?.trim() || "Cortex recommendation";
   }
 }
 
@@ -348,6 +359,37 @@ function collectWorkloadOwnerKeys(
 }
 
 type SlaRiskLevel = "Low" | "Medium" | "High";
+type RoutingDecisionType =
+  | "rule_based"
+  | "workload_balanced"
+  | "manual_override";
+
+interface WorkloadCandidateViewModel {
+  ownerKey: string;
+  workloadScore: number;
+}
+
+function toTitleCaseWord(value: string | undefined | null): string {
+  if (!value?.trim()) {
+    return "Low";
+  }
+  const trimmed = value.trim().toLowerCase();
+  return `${trimmed[0]?.toUpperCase() ?? ""}${trimmed.slice(1)}`;
+}
+
+function riskLevelBadgeClass(level: string | undefined | null): string {
+  const normalized = (level ?? "").trim().toLowerCase();
+  if (normalized === "critical") {
+    return "rounded-md bg-red-100 px-2.5 py-1 text-sm font-semibold text-red-900 shadow-sm dark:bg-red-950/60 dark:text-red-100";
+  }
+  if (normalized === "high") {
+    return "rounded-md bg-amber-100 px-2.5 py-1 text-sm font-semibold text-amber-950 shadow-sm dark:bg-amber-950/50 dark:text-amber-50";
+  }
+  if (normalized === "moderate") {
+    return "rounded-md bg-orange-100 px-2.5 py-1 text-sm font-semibold text-orange-950 shadow-sm dark:bg-orange-950/50 dark:text-orange-50";
+  }
+  return "rounded-md bg-emerald-100 px-2.5 py-1 text-sm font-semibold text-emerald-950 shadow-sm dark:bg-emerald-950/40 dark:text-emerald-100";
+}
 
 function aggregateWorkload(
   summaries: OwnerWorkloadSummaryDto[],
@@ -394,6 +436,126 @@ function aggregateWorkload(
   return { active, atRisk, breached, risk, sentence };
 }
 
+function isRoutingDecisionType(value: unknown): value is RoutingDecisionType {
+  return (
+    value === "rule_based" ||
+    value === "workload_balanced" ||
+    value === "manual_override"
+  );
+}
+
+function resolveRoutingDecisionType(
+  decision: TicketRoutingDecisionDto | null,
+  override: TicketRoutingOverrideDto | null,
+  explanation: RoutingExplanationPayload | null,
+): RoutingDecisionType | null {
+  if (!decision) {
+    return null;
+  }
+  if (override) {
+    return "manual_override";
+  }
+  if (isRoutingDecisionType(explanation?.decisionType)) {
+    return explanation.decisionType;
+  }
+  if (explanation?.workloadTieBreakApplied) {
+    return "workload_balanced";
+  }
+  if (decision.outcomeType === "RuleMatch") {
+    return "rule_based";
+  }
+  return null;
+}
+
+function readWorkloadScore(
+  workload: RoutingExplanationOwnerWorkloadDto | null | undefined,
+): number | null {
+  if (!workload) {
+    return null;
+  }
+  if (
+    typeof workload.workloadScore === "number" &&
+    Number.isFinite(workload.workloadScore)
+  ) {
+    return workload.workloadScore;
+  }
+  if (typeof workload.score === "number" && Number.isFinite(workload.score)) {
+    return workload.score;
+  }
+  return null;
+}
+
+function collectWorkloadCandidates(
+  explanation: RoutingExplanationPayload | null,
+): WorkloadCandidateViewModel[] {
+  const byOwner = new Map<string, number>();
+  const collect = (entries: RoutingExplanationOwnerWorkloadDto[] | undefined) => {
+    for (const entry of entries ?? []) {
+      if (!entry?.ownerKey?.trim()) {
+        continue;
+      }
+      const ownerKey = entry.ownerKey.trim();
+      const score = readWorkloadScore(entry);
+      if (score == null) {
+        continue;
+      }
+      const existing = byOwner.get(ownerKey);
+      if (existing == null || score < existing) {
+        byOwner.set(ownerKey, score);
+      }
+    }
+  };
+
+  collect(explanation?.eligibleAssignees);
+  for (const candidate of explanation?.candidateAssignments ?? []) {
+    collect(candidate.ownerScores);
+  }
+
+  return [...byOwner.entries()]
+    .map(([ownerKey, workloadScore]) => ({ ownerKey, workloadScore }))
+    .sort((a, b) => a.workloadScore - b.workloadScore || a.ownerKey.localeCompare(b.ownerKey));
+}
+
+function toOwnerDisplayName(ownerKey: string): string {
+  const normalized = formatOwnerFieldForDisplay(ownerKey);
+  return normalized?.trim() || ownerKey;
+}
+
+function buildWorkloadReasonLine(
+  decisionType: RoutingDecisionType | null,
+  decision: TicketRoutingDecisionDto | null,
+  candidates: WorkloadCandidateViewModel[],
+): string | null {
+  if (decisionType !== "workload_balanced" || !decision) {
+    return null;
+  }
+  if (candidates.length === 0) {
+    return "Selected lowest workload among eligible assignees.";
+  }
+
+  const selectedOwners = new Set(
+    [decision.chosenSynitiOwner, decision.chosenBusinessOwner]
+      .map((owner) => normalizeOwnerToken(owner))
+      .filter(Boolean),
+  );
+  const selectedCandidate = candidates.find((candidate) =>
+    selectedOwners.has(normalizeOwnerToken(candidate.ownerKey)),
+  );
+  if (!selectedCandidate || candidates.length < 2) {
+    return "Selected lowest workload among eligible assignees.";
+  }
+  const alternatives = candidates.filter(
+    (candidate) =>
+      normalizeOwnerToken(candidate.ownerKey) !==
+      normalizeOwnerToken(selectedCandidate.ownerKey),
+  );
+  if (alternatives.length === 0) {
+    return "Selected lowest workload among eligible assignees.";
+  }
+  const nearestAlternative = alternatives[0];
+  return `${toOwnerDisplayName(selectedCandidate.ownerKey)} selected because workload score was lower than ${toOwnerDisplayName(nearestAlternative.ownerKey)}.`;
+}
+
 interface TicketRoutingInsightProps {
   ticket: Ticket;
   isModalOpen: boolean;
@@ -404,6 +566,8 @@ interface TicketRoutingInsightProps {
    * using these draft values; persisted override is still loaded from GET /routing/latest.
    */
   livePreview?: RoutingLivePreviewInput | null;
+  /** Invoked after guided reassignment applies and returns refreshed ticket payload. */
+  onReassignmentApplied?: (updatedTicket: Ticket) => void;
 }
 
 export default function TicketRoutingInsight({
@@ -411,6 +575,7 @@ export default function TicketRoutingInsight({
   isModalOpen,
   ticketBoards,
   livePreview,
+  onReassignmentApplied,
 }: TicketRoutingInsightProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [data, setData] = useState<TicketRoutingLatestResponse | null>(null);
@@ -427,6 +592,13 @@ export default function TicketRoutingInsight({
   const [workloadLoading, setWorkloadLoading] = useState(false);
   const [techExpanded, setTechExpanded] = useState(false);
   const [decisionPanelExpanded, setDecisionPanelExpanded] = useState(true);
+  const [reviewTargetOwnerKey, setReviewTargetOwnerKey] = useState<string | null>(
+    null,
+  );
+  const [reassignmentApplying, setReassignmentApplying] = useState(false);
+  const [reassignmentError, setReassignmentError] = useState<string | null>(null);
+  const [reassignmentSuccess, setReassignmentSuccess] = useState<string | null>(null);
+  const decisionPanelBodyScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isLiveRoutingPreview = Boolean(livePreview && ticket.id);
   const debouncedPreviewTitle = useDebouncedValue(
@@ -441,6 +613,10 @@ export default function TicketRoutingInsight({
   useEffect(() => {
     setTechExpanded(false);
     setDecisionPanelExpanded(true);
+    setReviewTargetOwnerKey(null);
+    setReassignmentApplying(false);
+    setReassignmentError(null);
+    setReassignmentSuccess(null);
   }, [ticket.id]);
 
   useEffect(() => {
@@ -689,9 +865,86 @@ export default function TicketRoutingInsight({
     ? "No routing rules matched this ticket; the assignment reflects manual selection."
     : "No routing signals were applied for this decision.";
 
+  const decisionType = useMemo(
+    () => resolveRoutingDecisionType(decision, override, explanation),
+    [decision, override, explanation],
+  );
+
+  const workloadCandidates = useMemo(
+    () => collectWorkloadCandidates(explanation),
+    [explanation],
+  );
+
+  const selectedOwnerTokens = useMemo(
+    () =>
+      new Set(
+        [decision?.chosenSynitiOwner, decision?.chosenBusinessOwner]
+          .map((owner) => normalizeOwnerToken(owner))
+          .filter(Boolean),
+      ),
+    [decision?.chosenBusinessOwner, decision?.chosenSynitiOwner],
+  );
+
+  const workloadReasonLine = useMemo(
+    () => buildWorkloadReasonLine(decisionType, decision, workloadCandidates),
+    [decisionType, decision, workloadCandidates],
+  );
+
   if (!ticket.id) {
     return null;
   }
+
+  const suggestedTargets =
+    ticket.reassignmentRecommendation?.suggestedTargets?.slice(0, 3) ?? [];
+  const reviewedTarget =
+    suggestedTargets.find((target) => target.ownerKey === reviewTargetOwnerKey) ??
+    null;
+  const decisionImpact = ticket.decisionImpact?.hasImpact
+    ? ticket.decisionImpact
+    : null;
+  const decisionImpactImproved = Boolean(
+    decisionImpact?.riskImproved ||
+      decisionImpact?.workloadImproved ||
+      decisionImpact?.pressureImproved,
+  );
+
+  const handleApplyReassignment = async () => {
+    if (!reviewedTarget?.userId || !ticket.id) {
+      return;
+    }
+    setReassignmentApplying(true);
+    setReassignmentError(null);
+    setReassignmentSuccess(null);
+    try {
+      const token = await getAccessTokenSilently({
+        authorizationParams: { audience: API_AUDIENCE },
+      });
+      const result = await ticketService.applyReassignment(
+        ticket.id,
+        {
+          ticketId: ticket.id,
+          selectedOwnerId: reviewedTarget.userId,
+          reason: "Selected from suggested reassignment targets",
+          source: "cortex_recommendation_review",
+          concurrencyToken: ticket.concurrencyToken,
+          expectedCurrentOwnerKey:
+            ticket.reassignmentRecommendation?.currentOwner?.ownerKey,
+        },
+        token,
+      );
+      if (result.ticket) {
+        onReassignmentApplied?.(result.ticket);
+      }
+      setReassignmentSuccess("Reassignment applied.");
+      setReviewTargetOwnerKey(null);
+    } catch (error) {
+      setReassignmentError(
+        getUserFacingErrorMessage(error, "Unable to apply reassignment."),
+      );
+    } finally {
+      setReassignmentApplying(false);
+    }
+  };
 
   return (
     <div className="mb-6 rounded-xl border border-slate-200/95 bg-white p-4 shadow-sm dark:border-slate-600/80 dark:bg-slate-950/40 dark:shadow-none">
@@ -759,7 +1012,8 @@ export default function TicketRoutingInsight({
         ) : (
           <div
             id="cortex-decision-panel-body"
-            className={`mt-4 space-y-4 text-sm text-slate-800 dark:text-slate-100 ${
+            ref={decisionPanelBodyScrollRef}
+            className={`scroll-surface relative mt-4 max-h-[min(50vh,28rem)] space-y-4 overflow-y-auto pr-1 text-sm text-slate-800 dark:text-slate-100 ${
               isLiveRoutingPreview && previewLoading
                 ? "opacity-[0.88] transition-opacity duration-200"
                 : ""
@@ -838,6 +1092,221 @@ export default function TicketRoutingInsight({
 
           {/* B. Current assignment */}
           <div className="space-y-2">
+            <div className="rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-50 to-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200/60 dark:border-slate-600/70 dark:from-slate-900/80 dark:to-slate-950/60 dark:ring-slate-700/50">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                  Operational Risk
+                </span>
+                <span className={riskLevelBadgeClass(ticket.operationalRisk?.riskLevel)}>
+                  {toTitleCaseWord(ticket.operationalRisk?.riskLevel)}
+                </span>
+              </div>
+              {ticket.operationalRisk ? (
+                <>
+                  <p className="mt-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
+                    {ticket.operationalRisk.reasons.length > 0
+                      ? ticket.operationalRisk.reasons.slice(0, 2).join(" + ")
+                      : "No elevated operational risks detected."}
+                  </p>
+                  <p className="mt-1.5 text-sm text-slate-700 dark:text-slate-200">
+                    Recommended action: {ticket.operationalRisk.recommendedAction}
+                  </p>
+                  <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">
+                    Owner workload:{" "}
+                    {toTitleCaseWord(
+                      ticket.operationalRisk.ownerPressure?.pressureLevel,
+                    )}{" "}
+                    · Risk score: {ticket.operationalRisk.operationalRiskScore}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-300">
+                  Operational risk details aren’t available right now.
+                </p>
+              )}
+            </div>
+
+            {!reassignmentSuccess &&
+            ticket.reassignmentRecommendation?.shouldSuggestReassignment &&
+            (ticket.reassignmentRecommendation.suggestedTargets?.length ?? 0) > 0 ? (
+              <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Suggested reassignment targets
+                </p>
+                <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                  {ticket.reassignmentRecommendation.reason}
+                </p>
+                <ul className="mt-2 space-y-1 text-xs text-slate-700 dark:text-slate-200">
+                  {suggestedTargets.map((target) => (
+                    <li
+                      key={`${target.ownerKey}-${target.workloadScore}`}
+                      className="flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <span>
+                        {target.displayName} — workload {target.workloadScore} ·
+                        pressure {toTitleCaseWord(target.pressureLevel)}
+                      </span>
+                      {target.userId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReviewTargetOwnerKey(target.ownerKey);
+                            setReassignmentError(null);
+                            setReassignmentSuccess(null);
+                          }}
+                          className="text-[11px] font-medium text-cortex-blue hover:underline dark:text-cortex-blue-soft"
+                          disabled={reassignmentApplying}
+                        >
+                          Review reassignment
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  Top alternatives based on routing eligibility and workload.
+                </p>
+                {reviewedTarget ? (
+                  <div className="mt-2 rounded-md border border-slate-200/80 bg-white/80 p-2 text-xs dark:border-slate-700 dark:bg-slate-950/50">
+                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                      Review reassignment
+                    </p>
+                    <p className="mt-1 text-slate-600 dark:text-slate-300">
+                      Current owner:{" "}
+                      {ticket.reassignmentRecommendation?.currentOwner?.displayName ??
+                        "—"}{" "}
+                      — workload{" "}
+                      {ticket.reassignmentRecommendation?.currentOwner
+                        ?.workloadScore ?? 0}{" "}
+                      · pressure{" "}
+                      {toTitleCaseWord(
+                        ticket.reassignmentRecommendation?.currentOwner
+                          ?.pressureLevel,
+                      )}
+                    </p>
+                    <p className="mt-1 text-slate-600 dark:text-slate-300">
+                      Suggested target: {reviewedTarget.displayName} — workload{" "}
+                      {reviewedTarget.workloadScore} · pressure{" "}
+                      {toTitleCaseWord(reviewedTarget.pressureLevel)}
+                    </p>
+                    <p className="mt-1 text-slate-500 dark:text-slate-400">
+                      This change was recommended by Cortex because lower-risk
+                      eligible owners are available.
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleApplyReassignment()}
+                        disabled={reassignmentApplying}
+                        className="rounded-md bg-cortex-blue px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {reassignmentApplying
+                          ? "Applying…"
+                          : "Apply reassignment"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReviewTargetOwnerKey(null)}
+                        disabled={reassignmentApplying}
+                        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:border-slate-600 dark:text-slate-300"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {reassignmentSuccess ? (
+                  <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
+                    {reassignmentSuccess}
+                  </p>
+                ) : null}
+                {reassignmentError ? (
+                  <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                    {reassignmentError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {decisionImpact ? (
+              <div
+                className={`rounded-lg border px-3 py-2 ${
+                  decisionImpactImproved
+                    ? "border-emerald-200/90 bg-emerald-50/70 dark:border-emerald-900/60 dark:bg-emerald-950/20"
+                    : "border-slate-200/90 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/40"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Cortex Impact
+                  </p>
+                  <span
+                    className={
+                      decisionImpactImproved
+                        ? "rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-100"
+                        : "rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                    }
+                  >
+                    {decisionImpactImproved ? "Improved" : "Neutral"}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">
+                  {decisionImpact.summary}
+                </p>
+                <div className="mt-1.5 grid gap-1 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-3">
+                  <span>
+                    Risk: {toTitleCaseWord(decisionImpact.previousRiskLevel)} →{" "}
+                    {toTitleCaseWord(decisionImpact.currentRiskLevel)}
+                  </span>
+                  <span>
+                    Workload: {decisionImpact.previousOwnerWorkload} →{" "}
+                    {decisionImpact.currentOwnerWorkload}
+                  </span>
+                  <span>
+                    Pressure:{" "}
+                    {toTitleCaseWord(decisionImpact.previousPressureLevel)} →{" "}
+                    {toTitleCaseWord(decisionImpact.currentPressureLevel)}
+                  </span>
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  Reassigned via {humanizeImpactSource(decisionImpact.source)}
+                </p>
+              </div>
+            ) : null}
+
+            {decisionType === "workload_balanced" ? (
+              <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Assigned by AI · Workload balanced
+                </p>
+                <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                  {workloadReasonLine ??
+                    "Selected lowest workload among eligible assignees."}
+                </p>
+                {workloadCandidates.length > 0 ? (
+                  <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">
+                    {workloadCandidates
+                      .slice(0, 4)
+                      .map((candidate) => {
+                        const label = toOwnerDisplayName(candidate.ownerKey);
+                        const isSelected = selectedOwnerTokens.has(
+                          normalizeOwnerToken(candidate.ownerKey),
+                        );
+                        return `${label}${isSelected ? " selected" : ""}: ${candidate.workloadScore}`;
+                      })
+                      .join(" · ")}
+                    {workloadCandidates.length > 4
+                      ? ` · +${workloadCandidates.length - 4} more`
+                      : ""}
+                  </p>
+                ) : null}
+              </div>
+            ) : decisionType === "rule_based" ? (
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                Assigned by AI
+              </p>
+            ) : null}
+
             {assignmentLine ? (
               <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
                 {assignmentLine}
@@ -985,6 +1454,10 @@ export default function TicketRoutingInsight({
               </div>
             ) : null}
           </div>
+          <ScrollToBottomButton
+            containerRef={decisionPanelBodyScrollRef}
+            aria-label="Scroll Cortex Decision to bottom"
+          />
         </div>
         )
       ) : null}
