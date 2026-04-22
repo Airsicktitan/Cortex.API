@@ -58,7 +58,7 @@ export default function NotificationPanel({
   const notificationListScrollRef = useRef<HTMLDivElement | null>(null);
 
   return (
-    <div className="absolute right-0 top-full z-[90] mt-2 w-[24rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+    <div className="absolute right-0 top-full z-[90] mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-4 py-3 dark:border-slate-800">
         <div>
           <p className="font-medium text-gray-900 dark:text-slate-100">
@@ -71,7 +71,7 @@ export default function NotificationPanel({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             onClick={onRefresh}
             className="rounded-md px-2 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"

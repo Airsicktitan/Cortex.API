@@ -14,7 +14,7 @@ public class TicketRoutingRuleService(
     private readonly ITicketRoutingRuleRepository _repository = repository;
     private readonly CortexDbContext _dbContext = dbContext;
     private readonly IOwnerWorkloadScoringService _ownerWorkloadScoringService = ownerWorkloadScoringService;
-    private const string EngineVersion = "routing-engine-v1";
+    private const string EngineVersion = "decision-engine-v1";
 
     public async Task<IReadOnlyList<TicketRoutingRule>> GetAllAsync()
     {
@@ -121,88 +121,123 @@ public class TicketRoutingRuleService(
             return BuildFallback(normalizedFactors, noMatchReason, text);
         }
 
-        var ownerKeys = candidateMatches
+        var userDirectory = await _dbContext.Users
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+        var userAliases = OwnerFieldResolution.BuildAliasLookup(userDirectory);
+        var candidateOwnerKeys = candidateMatches
             .SelectMany(match => GetRuleOwnerKeys(match.Rule))
             .Distinct(StringComparer.Ordinal)
             .ToList();
         var ownerScores = await _ownerWorkloadScoringService.GetScoresAsync(
-            ownerKeys,
+            candidateOwnerKeys,
             excludeTicketId,
             respectCurrentVisibility: false,
             cancellationToken);
-        var ownerScoreMap = ownerScores.ToDictionary(score => score.OwnerKey, StringComparer.Ordinal);
+        var ownerScoreMap = ownerScores.ToDictionary(score => score.OwnerKey, StringComparer.OrdinalIgnoreCase);
 
-        var rankedCandidates = candidateMatches
-            .Select(match => BuildRankedCandidate(match, ownerScoreMap))
-            .OrderByDescending(candidate => candidate.Match.Rule.RulePriority)
-            .ThenByDescending(candidate => candidate.Match.Rule.Weight)
-            .ThenByDescending(candidate => candidate.Match.MatchedCriteriaCount)
-            .ThenBy(candidate => candidate.WorkloadScore)
-            .ThenBy(candidate => candidate.Match.Rule.Id)
-            .ToList();
+        var synitiSlot = EvaluateSlotCandidates(
+            slotName: "synitiOwner",
+            candidateMatches,
+            userAliases,
+            ownerScoreMap,
+            isSynitiSlot: true);
+        var businessSlot = EvaluateSlotCandidates(
+            slotName: "businessOwner",
+            candidateMatches,
+            userAliases,
+            ownerScoreMap,
+            isSynitiSlot: false);
 
-        var selected = rankedCandidates[0];
-        var confidence = selected.Match.MatchedCriteriaCount >= 3
+        var matchedRuleId = ResolveMatchedRuleId(synitiSlot, businessSlot);
+        var highestMatchedCriteriaCount = Math.Max(
+            synitiSlot.Selected?.MatchedCriteriaCount ?? 0,
+            businessSlot.Selected?.MatchedCriteriaCount ?? 0);
+        var highestMatchScore = Math.Max(
+            synitiSlot.Selected?.MatchScore ?? 0,
+            businessSlot.Selected?.MatchScore ?? 0);
+        var confidence = highestMatchScore >= 70
             ? RoutingConfidenceLevel.High
-            : selected.Match.MatchedCriteriaCount >= 2
+            : highestMatchScore >= 40
                 ? RoutingConfidenceLevel.Medium
                 : RoutingConfidenceLevel.Low;
-        var precedenceScore = (selected.Match.Rule.RulePriority * 10_000)
-            + (selected.Match.Rule.Weight * 100)
-            + selected.Match.MatchedCriteriaCount;
+        var precedenceScore = Math.Max(
+            synitiSlot.Selected?.FinalScore ?? 0,
+            businessSlot.Selected?.FinalScore ?? 0);
         var tieBreakKey =
-            $"{selected.Match.Rule.RulePriority:D6}|{selected.Match.Rule.Weight:D6}|{selected.Match.MatchedCriteriaCount:D2}|{selected.WorkloadScore:D6}|{selected.Match.Rule.Id:D10}";
-        var topStaticCandidateCount = rankedCandidates.Count(candidate =>
-            candidate.Match.Rule.RulePriority == selected.Match.Rule.RulePriority &&
-            candidate.Match.Rule.Weight == selected.Match.Rule.Weight &&
-            candidate.Match.MatchedCriteriaCount == selected.Match.MatchedCriteriaCount);
-        var workloadTieBreakApplied = topStaticCandidateCount > 1;
+            $"{synitiSlot.Selected?.FinalScore ?? int.MinValue:D6}|{businessSlot.Selected?.FinalScore ?? int.MinValue:D6}|{matchedRuleId?.ToString() ?? "none"}";
+        var matchedCriteria = new[] { synitiSlot.Selected, businessSlot.Selected }
+            .Where(candidate => candidate is not null)
+            .Cast<SlotCandidateEvaluation>()
+            .SelectMany(candidate => candidate.MatchedCriteria)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var allCandidateAssignments = candidateMatches.Select(match =>
+        {
+            var synitiOwner = NormalizeOptionalValue(match.Rule.SynitiOwner);
+            var businessOwner = NormalizeOptionalValue(match.Rule.BusinessOwner);
+            var canonicalSynitiOwner = OwnerFieldResolution.CanonicalizeOwnerField(synitiOwner, userAliases);
+            var canonicalBusinessOwner = OwnerFieldResolution.CanonicalizeOwnerField(businessOwner, userAliases);
+            var ruleOwnerScores = new List<OwnerWorkloadScoreSnapshot>();
+            if (!string.IsNullOrWhiteSpace(synitiOwner)
+                && ownerScoreMap.TryGetValue(synitiOwner, out var synitiScore))
+            {
+                ruleOwnerScores.Add(synitiScore);
+            }
+            if (!string.IsNullOrWhiteSpace(businessOwner)
+                && ownerScoreMap.TryGetValue(businessOwner, out var businessScore)
+                && !ruleOwnerScores.Any(existing =>
+                    string.Equals(existing.OwnerKey, businessScore.OwnerKey, StringComparison.OrdinalIgnoreCase)))
+            {
+                ruleOwnerScores.Add(businessScore);
+            }
+
+            return new
+            {
+                matchedRuleId = match.Rule.Id,
+                synitiOwner = canonicalSynitiOwner,
+                businessOwner = canonicalBusinessOwner,
+                workloadScore = ruleOwnerScores.Sum(score => score.WorkloadScore),
+                ownerScores = ruleOwnerScores.Select(ToWorkloadExplanation)
+            };
+        });
 
         var explanationObject = new
         {
-            matchedRuleId = selected.Match.Rule.Id,
+            engine = EngineVersion,
+            decisionType = "workload_aware_routing_v1",
+            formula = "finalScore = matchScore - workloadPenalty",
+            autoAssignmentThreshold = 40,
+            weakSignalThreshold = 35,
+            workloadPenaltyCap = 30,
+            confidenceClassification = ResolveOverallClassification(synitiSlot, businessSlot),
+            matchedRuleId,
             factors = normalizedFactors,
-            matchedCriteria = selected.Match.MatchedCriteria,
-            rulePriority = selected.Match.Rule.RulePriority,
-            weight = selected.Match.Rule.Weight,
-            candidateCount = rankedCandidates.Count,
-            topStaticCandidateCount,
-            workloadTieBreakApplied,
-            selectedWorkloadScore = selected.WorkloadScore,
-            eligibleAssignees = ownerScores
-                .OrderBy(score => score.WorkloadScore)
-                .ThenBy(score => score.OwnerKey, StringComparer.Ordinal)
-                .Select(ToWorkloadExplanation),
-            candidateAssignments = rankedCandidates.Select(candidate => new
+            matchedCriteria,
+            slots = new
             {
-                matchedRuleId = candidate.Match.Rule.Id,
-                synitiOwner = NormalizeOptionalValue(candidate.Match.Rule.SynitiOwner),
-                businessOwner = NormalizeOptionalValue(candidate.Match.Rule.BusinessOwner),
-                workloadScore = candidate.WorkloadScore,
-                ownerScores = candidate.OwnerScores.Select(ToWorkloadExplanation)
-            })
+                synitiOwner = ToSlotExplanation(synitiSlot),
+                businessOwner = ToSlotExplanation(businessSlot)
+            },
+            candidateAssignments = allCandidateAssignments
         };
 
-        var explanationText = $"Matched routing rule #{selected.Match.Rule.Id} using {string.Join(", ", selected.Match.MatchedCriteria)}.";
-        if (workloadTieBreakApplied)
-        {
-            explanationText +=
-                $" Workload score broke a tie across {topStaticCandidateCount} equally ranked candidates.";
-        }
+        var explanationText = BuildExplanationText(synitiSlot, businessSlot);
 
         return new RoutingDecisionResult(
-            MatchedRuleId: selected.Match.Rule.Id,
+            MatchedRuleId: matchedRuleId,
             OutcomeType: RoutingOutcomeType.RuleMatch,
             ConfidenceLevel: confidence,
             NoMatchReason: null,
-            RecommendedSynitiOwner: NormalizeOptionalValue(selected.Match.Rule.SynitiOwner),
-            RecommendedBusinessOwner: NormalizeOptionalValue(selected.Match.Rule.BusinessOwner),
+            RecommendedSynitiOwner: synitiSlot.Applied ? synitiSlot.Selected?.OwnerKey : null,
+            RecommendedBusinessOwner: businessSlot.Applied ? businessSlot.Selected?.OwnerKey : null,
             PrecedenceScore: precedenceScore,
             TieBreakKey: tieBreakKey,
             ExplanationJson: JsonSerializer.Serialize(explanationObject),
             ExplanationText: explanationText,
             EngineVersion: EngineVersion,
-            MatchedCriteriaCount: selected.Match.MatchedCriteriaCount);
+            MatchedCriteriaCount: highestMatchedCriteriaCount);
     }
 
     public async Task<TicketRoutingDecision> RecordDecisionAsync(
@@ -210,6 +245,7 @@ public class TicketRoutingRuleService(
         RoutingDecisionResult decision,
         CancellationToken cancellationToken = default)
     {
+        var ownerAliases = await BuildOwnerAliasLookupAsync(cancellationToken);
         var entity = new TicketRoutingDecision
         {
             TicketId = ticketId,
@@ -217,8 +253,8 @@ public class TicketRoutingRuleService(
             OutcomeType = decision.OutcomeType,
             ConfidenceLevel = decision.ConfidenceLevel,
             NoMatchReason = decision.NoMatchReason,
-            ChosenSynitiOwner = NormalizeOptionalValue(decision.RecommendedSynitiOwner),
-            ChosenBusinessOwner = NormalizeOptionalValue(decision.RecommendedBusinessOwner),
+            ChosenSynitiOwner = CanonicalizeOwnerForPersistence(decision.RecommendedSynitiOwner, ownerAliases),
+            ChosenBusinessOwner = CanonicalizeOwnerForPersistence(decision.RecommendedBusinessOwner, ownerAliases),
             PrecedenceScore = decision.PrecedenceScore,
             TieBreakKey = decision.TieBreakKey,
             ExplanationJson = decision.ExplanationJson,
@@ -243,14 +279,15 @@ public class TicketRoutingRuleService(
         DecisionImpactSnapshot? decisionImpactSnapshot = null,
         CancellationToken cancellationToken = default)
     {
+        var ownerAliases = await BuildOwnerAliasLookupAsync(cancellationToken);
         var entity = new TicketRoutingOverride
         {
             TicketId = ticketId,
             OverriddenByUserId = overriddenByUserId,
-            PreviousSynitiOwner = NormalizeOptionalValue(previousSynitiOwner),
-            PreviousBusinessOwner = NormalizeOptionalValue(previousBusinessOwner),
-            NewSynitiOwner = NormalizeOptionalValue(newSynitiOwner),
-            NewBusinessOwner = NormalizeOptionalValue(newBusinessOwner),
+            PreviousSynitiOwner = CanonicalizeOwnerForPersistence(previousSynitiOwner, ownerAliases),
+            PreviousBusinessOwner = CanonicalizeOwnerForPersistence(previousBusinessOwner, ownerAliases),
+            NewSynitiOwner = CanonicalizeOwnerForPersistence(newSynitiOwner, ownerAliases),
+            NewBusinessOwner = CanonicalizeOwnerForPersistence(newBusinessOwner, ownerAliases),
             OverrideReasonType = reasonType,
             OverrideReasonText = NormalizeOptionalValue(reasonText)
         };
@@ -413,57 +450,6 @@ public class TicketRoutingRuleService(
         };
     }
 
-    private static int GetMatchScore(
-        TicketRoutingRule rule,
-        string? normalizedDepartment,
-        string? normalizedTitle)
-    {
-        var hasDepartmentCriterion = !string.IsNullOrWhiteSpace(rule.Department);
-        var hasTitleCriterion = !string.IsNullOrWhiteSpace(rule.TitleContains);
-
-        if (hasDepartmentCriterion)
-        {
-            if (normalizedDepartment is null)
-            {
-                return -1;
-            }
-
-            var ruleDepartment = NormalizeLookupValue(rule.Department);
-            if (!string.Equals(ruleDepartment, normalizedDepartment, StringComparison.Ordinal))
-            {
-                return -1;
-            }
-        }
-
-        if (hasTitleCriterion)
-        {
-            if (normalizedTitle is null)
-            {
-                return -1;
-            }
-
-            var titlePhrase = NormalizeLookupValue(rule.TitleContains);
-            if (titlePhrase is null || !normalizedTitle.Contains(titlePhrase, StringComparison.Ordinal))
-            {
-                return -1;
-            }
-        }
-
-        var score = 0;
-
-        if (hasTitleCriterion)
-        {
-            score += 1_000 + (rule.TitleContains?.Trim().Length ?? 0);
-        }
-
-        if (hasDepartmentCriterion)
-        {
-            score += 100;
-        }
-
-        return score;
-    }
-
     private static RuleMatchResult EvaluateRuleMatch(TicketRoutingRule rule, RoutingFactors factors)
     {
         var matchedCriteria = new List<string>();
@@ -520,23 +506,6 @@ public class TicketRoutingRuleService(
         return true;
     }
 
-    private static RankedCandidate BuildRankedCandidate(
-        RuleMatchResult match,
-        IReadOnlyDictionary<string, OwnerWorkloadScoreSnapshot> ownerScoreMap)
-    {
-        var ownerKeys = GetRuleOwnerKeys(match.Rule).ToList();
-        var ownerScores = ownerKeys
-            .Select(ownerKey => ownerScoreMap.TryGetValue(ownerKey, out var score)
-                ? score
-                : new OwnerWorkloadScoreSnapshot(ownerKey, 0, 0, 0, 0, 0, 0))
-            .ToList();
-
-        // Sum unique owner workloads so dual-owner routes reflect the combined operational load.
-        var workloadScore = ownerScores.Sum(score => score.WorkloadScore);
-
-        return new RankedCandidate(match, workloadScore, ownerScores);
-    }
-
     private static IEnumerable<string> GetRuleOwnerKeys(TicketRoutingRule rule)
     {
         return new string?[]
@@ -563,6 +532,374 @@ public class TicketRoutingRuleService(
         };
     }
 
+    private static SlotDecisionResult EvaluateSlotCandidates(
+        string slotName,
+        IReadOnlyList<RuleMatchResult> candidateMatches,
+        IReadOnlyDictionary<string, User> userAliases,
+        IReadOnlyDictionary<string, OwnerWorkloadScoreSnapshot> ownerScoreMap,
+        bool isSynitiSlot)
+    {
+        var candidatesByUserId = new Dictionary<int, SlotCandidateDraft>();
+        var skippedReasons = new List<SlotSkippedOwner>();
+
+        foreach (var match in candidateMatches)
+        {
+            var ownerKey = NormalizeOptionalValue(
+                isSynitiSlot ? match.Rule.SynitiOwner : match.Rule.BusinessOwner);
+            if (ownerKey is null)
+            {
+                skippedReasons.Add(new SlotSkippedOwner(
+                    RuleId: match.Rule.Id,
+                    OwnerKey: null,
+                    UserId: null,
+                    Reason: "RuleMissingOwner",
+                    Message: "Rule does not define an owner for this assignment slot."));
+                continue;
+            }
+
+            var user = OwnerFieldResolution.ResolveUser(ownerKey, userAliases);
+            if (user is null)
+            {
+                skippedReasons.Add(new SlotSkippedOwner(
+                    RuleId: match.Rule.Id,
+                    OwnerKey: ownerKey,
+                    UserId: null,
+                    Reason: "UnresolvedRuleOwner",
+                    Message: "Rule target could not be resolved to an active user."));
+                continue;
+            }
+
+            if (!user.IsActive)
+            {
+                skippedReasons.Add(new SlotSkippedOwner(
+                    RuleId: match.Rule.Id,
+                    OwnerKey: ownerKey,
+                    UserId: user.Id,
+                    Reason: "InactiveUser",
+                    Message: "Rule target could not be resolved to an active user."));
+                continue;
+            }
+
+            if (isSynitiSlot && !user.IsSynitiOwnerEligible)
+            {
+                skippedReasons.Add(new SlotSkippedOwner(
+                    RuleId: match.Rule.Id,
+                    OwnerKey: ownerKey,
+                    UserId: user.Id,
+                    Reason: "NotSynitiEligible",
+                    Message: "Rule target is not eligible for this assignment."));
+                continue;
+            }
+
+            if (!isSynitiSlot && !user.IsBusinessOwnerEligible)
+            {
+                skippedReasons.Add(new SlotSkippedOwner(
+                    RuleId: match.Rule.Id,
+                    OwnerKey: ownerKey,
+                    UserId: user.Id,
+                    Reason: "NotBusinessEligible",
+                    Message: "Rule target is not eligible for this assignment."));
+                continue;
+            }
+
+            var canonicalOwnerKey = OwnerFieldResolution.ToCanonicalOwnerKey(user);
+            var snapshot = ownerScoreMap.TryGetValue(ownerKey, out var scored)
+                ? scored
+                : new OwnerWorkloadScoreSnapshot(ownerKey, 0, 0, 0, 0, 0, 0);
+            var matchScore = ComputeMatchScore(match.Rule, match.MatchedCriteria);
+            var workloadPenalty = ComputeWorkloadPenalty(snapshot);
+            var candidate = new SlotCandidateDraft(
+                UserId: user.Id,
+                OwnerKey: canonicalOwnerKey,
+                DisplayName: ResolveUserDisplayName(user),
+                RuleId: match.Rule.Id,
+                MatchScore: matchScore,
+                WorkloadPenalty: workloadPenalty,
+                ActiveTicketCount: snapshot.ActiveTicketCount,
+                HighPriorityTicketCount: snapshot.HighPriorityTicketCount,
+                AtRiskTicketCount: snapshot.AtRiskTicketCount,
+                OutsideSlaOpenCount: snapshot.OutsideSlaOpenCount,
+                SlaRiskTicketCount: snapshot.SlaRiskTicketCount,
+                MatchedCriteriaCount: match.MatchedCriteriaCount,
+                MatchedCriteria: match.MatchedCriteria,
+                RulePriority: match.Rule.RulePriority,
+                RuleWeight: match.Rule.Weight);
+
+            if (!candidatesByUserId.TryGetValue(user.Id, out var existing)
+                || IsBetterCandidate(candidate, existing))
+            {
+                candidatesByUserId[user.Id] = candidate;
+            }
+        }
+
+        var ranked = candidatesByUserId.Values
+            .Select(candidate => new SlotCandidateEvaluation(
+                UserId: candidate.UserId,
+                OwnerKey: candidate.OwnerKey,
+                DisplayName: candidate.DisplayName,
+                RuleId: candidate.RuleId,
+                MatchScore: candidate.MatchScore,
+                WorkloadPenalty: candidate.WorkloadPenalty,
+                FinalScore: candidate.MatchScore - candidate.WorkloadPenalty,
+                ActiveTicketCount: candidate.ActiveTicketCount,
+                HighPriorityTicketCount: candidate.HighPriorityTicketCount,
+                AtRiskTicketCount: candidate.AtRiskTicketCount,
+                OutsideSlaOpenCount: candidate.OutsideSlaOpenCount,
+                SlaRiskTicketCount: candidate.SlaRiskTicketCount,
+                MatchedCriteriaCount: candidate.MatchedCriteriaCount,
+                MatchedCriteria: candidate.MatchedCriteria,
+                RulePriority: candidate.RulePriority,
+                RuleWeight: candidate.RuleWeight))
+            .OrderByDescending(candidate => candidate.FinalScore)
+            .ThenByDescending(candidate => candidate.MatchScore)
+            .ThenBy(candidate => candidate.WorkloadPenalty)
+            .ThenBy(candidate => candidate.ActiveTicketCount)
+            .ThenBy(candidate => candidate.UserId)
+            .ToList();
+        var selected = ranked.FirstOrDefault();
+        if (selected is null)
+        {
+            return new SlotDecisionResult(
+                Slot: slotName,
+                Applied: false,
+                Classification: "Limited routing signals",
+                AppliedReason: "No eligible owner candidates were available.",
+                Selected: null,
+                Candidates: ranked,
+                SkippedReasons: skippedReasons);
+        }
+
+        var weakSignal = selected.MatchScore < 35;
+        var tie = ranked.Count > 1 && Math.Abs(selected.FinalScore - ranked[1].FinalScore) <= 5;
+        var applied = selected.MatchScore >= 40 && !weakSignal && !tie;
+        var classification = tie
+            ? "Multiple viable candidates"
+            : weakSignal
+                ? "Limited routing signals"
+                : ClassifySignal(selected.MatchScore, selected.WorkloadPenalty);
+        var appliedReason = ResolveAppliedReason(selected, weakSignal, tie, applied);
+
+        return new SlotDecisionResult(
+            Slot: slotName,
+            Applied: applied,
+            Classification: classification,
+            AppliedReason: appliedReason,
+            Selected: selected,
+            Candidates: ranked,
+            SkippedReasons: skippedReasons);
+    }
+
+    private static int? ResolveMatchedRuleId(
+        SlotDecisionResult synitiSlot,
+        SlotDecisionResult businessSlot)
+    {
+        var selectedCandidates = new[] { synitiSlot.Selected, businessSlot.Selected }
+            .Where(candidate => candidate is not null)
+            .Cast<SlotCandidateEvaluation>()
+            .OrderByDescending(candidate => candidate.FinalScore)
+            .ThenByDescending(candidate => candidate.MatchScore)
+            .ThenBy(candidate => candidate.WorkloadPenalty)
+            .ToList();
+        return selectedCandidates.Count == 0 ? null : selectedCandidates[0].RuleId;
+    }
+
+    private static object ToSlotExplanation(SlotDecisionResult slot)
+    {
+        return new
+        {
+            selectedOwnerId = slot.Selected?.UserId,
+            selectedOwnerKey = slot.Selected?.OwnerKey,
+            selectedOwnerDisplayName = slot.Selected?.DisplayName,
+            applied = slot.Applied,
+            appliedReason = slot.AppliedReason,
+            classification = slot.Classification,
+            candidates = slot.Candidates.Select(candidate => new
+            {
+                userId = candidate.UserId,
+                ownerKey = candidate.OwnerKey,
+                displayName = candidate.DisplayName,
+                ruleId = candidate.RuleId,
+                matchScore = candidate.MatchScore,
+                workloadPenalty = candidate.WorkloadPenalty,
+                finalScore = candidate.FinalScore,
+                activeTicketCount = candidate.ActiveTicketCount,
+                highPriorityTicketCount = candidate.HighPriorityTicketCount,
+                atRiskTicketCount = candidate.AtRiskTicketCount,
+                outsideSlaOpenCount = candidate.OutsideSlaOpenCount,
+                slaRiskTicketCount = candidate.SlaRiskTicketCount,
+                matchedCriteria = candidate.MatchedCriteria,
+                reason = BuildCandidateExplanationReason(candidate, slot)
+            }),
+            skippedReasons = slot.SkippedReasons.Select(skipped => new
+            {
+                ruleId = skipped.RuleId,
+                ownerKey = skipped.OwnerKey,
+                userId = skipped.UserId,
+                reason = skipped.Reason,
+                message = skipped.Message
+            })
+        };
+    }
+
+    private static string BuildExplanationText(
+        SlotDecisionResult synitiSlot,
+        SlotDecisionResult businessSlot)
+    {
+        return
+            $"Decision engine evaluated slots independently: Syniti={synitiSlot.Classification}, Business={businessSlot.Classification}.";
+    }
+
+    private static string ResolveOverallClassification(
+        SlotDecisionResult synitiSlot,
+        SlotDecisionResult businessSlot)
+    {
+        var classifications = new[] { synitiSlot.Classification, businessSlot.Classification };
+        if (classifications.Contains("Multiple viable candidates", StringComparer.Ordinal))
+        {
+            return "Multiple viable candidates";
+        }
+
+        if (classifications.Contains("Strong match, low pressure", StringComparer.Ordinal))
+        {
+            return "Strong match, low pressure";
+        }
+
+        if (classifications.Contains("Strong match, moderate pressure", StringComparer.Ordinal))
+        {
+            return "Strong match, moderate pressure";
+        }
+
+        if (classifications.Contains("Moderate match", StringComparer.Ordinal))
+        {
+            return "Moderate match";
+        }
+
+        return "Limited routing signals";
+    }
+
+    private static string ClassifySignal(int matchScore, int workloadPenalty)
+    {
+        if (matchScore >= 70 && workloadPenalty <= 10)
+        {
+            return "Strong match, low pressure";
+        }
+        if (matchScore >= 70)
+        {
+            return "Strong match, moderate pressure";
+        }
+        return "Moderate match";
+    }
+
+    private static string ResolveUserDisplayName(User user)
+    {
+        if (!string.IsNullOrWhiteSpace(user.DisplayName))
+        {
+            return user.DisplayName.Trim();
+        }
+
+        return string.IsNullOrWhiteSpace(user.Email)
+            ? $"User #{user.Id}"
+            : user.Email.Trim();
+    }
+
+    private static string ResolveAppliedReason(
+        SlotCandidateEvaluation selected,
+        bool weakSignal,
+        bool tie,
+        bool applied)
+    {
+        if (applied)
+        {
+            return "Selected as the best eligible owner for this slot.";
+        }
+
+        if (weakSignal)
+        {
+            return "Limited routing signals available for this ticket.";
+        }
+
+        if (tie)
+        {
+            return "Multiple viable candidates are within the narrow-margin threshold.";
+        }
+
+        return selected.MatchScore < 40
+            ? "Match score is below the auto-assignment threshold."
+            : "Recommendation is advisory until the assignment slot can be safely applied.";
+    }
+
+    private static string BuildCandidateExplanationReason(
+        SlotCandidateEvaluation candidate,
+        SlotDecisionResult slot)
+    {
+        if (slot.Selected is null)
+        {
+            return "Not selected because no eligible owner could be ranked.";
+        }
+
+        if (candidate.UserId == slot.Selected.UserId)
+        {
+            return slot.Applied
+                ? "Selected: highest final score among eligible candidates."
+                : $"Advisory: {slot.AppliedReason}";
+        }
+
+        if (candidate.MatchScore < slot.Selected.MatchScore)
+        {
+            return "Not selected: weaker routing match than selected candidate.";
+        }
+
+        if (candidate.WorkloadPenalty > slot.Selected.WorkloadPenalty)
+        {
+            return "Not selected: higher workload pressure than selected candidate.";
+        }
+
+        return "Not selected: lower final score after workload pressure was applied.";
+    }
+
+    private static int ComputeMatchScore(TicketRoutingRule rule, IReadOnlyList<string> matchedCriteria)
+    {
+        var score = 0;
+        foreach (var criterion in matchedCriteria)
+        {
+            score += criterion switch
+            {
+                "BoardId" => 18,
+                "Priority" => 16,
+                "RequesterDepartment" => 14,
+                "RequesterRole" => 12,
+                "Department" => 5,
+                "TitleContains" => 5,
+                _ => 0
+            };
+        }
+
+        score += Math.Min(20, (int)Math.Round(Math.Max(0, rule.RulePriority) * 0.4, MidpointRounding.AwayFromZero));
+        score += Math.Min(10, (int)Math.Round(Math.Max(0, rule.Weight) * 0.5, MidpointRounding.AwayFromZero));
+        return Math.Min(100, score);
+    }
+
+    private static int ComputeWorkloadPenalty(OwnerWorkloadScoreSnapshot snapshot)
+    {
+        var calculatedPenalty =
+            snapshot.ActiveTicketCount
+            + (snapshot.HighPriorityTicketCount * 2)
+            + (snapshot.AtRiskTicketCount * 3)
+            + (snapshot.OutsideSlaOpenCount * 5);
+        return Math.Min(30, calculatedPenalty);
+    }
+
+    private static bool IsBetterCandidate(
+        SlotCandidateDraft candidate,
+        SlotCandidateDraft existing)
+    {
+        return candidate.MatchScore > existing.MatchScore
+            || (candidate.MatchScore == existing.MatchScore && candidate.WorkloadPenalty < existing.WorkloadPenalty)
+            || (candidate.MatchScore == existing.MatchScore
+                && candidate.WorkloadPenalty == existing.WorkloadPenalty
+                && candidate.RuleId < existing.RuleId);
+    }
+
     private static RoutingDecisionResult BuildFallback(
         RoutingFactors factors,
         RoutingNoMatchReason noMatchReason,
@@ -570,6 +907,8 @@ public class TicketRoutingRuleService(
     {
         var explanationObject = new
         {
+            engine = EngineVersion,
+            formula = "finalScore = matchScore - workloadPenalty",
             matchedRuleId = (int?)null,
             factors,
             noMatchReason = noMatchReason.ToString()
@@ -625,6 +964,22 @@ public class TicketRoutingRuleService(
             : value.Trim().ToLowerInvariant();
     }
 
+    private async Task<IReadOnlyDictionary<string, User>> BuildOwnerAliasLookupAsync(
+        CancellationToken cancellationToken)
+    {
+        var users = await _dbContext.Users
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+        return OwnerFieldResolution.BuildAliasLookup(users);
+    }
+
+    private static string? CanonicalizeOwnerForPersistence(
+        string? ownerKey,
+        IReadOnlyDictionary<string, User> ownerAliases)
+    {
+        return OwnerFieldResolution.CanonicalizeOwnerField(ownerKey, ownerAliases);
+    }
+
     private sealed record RuleMatchResult(
         TicketRoutingRule Rule,
         bool IsMatch,
@@ -634,8 +989,54 @@ public class TicketRoutingRuleService(
         public static RuleMatchResult NoMatch(TicketRoutingRule rule) => new(rule, false, []);
     }
 
-    private sealed record RankedCandidate(
-        RuleMatchResult Match,
-        int WorkloadScore,
-        IReadOnlyList<OwnerWorkloadScoreSnapshot> OwnerScores);
+    private sealed record SlotCandidateEvaluation(
+        int UserId,
+        string OwnerKey,
+        string DisplayName,
+        int RuleId,
+        int MatchScore,
+        int WorkloadPenalty,
+        int FinalScore,
+        int ActiveTicketCount,
+        int HighPriorityTicketCount,
+        int AtRiskTicketCount,
+        int OutsideSlaOpenCount,
+        int SlaRiskTicketCount,
+        int MatchedCriteriaCount,
+        IReadOnlyList<string> MatchedCriteria,
+        int RulePriority,
+        int RuleWeight);
+
+    private sealed record SlotCandidateDraft(
+        int UserId,
+        string OwnerKey,
+        string DisplayName,
+        int RuleId,
+        int MatchScore,
+        int WorkloadPenalty,
+        int ActiveTicketCount,
+        int HighPriorityTicketCount,
+        int AtRiskTicketCount,
+        int OutsideSlaOpenCount,
+        int SlaRiskTicketCount,
+        int MatchedCriteriaCount,
+        IReadOnlyList<string> MatchedCriteria,
+        int RulePriority,
+        int RuleWeight);
+
+    private sealed record SlotSkippedOwner(
+        int RuleId,
+        string? OwnerKey,
+        int? UserId,
+        string Reason,
+        string Message);
+
+    private sealed record SlotDecisionResult(
+        string Slot,
+        bool Applied,
+        string Classification,
+        string AppliedReason,
+        SlotCandidateEvaluation? Selected,
+        IReadOnlyList<SlotCandidateEvaluation> Candidates,
+        IReadOnlyList<SlotSkippedOwner> SkippedReasons);
 }

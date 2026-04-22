@@ -45,15 +45,27 @@ public sealed class ReassignmentExecutionService(
             return Failed(StatusCodes.Status400BadRequest, "Ticket is missing a valid owner assignment target.");
         }
 
-        var currentOwner = assignmentField == "synitiOwner"
+        var rawCurrentOwner = assignmentField == "synitiOwner"
             ? Normalize(ticket.SynitiOwner)
             : Normalize(ticket.BusinessOwner);
+        var currentOwner = rawCurrentOwner;
         if (currentOwner.Length == 0)
         {
             return Failed(StatusCodes.Status409Conflict, "Current owner is no longer set on this ticket.");
         }
 
         var expectedCurrentOwner = Normalize(request.ExpectedCurrentOwnerKey);
+        var selectedTarget = recommendation.SuggestedTargets.FirstOrDefault(target =>
+            target.UserId.HasValue && target.UserId.Value == request.SelectedOwnerId);
+        if (selectedTarget is null)
+        {
+            return Failed(StatusCodes.Status400BadRequest, "Suggested target is no longer eligible for this ticket.");
+        }
+
+        var aliases = OwnerFieldResolution.BuildAliasLookup(await _userRepository.GetAllUsersAsync());
+        currentOwner = OwnerFieldResolution.CanonicalizeOwnerField(currentOwner, aliases) ?? currentOwner;
+        expectedCurrentOwner = OwnerFieldResolution.CanonicalizeOwnerField(expectedCurrentOwner, aliases) ?? expectedCurrentOwner;
+
         if (expectedCurrentOwner.Length > 0
             && !string.Equals(expectedCurrentOwner, currentOwner, StringComparison.OrdinalIgnoreCase))
         {
@@ -62,28 +74,32 @@ public sealed class ReassignmentExecutionService(
                 "Ticket assignment changed before reassignment could be applied.");
         }
 
-        var selectedTarget = recommendation.SuggestedTargets.FirstOrDefault(target =>
-            target.UserId.HasValue && target.UserId.Value == request.SelectedOwnerId);
-        if (selectedTarget is null)
-        {
-            return Failed(StatusCodes.Status400BadRequest, "Suggested target is no longer eligible for this ticket.");
-        }
-
         var selectedUser = await _userRepository.GetByIdAsync(request.SelectedOwnerId);
         if (selectedUser is null)
         {
             return Failed(StatusCodes.Status400BadRequest, "Selected owner no longer exists.");
         }
 
-        var newOwner = Normalize(selectedUser.DisplayName);
-        if (newOwner.Length == 0)
+        if (!selectedUser.IsActive)
         {
-            newOwner = Normalize(selectedUser.Email);
+            return Failed(StatusCodes.Status400BadRequest, "Selected owner is not an active user.");
         }
-        if (newOwner.Length == 0)
+
+        if (assignmentField == "synitiOwner" && !selectedUser.IsSynitiOwnerEligible)
         {
-            return Failed(StatusCodes.Status400BadRequest, "Selected owner does not have a valid identity label.");
+            return Failed(
+                StatusCodes.Status400BadRequest,
+                "Selected user is not eligible to be assigned as Syniti owner.");
         }
+
+        if (assignmentField == "businessOwner" && !selectedUser.IsBusinessOwnerEligible)
+        {
+            return Failed(
+                StatusCodes.Status400BadRequest,
+                "Selected user is not eligible to be assigned as business owner.");
+        }
+
+        var newOwner = OwnerFieldResolution.ToCanonicalOwnerKey(selectedUser);
 
         if (string.Equals(newOwner, currentOwner, StringComparison.OrdinalIgnoreCase))
         {

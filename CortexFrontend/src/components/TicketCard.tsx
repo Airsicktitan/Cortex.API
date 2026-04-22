@@ -14,6 +14,7 @@ import {
   readOnlyBusinessOwnerLabel,
   readOnlySynitiOwnerLabel,
 } from "../utils/ownerIdentity";
+import { CortexTooltip } from "./ui/Tooltip";
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -339,12 +340,20 @@ export default function TicketCard({
       className={`cursor-pointer rounded-xl border-l-4 border-t border-r border-b border-gray-100 bg-white p-4 shadow-sm outline-none transition-all duration-150 ease-in-out hover:-translate-y-[2px] hover:border-t-gray-300 hover:border-r-gray-300 hover:border-b-gray-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-cortex-blue focus-visible:ring-offset-2 active:translate-y-0 active:shadow-sm dark:border-t-slate-700 dark:border-r-slate-700 dark:border-b-slate-700 dark:bg-slate-900 dark:hover:border-t-slate-600 dark:hover:border-r-slate-600 dark:hover:border-b-slate-600 dark:focus-visible:ring-offset-slate-900 ${slaAccentClass} ${cardToneClass}`}
     >
       <div className="min-w-0 text-left">
-        <h3
-          className="line-clamp-2 text-left text-base font-semibold leading-snug tracking-tight text-gray-900 dark:text-slate-100"
-          title={descriptionTitlePreview}
-        >
-          {ticket.title}
-        </h3>
+        {descriptionTitlePreview ? (
+          <CortexTooltip content={descriptionTitlePreview}>
+            <h3
+              className="line-clamp-2 cursor-help text-left text-base font-semibold leading-snug tracking-tight text-gray-900 dark:text-slate-100"
+              tabIndex={0}
+            >
+              {ticket.title}
+            </h3>
+          </CortexTooltip>
+        ) : (
+          <h3 className="line-clamp-2 text-left text-base font-semibold leading-snug tracking-tight text-gray-900 dark:text-slate-100">
+            {ticket.title}
+          </h3>
+        )}
         <p className="mt-1 text-[11px] tabular-nums text-gray-400 dark:text-slate-500">
           #{formatTicketIdentifier(ticket.id)}
         </p>
@@ -420,30 +429,30 @@ export default function TicketCard({
       </p>
 
       {!isRequesterIntakeTicket ? (
-        <p
-          className="mt-3 line-clamp-2 text-left text-xs leading-snug text-gray-500 dark:text-slate-500"
-          title={slaTooltip}
-        >
-          {mergedTimingLine(ticket)}
-        </p>
+        <CortexTooltip content={slaTooltip}>
+          <p
+            className="mt-3 line-clamp-2 cursor-help text-left text-xs leading-snug text-gray-500 dark:text-slate-500"
+            tabIndex={0}
+          >
+            {mergedTimingLine(ticket)}
+          </p>
+        </CortexTooltip>
       ) : null}
 
       {!isRequesterIntakeTicket ? (
         <div className="mt-3 space-y-1 border-t border-gray-100 pt-3 text-left text-[11px] leading-snug text-gray-600 dark:border-slate-800 dark:text-slate-400">
-          <p
-            className="truncate"
-            title={formatDisplayValue(readOnlySynitiOwnerLabel(ticket))}
-          >
-            <span className="text-gray-500 dark:text-slate-500">Syniti:</span>{" "}
-            {formatDisplayValue(readOnlySynitiOwnerLabel(ticket))}
-          </p>
-          <p
-            className="truncate"
-            title={formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}
-          >
-            <span className="text-gray-500 dark:text-slate-500">Business:</span>{" "}
-            {formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}
-          </p>
+          <CortexTooltip content={formatDisplayValue(readOnlySynitiOwnerLabel(ticket))}>
+            <p className="truncate cursor-help" tabIndex={0}>
+              <span className="text-gray-500 dark:text-slate-500">Syniti:</span>{" "}
+              {formatDisplayValue(readOnlySynitiOwnerLabel(ticket))}
+            </p>
+          </CortexTooltip>
+          <CortexTooltip content={formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}>
+            <p className="truncate cursor-help" tabIndex={0}>
+              <span className="text-gray-500 dark:text-slate-500">Business:</span>{" "}
+              {formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}
+            </p>
+          </CortexTooltip>
         </div>
       ) : null}
 

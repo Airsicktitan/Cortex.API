@@ -62,11 +62,11 @@ export default function AdminUserCreateModal({
         onClick={onClose}
       />
 
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div className="relative w-full max-w-4xl rounded-lg border border-gray-200 bg-white p-6 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100">
-          <div className="mb-6 flex items-start justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold">Add User</h2>
+      <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-4">
+        <div className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-4xl overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6">
+          <div className="mb-6 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold sm:text-2xl">Add User</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
                 Create the Auth0 account and the local CORTEX user record in one step.
               </p>
@@ -207,9 +207,43 @@ export default function AdminUserCreateModal({
                 User is active
               </label>
             </div>
+            <div className="flex items-center rounded-md border border-gray-200 px-4 py-3 dark:border-slate-700">
+              <input
+                id="create-user-syniti-eligible"
+                type="checkbox"
+                checked={draft.isSynitiOwnerEligible}
+                onChange={(event) =>
+                  onChange("isSynitiOwnerEligible", event.target.checked)
+                }
+                className="h-4 w-4 rounded border-gray-300 text-cortex-blue focus:ring-cortex-blue"
+              />
+              <label
+                htmlFor="create-user-syniti-eligible"
+                className="ml-3 text-sm font-medium text-gray-700 dark:text-slate-300"
+              >
+                Eligible for Syniti Owner assignment
+              </label>
+            </div>
+            <div className="flex items-center rounded-md border border-gray-200 px-4 py-3 dark:border-slate-700">
+              <input
+                id="create-user-business-eligible"
+                type="checkbox"
+                checked={draft.isBusinessOwnerEligible}
+                onChange={(event) =>
+                  onChange("isBusinessOwnerEligible", event.target.checked)
+                }
+                className="h-4 w-4 rounded border-gray-300 text-cortex-blue focus:ring-cortex-blue"
+              />
+              <label
+                htmlFor="create-user-business-eligible"
+                className="ml-3 text-sm font-medium text-gray-700 dark:text-slate-300"
+              >
+                Eligible for Business Owner assignment
+              </label>
+            </div>
           </div>
 
-          <div className="mt-6 flex justify-end gap-3">
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
               onClick={onClose}
               className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"

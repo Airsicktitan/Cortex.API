@@ -25,6 +25,8 @@ public static class UserResponseExtensions
             Role = user.Role,
             Roles = roles,
             IsActive = user.IsActive,
+            IsSynitiOwnerEligible = user.IsSynitiOwnerEligible,
+            IsBusinessOwnerEligible = user.IsBusinessOwnerEligible,
             CreatedDate = user.CreatedDate,
             LastLoginDate = user.LastLoginDate,
             LastSeenDateUtc = user.LastSeenDateUtc,
@@ -58,6 +60,8 @@ public static class UserResponseExtensions
             LastSeenDateUtc = user.LastSeenDateUtc,
             ExpiryDate = user.ExpiryDate,
             IsActive = user.IsActive,
+            IsSynitiOwnerEligible = user.IsSynitiOwnerEligible,
+            IsBusinessOwnerEligible = user.IsBusinessOwnerEligible,
             Auth0Id = user.Auth0Id,
             LastModifiedDate = user.LastModifiedDate
         };
@@ -92,7 +96,10 @@ public static class UserResponseExtensions
                 : user.Department.Trim(),
             Role = string.IsNullOrWhiteSpace(user.Role)
                 ? null
-                : user.Role.Trim()
+                : user.Role.Trim(),
+            IsActive = user.IsActive,
+            IsSynitiOwnerEligible = user.IsSynitiOwnerEligible,
+            IsBusinessOwnerEligible = user.IsBusinessOwnerEligible
         };
     }
 }

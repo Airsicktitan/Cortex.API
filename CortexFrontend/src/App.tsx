@@ -2652,7 +2652,7 @@ function App() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-br from-cortex-surface to-cortex-surface-alt text-gray-900 transition-colors dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
+    <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-br from-cortex-surface to-cortex-surface-alt text-gray-900 transition-colors dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
       <AppHeader
         activeView={activeView}
         activeViewLabel={activeViewLabel}
@@ -2704,7 +2704,7 @@ function App() {
         onLogout={performLogout}
       />
 
-      <div className="mx-auto flex w-full max-w-[2200px] flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:gap-8 2xl:px-8">
+      <div className="mx-auto flex w-full max-w-[2200px] flex-1 min-h-0 overflow-hidden px-4 py-6 sm:px-6 sm:py-8 lg:gap-8 2xl:px-8">
         <AppSidebar
           width={sidebarWidth}
           activeView={activeView}
@@ -2713,7 +2713,7 @@ function App() {
           onResize={handleSidebarResize}
         />
 
-        <main className="min-w-0 flex-1">
+        <main className="min-w-0 flex-1 min-h-0 overflow-y-auto">
           {activeView === "dashboard" && canViewDashboard ? (
             <DashboardPage
               tickets={allTickets}
@@ -2839,6 +2839,9 @@ function App() {
               getApiToken={getApiToken}
               onOpenTicket={async (ticketId) => {
                 await openTicketById(ticketId);
+              }}
+              onRebalanceApplied={async () => {
+                await loadAllTickets();
               }}
             />
           ) : activeView === "jobs" && canViewJobActivityNav ? (

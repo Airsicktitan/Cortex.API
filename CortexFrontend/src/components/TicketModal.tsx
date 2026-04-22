@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -54,7 +53,6 @@ import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 import {
   deriveReviewerIntakeQualitySignal,
   getReviewerIntakeQualityCopy,
-  shouldShowApprovalTriageModalPanel,
   triageHasContent,
   type ReviewerIntakeQualityKind,
 } from "../utils/approvalTriage";
@@ -103,6 +101,16 @@ function getQueuedAttachmentKey(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
+function getIntakeAssistResultFingerprint(result: IntakeAssistResult): string {
+  return [
+    result.clarityState,
+    result.improvedDescription ?? "",
+    result.guidanceMessage ?? "",
+    result.suggestedSummary ?? "",
+    result.missingDetails.join("\u001e"),
+  ].join("\u0000");
+}
+
 /** v1 screenshot insight: PNG, JPEG, WebP only (aligned with backend). */
 function isImageAttachmentForInsight(a: TicketAttachment): boolean {
   const name = a.fileName.toLowerCase();
@@ -120,6 +128,178 @@ function isImageAttachmentForInsight(a: TicketAttachment): boolean {
     ct === "image/jpeg" ||
     ct === "image/jpg" ||
     ct === "image/webp"
+  );
+}
+
+function ScreenshotInsightEvidenceCard({
+  result,
+  compactForReviewerRail,
+}: {
+  result: ScreenshotInsightResult;
+  compactForReviewerRail: boolean;
+}) {
+  const visibleLines = filterScreenshotInsightNoise(result.visibleDetails);
+  const issueLines = filterScreenshotInsightNoise(result.possibleIssues);
+  const followLines = filterScreenshotInsightNoise(result.recommendedFollowUp);
+  const keyFindings = [...issueLines, ...visibleLines].slice(0, 2);
+
+  const fullInsightContent = (
+    <div className="space-y-5">
+      <p className="text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
+        Advisory read of visible screenshots. Review the attached files directly
+        when decisions matter.
+      </p>
+
+      <div className="border-b border-gray-200 pb-4 dark:border-slate-700">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+          Summary
+        </p>
+        <p className="text-[15px] font-semibold leading-snug text-gray-900 dark:text-slate-50">
+          {result.summary?.trim() || "-"}
+        </p>
+      </div>
+
+      {issueLines.length > 0 ? (
+        <div className="rounded-lg border border-amber-300/80 bg-amber-50/90 px-3 py-3 dark:border-amber-700/50 dark:bg-amber-950/35">
+          <p className="mb-2.5 text-xs font-bold uppercase tracking-wide text-amber-950 dark:text-amber-200">
+            Possible issues
+          </p>
+          <ul className="list-none space-y-2.5 pl-0">
+            {issueLines.map((line, idx) => (
+              <li
+                key={`pi-${idx}-${line.slice(0, 32)}`}
+                className={
+                  idx === 0
+                    ? "border-l-[3px] border-amber-600 pl-3 text-sm font-semibold leading-relaxed text-gray-900 dark:border-amber-400 dark:text-slate-50"
+                    : "border-l-[3px] border-amber-200/80 pl-3 text-sm leading-relaxed text-gray-800 dark:border-amber-800/60 dark:text-slate-200"
+                }
+              >
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {followLines.length > 0 ? (
+        <div className="rounded-lg border border-emerald-300/70 bg-emerald-50/60 px-3 py-3 dark:border-emerald-800/50 dark:bg-emerald-950/25">
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-950 dark:text-emerald-200">
+            Screenshot follow-up
+          </p>
+          <ul className="list-none space-y-2 pl-0">
+            {followLines.map((line, idx) => (
+              <li
+                key={`rf-${idx}-${line.slice(0, 32)}`}
+                className="flex gap-2 text-sm font-medium leading-relaxed text-emerald-950 dark:text-emerald-100"
+              >
+                <span
+                  className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-600 dark:bg-emerald-400"
+                  aria-hidden="true"
+                />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {visibleLines.length > 0 ? (
+        <div className="border-t border-gray-200 pt-4 dark:border-slate-700">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+            What&apos;s visible
+          </p>
+          <p className="mb-2 text-[11px] text-gray-500 dark:text-slate-500">
+            Observable UI detail, secondary to the reviewer analysis.
+          </p>
+          <ul className="list-outside list-disc space-y-2 pl-5 text-sm leading-[1.55] text-gray-600 dark:text-slate-400">
+            {visibleLines.map((line, idx) => (
+              <li key={`vis-${idx}-${line.slice(0, 32)}`}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div
+      className={`rounded-md border border-gray-200 bg-gray-50 text-sm text-gray-800 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-200 ${
+        compactForReviewerRail ? "p-3" : "p-4"
+      }`}
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold tracking-wide text-gray-700 dark:text-slate-300">
+            {compactForReviewerRail
+              ? "Screenshot Evidence"
+              : "Screenshot Insight"}
+          </p>
+          {compactForReviewerRail ? (
+            <p className="mt-1 text-[11px] leading-snug text-gray-500 dark:text-slate-500">
+              Supporting evidence only. Use the AI reviewer analysis for the
+              decision guidance.
+            </p>
+          ) : null}
+        </div>
+        {compactForReviewerRail ? (
+          <span className="shrink-0 rounded-full bg-cortex-blue-soft px-2 py-0.5 text-[11px] font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
+            AI Vision ran
+          </span>
+        ) : null}
+      </div>
+
+      {result.unavailable ? (
+        <p className="text-sm text-amber-900 dark:text-amber-100" role="status">
+          {result.unavailableReason?.trim() || "Unable to analyze screenshots."}
+        </p>
+      ) : compactForReviewerRail ? (
+        <div className="space-y-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+              Summary
+            </p>
+            <p className="mt-1 text-sm font-semibold leading-snug text-gray-900 dark:text-slate-50">
+              {result.summary?.trim() || "-"}
+            </p>
+          </div>
+
+          {keyFindings.length > 0 ? (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                Key screenshot findings
+              </p>
+              <ul className="mt-1 list-outside list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-gray-700 dark:text-slate-300">
+                {keyFindings.map((line, idx) => (
+                  <li key={`evidence-${idx}-${line.slice(0, 32)}`}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <details className="rounded-md border border-gray-200 bg-white/70 px-3 py-2 dark:border-slate-700 dark:bg-slate-950/30">
+            <summary className="cursor-pointer text-xs font-semibold text-cortex-blue-dark hover:text-cortex-blue dark:text-cortex-cyan">
+              Inspect full screenshot insight
+            </summary>
+            <div
+              className="scroll-surface scroll-chain-auto mt-3 max-h-[min(42vh,20rem)] overflow-y-auto pr-0.5"
+            >
+              {fullInsightContent}
+            </div>
+          </details>
+        </div>
+      ) : (
+        <div
+          // `scroll-surface` applies `overscroll-behavior: contain`, which
+          // traps wheel events at this nested scroller's bottom and freezes
+          // the parent main-column scroll (same pattern that caused the
+          // Cortex Decision freeze). Inline override restores default chain
+          // behavior without losing the hidden-scrollbar styling.
+          className="scroll-surface scroll-chain-auto relative max-h-[min(45vh,22rem)] overflow-y-auto pr-0.5"
+        >
+          {fullInsightContent}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -222,7 +402,9 @@ function reconcileCommentsById(
 }
 
 function upsertCommentById(current: Comment[], incoming: Comment): Comment[] {
-  const existingIndex = current.findIndex((comment) => comment.id === incoming.id);
+  const existingIndex = current.findIndex(
+    (comment) => comment.id === incoming.id,
+  );
   if (existingIndex < 0) {
     return [...current, incoming];
   }
@@ -329,7 +511,9 @@ export default function TicketModal({
   const [businessOwner, setBusinessOwner] = useState(
     ticket.businessOwner || "",
   );
-  const [ownerDirectory, setOwnerDirectory] = useState<UserDirectoryEntry[]>([]);
+  const [ownerDirectory, setOwnerDirectory] = useState<UserDirectoryEntry[]>(
+    [],
+  );
   const [ownerDirectoryLoading, setOwnerDirectoryLoading] = useState(false);
   const [ownerDirectoryLoaded, setOwnerDirectoryLoaded] = useState(false);
   const [ownerDirectoryError, setOwnerDirectoryError] = useState<string | null>(
@@ -379,7 +563,9 @@ export default function TicketModal({
   const [intakeAssistEditableDescription, setIntakeAssistEditableDescription] =
     useState("");
   const [intakeAssistLoading, setIntakeAssistLoading] = useState(false);
-  const [intakeAssistError, setIntakeAssistError] = useState<string | null>(null);
+  const [intakeAssistError, setIntakeAssistError] = useState<string | null>(
+    null,
+  );
   const intakeAssistAbortRef = useRef<AbortController | null>(null);
   const [screenshotInsightResult, setScreenshotInsightResult] =
     useState<ScreenshotInsightResult | null>(null);
@@ -437,6 +623,14 @@ export default function TicketModal({
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
     [currentUser?.roles, currentUser?.role],
+  );
+  const synitiOwnerOptions = useMemo(
+    () => ownerDirectory.filter((u) => u.isActive && u.isSynitiOwnerEligible),
+    [ownerDirectory],
+  );
+  const businessOwnerOptions = useMemo(
+    () => ownerDirectory.filter((u) => u.isActive && u.isBusinessOwnerEligible),
+    [ownerDirectory],
   );
   const isCreateMode = !ticket.id;
   const canCreateTicket = isCreateMode && canCreateTickets(authRoles);
@@ -616,22 +810,20 @@ export default function TicketModal({
     [ticket, priority, status, triagePreviewOverride],
   );
 
-  const reviewerIntakeQualityKind: ReviewerIntakeQualityKind | null = useMemo(
-    () => {
+  const reviewerIntakeQualityKind: ReviewerIntakeQualityKind | null =
+    useMemo(() => {
       if (approvalDisplayContext !== "reviewer" || !ticket.id) {
         return null;
       }
       const preview =
         triagePreviewOverride ?? ticket.approvalTriagePreview ?? null;
       return deriveReviewerIntakeQualitySignal(preview);
-    },
-    [
+    }, [
       approvalDisplayContext,
       ticket.id,
       triagePreviewOverride,
       ticket.approvalTriagePreview,
-    ],
-  );
+    ]);
 
   const reviewerIntakeQualityCopy = useMemo(
     () =>
@@ -642,11 +834,8 @@ export default function TicketModal({
   );
 
   const showAiTriageColumn = useMemo(
-    () =>
-      approvalDisplayContext === "reviewer" &&
-      Boolean(ticket.id) &&
-      shouldShowApprovalTriageModalPanel(ticket),
-    [approvalDisplayContext, ticket],
+    () => approvalDisplayContext === "reviewer" && Boolean(ticket.id),
+    [approvalDisplayContext, ticket.id],
   );
 
   useEffect(() => {
@@ -673,10 +862,14 @@ export default function TicketModal({
     void (async () => {
       try {
         const token = await getApiToken();
-        await ticketService.recordReviewerQualitySignal(ticket.id, {
-          reviewerSignal: reviewerIntakeQualityKind,
-          missingDetailHintCount: hintCount > 0 ? hintCount : undefined,
-        }, token);
+        await ticketService.recordReviewerQualitySignal(
+          ticket.id,
+          {
+            reviewerSignal: reviewerIntakeQualityKind,
+            missingDetailHintCount: hintCount > 0 ? hintCount : undefined,
+          },
+          token,
+        );
       } catch {
         /* workflow metrics are best-effort */
       }
@@ -824,7 +1017,13 @@ export default function TicketModal({
         setTriageApplyPending(null);
       }
     },
-    [getApiToken, onTriageApplySuccess, onTriagePersisted, ticket.id, triageApplyPending],
+    [
+      getApiToken,
+      onTriageApplySuccess,
+      onTriagePersisted,
+      ticket.id,
+      triageApplyPending,
+    ],
   );
 
   // ✅ CRITICAL: useLayoutEffect prevents the “1 frame of old ticket data”
@@ -872,7 +1071,7 @@ export default function TicketModal({
     setTriageApplyPending(null);
     lastTypingPingAtRef.current = 0;
     pendingLocalCommentRef.current = null;
-  }, [isOpen, ticket.id, ticketBoards]);
+  }, [isOpen, ticket.id, ticketBoards, currentUser?.department]);
 
   useEffect(() => {
     if (!ticket.id) {
@@ -969,7 +1168,9 @@ export default function TicketModal({
     if (!isOpen || !ticket.id) {
       return;
     }
-    const persisted = persistedScreenshotInsightToResult(ticket.screenshotInsight);
+    const persisted = persistedScreenshotInsightToResult(
+      ticket.screenshotInsight,
+    );
     if (persisted) {
       setScreenshotInsightResult(persisted);
     }
@@ -1448,9 +1649,15 @@ export default function TicketModal({
     const onDirectoryInvalidated = () => {
       void loadOwnerDirectory();
     };
-    window.addEventListener(USER_DIRECTORY_INVALIDATED_EVENT, onDirectoryInvalidated);
+    window.addEventListener(
+      USER_DIRECTORY_INVALIDATED_EVENT,
+      onDirectoryInvalidated,
+    );
     return () =>
-      window.removeEventListener(USER_DIRECTORY_INVALIDATED_EVENT, onDirectoryInvalidated);
+      window.removeEventListener(
+        USER_DIRECTORY_INVALIDATED_EVENT,
+        onDirectoryInvalidated,
+      );
   }, [loadOwnerDirectory]);
 
   useEffect(() => {
@@ -1534,9 +1741,7 @@ export default function TicketModal({
     }
 
     const prevIds = new Set(
-      prevSig
-        ? prevSig.split(",").map((id) => Number(id))
-        : [],
+      prevSig ? prevSig.split(",").map((id) => Number(id)) : [],
     );
     const added = comments.filter((c) => !prevIds.has(c.id));
     applyPrevSigFromComments();
@@ -1739,8 +1944,7 @@ export default function TicketModal({
     if (!el) {
       return;
     }
-    const distanceFromBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const near = distanceFromBottom <= COMMENT_THREAD_NEAR_BOTTOM_PX;
     commentThreadNearBottomRef.current = near;
     if (near) {
@@ -2039,16 +2243,22 @@ export default function TicketModal({
   const showChangeReasonField = Boolean(ticket.id) && !isApprovalQueueContext;
   /** Reviewer + requester PendingApproval: no comment thread (intake vs collaboration). */
   const showCommentsColumn = commentsColumnEnabled;
+  const canRenderTriageRegenerate =
+    Boolean(ticket.id) && approvalDisplayContext === "reviewer";
   const canOfferTriageRegenerate =
-    Boolean(ticket.id) &&
-    approvalDisplayContext === "reviewer" &&
+    canRenderTriageRegenerate &&
     getTicketApprovalStatus(ticket) === "PendingApproval";
+  const triageRegenerateDisabledReason =
+    canOfferTriageRegenerate || !canRenderTriageRegenerate
+      ? null
+      : "Regenerate Analysis is available while the ticket is awaiting approval.";
   const ticketModalGridClass = showAiTriageColumn
-    ? "grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]"
+    ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]"
     : showCommentsColumn
-      ? "grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px]"
+      ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]"
       : "grid-cols-1";
-  const ticketModalMaxWidthClass = showAiTriageColumn ? "max-w-6xl" : "max-w-5xl";
+  const ticketModalMaxWidthClass =
+    showAiTriageColumn || showCommentsColumn ? "max-w-6xl" : "max-w-5xl";
   const showRequesterRequestSummary = Boolean(ticket.id) && isRequesterContext;
   const activeTypingUsers = typingUsers.filter(
     (typingUser) => typingUser.expiresAt > Date.now(),
@@ -2067,8 +2277,7 @@ export default function TicketModal({
   const showApprovedApprovalState = approvalDisplayContext !== "active";
   const approvalBadgePresentation = (() => {
     const s = getTicketApprovalStatus(ticket);
-    const base =
-      "rounded-full border px-3 py-1 text-xs font-semibold";
+    const base = "rounded-full border px-3 py-1 text-xs font-semibold";
     if (s === "Approved") {
       if (!showApprovedApprovalState) {
         return null;
@@ -2205,14 +2414,16 @@ export default function TicketModal({
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
               SLA Status
             </p>
-            <span
-              className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${slaBadgeClass}`}
-              title={slaTooltip}
-            >
-              {slaDisplayLabel}
-            </span>
+            <CortexTooltip content={slaTooltip}>
+              <span
+                className={`mt-1 inline-flex cursor-help rounded-full px-2.5 py-1 text-xs font-semibold ${slaBadgeClass}`}
+                tabIndex={0}
+              >
+                {slaDisplayLabel}
+              </span>
+            </CortexTooltip>
           </div>
-          <div title={slaTooltip}>
+          <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
               SLA Deadline
             </p>
@@ -2220,7 +2431,7 @@ export default function TicketModal({
               {formatDisplayDateTime(ticket.slaTargetDate)}
             </p>
           </div>
-          <div className="sm:col-span-2" title={slaTooltip}>
+          <div className="sm:col-span-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
               SLA Tracking
             </p>
@@ -2258,7 +2469,7 @@ export default function TicketModal({
           tabIndex={-1}
         >
           <div
-            className={`grid h-[calc(100dvh-6rem)] min-h-0 gap-6 ${ticketModalGridClass}`}
+            className={`grid h-[calc(100dvh-6rem)] min-h-0 gap-4 sm:gap-6 ${ticketModalGridClass}`}
           >
             {/* ================= MAIN: ticket details / editing ================= */}
             <div className="relative flex min-h-0 min-w-0 flex-col">
@@ -2275,789 +2486,688 @@ export default function TicketModal({
                 so the icon never lands on top of Save / Cancel / History.
               */}
               <div className="relative flex min-h-0 flex-1 flex-col">
-              <div
-                ref={mainColumnScrollRef}
-                className="scroll-surface relative min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
-              >
-              {/* Header */}
-              <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
-                <div className="min-w-0 flex-1">
-                  <label className="block text-lg font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Enter Ticket Title
-                    {isCreateMode && (
-                      <span className="ml-1 text-red-600 dark:text-red-400">
-                        *
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    ref={titleInputRef}
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    readOnly={formReadOnly}
-                    placeholder="Enter ticket title..."
-                    className="w-full bg-transparent text-xl font-bold text-gray-900 dark:text-slate-100 mb-1 border-b border-gray-300 dark:border-slate-700 focus:border-cortex-blue focus:outline-none read-only:cursor-not-allowed read-only:opacity-80"
-                  />
-                  {isCreateMode && validationErrors.title && (
-                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                      {validationErrors.title}
-                    </p>
-                  )}
-                  <p className="text-sm text-gray-500 dark:text-slate-400">
-                    {formatTicketIdentifier(ticket.id)}
-                  </p>
-                  {ticket.id && (
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {!isRequesterIntakeTicket ? (
-                        <span className="rounded-full bg-cortex-blue-soft px-3 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
-                          {status}
-                        </span>
-                      ) : null}
-                      {!isRequesterIntakeTicket ? (
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityBadgeClass}`}
-                        >
-                          {priority}
-                        </span>
-                      ) : null}
-                      {!isRequesterIntakeTicket ? (
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${slaBadgeClass}`}
-                          title={slaTooltip}
-                        >
-                          {slaDisplayLabel}
-                        </span>
-                      ) : null}
-                      {approvalBadgePresentation ? (
-                        <span className={approvalBadgePresentation.className}>
-                          {approvalBadgePresentation.label}
-                        </span>
-                      ) : null}
-                    </div>
-                  )}
-                  {isCreateMode && (
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Fields marked with * are required.
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={onClose}
-                  className="text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300 text-2xl font-bold"
-                >
-                  ×
-                </button>
-              </div>
-
-              {ticket.id ? (
-                <div className="space-y-3">
-                  {requesterApprovalStatus !== "Approved" || showApprovedApprovalState ? (
-                    <ApprovalOutcomeMessage
-                      ticket={ticket}
-                      variant="modalBanner"
-                      audience={
-                        intakeApprovalHandlers ? "reviewer" : "requester"
-                      }
-                    />
-                  ) : null}
-                </div>
-              ) : null}
-
-              {showRequesterRequestSummary ? (
                 <div
-                  className={`rounded-md border p-4 ${requesterSummaryToneClass}`}
+                  ref={mainColumnScrollRef}
+                  className="scroll-surface relative min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-slate-400">
-                        Request Summary
-                      </p>
-                      <p className="mt-2 text-sm leading-snug text-gray-800 dark:text-slate-100">
-                        {requesterSummaryCopy(ticket)}
-                      </p>
-                    </div>
-                    {requesterApprovalStatus === "NeedsMoreInfo" ? (
-                      <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-950 dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-100">
-                        Action needed
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                        Submitted
-                      </p>
-                      <p className="mt-1 text-gray-800 dark:text-slate-200">
-                        {formatDisplayDateTime(ticket.createdDate)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                        {requesterApprovalStatus === "Approved"
-                          ? "Active board"
-                          : "Requested board"}
-                      </p>
-                      <p className="mt-1 text-gray-800 dark:text-slate-200">
-                        {formatDisplayValue(selectedBoard?.name ?? ticket.boardName)}
-                      </p>
-                    </div>
-                    {ticket.lastModifiedDate ? (
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                          Last updated
-                        </p>
-                        <p className="mt-1 text-gray-800 dark:text-slate-200">
-                          {formatDisplayDateTime(ticket.lastModifiedDate)}
-                        </p>
-                      </div>
-                    ) : null}
-                    {requesterApprovalStatus === "Approved" ? (
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                          Current status
-                        </p>
-                        <p className="mt-1 text-gray-800 dark:text-slate-200">
-                          {status}
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Description */}
-              <div className="rounded-md border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40">
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                    Description
-                    {isCreateMode && (
-                      <span className="ml-1 text-red-600 dark:text-red-400">
-                        *
-                      </span>
-                    )}
-                  </label>
-                  {isCreateMode && !formReadOnly && (
-                    <CortexTooltip
-                      content="Polishes your description for clarity and flags gaps so reviewers can decide without chasing you for details."
-                    >
-                      <button
-                        type="button"
-                        onClick={handleImproveIntake}
-                        disabled={
-                          intakeAssistLoading || !description.trim()
-                        }
-                        aria-busy={intakeAssistLoading}
-                        className={`ai-button inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-55 dark:text-emerald-300 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-200 ${
-                          description.trim() ? "ai-button--ready" : ""
-                        }`}
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          {intakeAssistLoading ? "Improving…" : "Improve for review"}
-                        </span>
-                      </button>
-                    </CortexTooltip>
-                  )}
-                </div>
-                {reviewerIntakeQualityKind !== null && reviewerIntakeQualityCopy ? (
-                  <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-2.5 dark:border-slate-700 dark:bg-slate-900/50">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          reviewerIntakeQualityKind === "none"
-                            ? "border border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-                            : reviewerIntakeQualityKind === "ready"
-                              ? CLARITY_STATE_PILL_CLASS.ready_for_execution
-                              : reviewerIntakeQualityKind === "gaps"
-                                ? CLARITY_STATE_PILL_CLASS.would_have_required_follow_up
-                                : CLARITY_STATE_PILL_CLASS.requires_clarification
-                        }`}
-                      >
-                        {reviewerIntakeQualityCopy.title}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
-                      {reviewerIntakeQualityCopy.body}
-                    </p>
-                  </div>
-                ) : null}
-                {isCreateMode && !formReadOnly ? (
-                  <p className="mb-2 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
-                    Improve this request before submission so reviewers can act
-                    without extra follow-up.
-                  </p>
-                ) : null}
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  readOnly={formReadOnly}
-                  rows={4}
-                  placeholder="Enter ticket description..."
-                  className="w-full rounded-md border-gray-300 bg-white text-gray-900 leading-[1.5] shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 read-only:cursor-not-allowed read-only:opacity-80"
-                />
-                {isCreateMode && validationErrors.description && (
-                  <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-                    {validationErrors.description}
-                  </p>
-                )}
-                {intakeAssistError && (
-                  <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-                    {intakeAssistError}
-                  </p>
-                )}
-                {intakeAssistResult && (
-                  <IntakeAssistResultPanel
-                    result={intakeAssistResult}
-                    editableDescription={intakeAssistEditableDescription}
-                    onChangeEditableDescription={
-                      setIntakeAssistEditableDescription
-                    }
-                    onUseSummary={handleUseIntakeSummary}
-                    onUseDescription={handleUseIntakeDescription}
-                    onDismiss={handleDismissIntakeAssist}
-                  />
-                )}
-              </div>
-
-              {!ticket.id && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Routing Department
-                  </label>
-                  <input
-                    type="text"
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
-                    placeholder="Defaults from your profile"
-                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
-                  />
-                  <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                    Used with title and department routing rules when you leave
-                    the owner fields blank.
-                  </p>
-                </div>
-              )}
-
-              {/* Editable Fields */}
-              <div className="grid grid-cols-1 gap-5 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/40 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Board
-                  </label>
-                  <select
-                    value={boardId}
-                    onChange={(e) =>
-                      handleBoardSelectionChange(Number(e.target.value))
-                    }
-                    disabled={Boolean(ticket.id && formReadOnly)}
-                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {ticketBoards.map((board) => (
-                      <option key={board.id} value={board.id}>
-                        {board.name}
-                        {board.isEnabled ? "" : " (Disabled)"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {selectedBoardRequiresStoryPoints ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                      Story Points
-                    </label>
-                    <select
-                      value={storyPoints}
-                      onChange={(e) => setStoryPoints(Number(e.target.value))}
-                      disabled={Boolean(ticket.id && formReadOnly)}
-                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {[1, 2, 3, 4, 5].map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
-                    {isCreateMode && validationErrors.storyPoints && (
-                      <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-                        {validationErrors.storyPoints}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
-                    Story points are only used on enhancement-style boards.
-                  </div>
-                )}
-
-                {/* Priority */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Priority
-                    {isCreateMode && (
-                      <span className="ml-1 text-red-600 dark:text-red-400">
-                        *
-                      </span>
-                    )}
-                  </label>
-                  <select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value)}
-                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                  >
-                    <option value="Critical">Critical</option>
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                  </select>
-                  {isCreateMode && validationErrors.priority && (
-                    <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-                      {validationErrors.priority}
-                    </p>
-                  )}
-                  {!isCreateMode &&
-                  approvalDisplayContext !== "requester" &&
-                  getTicketApprovalStatus(ticket) === "PendingApproval" ? (
-                    <p className="mt-1.5 text-xs text-gray-500 dark:text-slate-400">
-                      AI triage may update this ticket&apos;s priority and status to
-                      match configured vocabulary when it suggests a change. You can
-                      change either before approving.
-                    </p>
-                  ) : null}
-                </div>
-
-                {/* Status */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Status
-                  </label>
-                  {isCreateMode ? (
-                    <input
-                      type="text"
-                      value="New"
-                      readOnly
-                      className="w-full rounded-md border-gray-300 bg-gray-100 text-gray-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                    />
-                  ) : (
-                    <select
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value)}
-                      disabled={Boolean(ticket.id && formReadOnly)}
-                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {availableStatusOptions.map((statusDefinition) => (
-                        <option
-                          key={`${statusDefinition.id}-${statusDefinition.name}`}
-                          value={statusDefinition.name}
-                        >
-                          {statusDefinition.name}
-                          {statusDefinition.isEnabled ? "" : " (Disabled)"}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {isCreateMode && (
-                    <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                      Status defaults to New when creating a ticket.
-                    </p>
-                  )}
-                </div>
-
-                {/* Syniti Owner */}
-                <div>
-                  <UserCombobox
-                    label="Syniti Owner"
-                    value={synitiOwner}
-                    users={ownerDirectory}
-                    onChange={setSynitiOwner}
-                    loading={ownerDirectoryLoading}
-                    disabled={ownerPickerDisabled}
-                    helperText={synitiOwnerHelperText}
-                  />
-                </div>
-
-                {/* Business Owner */}
-                <div>
-                  <UserCombobox
-                    label="Business Owner"
-                    value={businessOwner}
-                    users={ownerDirectory}
-                    onChange={setBusinessOwner}
-                    loading={ownerDirectoryLoading}
-                    disabled={ownerPickerDisabled}
-                    helperText={businessOwnerHelperText}
-                  />
-                </div>
-              </div>
-
-              {ticket.id && !isRequesterContext ? (
-                <TicketRoutingInsight
-                  ticket={cortexDecisionTicket}
-                  isModalOpen={isOpen}
-                  ticketBoards={ticketBoards}
-                  livePreview={routingLivePreviewInput}
-                  onReassignmentApplied={(updatedTicket) => {
-                    applyServerTicketToForm(updatedTicket);
-                    onTriageApplySuccess?.(updatedTicket);
-                  }}
-                />
-              ) : null}
-
-              {showChangeReasonField && (
-                <div className="mb-6">
-                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
-                    Change Reason
-                  </label>
-                  <input
-                    type="text"
-                    value={changeReason}
-                    onChange={(e) => setChangeReason(e.target.value)}
-                    placeholder="Optional: explain why you're updating or archiving this ticket"
-                    className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
-                  />
-                </div>
-              )}
-
-              <div className="rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/60">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                      Attachments
-                    </label>
-                    <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                      Add screenshots or supporting files to this ticket.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="inline-flex cursor-default items-center rounded-md bg-cortex-blue px-3 py-2 text-sm font-medium text-white"
-                  >
-                    Attachments
-                  </button>
-                </div>
-
-                {approvalDisplayContext === "reviewer" &&
-                ticket.id &&
-                imageAttachmentsForInsight.length > 0 ? (
-                  <div className="mt-3 space-y-3">
-                    <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-3 sm:gap-y-1.5">
-                      <button
-                        type="button"
-                        onClick={() => void handleAnalyzeScreenshots()}
-                        disabled={screenshotInsightLoading}
-                        aria-busy={screenshotInsightLoading}
-                        className="ai-button ai-button--ready inline-flex min-h-[2.5rem] shrink-0 items-center justify-center rounded-md px-3 py-2 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
-                      >
-                        {screenshotInsightLoading ? (
-                          <span className="inline-flex items-center">
-                            <svg
-                              className="mr-2 h-4 w-4 shrink-0 animate-spin text-current"
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              aria-hidden
-                            >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                              />
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                              />
-                            </svg>
-                            Analyzing screenshots…
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
+                    <div className="min-w-0 flex-1">
+                      <label className="block text-lg font-medium text-gray-700 dark:text-slate-300 mb-2">
+                        Enter Ticket Title
+                        {isCreateMode && (
+                          <span className="ml-1 text-red-600 dark:text-red-400">
+                            *
                           </span>
-                        ) : (
-                          <span>Analyze screenshots</span>
                         )}
-                      </button>
-                      <span className="text-xs text-gray-500 dark:text-slate-400 sm:pt-2">
-                        {imageAttachmentsForInsight.length} image
-                        {imageAttachmentsForInsight.length === 1 ? "" : "s"}{" "}
-                        (PNG, JPG, WEBP)
-                      </span>
-                    </div>
-                    {screenshotInsightAutoHint ? (
-                      <p
-                        className="text-[11px] text-gray-500 dark:text-slate-500"
-                        aria-live="polite"
-                      >
-                        Analyzing screenshots…
-                      </p>
-                    ) : null}
-                    <p className="max-w-xl text-xs leading-snug text-gray-500 dark:text-slate-500">
-                      Understand what&apos;s happening from screenshots before
-                      asking follow-up questions.
-                    </p>
-                    {screenshotInsightError ? (
-                      <p className="text-xs text-red-600 dark:text-red-400">
-                        {screenshotInsightError}
-                      </p>
-                    ) : null}
-                    {screenshotInsightResult ? (
-                      <div
-                        className="rounded-md border border-gray-200 bg-gray-50 p-4 text-sm text-gray-800 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-200"
-                        role="region"
-                        aria-label="Screenshot insight"
-                      >
-                        <p className="mb-3 text-xs font-semibold tracking-wide text-gray-700 dark:text-slate-300">
-                          Screenshot Insight
+                      </label>
+                      <input
+                        ref={titleInputRef}
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        readOnly={formReadOnly}
+                        placeholder="Enter ticket title..."
+                        className="mb-1 w-full min-w-0 truncate border-b border-gray-300 bg-transparent text-lg font-bold leading-tight text-gray-900 focus:border-cortex-blue focus:outline-none read-only:cursor-not-allowed read-only:opacity-80 dark:border-slate-700 dark:text-slate-100 sm:text-xl"
+                      />
+                      {isCreateMode && validationErrors.title && (
+                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                          {validationErrors.title}
                         </p>
-                        <div
-                          // `scroll-surface` applies `overscroll-behavior: contain`, which
-                          // traps wheel events at this nested scroller's bottom and freezes
-                          // the parent main-column scroll (same pattern that caused the
-                          // Cortex Decision freeze). Inline override restores default chain
-                          // behavior without losing the hidden-scrollbar styling.
-                          className="scroll-surface relative max-h-[min(45vh,22rem)] overflow-y-auto pr-0.5"
-                          style={{ overscrollBehavior: "auto" }}
-                        >
-                        {screenshotInsightResult.unavailable ? (
-                          <p
-                            className="text-sm text-amber-900 dark:text-amber-100"
-                            role="status"
-                          >
-                            {screenshotInsightResult.unavailableReason?.trim() ||
-                              "Unable to analyze screenshots."}
-                          </p>
-                        ) : (
-                          (() => {
-                            const visibleLines = filterScreenshotInsightNoise(
-                              screenshotInsightResult.visibleDetails,
-                            );
-                            const issueLines = filterScreenshotInsightNoise(
-                              screenshotInsightResult.possibleIssues,
-                            );
-                            const followLines =
-                              screenshotInsightResult.recommendedFollowUp;
-
-                            return (
-                              <div className="space-y-5">
-                                <p className="text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
-                                  Advisory read of visible screenshots — may not
-                                  capture full context or intent.
-                                </p>
-
-                                <div className="border-b border-gray-200 pb-4 dark:border-slate-700">
-                                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                                    Summary
-                                  </p>
-                                  <p className="text-[15px] font-semibold leading-snug text-gray-900 dark:text-slate-50">
-                                    {screenshotInsightResult.summary?.trim() ||
-                                      "—"}
-                                  </p>
-                                </div>
-
-                                {issueLines.length > 0 ? (
-                                  <div className="rounded-lg border border-amber-300/80 bg-amber-50/90 px-3 py-3 dark:border-amber-700/50 dark:bg-amber-950/35">
-                                    <p className="mb-2.5 text-xs font-bold uppercase tracking-wide text-amber-950 dark:text-amber-200">
-                                      Possible issues
-                                    </p>
-                                    <ul className="list-none space-y-2.5 pl-0">
-                                      {issueLines.map((line, idx) => (
-                                        <li
-                                          key={`pi-${idx}-${line.slice(0, 32)}`}
-                                          className={
-                                            idx === 0
-                                              ? "border-l-[3px] border-amber-600 pl-3 text-sm font-semibold leading-relaxed text-gray-900 dark:border-amber-400 dark:text-slate-50"
-                                              : "border-l-[3px] border-amber-200/80 pl-3 text-sm leading-relaxed text-gray-800 dark:border-amber-800/60 dark:text-slate-200"
-                                          }
-                                        >
-                                          {line}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                ) : null}
-
-                                {followLines.length > 0 ? (
-                                  <div className="rounded-lg border border-emerald-300/70 bg-emerald-50/60 px-3 py-3 dark:border-emerald-800/50 dark:bg-emerald-950/25">
-                                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-950 dark:text-emerald-200">
-                                      Recommended follow-up
-                                    </p>
-                                    <ul className="list-none space-y-2 pl-0">
-                                      {followLines.map((line, idx) => (
-                                        <li
-                                          key={`rf-${idx}-${line.slice(0, 32)}`}
-                                          className="flex gap-2 text-sm font-medium leading-relaxed text-emerald-950 dark:text-emerald-100"
-                                        >
-                                          <span
-                                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-600 dark:bg-emerald-400"
-                                            aria-hidden
-                                          />
-                                          <span>{line}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                ) : null}
-
-                                {visibleLines.length > 0 ? (
-                                  <div className="border-t border-gray-200 pt-4 dark:border-slate-700">
-                                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
-                                      What&apos;s visible
-                                    </p>
-                                    <p className="mb-2 text-[11px] text-gray-500 dark:text-slate-500">
-                                      Observable UI detail (secondary to issues
-                                      and follow-up).
-                                    </p>
-                                    <ul className="list-outside list-disc space-y-2 pl-5 text-sm leading-[1.55] text-gray-600 dark:text-slate-400">
-                                      {visibleLines.map((line, idx) => (
-                                        <li
-                                          key={`vis-${idx}-${line.slice(0, 32)}`}
-                                        >
-                                          {line}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                ) : null}
-                              </div>
-                            );
-                          })()
-                        )}
-                      </div>
-                      </div>
-                    ) : null}
+                      )}
+                      <p className="text-sm text-gray-500 dark:text-slate-400">
+                        {formatTicketIdentifier(ticket.id)}
+                      </p>
+                      {ticket.id && (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {!isRequesterIntakeTicket ? (
+                            <span className="rounded-full bg-cortex-blue-soft px-3 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
+                              {status}
+                            </span>
+                          ) : null}
+                          {!isRequesterIntakeTicket ? (
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityBadgeClass}`}
+                            >
+                              {priority}
+                            </span>
+                          ) : null}
+                          {!isRequesterIntakeTicket ? (
+                            <CortexTooltip content={slaTooltip}>
+                              <span
+                                className={`cursor-help rounded-full px-3 py-1 text-xs font-semibold ${slaBadgeClass}`}
+                                tabIndex={0}
+                              >
+                                {slaDisplayLabel}
+                              </span>
+                            </CortexTooltip>
+                          ) : null}
+                          {approvalBadgePresentation ? (
+                            <span
+                              className={approvalBadgePresentation.className}
+                            >
+                              {approvalBadgePresentation.label}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
+                      {isCreateMode && (
+                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                          Fields marked with * are required.
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={onClose}
+                      className="text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300 text-2xl font-bold"
+                    >
+                      ×
+                    </button>
                   </div>
-                ) : null}
-
-                <div className="mt-4 space-y-3">
-                  <label
-                    onDragOver={handleAttachmentDragOver}
-                    onDragEnter={handleAttachmentDragOver}
-                    onDragLeave={handleAttachmentDragLeave}
-                    onDrop={handleAttachmentDrop}
-                    className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors ${
-                      isAttachmentDropActive
-                        ? "border-cortex-blue bg-cortex-blue/10"
-                        : "border-gray-300 bg-white/70 hover:border-cortex-blue/60 hover:bg-cortex-blue/5 dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-cortex-blue/50 dark:hover:bg-cortex-blue/10"
-                    }`}
-                  >
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
-                      className="sr-only"
-                      onChange={addQueuedAttachments}
-                    />
-                    <span className="text-sm font-medium text-gray-900 dark:text-slate-100">
-                      {isAttachmentDropActive
-                        ? "Drop your picture here"
-                        : "Drag and drop a picture here"}
-                    </span>
-                    <span className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                      or click to browse screenshots and supporting files
-                    </span>
-                    <span className="mt-2 text-xs text-gray-400 dark:text-slate-500">
-                      Images, PDFs, Office documents, text, and CSV files are
-                      supported.
-                    </span>
-                  </label>
 
                   {ticket.id ? (
-                    loadingAttachments ? (
-                      <p className="text-sm text-gray-500 dark:text-slate-400">
-                        Loading attachments…
-                      </p>
-                    ) : attachments.length > 0 ? (
-                      attachments.map((attachment) => (
-                        <div
-                          key={attachment.id}
-                          className="flex flex-col gap-3 rounded-md border border-gray-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/70 md:flex-row md:items-center md:justify-between"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
-                              {attachment.fileName}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-slate-400">
-                              {formatFileSize(attachment.fileSize)} ·{" "}
-                              {attachment.contentType} ·{" "}
-                              {attachment.uploadedByDisplayName} ·{" "}
-                              {new Date(
-                                attachment.uploadedDate,
-                              ).toLocaleString()}
-                            </p>
-                          </div>
+                    <div className="space-y-3">
+                      {requesterApprovalStatus !== "Approved" ||
+                      showApprovedApprovalState ? (
+                        <ApprovalOutcomeMessage
+                          ticket={ticket}
+                          variant="modalBanner"
+                          audience={
+                            intakeApprovalHandlers ? "reviewer" : "requester"
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
 
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => void openAttachment(attachment)}
-                              disabled={attachmentActionId === attachment.id}
-                              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                            >
-                              Open
-                            </button>
-                            <button
-                              onClick={() =>
-                                void downloadAttachment(attachment)
-                              }
-                              disabled={attachmentActionId === attachment.id}
-                              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                            >
-                              Download
-                            </button>
-                          </div>
+                  {showRequesterRequestSummary ? (
+                    <div
+                      className={`rounded-md border p-4 ${requesterSummaryToneClass}`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-slate-400">
+                            Request Summary
+                          </p>
+                          <p className="mt-2 text-sm leading-snug text-gray-800 dark:text-slate-100">
+                            {requesterSummaryCopy(ticket)}
+                          </p>
                         </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-gray-500 dark:text-slate-400">
-                        No attachments uploaded yet.
-                      </p>
-                    )
-                  ) : (
-                    <p className="text-sm text-gray-500 dark:text-slate-400">
-                      Selected attachments will upload after the ticket is
-                      created.
-                    </p>
-                  )}
+                        {requesterApprovalStatus === "NeedsMoreInfo" ? (
+                          <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-950 dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-100">
+                            Action needed
+                          </span>
+                        ) : null}
+                      </div>
 
-                  {queuedAttachments.length > 0 && (
-                    <div className="space-y-2 rounded-md border border-dashed border-cortex-blue/40 bg-cortex-blue/5 p-3 dark:border-cortex-blue/30 dark:bg-cortex-blue/10">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-cortex-blue">
-                        {ticket.id
-                          ? "Ready to upload when you save"
-                          : "Queued for upload when you create the ticket"}
-                      </p>
-                      {queuedAttachments.map((file) => (
-                        <div
-                          key={getQueuedAttachmentKey(file)}
-                          className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 dark:bg-slate-900/70"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
-                              {file.name}
+                      <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                            Submitted
+                          </p>
+                          <p className="mt-1 text-gray-800 dark:text-slate-200">
+                            {formatDisplayDateTime(ticket.createdDate)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                            {requesterApprovalStatus === "Approved"
+                              ? "Active board"
+                              : "Requested board"}
+                          </p>
+                          <p className="mt-1 text-gray-800 dark:text-slate-200">
+                            {formatDisplayValue(
+                              selectedBoard?.name ?? ticket.boardName,
+                            )}
+                          </p>
+                        </div>
+                        {ticket.lastModifiedDate ? (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                              Last updated
                             </p>
-                            <p className="text-xs text-gray-500 dark:text-slate-400">
-                              {formatFileSize(file.size)}
+                            <p className="mt-1 text-gray-800 dark:text-slate-200">
+                              {formatDisplayDateTime(ticket.lastModifiedDate)}
                             </p>
                           </div>
-                          <button
-                            onClick={() => removeQueuedAttachment(file)}
-                            type="button"
-                            className="text-sm text-red-600 transition-colors hover:text-red-700 dark:text-red-300 dark:hover:text-red-200"
+                        ) : null}
+                        {requesterApprovalStatus === "Approved" ? (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                              Current status
+                            </p>
+                            <p className="mt-1 text-gray-800 dark:text-slate-200">
+                              {status}
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Description */}
+                  <div className="rounded-md border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40">
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                        Description
+                        {isCreateMode && (
+                          <span className="ml-1 text-red-600 dark:text-red-400">
+                            *
+                          </span>
+                        )}
+                      </label>
+                      {isCreateMode && !formReadOnly && (
+                        <button
+                          type="button"
+                          onClick={handleImproveIntake}
+                          disabled={
+                            intakeAssistLoading || !description.trim()
+                          }
+                          className={`ai-button inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-55 dark:text-emerald-300 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-200 ${
+                            description.trim() ? "ai-button--ready" : ""
+                          }`}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {intakeAssistLoading
+                              ? "Improving…"
+                              : "Improve for review"}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                    {reviewerIntakeQualityKind !== null &&
+                    reviewerIntakeQualityCopy ? (
+                      <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-2.5 dark:border-slate-700 dark:bg-slate-900/50">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              reviewerIntakeQualityKind === "none"
+                                ? "border border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                : reviewerIntakeQualityKind === "ready"
+                                  ? CLARITY_STATE_PILL_CLASS.ready_for_execution
+                                  : reviewerIntakeQualityKind === "gaps"
+                                    ? CLARITY_STATE_PILL_CLASS.would_have_required_follow_up
+                                    : CLARITY_STATE_PILL_CLASS.requires_clarification
+                            }`}
                           >
-                            Remove
-                          </button>
+                            {reviewerIntakeQualityCopy.title}
+                          </span>
                         </div>
-                      ))}
+                        <p className="mt-1.5 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+                          {reviewerIntakeQualityCopy.body}
+                        </p>
+                      </div>
+                    ) : null}
+                    {isCreateMode && !formReadOnly ? (
+                      <p className="mb-2 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+                        Improve this request before submission so reviewers can
+                        act without extra follow-up.
+                      </p>
+                    ) : null}
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      readOnly={formReadOnly}
+                      rows={4}
+                      placeholder="Enter ticket description..."
+                      className="w-full rounded-md border-gray-300 bg-white text-gray-900 leading-[1.5] shadow-sm focus:border-cortex-blue focus:ring focus:ring-cortex-blue focus:ring-opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 read-only:cursor-not-allowed read-only:opacity-80"
+                    />
+                    {isCreateMode && validationErrors.description && (
+                      <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {validationErrors.description}
+                      </p>
+                    )}
+                    {intakeAssistError && (
+                      <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {intakeAssistError}
+                      </p>
+                    )}
+                    {intakeAssistResult && (
+                      <IntakeAssistResultPanel
+                        key={getIntakeAssistResultFingerprint(
+                          intakeAssistResult,
+                        )}
+                        result={intakeAssistResult}
+                        editableDescription={intakeAssistEditableDescription}
+                        onChangeEditableDescription={
+                          setIntakeAssistEditableDescription
+                        }
+                        onUseSummary={handleUseIntakeSummary}
+                        onUseDescription={handleUseIntakeDescription}
+                        onDismiss={handleDismissIntakeAssist}
+                      />
+                    )}
+                  </div>
+
+                  {!ticket.id && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                        Routing Department
+                      </label>
+                      <input
+                        type="text"
+                        value={department}
+                        onChange={(e) => setDepartment(e.target.value)}
+                        placeholder="Defaults from your profile"
+                        className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                      />
+                      <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                        Used with title and department routing rules when you
+                        leave the owner fields blank.
+                      </p>
                     </div>
                   )}
+
+                  {/* Editable Fields */}
+                  <div className="grid grid-cols-1 gap-5 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/40 md:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                        Board
+                      </label>
+                      <select
+                        value={boardId}
+                        onChange={(e) =>
+                          handleBoardSelectionChange(Number(e.target.value))
+                        }
+                        disabled={Boolean(ticket.id && formReadOnly)}
+                        className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {ticketBoards.map((board) => (
+                          <option key={board.id} value={board.id}>
+                            {board.name}
+                            {board.isEnabled ? "" : " (Disabled)"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {selectedBoardRequiresStoryPoints ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                          Story Points
+                        </label>
+                        <select
+                          value={storyPoints}
+                          onChange={(e) =>
+                            setStoryPoints(Number(e.target.value))
+                          }
+                          disabled={Boolean(ticket.id && formReadOnly)}
+                          className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {[1, 2, 3, 4, 5].map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                        {isCreateMode && validationErrors.storyPoints && (
+                          <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                            {validationErrors.storyPoints}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                        Story points are only used on enhancement-style boards.
+                      </div>
+                    )}
+
+                    {/* Priority */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                        Priority
+                        {isCreateMode && (
+                          <span className="ml-1 text-red-600 dark:text-red-400">
+                            *
+                          </span>
+                        )}
+                      </label>
+                      <select
+                        value={priority}
+                        onChange={(e) => setPriority(e.target.value)}
+                        className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      >
+                        <option value="Critical">Critical</option>
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
+                      </select>
+                      {isCreateMode && validationErrors.priority && (
+                        <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                          {validationErrors.priority}
+                        </p>
+                      )}
+                      {!isCreateMode &&
+                      approvalDisplayContext !== "requester" &&
+                      getTicketApprovalStatus(ticket) === "PendingApproval" ? (
+                        <p className="mt-1.5 text-xs text-gray-500 dark:text-slate-400">
+                          AI triage may update this ticket&apos;s priority and
+                          status to match configured vocabulary when it suggests
+                          a change. You can change either before approving.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {/* Status */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                        Status
+                      </label>
+                      {isCreateMode ? (
+                        <input
+                          type="text"
+                          value="New"
+                          readOnly
+                          className="w-full rounded-md border-gray-300 bg-gray-100 text-gray-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        />
+                      ) : (
+                        <select
+                          value={status}
+                          onChange={(e) => setStatus(e.target.value)}
+                          disabled={Boolean(ticket.id && formReadOnly)}
+                          className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {availableStatusOptions.map((statusDefinition) => (
+                            <option
+                              key={`${statusDefinition.id}-${statusDefinition.name}`}
+                              value={statusDefinition.name}
+                            >
+                              {statusDefinition.name}
+                              {statusDefinition.isEnabled ? "" : " (Disabled)"}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {isCreateMode && (
+                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                          Status defaults to New when creating a ticket.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Syniti Owner */}
+                    <div>
+                      <UserCombobox
+                        label="Syniti Owner"
+                        value={synitiOwner}
+                        users={synitiOwnerOptions}
+                        onChange={setSynitiOwner}
+                        loading={ownerDirectoryLoading}
+                        disabled={ownerPickerDisabled}
+                        helperText={synitiOwnerHelperText}
+                      />
+                    </div>
+
+                    {/* Business Owner */}
+                    <div>
+                      <UserCombobox
+                        label="Business Owner"
+                        value={businessOwner}
+                        users={businessOwnerOptions}
+                        onChange={setBusinessOwner}
+                        loading={ownerDirectoryLoading}
+                        disabled={ownerPickerDisabled}
+                        helperText={businessOwnerHelperText}
+                      />
+                    </div>
+                  </div>
+
+                  {ticket.id && !isRequesterContext ? (
+                    <TicketRoutingInsight
+                      ticket={cortexDecisionTicket}
+                      isModalOpen={isOpen}
+                      ticketBoards={ticketBoards}
+                      livePreview={routingLivePreviewInput}
+                      onReassignmentApplied={(updatedTicket) => {
+                        applyServerTicketToForm(updatedTicket);
+                        onTriageApplySuccess?.(updatedTicket);
+                      }}
+                    />
+                  ) : null}
+
+                  {showChangeReasonField && (
+                    <div className="mb-6">
+                      <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
+                        Change Reason
+                      </label>
+                      <input
+                        type="text"
+                        value={changeReason}
+                        onChange={(e) => setChangeReason(e.target.value)}
+                        placeholder="Optional: explain why you're updating or archiving this ticket"
+                        className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                      />
+                    </div>
+                  )}
+
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-800/60">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Attachments
+                        </label>
+                        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                          Add screenshots or supporting files to this ticket.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="inline-flex cursor-default items-center rounded-md bg-cortex-blue px-3 py-2 text-sm font-medium text-white"
+                      >
+                        Attachments
+                      </button>
+                    </div>
+
+                    {approvalDisplayContext === "reviewer" &&
+                    ticket.id &&
+                    imageAttachmentsForInsight.length > 0 ? (
+                      <div className="mt-3 space-y-3">
+                        <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-3 sm:gap-y-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void handleAnalyzeScreenshots()}
+                            disabled={screenshotInsightLoading}
+                            className="ai-button ai-button--ready inline-flex min-h-[2.5rem] shrink-0 items-center justify-center rounded-md px-3 py-2 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cortex-blue disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                          >
+                            {screenshotInsightLoading ? (
+                              <span className="inline-flex items-center">
+                                <svg
+                                  className="mr-2 h-4 w-4 shrink-0 animate-spin text-current"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  aria-hidden="true"
+                                >
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  />
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                  />
+                                </svg>
+                                Analyzing screenshots…
+                              </span>
+                            ) : (
+                              <span>Analyze screenshots</span>
+                            )}
+                          </button>
+                          <span className="text-xs text-gray-500 dark:text-slate-400 sm:pt-2">
+                            {imageAttachmentsForInsight.length} image
+                            {imageAttachmentsForInsight.length === 1
+                              ? ""
+                              : "s"}{" "}
+                            (PNG, JPG, WEBP)
+                          </span>
+                        </div>
+                        {screenshotInsightAutoHint ? (
+                          <p
+                            className="text-[11px] text-gray-500 dark:text-slate-500"
+                            aria-live="polite"
+                          >
+                            Analyzing screenshots…
+                          </p>
+                        ) : null}
+                        <p className="max-w-xl text-xs leading-snug text-gray-500 dark:text-slate-500">
+                          {showAiTriageColumn
+                            ? "Use screenshot analysis as supporting evidence; reviewer guidance stays in the AI rail."
+                            : "Understand what&apos;s happening from screenshots before asking follow-up questions."}
+                        </p>
+                        {screenshotInsightError ? (
+                          <p className="text-xs text-red-600 dark:text-red-400">
+                            {screenshotInsightError}
+                          </p>
+                        ) : null}
+                        {screenshotInsightResult ? (
+                          <ScreenshotInsightEvidenceCard
+                            result={screenshotInsightResult}
+                            compactForReviewerRail={showAiTriageColumn}
+                          />
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 space-y-3">
+                      <label
+                        onDragOver={handleAttachmentDragOver}
+                        onDragEnter={handleAttachmentDragOver}
+                        onDragLeave={handleAttachmentDragLeave}
+                        onDrop={handleAttachmentDrop}
+                        className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors ${
+                          isAttachmentDropActive
+                            ? "border-cortex-blue bg-cortex-blue/10"
+                            : "border-gray-300 bg-white/70 hover:border-cortex-blue/60 hover:bg-cortex-blue/5 dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-cortex-blue/50 dark:hover:bg-cortex-blue/10"
+                        }`}
+                      >
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                          className="sr-only"
+                          onChange={addQueuedAttachments}
+                        />
+                        <span className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                          {isAttachmentDropActive
+                            ? "Drop your picture here"
+                            : "Drag and drop a picture here"}
+                        </span>
+                        <span className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                          or click to browse screenshots and supporting files
+                        </span>
+                        <span className="mt-2 text-xs text-gray-400 dark:text-slate-500">
+                          Images, PDFs, Office documents, text, and CSV files
+                          are supported.
+                        </span>
+                      </label>
+
+                      {ticket.id ? (
+                        loadingAttachments ? (
+                          <p className="text-sm text-gray-500 dark:text-slate-400">
+                            Loading attachments…
+                          </p>
+                        ) : attachments.length > 0 ? (
+                          attachments.map((attachment) => (
+                            <div
+                              key={attachment.id}
+                              className="flex flex-col gap-3 rounded-md border border-gray-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/70 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                                  {attachment.fileName}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-slate-400">
+                                  {formatFileSize(attachment.fileSize)} ·{" "}
+                                  {attachment.contentType} ·{" "}
+                                  {attachment.uploadedByDisplayName} ·{" "}
+                                  {new Date(
+                                    attachment.uploadedDate,
+                                  ).toLocaleString()}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() =>
+                                    void openAttachment(attachment)
+                                  }
+                                  disabled={
+                                    attachmentActionId === attachment.id
+                                  }
+                                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                  Open
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    void downloadAttachment(attachment)
+                                  }
+                                  disabled={
+                                    attachmentActionId === attachment.id
+                                  }
+                                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                  Download
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-gray-500 dark:text-slate-400">
+                            No attachments uploaded yet.
+                          </p>
+                        )
+                      ) : (
+                        <p className="text-sm text-gray-500 dark:text-slate-400">
+                          Selected attachments will upload after the ticket is
+                          created.
+                        </p>
+                      )}
+
+                      {queuedAttachments.length > 0 && (
+                        <div className="space-y-2 rounded-md border border-dashed border-cortex-blue/40 bg-cortex-blue/5 p-3 dark:border-cortex-blue/30 dark:bg-cortex-blue/10">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-cortex-blue">
+                            {ticket.id
+                              ? "Ready to upload when you save"
+                              : "Queued for upload when you create the ticket"}
+                          </p>
+                          {queuedAttachments.map((file) => (
+                            <div
+                              key={getQueuedAttachmentKey(file)}
+                              className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 dark:bg-slate-900/70"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                                  {file.name}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-slate-400">
+                                  {formatFileSize(file.size)}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => removeQueuedAttachment(file)}
+                                type="button"
+                                className="text-sm text-red-600 transition-colors hover:text-red-700 dark:text-red-300 dark:hover:text-red-200"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-              </div>
-              <ScrollToBottomButton
-                containerRef={mainColumnScrollRef}
-                aria-label="Scroll ticket details to bottom"
-              />
+                <ScrollToBottomButton
+                  containerRef={mainColumnScrollRef}
+                  aria-label="Scroll ticket details to bottom"
+                />
               </div>
 
               {intakeApprovalHandlers && ticket.id ? (
@@ -3193,7 +3303,9 @@ export default function TicketModal({
                                 : ""
                             }`}
                           >
-                            {isRequesterContext ? "Request details" : "Ticket details"}
+                            {isRequesterContext
+                              ? "Request details"
+                              : "Ticket details"}
                           </button>
                         </div>
                       )}
@@ -3239,11 +3351,9 @@ export default function TicketModal({
             {showAiTriageColumn ? (
               <ApprovalTriageModalColumn
                 ticket={triageDisplayTicket}
-                onRegenerateAnalysis={
-                  canOfferTriageRegenerate
-                    ? handleRegenerateTriageAnalysis
-                    : undefined
-                }
+                onRegenerateAnalysis={handleRegenerateTriageAnalysis}
+                canRegenerateAnalysis={canOfferTriageRegenerate}
+                regenerateDisabledHint={triageRegenerateDisabledReason}
                 regenerateLoading={regenerateTriageLoading}
                 applyControls={triageApplyControls}
               />
@@ -3251,7 +3361,7 @@ export default function TicketModal({
 
             {/* ================= COMMENTS ================= */}
             {showCommentsColumn && (
-              <div className="relative flex min-h-0 h-full flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30">
+              <div className="relative flex min-h-0 flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30 xl:h-full">
                 <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-slate-800">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
                     Comments
@@ -3317,7 +3427,7 @@ export default function TicketModal({
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/50 dark:bg-black/60"
-            aria-hidden
+            aria-hidden="true"
             onClick={() => setIsTicketDetailsOpen(false)}
           />
           <div
@@ -3340,7 +3450,7 @@ export default function TicketModal({
                 className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                 aria-label="Close ticket details"
               >
-                <span className="text-lg leading-none" aria-hidden>
+                <span className="text-lg leading-none" aria-hidden="true">
                   ×
                 </span>
               </button>
@@ -3367,8 +3477,12 @@ export default function TicketModal({
             className="w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900"
             role="dialog"
             aria-modal="true"
+            aria-labelledby="ticket-intake-reason-dialog-title"
           >
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+            <h2
+              id="ticket-intake-reason-dialog-title"
+              className="text-lg font-semibold text-gray-900 dark:text-slate-100"
+            >
               {intakeReasonModal === "return"
                 ? "Return for detail"
                 : "Reject ticket"}
@@ -3441,10 +3555,22 @@ export default function TicketModal({
 }
 
 /** Renders assist draft with preserved breaks; highlights common section labels and bullets for scanning. */
-function IntakeDraftPreview({ text }: { text: string }) {
+function IntakeDraftPreview({
+  text,
+  hidden,
+}: {
+  text: string;
+  hidden?: boolean;
+}) {
   if (!text.trim()) {
     return (
-      <p className="text-sm italic text-gray-500 dark:text-slate-400">
+      <p
+        id="ticket-intake-draft-preview-panel"
+        role="tabpanel"
+        aria-labelledby="ticket-intake-draft-preview-tab"
+        hidden={hidden}
+        className="text-sm italic text-gray-500 dark:text-slate-400"
+      >
         No text yet.
       </p>
     );
@@ -3456,9 +3582,11 @@ function IntakeDraftPreview({ text }: { text: string }) {
 
   return (
     <div
+      id="ticket-intake-draft-preview-panel"
       className="max-h-[min(22rem,45vh)] overflow-y-auto rounded-lg border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/50 px-5 py-4 text-sm text-gray-800 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.65)] dark:border-slate-600/55 dark:from-slate-900/95 dark:to-slate-950/90 dark:text-slate-200 dark:shadow-none"
-      role="region"
-      aria-label="Reviewer-ready draft preview"
+      role="tabpanel"
+      aria-labelledby="ticket-intake-draft-preview-tab"
+      hidden={hidden}
     >
       <div className="select-text">
         {lines.map((line, i) => {
@@ -3506,7 +3634,7 @@ function IntakeDraftPreview({ text }: { text: string }) {
               >
                 <span
                   className="mt-[0.2rem] shrink-0 text-xs font-semibold text-cortex-blue/70 dark:text-cortex-blue/50"
-                  aria-hidden
+                  aria-hidden="true"
                 >
                   ·
                 </span>
@@ -3535,7 +3663,9 @@ function IntakeDraftPreview({ text }: { text: string }) {
           }
 
           if (line.trim() === "") {
-            return <div key={i} className="h-2 shrink-0" aria-hidden />;
+            return (
+              <div key={i} className="h-2 shrink-0" aria-hidden="true" />
+            );
           }
 
           return (
@@ -3574,10 +3704,8 @@ function IntakeAssistResultPanel({
   onUseDescription,
   onDismiss,
 }: IntakeAssistResultPanelProps) {
-  const intakeAssistPanelBodyId = useId();
   const [draftTab, setDraftTab] = useState<"preview" | "edit">("preview");
   const [panelExpanded, setPanelExpanded] = useState(true);
-  const panelAssistFingerprintRef = useRef<string | null>(null);
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null);
   const clarityState: ClarityState = result.clarityState;
   const pillClass = CLARITY_STATE_PILL_CLASS[clarityState];
@@ -3590,37 +3718,6 @@ function IntakeAssistResultPanel({
     const lines = editableDescription.split("\n").length;
     return Math.min(18, Math.max(8, lines + 2));
   }, [editableDescription]);
-
-  useEffect(() => {
-    setDraftTab("preview");
-  }, [result.improvedDescription, result.clarityState, result.guidanceMessage]);
-
-  /** New improve run → expand full panel; same payload → do not reset user collapse. */
-  const panelAssistFingerprint = useMemo(
-    () =>
-      [
-        result.clarityState,
-        result.improvedDescription ?? "",
-        result.guidanceMessage ?? "",
-        result.suggestedSummary ?? "",
-        result.missingDetails.join("\u001e"),
-      ].join("\u0000"),
-    [
-      result.clarityState,
-      result.improvedDescription,
-      result.guidanceMessage,
-      result.suggestedSummary,
-      result.missingDetails,
-    ],
-  );
-
-  useEffect(() => {
-    if (panelAssistFingerprintRef.current === panelAssistFingerprint) {
-      return;
-    }
-    panelAssistFingerprintRef.current = panelAssistFingerprint;
-    setPanelExpanded(true);
-  }, [panelAssistFingerprint]);
 
   useLayoutEffect(() => {
     if (draftTab === "edit") {
@@ -3663,13 +3760,6 @@ function IntakeAssistResultPanel({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <button
           type="button"
-          aria-expanded={panelExpanded}
-          aria-controls={intakeAssistPanelBodyId}
-          aria-label={
-            panelExpanded
-              ? "Collapse intake assist result"
-              : `Expand intake assist result. ${collapsedSummaryLine}`
-          }
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -3707,7 +3797,7 @@ function IntakeAssistResultPanel({
           </div>
           <span
             className="mt-0.5 shrink-0 text-[0.65rem] leading-none text-gray-400 dark:text-slate-500"
-            aria-hidden
+            aria-hidden="true"
           >
             {panelExpanded ? "▼" : "▶"}
           </span>
@@ -3721,13 +3811,15 @@ function IntakeAssistResultPanel({
         </button>
       </div>
 
-      {panelExpanded ? (
-        <div
-          id={intakeAssistPanelBodyId}
-          className="mt-3 space-y-3.5 border-t border-slate-200/60 pt-3.5 dark:border-slate-600/45"
-          role="region"
-          aria-label="Intake assist full result"
-        >
+      <div
+        id="ticket-intake-assist-panel-body"
+        className="mt-3 space-y-3.5 border-t border-slate-200/60 pt-3.5 dark:border-slate-600/45"
+        role="region"
+        aria-label="Intake assist full result"
+        hidden={!panelExpanded}
+      >
+        {panelExpanded ? (
+          <>
           <p className="text-xs text-gray-500 dark:text-slate-400">
             Coaching only — does not change priority or status
           </p>
@@ -3781,8 +3873,11 @@ function IntakeAssistResultPanel({
               >
                 <button
                   type="button"
+                  id="ticket-intake-draft-preview-tab"
                   role="tab"
-                  aria-selected={draftTab === "preview"}
+                  aria-selected={draftTab === "preview" ? "true" : "false"}
+                  aria-controls="ticket-intake-draft-preview-panel"
+                  tabIndex={draftTab === "preview" ? 0 : -1}
                   className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                     draftTab === "preview"
                       ? "bg-white text-gray-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
@@ -3794,8 +3889,11 @@ function IntakeAssistResultPanel({
                 </button>
                 <button
                   type="button"
+                  id="ticket-intake-draft-edit-tab"
                   role="tab"
-                  aria-selected={draftTab === "edit"}
+                  aria-selected={draftTab === "edit" ? "true" : "false"}
+                  aria-controls="ticket-intake-draft-edit-panel"
+                  tabIndex={draftTab === "edit" ? 0 : -1}
                   className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                     draftTab === "edit"
                       ? "bg-white text-gray-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
@@ -3811,18 +3909,28 @@ function IntakeAssistResultPanel({
                 text.
               </p>
 
-              {draftTab === "preview" ? (
-                <IntakeDraftPreview text={editableDescription} />
-              ) : (
+              <IntakeDraftPreview
+                text={editableDescription}
+                hidden={draftTab !== "preview"}
+              />
+              <div
+                id="ticket-intake-draft-edit-panel"
+                role="tabpanel"
+                aria-labelledby="ticket-intake-draft-edit-tab"
+                className="min-w-0"
+                hidden={draftTab !== "edit"}
+              >
                 <textarea
                   ref={draftTextareaRef}
                   value={editableDescription}
-                  onChange={(e) => onChangeEditableDescription(e.target.value)}
+                  onChange={(e) =>
+                    onChangeEditableDescription(e.target.value)
+                  }
                   rows={draftTextareaRows}
                   spellCheck
                   className="w-full resize-y rounded-lg border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 px-4 py-3.5 text-[0.9375rem] leading-relaxed text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-cortex-blue focus:outline-none focus:ring-2 focus:ring-cortex-blue/30 dark:border-slate-600/70 dark:from-slate-950 dark:to-slate-950/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-cortex-blue/25"
                 />
-              )}
+              </div>
             </div>
           )}
 
@@ -3838,8 +3946,9 @@ function IntakeAssistResultPanel({
               </ul>
             </div>
           )}
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

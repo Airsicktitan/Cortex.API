@@ -25,4 +25,10 @@ public sealed class TicketTriageInput
 
     /// <summary>Enabled statuses and SLA priorities from Cortex — the only allowed vocabulary for recommendations.</summary>
     public required TicketTriageVocabularySnapshot Vocabulary { get; init; }
+
+    /// <summary>Optional fused context (comments, vision summary, etc.) appended to the user message.</summary>
+    public string? SupplementalContext { get; init; }
+
+    /// <summary>Optional eligible Syniti owners; when set, the model may emit <c>recommendedOwnerUserId</c> constrained to these ids.</summary>
+    public IReadOnlyList<(string UserId, string DisplayName)>? EligibleOwnerCandidates { get; init; }
 }

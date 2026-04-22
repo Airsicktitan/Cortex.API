@@ -15,6 +15,8 @@ export interface UserProfile {
   roles?: string[];
   createdDate: string;
   isActive: boolean;
+  isSynitiOwnerEligible: boolean;
+  isBusinessOwnerEligible: boolean;
   lastLoginDate?: string;
   lastSeenDateUtc?: string;
   expiryDate?: string;
@@ -58,6 +60,9 @@ export interface UserDirectoryEntry {
   department?: string;
   /** Local role display (e.g. User, Business Manager); optional for older API responses. */
   role?: string;
+  isActive: boolean;
+  isSynitiOwnerEligible: boolean;
+  isBusinessOwnerEligible: boolean;
 }
 
 /** Result of POST /api/users/sync-from-auth0 (local directory projection from Auth0). */
@@ -79,6 +84,8 @@ export interface AdminUpdateUserInput {
   slaRiskNotificationChannel?: NotificationChannelMode | "";
   role?: string;
   isActive?: boolean;
+  isSynitiOwnerEligible?: boolean;
+  isBusinessOwnerEligible?: boolean;
   expiryDate?: string | null;
 }
 
@@ -91,6 +98,8 @@ export interface CreateUserInput {
   department?: string;
   role: string;
   isActive: boolean;
+  isSynitiOwnerEligible: boolean;
+  isBusinessOwnerEligible: boolean;
   expiryDate?: string | null;
 }
 

@@ -51,7 +51,30 @@ public class ReassignmentExecutionServiceTests
                 Id = 11,
                 DisplayName = "Adam",
                 Email = "adam@example.com",
+                IsActive = true,
+                IsSynitiOwnerEligible = true,
             });
+        userRepository
+            .Setup(repository => repository.GetAllUsersAsync())
+            .ReturnsAsync(
+            [
+                new User
+                {
+                    Id = 10,
+                    DisplayName = "John",
+                    Email = "john@example.com",
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
+                new User
+                {
+                    Id = 11,
+                    DisplayName = "Adam",
+                    Email = "adam@example.com",
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
+            ]);
 
         var riskService = new Mock<IOperationalRiskService>(MockBehavior.Strict);
         riskService
@@ -85,9 +108,9 @@ public class ReassignmentExecutionServiceTests
             CreateActor());
 
         Assert.True(result.Succeeded);
-        Assert.Equal("Adam", ticket.SynitiOwner);
-        Assert.Equal("John", result.PreviousOwner);
-        Assert.Equal("Adam", result.NewOwner);
+        Assert.Equal("user:11", ticket.SynitiOwner);
+        Assert.Equal("user:10", result.PreviousOwner);
+        Assert.Equal("user:11", result.NewOwner);
         Assert.NotNull(result.DecisionImpactSnapshot);
         Assert.Equal("high", result.DecisionImpactSnapshot!.PreviousRiskLevel);
         Assert.Equal(27, result.DecisionImpactSnapshot.PreviousOwnerWorkload);
@@ -107,6 +130,27 @@ public class ReassignmentExecutionServiceTests
             });
 
         var userRepository = new Mock<IUserRepository>(MockBehavior.Strict);
+        userRepository
+            .Setup(repository => repository.GetAllUsersAsync())
+            .ReturnsAsync(
+            [
+                new User
+                {
+                    Id = 10,
+                    DisplayName = "John",
+                    Email = "john@example.com",
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
+                new User
+                {
+                    Id = 11,
+                    DisplayName = "Adam",
+                    Email = "adam@example.com",
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
+            ]);
 
         var service = new ReassignmentExecutionService(
             recommendationService.Object,
@@ -149,6 +193,27 @@ public class ReassignmentExecutionServiceTests
             });
 
         var userRepository = new Mock<IUserRepository>(MockBehavior.Strict);
+        userRepository
+            .Setup(repository => repository.GetAllUsersAsync())
+            .ReturnsAsync(
+            [
+                new User
+                {
+                    Id = 10,
+                    DisplayName = "John",
+                    Email = "john@example.com",
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
+                new User
+                {
+                    Id = 11,
+                    DisplayName = "Adam",
+                    Email = "adam@example.com",
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
+            ]);
 
         var service = new ReassignmentExecutionService(
             recommendationService.Object,

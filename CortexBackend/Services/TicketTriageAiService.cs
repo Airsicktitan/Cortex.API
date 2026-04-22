@@ -13,7 +13,7 @@ namespace Cortex.API.Services;
 public sealed class TicketTriageAiService : ITicketTriageAiService
 {
     private const string OpenAiChatCompletionsUrl = "https://api.openai.com/v1/chat/completions";
-    private const int FeatureMaxTokens = 1100;
+    private const int FeatureMaxTokens = 1300;
 
     private static readonly JsonSerializerOptions JsonSerializerOptions = new()
     {
@@ -74,7 +74,7 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
                 "AI triage: no enabled ticket statuses in configuration; status recommendations will be omitted.");
         }
 
-        var systemPrompt = BuildSystemPrompt(vocab);
+        var systemPrompt = BuildSystemPrompt(input);
         var userPrompt = BuildUserPrompt(input);
 
         var requestBody = new OpenAiChatRequest
@@ -165,6 +165,18 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
                     ? TryNormalizeToAllowedStatus(triage.SuggestedStatus, vocab)
                     : null;
 
+                var suggestedCategory = CortexAiCategoryVocabulary.TryMatch(triage.RecommendedCategory);
+                if (!string.IsNullOrWhiteSpace(triage.RecommendedCategory) && suggestedCategory is null)
+                {
+                    _logger.LogWarning(
+                        "AI triage model returned recommendedCategory not in system vocabulary: {Raw}",
+                        triage.RecommendedCategory.Trim());
+                }
+
+                var suggestedOwner = TryNormalizeToAllowedOwner(
+                    triage.RecommendedOwnerUserId,
+                    input.EligibleOwnerCandidates);
+
                 return new TicketTriageGenerateResponse
                 {
                     Summary = NormalizeSingleSentence(triage.Summary),
@@ -176,6 +188,8 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
                     MissingDetails = NormalizeMissing(triage.MissingDetails),
                     PotentialSlaRisk = NormalizeSlaRiskTier(triage.PotentialSlaRisk),
                     SlaRiskReason = NormalizeSingleSentence(triage.SlaRiskReason),
+                    SuggestedCategory = suggestedCategory,
+                    SuggestedOwnerUserId = suggestedOwner,
                     Unavailable = false,
                 };
             }
@@ -237,15 +251,53 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
 
     private string? TryNormalizeToAllowedPriority(string? raw, TicketTriageVocabularySnapshot vocab)
     {
-        var canonical = MatchCanonical(raw, vocab.Priorities.Select(priority => priority.Name).ToList());
-        if (canonical is null && !string.IsNullOrWhiteSpace(raw))
+        var configured = CortexAiAssessmentConstraintMapper.TryMatchConfiguredPriorityName(
+            raw,
+            vocab.Priorities);
+        if (configured is not null)
         {
+            return configured;
+        }
+
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            var synonym = CortexAiAssessmentConstraintMapper.ResolvePrioritySynonym(raw, vocab.Priorities);
+            if (synonym is not null)
+            {
+                _logger.LogWarning(
+                    "AI triage suggestedPriority not in vocabulary; applied synonym mapping: {Raw} -> {Mapped}",
+                    raw.Trim(),
+                    synonym);
+                return synonym;
+            }
+
             _logger.LogWarning(
                 "AI triage model returned suggestedPriority not in configured vocabulary: {Raw}",
                 raw.Trim());
         }
 
-        return canonical;
+        return null;
+    }
+
+    private static string? TryNormalizeToAllowedOwner(
+        string? raw,
+        IReadOnlyList<(string UserId, string DisplayName)>? candidates)
+    {
+        if (candidates is null || candidates.Count == 0 || string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var trimmed = raw.Trim();
+        foreach (var (userId, _) in candidates)
+        {
+            if (string.Equals(userId, trimmed, StringComparison.OrdinalIgnoreCase))
+            {
+                return userId;
+            }
+        }
+
+        return null;
     }
 
     private string? TryNormalizeToAllowedStatus(string? raw, TicketTriageVocabularySnapshot vocab)
@@ -292,8 +344,9 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
         return null;
     }
 
-    private static string BuildSystemPrompt(TicketTriageVocabularySnapshot vocab)
+    private static string BuildSystemPrompt(TicketTriageInput input)
     {
+        var vocab = input.Vocabulary;
         var priorityNames = vocab.Priorities.Select(priority => priority.Name).ToList();
         var priorityFieldLine =
             $"- suggestedPriority: Exactly one of these Cortex-configured priority names (case-insensitive match allowed in reasoning; output the exact spelling from the list): {string.Join(", ", priorityNames)}.";
@@ -347,6 +400,12 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
             - If the ticket is thin or ambiguous, still pick a valid suggestedPriority decisively and use missingDetails to name exactly what must be clarified.
 
             - For potentialSlaRisk: thin or ambiguous intake raises risk; crisp, bounded asks with clear acceptance criteria lower it. Operational incidents or org-wide impact described in the ticket justify higher risk when the ask itself is still underspecified.
+
+            Fusion intake fields (always include in JSON):
+
+            - recommendedCategory: Exactly one of these system category labels, or an empty string "" when none applies: {string.Join(", ", CortexAiCategoryVocabulary.Values)}.
+
+            - recommendedOwnerUserId: When the user message includes an "Eligible Syniti owner candidates" list with one or more entries, this must be exactly one of the listed user id strings, or null. When that list is absent or empty, this must be null.
             """;
     }
 
@@ -401,6 +460,23 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
         else
         {
             sb.AppendLine("(No enabled statuses are configured; do not suggest a status.)");
+        }
+
+        if (!string.IsNullOrWhiteSpace(input.SupplementalContext))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Fused context (comments, vision evidence, and other signals)");
+            sb.AppendLine(input.SupplementalContext.Trim());
+        }
+
+        if (input.EligibleOwnerCandidates is { Count: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Eligible Syniti owner candidates (recommendedOwnerUserId must be one of these user ids or null)");
+            foreach (var (userId, displayName) in input.EligibleOwnerCandidates)
+            {
+                sb.AppendLine($"- {userId} — {displayName}");
+            }
         }
 
         return sb.ToString();
@@ -502,6 +578,12 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
         public List<string>? MissingDetails { get; set; }
         public string? PotentialSlaRisk { get; set; }
         public string? SlaRiskReason { get; set; }
+
+        [JsonPropertyName("recommendedCategory")]
+        public string? RecommendedCategory { get; set; }
+
+        [JsonPropertyName("recommendedOwnerUserId")]
+        public string? RecommendedOwnerUserId { get; set; }
     }
 
     private sealed class OpenAiChatRequest

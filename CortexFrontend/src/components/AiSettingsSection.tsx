@@ -85,19 +85,19 @@ const CONTROL_MODE_OPTIONS: readonly ControlModeOption[] = [
     id: "fully-automated",
     title: "Fully Automated",
     description:
-      "AI can operate with minimal user confirmation, within configured guardrails.",
+      "AI recommendations can flow through configured automations, but core routing decisions remain deterministic.",
     helper:
-      "Current implementation remains bounded by existing recommendation and guardrail settings.",
+      "Individual capability toggles below still apply as the outer limit.",
   },
   {
     id: "assisted",
     title: "Assisted",
-    description: "AI recommends actions and users confirm them.",
+    description: "AI produces recommendations and humans decide what to apply.",
   },
   {
     id: "advisory-only",
     title: "Advisory Only",
-    description: "AI provides insights only and avoids workflow recommendations.",
+    description: "AI surfaces intake context only and does not drive workflow changes.",
   },
 ] as const;
 
@@ -442,20 +442,20 @@ export default function AiSettingsSection({
   const summaryBullets = configuration
     ? [
         configuration.isIntakeAssistEnabled || configuration.isTriageEnabled
-          ? "Analyze incoming tickets and assist with triage"
+          ? "Generate fused AI Intake recommendations (summary, priority, risk, missing information, category)"
           : null,
         configuration.isScreenshotInsightEnabled
-          ? "Extract structured data from screenshots"
+          ? "Include screenshot insight as evidence in AI assessment"
           : null,
         configuration.advisoryOnlyMode
-          ? "Provide advisory insights without workflow recommendations"
+          ? "Keep AI advisory with deterministic decision logic"
           : configuration.isSuggestedUpdatesEnabled ||
               configuration.allowPriorityRecommendation ||
               configuration.allowStatusRecommendation
-            ? "Recommend priority and status updates when enabled"
+            ? "Feed AI signals into decision fusion as soft signals only"
             : null,
         configuration.suggestionOnlyMode || configuration.advisoryOnlyMode
-          ? "Require user confirmation before applying changes"
+          ? "Require human confirmation before any workflow change"
           : null,
       ].filter((item): item is string => !!item)
     : [];
@@ -468,7 +468,7 @@ export default function AiSettingsSection({
     <ConfigPageShell>
       <ConfigPageHeader
         title="AI Settings"
-        description="Admin-only AI governance controls for Cortex execution, trust posture, and decision boundaries."
+        description="Admin-only controls for fused AI intake, vision evidence, decision fusion, and safety constraints."
         meta={
           <p className="text-xs text-gray-500 dark:text-slate-400">
             {lastChangedMeta}
@@ -526,17 +526,6 @@ export default function AiSettingsSection({
                           <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
                             {mode.title}
                           </p>
-                          <CortexTooltip
-                            content={`${mode.description}${mode.helper ? ` ${mode.helper}` : ""}`}
-                          >
-                            <button
-                              type="button"
-                              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 text-[11px] font-semibold text-gray-500 transition hover:border-gray-400 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-cortex-blue/30 dark:border-slate-600 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:text-slate-200"
-                              aria-label={`${mode.title} control mode help`}
-                            >
-                              ?
-                            </button>
-                          </CortexTooltip>
                         </div>
                         <p className="mt-0.5 text-xs text-gray-600 dark:text-slate-400">
                           {mode.description}
@@ -554,8 +543,8 @@ export default function AiSettingsSection({
             </ConfigDetailCard>
 
             <ConfigDetailCard
-              title="Current AI Behavior Summary"
-              subtitle="Snapshot of the active AI posture for demos and executive review."
+              title="Safety / Constraints"
+              subtitle="Constraint and safety posture for fused AI assessments."
             >
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-600 dark:bg-slate-900">
@@ -581,7 +570,7 @@ export default function AiSettingsSection({
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-600 dark:bg-slate-900">
                   <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
-                    Decision Influence
+                    Decision Fusion
                   </p>
                   <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
                     {decisionInfluence}
@@ -600,7 +589,7 @@ export default function AiSettingsSection({
               {summaryBullets.length > 0 ? (
                 <div className="mt-4 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-600 dark:bg-slate-900">
                   <p className="text-xs font-semibold text-gray-700 dark:text-slate-300">
-                    AI will:
+                    Fused AI behavior:
                   </p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-gray-600 dark:text-slate-400">
                     {summaryBullets.map((item) => (
@@ -615,34 +604,34 @@ export default function AiSettingsSection({
               <div className="rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 text-sm text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/30 dark:text-sky-200">
                 <p className="font-semibold">AI is in Advisory Mode</p>
                 <p className="mt-0.5 text-xs">
-                  Cortex AI will provide insights only and will not make workflow recommendations.
+                  Cortex AI provides recommendations and evidence only. Decision and assignment logic remains deterministic.
                 </p>
               </div>
             ) : null}
 
             <ConfigDetailCard
-              title="AI Capabilities"
-              subtitle="What Cortex AI is allowed to do."
+              title="AI Intake + Vision Evidence"
+              subtitle="Intake recommendation scope and how vision contributes evidence."
             >
               <div className="grid gap-3 lg:grid-cols-2">
                 <ToggleField
                   htmlFor="ai-intake-assist"
                   label="AI Intake Assist enabled"
-                  tooltip="Automatically suggests structured ticket details when users create new tickets."
+                  tooltip="On — Cortex suggests structured ticket fields as users type. Off — intake is fully manual."
                   checked={configuration.isIntakeAssistEnabled}
                   onChange={(value) => onChange("isIntakeAssistEnabled", value)}
                 />
                 <ToggleField
                   htmlFor="ai-triage"
-                  label="AI Triage enabled"
-                  tooltip="Analyzes ticket content and recommends ownership, priority, and routing decisions."
+                  label="AI Intake Assessment enabled"
+                  tooltip="On — Cortex generates fused intake recommendations (summary, priority, risk, missing information, category)."
                   checked={configuration.isTriageEnabled}
                   onChange={(value) => onChange("isTriageEnabled", value)}
                 />
                 <ToggleField
                   htmlFor="ai-screenshot-insight"
-                  label="AI Screenshot Insight enabled"
-                  tooltip="Allows AI to analyze uploaded screenshots and extract insights using a vision model."
+                  label="Vision Evidence enabled"
+                  tooltip="On — screenshot insight contributes evidence to the unified assessment."
                   checked={configuration.isScreenshotInsightEnabled}
                   onChange={(value) =>
                     onChange("isScreenshotInsightEnabled", value)
@@ -651,7 +640,7 @@ export default function AiSettingsSection({
                 <ToggleField
                   htmlFor="ai-suggested-updates"
                   label="AI Suggested Updates enabled"
-                  tooltip="Generates suggested updates or improvements to ticket descriptions and fields."
+                  tooltip="Cortex proposes edits to ticket description and fields for the owner to accept or reject."
                   checked={configuration.isSuggestedUpdatesEnabled}
                   onChange={(value) =>
                     onChange("isSuggestedUpdatesEnabled", value)
@@ -660,7 +649,7 @@ export default function AiSettingsSection({
                 <ToggleField
                   htmlFor="ai-priority-recommendation"
                   label="AI Priority Recommendation enabled"
-                  tooltip="Allows AI to recommend ticket priority based on context and impact."
+                  tooltip="Cortex recommends a priority level based on ticket content and impact signals."
                   checked={configuration.isPriorityRecommendationEnabled}
                   onChange={(value) =>
                     onChange("isPriorityRecommendationEnabled", value)
@@ -669,7 +658,7 @@ export default function AiSettingsSection({
                 <ToggleField
                   htmlFor="ai-status-recommendation"
                   label="AI Status Recommendation enabled"
-                  tooltip="Allows AI to recommend appropriate ticket status transitions."
+                  tooltip="Cortex recommends the next status transition based on ticket activity and state."
                   checked={configuration.isStatusRecommendationEnabled}
                   onChange={(value) =>
                     onChange("isStatusRecommendationEnabled", value)
@@ -679,14 +668,14 @@ export default function AiSettingsSection({
             </ConfigDetailCard>
 
             <ConfigDetailCard
-              title="Decision Authority"
-              subtitle="Define how much Cortex AI can influence workflow decisions."
+              title="Decision Fusion"
+              subtitle="How AI recommendations can be surfaced into deterministic decisioning."
             >
               <div className="grid gap-3 lg:grid-cols-2">
                 <ToggleField
                   htmlFor="ai-allow-status-recommendation"
                   label="Allow Status Recommendation"
-                  tooltip="Enables or disables AI-generated status recommendations."
+                  tooltip="On — AI status recommendations can be surfaced as advisory decision signals."
                   checked={configuration.allowStatusRecommendation}
                   onChange={(value) =>
                     onChange("allowStatusRecommendation", value)
@@ -695,7 +684,7 @@ export default function AiSettingsSection({
                 <ToggleField
                   htmlFor="ai-allow-priority-recommendation"
                   label="Allow Priority Recommendation"
-                  tooltip="Enables or disables AI-generated priority recommendations."
+                  tooltip="On — AI priority recommendations can be surfaced as advisory decision signals."
                   checked={configuration.allowPriorityRecommendation}
                   onChange={(value) =>
                     onChange("allowPriorityRecommendation", value)
@@ -704,14 +693,14 @@ export default function AiSettingsSection({
                 <ToggleField
                   htmlFor="ai-suggestion-only-mode"
                   label="Suggestion-only Mode"
-                  tooltip="Ensures AI outputs are suggestions only and cannot be auto-applied."
+                  tooltip="On — AI remains recommendation-only and requires human confirmation before any workflow change."
                   checked={configuration.suggestionOnlyMode}
                   onChange={(value) => onChange("suggestionOnlyMode", value)}
                 />
                 <InputField
                   htmlFor="ai-max-screenshot-attachment-count"
                   label="Max Screenshot Attachment Count"
-                  tooltip="Maximum number of images allowed per screenshot insight request to control cost and performance."
+                  tooltip="Cap on images sent per screenshot insight request. Lower values reduce cost and latency."
                   type="number"
                   min={1}
                   max={8}
@@ -726,7 +715,7 @@ export default function AiSettingsSection({
                 <ConfidenceThresholdField
                   htmlFor="ai-confidence-threshold"
                   label="Confidence Threshold"
-                  tooltip="Minimum confidence required before AI recommendations should be considered reliable."
+                  tooltip="Low-confidence AI output is de-emphasized; outputs are normalized before they can be used."
                   value={configuration.confidenceThreshold}
                   onChange={(value) => onChange("confidenceThreshold", value)}
                 />
@@ -742,7 +731,7 @@ export default function AiSettingsSection({
                 <SelectField
                   htmlFor="ai-default-text-model"
                   label="Default Text Model"
-                  tooltip="The AI model used for text-based tasks such as triage and suggestions."
+                  tooltip="Model used for unified intake assessment and text recommendations."
                   value={configuration.defaultTextModel}
                   options={textModelOptions}
                   onChange={(value) => onChange("defaultTextModel", value)}
@@ -750,7 +739,7 @@ export default function AiSettingsSection({
                 <SelectField
                   htmlFor="ai-default-vision-model"
                   label="Default Vision Model"
-                  tooltip="The AI model used for image and screenshot analysis."
+                  tooltip="Model used for screenshot insight evidence extraction."
                   value={configuration.defaultVisionModel}
                   options={visionModelOptions}
                   onChange={(value) => onChange("defaultVisionModel", value)}
@@ -758,7 +747,7 @@ export default function AiSettingsSection({
                 <InputField
                   htmlFor="ai-temperature"
                   label="Temperature"
-                  tooltip="Controls randomness in AI responses. Lower values are more deterministic; higher values increase creativity."
+                  tooltip="Randomness of AI output. 0 = deterministic. Higher values produce more varied responses."
                   type="number"
                   min={0}
                   max={2}
@@ -769,7 +758,7 @@ export default function AiSettingsSection({
                 <InputField
                   htmlFor="ai-max-tokens"
                   label="Max Tokens"
-                  tooltip="Maximum number of tokens the AI can generate in a single response."
+                  tooltip="Cap on tokens the model can generate per response. Tokens ≈ 0.75 words each."
                   type="number"
                   min={1}
                   max={4000}
@@ -780,7 +769,7 @@ export default function AiSettingsSection({
                 <InputField
                   htmlFor="ai-timeout-seconds"
                   label="Timeout Seconds"
-                  tooltip="Maximum time allowed for an AI request before it is canceled."
+                  tooltip="Cancel an AI request if it doesn't complete within this many seconds."
                   type="number"
                   min={5}
                   max={300}
@@ -793,7 +782,7 @@ export default function AiSettingsSection({
                 <InputField
                   htmlFor="ai-retry-count"
                   label="Retry Count"
-                  tooltip="Number of retry attempts if an AI request fails."
+                  tooltip="Number of times Cortex retries a failed AI request before giving up."
                   type="number"
                   min={0}
                   max={3}

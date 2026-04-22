@@ -36,10 +36,21 @@ export interface TicketRoutingOverrideDto {
 
 /** Subset of persisted explanation JSON from the routing engine. */
 export interface RoutingExplanationPayload {
-  decisionType?: "rule_based" | "workload_balanced" | "manual_override";
+  engine?: string;
+  formula?: string;
+  confidenceClassification?: string;
+  decisionType?:
+    | "rule_based"
+    | "workload_balanced"
+    | "workload_aware_routing_v1"
+    | "manual_override";
   matchedRuleId?: number | null;
   factors?: Record<string, string | null | undefined>;
   matchedCriteria?: string[];
+  slots?: {
+    synitiOwner?: RoutingExplanationSlotDto;
+    businessOwner?: RoutingExplanationSlotDto;
+  };
   rulePriority?: number;
   weight?: number;
   candidateCount?: number;
@@ -55,6 +66,39 @@ export interface RoutingExplanationPayload {
     ownerScores: RoutingExplanationOwnerWorkloadDto[];
   }>;
   noMatchReason?: string;
+}
+
+export interface RoutingExplanationSlotCandidateDto {
+  userId?: number;
+  ownerKey?: string | null;
+  displayName?: string | null;
+  ruleId?: number;
+  matchScore?: number;
+  workloadPenalty?: number;
+  finalScore?: number;
+  activeTicketCount?: number;
+  highPriorityTicketCount?: number;
+  atRiskTicketCount?: number;
+  outsideSlaOpenCount?: number;
+  slaRiskTicketCount?: number;
+  reason?: string;
+}
+
+export interface RoutingExplanationSlotDto {
+  selectedOwnerId?: number | null;
+  selectedOwnerKey?: string | null;
+  selectedOwnerDisplayName?: string | null;
+  applied?: boolean;
+  appliedReason?: string;
+  classification?: string;
+  candidates?: RoutingExplanationSlotCandidateDto[];
+  skippedReasons?: Array<{
+    ruleId?: number;
+    ownerKey?: string | null;
+    userId?: number | null;
+    reason?: string;
+    message?: string;
+  }>;
 }
 
 /**

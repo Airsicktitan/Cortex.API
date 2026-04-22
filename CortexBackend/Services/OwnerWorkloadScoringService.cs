@@ -26,6 +26,14 @@ public sealed class OwnerWorkloadScoringService(
             return [];
         }
 
+        var users = await dbContext.Users
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+        var ownerAliases = OwnerFieldResolution.BuildAliasLookup(users);
+        var ownerRequests = normalizedOwnerKeys
+            .Select(ownerKey => BuildOwnerWorkloadRequest(ownerKey, ownerAliases))
+            .ToList();
+
         var visibility = respectCurrentVisibility
             ? await ticketVisibilityService.GetCurrentVisibilityAsync()
             : null;
@@ -38,9 +46,7 @@ public sealed class OwnerWorkloadScoringService(
             .AsNoTracking()
             .Where(ticket => ticket.ApprovalStatus == ApprovalStatus.Approved)
             .Where(ticket => !dbContext.ArchivedTickets.Any(archived => archived.Id == ticket.Id))
-            .Where(ticket =>
-                normalizedOwnerKeys.Contains(ticket.SynitiOwner!) ||
-                normalizedOwnerKeys.Contains(ticket.BusinessOwner!))
+            .Where(ticket => ticket.SynitiOwner != null || ticket.BusinessOwner != null)
             .ToListAsync(cancellationToken);
 
         var activeVisibleTickets = tickets
@@ -51,10 +57,12 @@ public sealed class OwnerWorkloadScoringService(
 
         var scores = new List<OwnerWorkloadScoreSnapshot>(normalizedOwnerKeys.Count);
 
-        foreach (var ownerKey in normalizedOwnerKeys)
+        foreach (var ownerRequest in ownerRequests)
         {
             var ownerTickets = activeVisibleTickets
-                .Where(ticket => MatchesOwner(ticket.SynitiOwner, ownerKey) || MatchesOwner(ticket.BusinessOwner, ownerKey))
+                .Where(ticket =>
+                    MatchesOwner(ticket.SynitiOwner, ownerRequest.MatchKeys) ||
+                    MatchesOwner(ticket.BusinessOwner, ownerRequest.MatchKeys))
                 .ToList();
 
             var highPriorityTicketCount = ownerTickets.Count(ticket => IsHighPriority(ticket.Priority));
@@ -80,7 +88,7 @@ public sealed class OwnerWorkloadScoringService(
             var workloadScore = ownerTickets.Count + (highPriorityTicketCount * 2) + (slaRiskTicketCount * 3);
 
             scores.Add(new OwnerWorkloadScoreSnapshot(
-                OwnerKey: ownerKey,
+                OwnerKey: ownerRequest.OwnerKey,
                 ActiveTicketCount: ownerTickets.Count,
                 HighPriorityTicketCount: highPriorityTicketCount,
                 AtRiskTicketCount: atRiskTicketCount,
@@ -92,9 +100,39 @@ public sealed class OwnerWorkloadScoringService(
         return scores;
     }
 
-    private static bool MatchesOwner(string? storedOwner, string ownerKey)
+    private static OwnerWorkloadRequest BuildOwnerWorkloadRequest(
+        string ownerKey,
+        IReadOnlyDictionary<string, User> ownerAliases)
     {
-        return string.Equals(storedOwner?.Trim(), ownerKey, StringComparison.Ordinal);
+        var matchKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ownerKey
+        };
+
+        var resolvedUser = OwnerFieldResolution.ResolveUser(ownerKey, ownerAliases);
+        if (resolvedUser is not null)
+        {
+            AddMatchKey(matchKeys, $"{OwnerFieldResolution.UserIdTokenPrefix}{resolvedUser.Id}");
+            AddMatchKey(matchKeys, resolvedUser.Email);
+            AddMatchKey(matchKeys, resolvedUser.DisplayName);
+            AddMatchKey(matchKeys, resolvedUser.NickName);
+        }
+
+        return new OwnerWorkloadRequest(ownerKey, matchKeys);
+    }
+
+    private static void AddMatchKey(ISet<string> matchKeys, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            matchKeys.Add(value.Trim());
+        }
+    }
+
+    private static bool MatchesOwner(string? storedOwner, IReadOnlySet<string> ownerKeys)
+    {
+        return !string.IsNullOrWhiteSpace(storedOwner) &&
+            ownerKeys.Contains(storedOwner.Trim());
     }
 
     private static bool IsHighPriority(string? priority)
@@ -103,4 +141,8 @@ public sealed class OwnerWorkloadScoringService(
             (priority.Equals("High", StringComparison.OrdinalIgnoreCase) ||
              priority.Equals("Critical", StringComparison.OrdinalIgnoreCase));
     }
+
+    private sealed record OwnerWorkloadRequest(
+        string OwnerKey,
+        IReadOnlySet<string> MatchKeys);
 }

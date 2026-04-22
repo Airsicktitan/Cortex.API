@@ -1246,6 +1246,12 @@ namespace Cortex.API.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsBusinessOwnerEligible")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsSynitiOwnerEligible")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime?>("LastLoginDate")
                         .HasColumnType("datetime2");
 

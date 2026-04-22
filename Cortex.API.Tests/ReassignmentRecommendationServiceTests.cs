@@ -24,9 +24,9 @@ public class ReassignmentRecommendationServiceTests
                 ("owner-c", null, 14)),
             ownerScores:
             [
-                new OwnerWorkloadScoreSnapshot("owner-a", 10, 4, 3, 2, 5, 27),
-                new OwnerWorkloadScoreSnapshot("owner-b", 4, 1, 0, 0, 0, 12),
-                new OwnerWorkloadScoreSnapshot("owner-c", 5, 1, 0, 0, 0, 14),
+                new OwnerWorkloadScoreSnapshot("user:1", 10, 4, 3, 2, 5, 27),
+                new OwnerWorkloadScoreSnapshot("user:2", 4, 1, 0, 0, 0, 12),
+                new OwnerWorkloadScoreSnapshot("user:3", 5, 1, 0, 0, 0, 14),
             ],
             users: CreateUsers("owner-a", "owner-b", "owner-c"));
 
@@ -38,7 +38,7 @@ public class ReassignmentRecommendationServiceTests
         Assert.NotNull(recommendation.CurrentOwner);
         Assert.Equal(27, recommendation.CurrentOwner!.WorkloadScore);
         Assert.Equal(2, recommendation.SuggestedTargets.Count);
-        Assert.Equal("owner-b", recommendation.SuggestedTargets[0].OwnerKey);
+        Assert.Equal("user:2", recommendation.SuggestedTargets[0].OwnerKey);
         Assert.Equal(12, recommendation.SuggestedTargets[0].WorkloadScore);
     }
 
@@ -56,8 +56,8 @@ public class ReassignmentRecommendationServiceTests
                 ("owner-b", null, 16)),
             ownerScores:
             [
-                new OwnerWorkloadScoreSnapshot("owner-a", 5, 2, 1, 0, 1, 18),
-                new OwnerWorkloadScoreSnapshot("owner-b", 4, 1, 1, 0, 1, 16),
+                new OwnerWorkloadScoreSnapshot("user:1", 5, 2, 1, 0, 1, 18),
+                new OwnerWorkloadScoreSnapshot("user:2", 4, 1, 1, 0, 1, 16),
             ],
             users: CreateUsers("owner-a", "owner-b"));
 
@@ -81,7 +81,7 @@ public class ReassignmentRecommendationServiceTests
                 IsOwnerOverloaded = true,
             },
             routingResult: BuildRoutingResult(("owner-a", null, 27)),
-            ownerScores: [new OwnerWorkloadScoreSnapshot("owner-a", 8, 3, 2, 1, 3, 27)],
+            ownerScores: [new OwnerWorkloadScoreSnapshot("user:1", 8, 3, 2, 1, 3, 27)],
             users: CreateUsers("owner-a"));
 
         var ticket = CreateTicket("T-3", "owner-a", null);
@@ -128,11 +128,11 @@ public class ReassignmentRecommendationServiceTests
                 ("owner-e", null, 13)),
             ownerScores:
             [
-                new OwnerWorkloadScoreSnapshot("owner-a", 10, 4, 3, 2, 5, 30),
-                new OwnerWorkloadScoreSnapshot("owner-d", 6, 2, 1, 0, 1, 17),
-                new OwnerWorkloadScoreSnapshot("owner-b", 4, 1, 0, 0, 0, 12),
-                new OwnerWorkloadScoreSnapshot("owner-c", 5, 1, 0, 0, 0, 14),
-                new OwnerWorkloadScoreSnapshot("owner-e", 4, 1, 0, 0, 0, 13),
+                new OwnerWorkloadScoreSnapshot("user:1", 10, 4, 3, 2, 5, 30),
+                new OwnerWorkloadScoreSnapshot("user:4", 6, 2, 1, 0, 1, 17),
+                new OwnerWorkloadScoreSnapshot("user:2", 4, 1, 0, 0, 0, 12),
+                new OwnerWorkloadScoreSnapshot("user:3", 5, 1, 0, 0, 0, 14),
+                new OwnerWorkloadScoreSnapshot("user:5", 4, 1, 0, 0, 0, 13),
             ],
             users: CreateUsers("owner-a", "owner-b", "owner-c", "owner-d", "owner-e"));
 
@@ -143,7 +143,7 @@ public class ReassignmentRecommendationServiceTests
         Assert.Equal(3, recommendation.SuggestedTargets.Count);
         Assert.True(
             recommendation.SuggestedTargets.Select(target => target.OwnerKey).SequenceEqual(
-                ["owner-b", "owner-e", "owner-c"]));
+                ["user:2", "user:5", "user:3"]));
     }
 
     [Fact]
@@ -159,10 +159,10 @@ public class ReassignmentRecommendationServiceTests
                 ("owner-a", null, 30),
                 ("adam", null, 10),
                 ("sarah", null, 10)),
-            ownerScores: [new OwnerWorkloadScoreSnapshot("owner-a", 10, 4, 3, 2, 5, 30)],
+            ownerScores: [new OwnerWorkloadScoreSnapshot("user:1", 10, 4, 3, 2, 5, 30)],
             users: new[]
             {
-                new User { Id = 1, DisplayName = "Owner A", Email = "owner-a@example.com" },
+                new User { Id = 1, DisplayName = "owner-a", Email = "owner-a@example.com" },
                 new User { Id = 2, DisplayName = "Sarah", Email = "sarah@example.com" },
                 new User { Id = 3, DisplayName = "Adam", Email = "adam@example.com" },
             });
@@ -172,7 +172,7 @@ public class ReassignmentRecommendationServiceTests
 
         Assert.True(
             recommendation.SuggestedTargets.Select(target => target.OwnerKey).SequenceEqual(
-                ["adam", "sarah"]));
+                ["user:3", "user:2"]));
     }
 
     private static ReassignmentRecommendationService CreateService(

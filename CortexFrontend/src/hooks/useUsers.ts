@@ -87,6 +87,8 @@ export function useUsers({
     department: "",
     role: "User",
     isActive: true,
+    isSynitiOwnerEligible: false,
+    isBusinessOwnerEligible: false,
     expiryDate: "",
   });
   const [createUserSaving, setCreateUserSaving] = useState(false);
@@ -272,6 +274,8 @@ export function useUsers({
       department: "",
       role: "User",
       isActive: true,
+      isSynitiOwnerEligible: false,
+      isBusinessOwnerEligible: false,
       expiryDate: "",
     });
     setIsCreateUserModalOpen(true);
@@ -292,6 +296,8 @@ export function useUsers({
           selectedUser.assignmentNotificationChannel ?? "",
         slaRiskNotificationChannel: selectedUser.slaRiskNotificationChannel ?? "",
         isActive: selectedUser.isActive,
+        isSynitiOwnerEligible: selectedUser.isSynitiOwnerEligible,
+        isBusinessOwnerEligible: selectedUser.isBusinessOwnerEligible,
         expiryDate: selectedUser.expiryDate ?? "",
       });
       setAdminAccessFeedback(null);

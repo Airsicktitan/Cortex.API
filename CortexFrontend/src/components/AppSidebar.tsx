@@ -7,6 +7,7 @@ type SidebarView =
   | "approval"
   | "archived"
   | "reports"
+  | "rebalance"
   | "sla"
   | "jobs"
   | "users";
@@ -82,12 +83,12 @@ function AppSidebar({
   };
 
   return (
-    <aside className="relative hidden shrink-0 lg:block" style={{ width: `${width}px` }}>
-      <div className="sticky top-8 flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
-        <div className="relative min-h-0 flex-1">
+    <aside className="relative hidden h-full shrink-0 min-h-0 lg:block" style={{ width: `${width}px` }}>
+      <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
+        <div className="relative flex-1 min-h-0 overflow-y-auto">
           <nav
             ref={navScrollRef}
-            className="scroll-surface h-full overflow-y-auto px-4 py-4"
+            className="scroll-surface px-4 py-4"
           >
             <div className="space-y-8">
               <section className="space-y-3">

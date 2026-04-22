@@ -512,6 +512,8 @@ public static class UserHandlers
                 nameof(request.SlaRiskNotificationChannel));
             user.Role = role;
             user.IsActive = request.IsActive;
+            user.IsSynitiOwnerEligible = request.IsSynitiOwnerEligible;
+            user.IsBusinessOwnerEligible = request.IsBusinessOwnerEligible;
             user.ExpiryDate = request.ExpiryDate;
             user.LastModifiedDate = DateTime.UtcNow;
 
@@ -599,6 +601,8 @@ public static class UserHandlers
                 Department = NormalizeOptionalValue(request.Department),
                 Role = role,
                 IsActive = request.IsActive,
+                IsSynitiOwnerEligible = request.IsSynitiOwnerEligible,
+                IsBusinessOwnerEligible = request.IsBusinessOwnerEligible,
                 ExpiryDate = request.ExpiryDate,
                 Auth0Id = createdAuth0UserId,
                 CreatedDate = DateTime.UtcNow,

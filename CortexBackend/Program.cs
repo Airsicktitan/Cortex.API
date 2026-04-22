@@ -94,6 +94,7 @@ builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IDemoEligibilityBootstrapService, DemoEligibilityBootstrapService>();
 builder.Services.AddScoped<IAuth0UserDirectorySyncService, Auth0UserDirectorySyncService>();
 builder.Services.AddScoped<ICommentRepository, CommentRepository>();
 builder.Services.AddScoped<ISlaConfigurationRepository, SlaConfigurationRepository>();
@@ -129,6 +130,10 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ITicketArchivalService, TicketArchivalService>();
 builder.Services.AddScoped<ITicketVisibilityService, TicketVisibilityService>();
 builder.Services.AddScoped<IOwnerWorkloadScoringService, OwnerWorkloadScoringService>();
+builder.Services.AddScoped<IWorkloadSnapshotService, WorkloadSnapshotService>();
+builder.Services.AddScoped<ICortexCandidateResolutionService, CortexCandidateResolutionService>();
+builder.Services.AddScoped<ICortexDecisionService, CortexDecisionService>();
+builder.Services.AddScoped<ICortexAiAssessmentService, CortexAiAssessmentService>();
 builder.Services.AddScoped<IOwnerWorkloadPreviewService, OwnerWorkloadPreviewService>();
 builder.Services.AddScoped<IOperationalRiskService, OperationalRiskService>();
 builder.Services.AddScoped<IReassignmentRecommendationService, ReassignmentRecommendationService>();
@@ -138,8 +143,8 @@ builder.Services.AddScoped<IRebalanceOverviewService, RebalanceOverviewService>(
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
 builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabilityService>();
 builder.Services.AddScoped<IResponseMappingContextFactory, ResponseMappingContextFactory>();
-    builder.Services.AddScoped<IRealtimeAudienceResolver, RealtimeAudienceResolver>();
-    builder.Services.AddScoped<IWorkflowMetricsService, WorkflowMetricsService>();
+builder.Services.AddScoped<IRealtimeAudienceResolver, RealtimeAudienceResolver>();
+builder.Services.AddScoped<IWorkflowMetricsService, WorkflowMetricsService>();
 builder.Services.AddHttpClient<INotificationDeliveryService, NotificationDeliveryService>();
 builder.Services.Configure<EmailNotificationOptions>(builder.Configuration.GetSection("Notifications:Email"));
 builder.Services.Configure<TeamsNotificationOptions>(builder.Configuration.GetSection("Notifications:Teams"));
@@ -431,9 +436,11 @@ app.MapArchiveConfigurationEndpoints();
 app.MapSessionConfigurationEndpoints();
 app.MapNotificationChannelConfigurationEndpoints();
 app.MapAiSettingsEndpoints();
+app.MapAiEndpoints();
 app.MapRoleDefinitionEndpoints();
 app.MapReportDefinitionEndpoints();
 app.MapMetricsEndpoints();
+app.MapWorkloadEndpoints();
 app.MapRebalanceEndpoints();
 app.MapRepeatIssueEndpoints();
 app.MapAdminLogEndpoints();
@@ -446,24 +453,27 @@ app.MapNotificationEndpoints();
 app.MapRealtimeEndpoints();
 app.MapHub<RealtimeHub>("/api/realtime/hub").RequireAuthorization();
 
-if (app.Environment.IsDevelopment())
+using (var scope = app.Services.CreateScope())
 {
-    using var scope = app.Services.CreateScope();
-    var dbStartupLogger = scope.ServiceProvider
+    var logger = scope.ServiceProvider
         .GetRequiredService<ILoggerFactory>()
         .CreateLogger("Startup");
+
     var db = scope.ServiceProvider.GetRequiredService<CortexDbContext>();
+
     try
     {
-        db.Database.Migrate();
-        dbStartupLogger.LogInformation("Database migrations applied successfully.");
+        await db.Database.MigrateAsync();
+        logger.LogInformation("Database migrations applied successfully.");
     }
-    catch (Exception exception)
+    catch (Exception ex)
     {
         StartupDatabaseResilience.LogStartupDatabaseFailure(
-            exception,
-            dbStartupLogger,
-            operation: "EF Core Migrate (Development)");
+            ex,
+            logger,
+            operation: "EF Core Migrate");
+
+        throw; // CRITICAL: fail fast if schema is wrong
     }
 }
 
@@ -483,6 +493,29 @@ using (var scope = app.Services.CreateScope())
             exception,
             ensureDefaultsLogger,
             operation: "Ensure default ticket boards");
+    }
+}
+
+var enableDemoEligibilityBootstrap =
+    app.Environment.IsDevelopment()
+    || app.Configuration.GetValue<bool>("Demo:EnableEligibilityBootstrap");
+if (enableDemoEligibilityBootstrap)
+{
+    using var scope = app.Services.CreateScope();
+    var bootstrapLogger = scope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Startup");
+    var demoEligibilityBootstrapService = scope.ServiceProvider
+        .GetRequiredService<IDemoEligibilityBootstrapService>();
+    try
+    {
+        await demoEligibilityBootstrapService.EnsureDemoEligibilityAsync();
+    }
+    catch (Exception exception)
+    {
+        bootstrapLogger.LogWarning(
+            exception,
+            "Demo owner-eligibility bootstrap failed; continuing startup.");
     }
 }
 

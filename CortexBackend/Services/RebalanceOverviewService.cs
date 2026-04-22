@@ -48,10 +48,12 @@ public sealed class RebalanceOverviewService(
             .Where(t => !TicketSlaCalculator.IsResolvedStatus(t.Status))
             .Where(t => visibility.CanView(t))
             .ToList();
+        var users = (await userRepository.GetAllUsersAsync()).ToList();
+        var userByLookupKey = BuildUserLookup(users);
 
         // 2. We aggregate by SynitiOwner (product decision for v1).
         var synitiOwnerKeys = activeTickets
-            .Select(t => NormalizeOwner(t.SynitiOwner))
+            .Select(t => NormalizeOwner(t.SynitiOwner, userByLookupKey))
             .Where(key => key.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToList();
@@ -84,7 +86,7 @@ public sealed class RebalanceOverviewService(
 
         // 5. Candidate pool = tickets whose SynitiOwner is overloaded.
         var candidatePoolTickets = activeTickets
-            .Where(t => overloadedOwnerKeys.Contains(NormalizeOwner(t.SynitiOwner)))
+            .Where(t => overloadedOwnerKeys.Contains(NormalizeOwner(t.SynitiOwner, userByLookupKey)))
             .ToList();
 
         // 6. Delegate per-ticket operational risk for the full candidate
@@ -118,7 +120,7 @@ public sealed class RebalanceOverviewService(
                 continue;
             }
 
-            var ownerKey = NormalizeOwner(ticket.SynitiOwner);
+            var ownerKey = NormalizeOwner(ticket.SynitiOwner, userByLookupKey);
             if (ownerKey.Length == 0)
             {
                 continue;
@@ -139,7 +141,7 @@ public sealed class RebalanceOverviewService(
                 continue;
             }
 
-            var ownerKey = NormalizeOwner(ticket.SynitiOwner);
+            var ownerKey = NormalizeOwner(ticket.SynitiOwner, userByLookupKey);
             if (!ownerScoreByKey.TryGetValue(ownerKey, out var ownerScore))
             {
                 continue;
@@ -181,11 +183,6 @@ public sealed class RebalanceOverviewService(
                     rankedTopN.Select(c => c.Ticket),
                     cancellationToken))
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal);
-
-        // 12. Owner display-name resolution — reuses the same
-        //     DisplayName/Email match pattern as ReassignmentRecommendationService.
-        var users = (await userRepository.GetAllUsersAsync()).ToList();
-        var userByLookupKey = BuildUserLookup(users);
 
         // 13. Build response.
         var overloadedOwners = ownerScores
@@ -253,8 +250,20 @@ public sealed class RebalanceOverviewService(
         string SlaRiskLevel,
         OwnerWorkloadScoreSnapshot OwnerScore);
 
-    private static string NormalizeOwner(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+    private static string NormalizeOwner(
+        string? value,
+        IReadOnlyDictionary<string, User> userLookup)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = NormalizeForLookup(value);
+        return normalized.Length > 0 && userLookup.TryGetValue(normalized, out var user)
+            ? OwnerFieldResolution.ToCanonicalOwnerKey(user)
+            : value.Trim();
+    }
 
     private static string NormalizeForLookup(string? value) =>
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant();
@@ -322,6 +331,8 @@ public sealed class RebalanceOverviewService(
         {
             AddLookupIfMissing(lookup, user.DisplayName, user);
             AddLookupIfMissing(lookup, user.Email, user);
+            AddLookupIfMissing(lookup, user.NickName, user);
+            AddLookupIfMissing(lookup, OwnerFieldResolution.ToCanonicalOwnerKey(user), user);
         }
         return lookup;
     }

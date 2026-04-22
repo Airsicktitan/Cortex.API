@@ -10,6 +10,7 @@ type AppHeaderView =
   | "approval"
   | "archived"
   | "reports"
+  | "rebalance"
   | "sla"
   | "jobs"
   | "users";
@@ -126,7 +127,7 @@ function AppHeader({
 }: AppHeaderProps) {
   return (
     <header className="relative z-40 border-b border-gray-200 bg-white/92 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-cortex-ink-dark/92">
-      <div className="mx-auto flex w-full max-w-[2200px] flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6 2xl:px-8 xl:flex-row xl:items-center xl:justify-between">
+      <div className="mx-auto flex w-full max-w-[2200px] flex-col gap-4 px-4 py-4 sm:px-6 sm:py-5 2xl:px-8 xl:flex-row xl:items-center xl:justify-between">
         <div className="space-y-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-baseline md:gap-4">
             <h1 className="text-3xl font-bold">🧠 CORTEX</h1>
@@ -194,7 +195,7 @@ function AppHeader({
               </button>
 
               {isAppMenuOpen && (
-                <div className="absolute left-0 top-full z-20 mt-2 w-80 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+                <div className="absolute left-0 top-full z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
                   <div className="border-b border-gray-100 px-4 py-3 dark:border-slate-800">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                       Navigate
@@ -267,7 +268,7 @@ function AppHeader({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-4">
+        <div className="flex flex-wrap items-center justify-start gap-3 sm:justify-end sm:gap-4">
           {showTicketActions && (
             <TicketHeaderActions
               canCreateTickets={canCreateTickets}
@@ -307,17 +308,12 @@ function AppHeader({
 
           <div
             ref={userMenuRef}
-            className="relative flex items-center gap-3 border-l border-gray-300 pl-4 dark:border-slate-700"
+            className="relative flex min-w-0 items-center gap-3 sm:border-l sm:border-gray-300 sm:pl-4 sm:dark:border-slate-700"
           >
             <div ref={notificationPanelRef} className="relative">
               <button
                 onClick={onToggleNotificationPanel}
                 className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-cortex-blue-soft hover:text-cortex-blue dark:text-slate-300 dark:hover:bg-cortex-blue/20 dark:hover:text-cortex-cyan"
-                title={
-                  notificationUnreadCount === 0
-                    ? "Notifications"
-                    : `${notificationUnreadCount} unread notification${notificationUnreadCount === 1 ? "" : "s"}`
-                }
                 aria-label={
                   notificationUnreadCount === 0
                     ? "Open notifications"
@@ -363,11 +359,6 @@ function AppHeader({
               <button
                 onClick={onOpenFailedJobsQueue}
                 className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-slate-300 dark:hover:bg-red-950/30 dark:hover:text-red-200"
-                title={
-                  failedJobsCount === 1
-                    ? "1 failed job needs attention"
-                    : `${failedJobsCount} failed jobs need attention`
-                }
                 aria-label={
                   failedJobsCount === 1
                     ? "Open failed jobs queue"
@@ -395,9 +386,9 @@ function AppHeader({
 
             <button
               onClick={onToggleUserMenu}
-              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              className="inline-flex min-w-0 items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              <span>
+              <span className="min-w-0 truncate">
                 {currentUser?.nickName ?? currentUser?.displayName ?? authDisplayName}
               </span>
               <span className="text-xs text-gray-500 dark:text-slate-400">
@@ -406,7 +397,7 @@ function AppHeader({
             </button>
 
             {isUserMenuOpen && (
-              <div className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+              <div className="absolute right-0 top-full z-20 mt-2 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
                 <div className="border-b border-gray-100 px-4 py-3 dark:border-slate-800">
                   <p className="font-medium text-gray-900 dark:text-slate-100">
                     {currentUser?.displayName ?? authDisplayName}

@@ -5,7 +5,6 @@ import {
 } from "../../types/screenshotInsight";
 import type { ApprovalTriagePreview, Ticket } from "../../types/ticket";
 import {
-  shouldShowApprovalTriageModalPanel,
   triageHasContent,
 } from "../../utils/approvalTriage";
 import { filterScreenshotInsightNoise } from "../../utils/screenshotInsightDisplay";
@@ -428,37 +427,39 @@ function ScreenshotInsightTriagePanel({
 export function ApprovalTriageModalColumn({
   ticket,
   onRegenerateAnalysis,
+  canRegenerateAnalysis,
+  regenerateDisabledHint,
   regenerateLoading = false,
   applyControls,
 }: {
   ticket: Ticket;
   onRegenerateAnalysis?: () => void | Promise<void>;
+  canRegenerateAnalysis?: boolean;
+  regenerateDisabledHint?: string | null;
   regenerateLoading?: boolean;
   applyControls?: ApprovalTriageApplyControls;
 }) {
   const triageScrollRef = useRef<HTMLDivElement | null>(null);
-
-  if (!shouldShowApprovalTriageModalPanel(ticket)) {
-    return null;
-  }
-
-  const canRegenerate = Boolean(onRegenerateAnalysis);
+  const canRegenerate =
+    Boolean(onRegenerateAnalysis) &&
+    (canRegenerateAnalysis ?? Boolean(onRegenerateAnalysis));
   const applyHelperText = applyControls ? getApplyHelperText(applyControls) : null;
   const triageActionPending = applyControls?.pendingAction != null;
 
   return (
     <aside
-      className="flex min-h-0 min-w-0 flex-col border-t border-gray-200 pt-4 dark:border-slate-800 lg:min-h-0 lg:flex-1 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0"
+      className="flex min-h-0 min-w-0 flex-col border-t border-gray-200 pt-4 dark:border-slate-800 xl:min-h-0 xl:flex-1 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0"
       aria-label="Intake insight"
     >
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/45">
-        {canRegenerate ? (
-          <div className="flex shrink-0 justify-end border-b border-gray-100 px-3 py-2.5 dark:border-slate-800">
+        <div className="shrink-0 border-b border-gray-100 px-3 py-2.5 dark:border-slate-800">
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={() => void onRegenerateAnalysis?.()}
-              disabled={regenerateLoading || triageActionPending}
+              disabled={!canRegenerate || regenerateLoading || triageActionPending}
               aria-busy={regenerateLoading}
+              title={!canRegenerate ? (regenerateDisabledHint ?? undefined) : undefined}
               className="ai-button ai-button--ready rounded-md px-3 py-1.5 text-xs font-semibold text-cortex-blue-dark hover:bg-cortex-blue-soft disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
             >
               <span>
@@ -466,11 +467,16 @@ export function ApprovalTriageModalColumn({
               </span>
             </button>
           </div>
-        ) : null}
+          {!canRegenerate && regenerateDisabledHint ? (
+            <p className="mt-1.5 text-right text-[11px] text-gray-500 dark:text-slate-400">
+              {regenerateDisabledHint}
+            </p>
+          ) : null}
+        </div>
         <div className="relative min-h-0 flex-1">
           <div
             ref={triageScrollRef}
-            className={`scroll-surface h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 ${canRegenerate ? "" : "pt-4"}`}
+            className="scroll-surface h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4"
           >
             <ApprovalTriagePanel
               triage={ticket.approvalTriagePreview}

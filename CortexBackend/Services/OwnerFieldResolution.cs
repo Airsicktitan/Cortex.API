@@ -11,6 +11,26 @@ public static class OwnerFieldResolution
 {
     public const string UserIdTokenPrefix = "user:";
 
+    public static string ToCanonicalOwnerKey(User user)
+    {
+        return $"{UserIdTokenPrefix}{user.Id.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    public static string? CanonicalizeOwnerField(
+        string? rawOwner,
+        IReadOnlyDictionary<string, User> aliases)
+    {
+        if (string.IsNullOrWhiteSpace(rawOwner))
+        {
+            return null;
+        }
+
+        var resolved = ResolveUser(rawOwner, aliases);
+        return resolved is null
+            ? rawOwner.Trim()
+            : ToCanonicalOwnerKey(resolved);
+    }
+
     public static Dictionary<string, User> BuildAliasLookup(IEnumerable<User> users)
     {
         var aliases = new Dictionary<string, User>(StringComparer.OrdinalIgnoreCase);

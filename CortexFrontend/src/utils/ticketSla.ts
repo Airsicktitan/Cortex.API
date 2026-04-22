@@ -129,19 +129,35 @@ export function formatSlaSummary(ticket: SlaLabelInput) {
   }
 }
 
+/**
+ * Single-sentence SLA tooltip. Combines state, remaining/elapsed duration, and the deadline or
+ * completion timestamp — suitable for `CortexTooltip` content. Never returns multi-line text.
+ */
 export function buildSlaTooltip(ticket: SlaLabelInput) {
   const display = getSlaDisplayLabel(ticket);
-  const lines = [
-    `SLA: ${display}`,
-    `Target: ${formatDateTime(ticket.slaTargetDate)}`,
-    `Timing: ${formatSlaSummary(ticket)}`,
-  ];
+  const duration = formatDuration(ticket.slaRemainingMinutes);
+  const target = formatDateTime(ticket.slaTargetDate);
+  const completed = ticket.slaCompletedDate
+    ? formatDateTime(ticket.slaCompletedDate)
+    : null;
 
-  if (ticket.slaCompletedDate) {
-    lines.push(`Completed: ${formatDateTime(ticket.slaCompletedDate)}`);
+  switch (display) {
+    case "Resolved On Time":
+      return completed
+        ? `Resolved on time at ${completed} — deadline was ${target}.`
+        : `Resolved on time — deadline was ${target}.`;
+    case "Resolved Late":
+      return completed
+        ? `Resolved late at ${completed} — ${duration} past the ${target} deadline.`
+        : `Resolved late — ${duration} past the ${target} deadline.`;
+    case "Overdue":
+      return `Overdue by ${duration} — deadline was ${target}.`;
+    case "At Risk":
+      return `At risk — ${duration} until the ${target} deadline.`;
+    case "On Track":
+    default:
+      return `On track — ${duration} until the ${target} deadline.`;
   }
-
-  return lines.join("\n");
 }
 
 function formatDuration(totalMinutes: number) {

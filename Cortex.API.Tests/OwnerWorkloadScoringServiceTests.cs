@@ -76,6 +76,54 @@ public class OwnerWorkloadScoringServiceTests
         visibilityService.Verify(service => service.GetCurrentVisibilityAsync(), Times.Never);
     }
 
+    [Fact]
+    public async Task GetScoresAsync_MatchesDirectoryAliases_ForSameOwner()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+
+        context.Users.Add(new User
+        {
+            Id = 5,
+            DisplayName = "Owner Alias",
+            NickName = "Alias",
+            Email = "owner.alias@example.com",
+            IsActive = true,
+        });
+        context.Tickets.AddRange(
+            CreateTicket("T-200", "user:5", null, "Low", ApprovalStatus.Approved, "New", now),
+            CreateTicket("T-201", "Owner Alias", null, "High", ApprovalStatus.Approved, "New", now),
+            CreateTicket("T-202", null, "Alias", "Medium", ApprovalStatus.Approved, "New", now));
+        await context.SaveChangesAsync();
+
+        var visibilityService = new Mock<ITicketVisibilityService>(MockBehavior.Strict);
+        var slaConfigurationService = new Mock<ISlaConfigurationService>(MockBehavior.Strict);
+        slaConfigurationService
+            .Setup(service => service.GetPriorityMapAsync())
+            .ReturnsAsync(new Dictionary<string, SlaConfiguration>
+            {
+                ["Low"] = new() { Priority = "Low", TargetHours = 24, WarningHours = 8 },
+                ["High"] = new() { Priority = "High", TargetHours = 8, WarningHours = 2 },
+                ["Medium"] = new() { Priority = "Medium", TargetHours = 24, WarningHours = 8 },
+            });
+
+        var service = new OwnerWorkloadScoringService(
+            context,
+            visibilityService.Object,
+            slaConfigurationService.Object);
+
+        var scores = await service.GetScoresAsync(
+            ["owner.alias@example.com"],
+            respectCurrentVisibility: false);
+
+        var score = Assert.Single(scores);
+        Assert.Equal("owner.alias@example.com", score.OwnerKey);
+        Assert.Equal(3, score.ActiveTicketCount);
+        Assert.Equal(1, score.HighPriorityTicketCount);
+
+        visibilityService.Verify(service => service.GetCurrentVisibilityAsync(), Times.Never);
+    }
+
     private static CortexDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CortexDbContext>()

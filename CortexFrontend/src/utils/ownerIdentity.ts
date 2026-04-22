@@ -47,11 +47,8 @@ export function emailUsableAsSubtitle(email: string | undefined): boolean {
   return Boolean(t && t.includes("@"));
 }
 
-/** Stable value persisted on tickets: real email when usable, else `user:{id}`. */
+/** Stable value persisted on tickets. Display names/emails are presentation only. */
 export function ownerStorageValue(entry: UserDirectoryEntry): string {
-  if (!isTechnicalOrSyntheticEmail(entry.email)) {
-    return entry.email.trim();
-  }
   return `${USER_ID_TOKEN_PREFIX}${entry.id}`;
 }
 

@@ -5,6 +5,7 @@ import type { TicketRoutingRule } from "../types/ticketRouting";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { UserDirectoryEntry } from "../types/user";
 import UserCombobox from "./UserCombobox";
+import { CortexTooltip } from "./ui/Tooltip";
 import {
   ConfigDetailCard,
   ConfigErrorBanner,
@@ -442,12 +443,15 @@ export default function TicketRoutingSection({
                           <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-slate-400">
                               Rule Priority (higher runs first)
-                              <span
-                                className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
-                                title="When multiple rules match, the rule with the highest Rule Priority wins first."
-                              >
-                                ?
-                              </span>
+                              <CortexTooltip content="Highest Rule Priority wins when multiple rules match a ticket.">
+                                <span
+                                  className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
+                                  aria-label="About Rule Priority"
+                                  tabIndex={0}
+                                >
+                                  ?
+                                </span>
+                              </CortexTooltip>
                             </label>
                             <input
                               type="number"
@@ -461,12 +465,15 @@ export default function TicketRoutingSection({
                           <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-slate-400">
                               Weight
-                              <span
-                                className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
-                                title="Secondary tie-breaker when Rule Priority is the same. Higher weight wins."
-                              >
-                                ?
-                              </span>
+                              <CortexTooltip content="Tie-breaker when two rules share the same Rule Priority. Higher weight wins.">
+                                <span
+                                  className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
+                                  aria-label="About Weight"
+                                  tabIndex={0}
+                                >
+                                  ?
+                                </span>
+                              </CortexTooltip>
                             </label>
                             <input
                               type="number"

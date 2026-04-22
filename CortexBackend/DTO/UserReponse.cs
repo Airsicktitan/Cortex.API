@@ -17,6 +17,8 @@ public class UserResponse
     /// <summary>Roles from the access token (Auth0). Authoritative for authorization in the UI.</summary>
     public List<string> Roles { get; set; } = [];
     public bool IsActive { get; set; }
+    public bool IsSynitiOwnerEligible { get; set; }
+    public bool IsBusinessOwnerEligible { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? LastLoginDate { get; set; }
     public DateTime? LastSeenDateUtc { get; set; }

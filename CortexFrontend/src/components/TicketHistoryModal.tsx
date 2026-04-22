@@ -199,8 +199,8 @@ export default function TicketHistoryModal({
                     )}
 
                     {entry.fieldChanges.length > 0 && (
-                      <div className="mt-4 overflow-hidden rounded-md border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-                        <table className="min-w-full text-sm">
+                      <div className="mt-4 overflow-x-auto rounded-md border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                        <table className="min-w-[42rem] text-sm">
                           <thead className="bg-gray-50 text-left text-gray-600 dark:bg-slate-800/80 dark:text-slate-300">
                             <tr>
                               <th className="px-4 py-3 font-medium">Field</th>

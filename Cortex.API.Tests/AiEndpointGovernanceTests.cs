@@ -82,6 +82,7 @@ public class AiEndpointGovernanceTests
         app.MapTicketEndpoints();
         app.MapTicketAttachmentEndpoints();
         app.MapAiSettingsEndpoints();
+        app.MapAiEndpoints();
         app.MapRepeatIssueEndpoints();
 
         var endpoints = ((IEndpointRouteBuilder)app).DataSources
@@ -113,6 +114,11 @@ public class AiEndpointGovernanceTests
             endpoints,
             endpointName: "GenerateRepeatIssueAiReview",
             routePattern: "/api/metrics/repeat-issues/{groupKey}/ai-review",
+            expectedPolicy: AiRateLimitPolicies.StandardPolicyName);
+        AssertGovernedEndpoint(
+            endpoints,
+            endpointName: "PostCortexAiAssess",
+            routePattern: "/api/ai/assess",
             expectedPolicy: AiRateLimitPolicies.StandardPolicyName);
 
         Assert.DoesNotContain(
@@ -151,6 +157,7 @@ public class AiEndpointGovernanceTests
         app.MapTicketEndpoints();
         app.MapTicketAttachmentEndpoints();
         app.MapAiSettingsEndpoints();
+        app.MapAiEndpoints();
         app.MapRepeatIssueEndpoints();
 
         var rateLimitedEndpoints = ((IEndpointRouteBuilder)app).DataSources
@@ -222,6 +229,9 @@ public class AiEndpointGovernanceTests
         AddMockSingleton<INotificationService>(services);
         AddMockSingleton<IRepeatIssueAnalyticsService>(services);
         AddMockSingleton<IRepeatIssueAiReviewService>(services);
+        AddMockSingleton<ICortexDecisionService>(services);
+        AddMockSingleton<ICortexAiAssessmentService>(services);
+        AddMockSingleton<ICortexCandidateResolutionService>(services);
     }
 
     private static RequestDelegate BuildRateLimitedPipeline(

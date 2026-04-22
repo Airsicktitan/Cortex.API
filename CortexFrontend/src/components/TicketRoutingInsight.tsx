@@ -12,8 +12,10 @@ import type {
   TicketRoutingOverrideDto,
 } from "../types/ticketRoutingInsight";
 import { ticketService } from "../services/api";
+import type { CortexDecisionResult } from "../types/cortexDecision";
 import { formatDisplayValue } from "../utils/presentation";
 import { formatOwnerFieldForDisplay } from "../utils/ownerIdentity";
+import { CortexTooltip } from "./ui/Tooltip";
 
 const API_AUDIENCE = "https://cortex-api";
 
@@ -40,14 +42,14 @@ export interface RoutingLivePreviewInput {
   department: string;
 }
 
-/** Native `title` tooltip: full explanation for SLA Risk (workload-based, not a prediction). */
+/** Advisory workload signal — not an SLA prediction. Kept short per tooltip style guide. */
 const SLA_RISK_ABOUT_TOOLTIP =
-  "About SLA Risk\n\nSLA Risk is a workload-based signal derived from the current open, at-risk, and breached ticket load across the assigned owners. It helps indicate whether this assignment may need closer monitoring. It is not a guaranteed SLA outcome.";
+  "Advisory signal based on the assigned owner's current open, at-risk, and breached tickets. Not an SLA prediction.";
 
 const SLA_RISK_LEVEL_TOOLTIP: Record<"Low" | "Medium" | "High", string> = {
-  Low: "Current workload appears manageable.",
-  Medium: "Current workload may increase SLA pressure.",
-  High: "Current workload is elevated and may put SLA at risk.",
+  Low: "Owner has headroom — SLA pressure is low.",
+  Medium: "Owner is loaded — watch for SLA slippage.",
+  High: "Owner is overloaded — high chance of SLA slippage without action.",
 };
 
 function resolveBoardNameForDisplay(
@@ -82,6 +84,17 @@ function ownersMatch(
   recommended: string | undefined,
 ): boolean {
   return normalizeOwnerToken(current) === normalizeOwnerToken(recommended);
+}
+
+function buildOwnerLabel(
+  ownerKey: string | undefined | null,
+  displayName?: string | null,
+): string {
+  const resolvedDisplayName = displayName?.trim();
+  if (resolvedDisplayName) {
+    return formatDisplayValue(resolvedDisplayName);
+  }
+  return formatDisplayValue(formatOwnerFieldForDisplay(ownerKey) || undefined);
 }
 
 function parseExplanationJson(json: string): RoutingExplanationPayload | null {
@@ -302,7 +315,7 @@ function assignmentSummaryLine(
       !hasBusinessRec ||
       ownersMatch(ticket.businessOwner, decision.chosenBusinessOwner);
     if (synitiOk && businessOk) {
-      return "Current assignment matches the routing recommendation.";
+      return "Assignment aligns with routing recommendation based on rule match and workload balance.";
     }
     return "Current assignment was chosen manually.";
   }
@@ -340,9 +353,81 @@ function resolveConfidenceLevel(
   return "Low";
 }
 
+function toHumanConfidenceLabel(
+  confidenceLevel: ConfidenceLevel,
+  slotClassifications: string[],
+): string {
+  if (slotClassifications.includes("Multiple viable candidates")) {
+    return "Multiple viable candidates";
+  }
+  if (slotClassifications.includes("Limited routing signals")) {
+    return "Limited routing signals";
+  }
+  if (slotClassifications.includes("Strong match, low pressure")) {
+    return "Strong match, low pressure";
+  }
+  if (slotClassifications.includes("Strong match, moderate pressure")) {
+    return "Strong match, moderate pressure";
+  }
+  if (slotClassifications.includes("Moderate match")) {
+    return "Moderate match";
+  }
+  if (confidenceLevel === "High") {
+    return "Strong match, low pressure";
+  }
+  if (confidenceLevel === "Medium") {
+    return "Moderate match";
+  }
+  return "Limited routing signals";
+}
+
+function humanizeCriterion(criterion: string): string {
+  switch (criterion) {
+    case "BoardId":
+      return "board alignment";
+    case "Priority":
+      return "priority alignment";
+    case "RequesterDepartment":
+    case "Department":
+      return "department alignment";
+    case "RequesterRole":
+      return "requester role alignment";
+    case "TitleContains":
+      return "title signal alignment";
+    default:
+      return criterion.replace(/([A-Z])/g, " $1").trim().toLowerCase();
+  }
+}
+
+function extractSignalBullet(line: string): string | null {
+  const [labelRaw, valueRaw] = line.split(":");
+  const label = labelRaw?.trim().toLowerCase();
+  const value = valueRaw?.trim();
+  if (!label) {
+    return null;
+  }
+  if (label === "board" && value) {
+    return `Matches ${value} board routing signal`;
+  }
+  if (label === "priority" && value) {
+    return `Matches ${value} priority routing signal`;
+  }
+  if (label === "requester department" && value) {
+    return `Matches ${value} requester department routing signal`;
+  }
+  if (label === "requester role" && value) {
+    return `Matches ${value} requester role routing signal`;
+  }
+  if (label === "department" && value) {
+    return `Matches ${value} department routing signal`;
+  }
+  return null;
+}
+
 function collectWorkloadOwnerKeys(
   decision: TicketRoutingDecisionDto | null,
   ticket: Ticket,
+  explanation: RoutingExplanationPayload | null,
 ): string[] {
   const keys: string[] = [];
   if (decision) {
@@ -351,6 +436,16 @@ function collectWorkloadOwnerKeys(
     }
     if (decision.chosenBusinessOwner?.trim()) {
       keys.push(decision.chosenBusinessOwner.trim());
+    }
+  }
+  if (keys.length === 0 && explanation?.slots) {
+    const synitiOwner = explanation.slots.synitiOwner?.selectedOwnerKey;
+    const businessOwner = explanation.slots.businessOwner?.selectedOwnerKey;
+    if (synitiOwner?.trim()) {
+      keys.push(synitiOwner.trim());
+    }
+    if (businessOwner?.trim()) {
+      keys.push(businessOwner.trim());
     }
   }
   if (keys.length === 0) {
@@ -444,6 +539,9 @@ export default function TicketRoutingInsight({
     null,
   );
   const [workloadLoading, setWorkloadLoading] = useState(false);
+  const [cortexDecision, setCortexDecision] = useState<CortexDecisionResult | null>(
+    null,
+  );
   const [techExpanded, setTechExpanded] = useState(false);
   const [decisionPanelExpanded, setDecisionPanelExpanded] = useState(true);
 
@@ -456,6 +554,8 @@ export default function TicketRoutingInsight({
     livePreview?.department ?? "",
     PREVIEW_TEXT_DEBOUNCE_MS,
   );
+  const livePreviewBoardId = livePreview?.boardId;
+  const livePreviewPriority = livePreview?.priority;
 
   useEffect(() => {
     setTechExpanded(false);
@@ -517,7 +617,39 @@ export default function TicketRoutingInsight({
   ]);
 
   useEffect(() => {
-    if (!isModalOpen || !ticket.id || !isLiveRoutingPreview || !livePreview) {
+    if (!isModalOpen || !ticket.id) {
+      setCortexDecision(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: { audience: API_AUDIENCE },
+        });
+        const latest = await ticketService.getTicketDecision(ticket.id, token);
+        if (!cancelled) {
+          setCortexDecision(latest);
+        }
+      } catch {
+        if (!cancelled) {
+          setCortexDecision(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getAccessTokenSilently, isModalOpen, ticket.id, ticket.lastModifiedDate]);
+
+  useEffect(() => {
+    if (
+      !isModalOpen ||
+      !ticket.id ||
+      !isLiveRoutingPreview ||
+      livePreviewBoardId == null ||
+      livePreviewPriority == null
+    ) {
       setLiveDecision(null);
       setPreviewLoading(false);
       return;
@@ -526,8 +658,8 @@ export default function TicketRoutingInsight({
     let cancelled = false;
     const body: RoutingPreviewRequest = {
       ticketId: ticket.id,
-      boardId: livePreview.boardId,
-      priority: livePreview.priority,
+      boardId: livePreviewBoardId,
+      priority: livePreviewPriority,
       title: debouncedPreviewTitle.trim() || undefined,
       department: debouncedPreviewDepartment.trim() || undefined,
     };
@@ -558,8 +690,8 @@ export default function TicketRoutingInsight({
     isModalOpen,
     ticket.id,
     isLiveRoutingPreview,
-    livePreview?.boardId,
-    livePreview?.priority,
+    livePreviewBoardId,
+    livePreviewPriority,
     debouncedPreviewTitle,
     debouncedPreviewDepartment,
     getAccessTokenSilently,
@@ -641,9 +773,246 @@ export default function TicketRoutingInsight({
     return { kind: "standard" as const, text: "Low confidence" };
   }, [confidenceLevel, matchedFactorLines.length]);
 
+  const slotReasoning = useMemo(() => {
+    const slots = explanation?.slots;
+    if (!slots) {
+      return [];
+    }
+    const output: Array<{
+      label: string;
+      selectedOwnerKey?: string | null;
+      selectedOwnerDisplayName?: string | null;
+      classification: string;
+      candidates: Array<{
+        ownerKey: string;
+        displayName?: string | null;
+        matchScore: number;
+        workloadPenalty: number;
+        finalScore: number;
+      }>;
+      skipped: Array<{
+        ownerKey?: string | null;
+        reason?: string;
+        message?: string;
+      }>;
+    }> = [];
+    if (slots.synitiOwner) {
+      output.push({
+        label: "Syniti Owner",
+        selectedOwnerKey: slots.synitiOwner.selectedOwnerKey,
+        selectedOwnerDisplayName: slots.synitiOwner.selectedOwnerDisplayName,
+        classification: slots.synitiOwner.classification ?? "",
+        candidates: (slots.synitiOwner.candidates ?? [])
+          .filter((candidate): candidate is NonNullable<typeof candidate> =>
+            Boolean(candidate?.ownerKey),
+          )
+          .map((candidate) => ({
+            ownerKey: candidate.ownerKey!.trim(),
+            displayName: candidate.displayName,
+            matchScore: candidate.matchScore ?? 0,
+            workloadPenalty: candidate.workloadPenalty ?? 0,
+            finalScore: candidate.finalScore ?? 0,
+          })),
+        skipped: slots.synitiOwner.skippedReasons ?? [],
+      });
+    }
+    if (slots.businessOwner) {
+      output.push({
+        label: "Business Owner",
+        selectedOwnerKey: slots.businessOwner.selectedOwnerKey,
+        selectedOwnerDisplayName: slots.businessOwner.selectedOwnerDisplayName,
+        classification: slots.businessOwner.classification ?? "",
+        candidates: (slots.businessOwner.candidates ?? [])
+          .filter((candidate): candidate is NonNullable<typeof candidate> =>
+            Boolean(candidate?.ownerKey),
+          )
+          .map((candidate) => ({
+            ownerKey: candidate.ownerKey!.trim(),
+            displayName: candidate.displayName,
+            matchScore: candidate.matchScore ?? 0,
+            workloadPenalty: candidate.workloadPenalty ?? 0,
+            finalScore: candidate.finalScore ?? 0,
+          })),
+        skipped: slots.businessOwner.skippedReasons ?? [],
+      });
+    }
+    return output;
+  }, [explanation?.slots]);
+
+  const selectedBecauseLines = useMemo(() => {
+    const lines: string[] = [];
+    const signalBullets = matchedFactorLines
+      .map((line) => extractSignalBullet(line))
+      .filter((line): line is string => Boolean(line))
+      .slice(0, 2);
+    lines.push(...signalBullets);
+
+    if (lines.length === 0 && explanation?.matchedCriteria?.length) {
+      lines.push(
+        `Routing matched ${explanation.matchedCriteria
+          .slice(0, 2)
+          .map((criterion) => humanizeCriterion(criterion))
+          .join(" and ")}.`,
+      );
+    }
+
+    for (const slot of slotReasoning) {
+      const selected = slot.selectedOwnerKey?.trim();
+      if (!selected) {
+        continue;
+      }
+      if (slot.candidates.length <= 1) {
+        lines.push("No competing eligible candidates met routing criteria");
+        continue;
+      }
+      const sorted = [...slot.candidates].sort(
+        (left, right) => right.finalScore - left.finalScore,
+      );
+      const winner = sorted.find(
+        (candidate) =>
+          normalizeOwnerToken(candidate.ownerKey) === normalizeOwnerToken(selected),
+      );
+      const nextBest = sorted.find(
+        (candidate) =>
+          normalizeOwnerToken(candidate.ownerKey) !== normalizeOwnerToken(selected),
+      );
+      if (!winner || !nextBest) {
+        continue;
+      }
+
+      if (winner.workloadPenalty < nextBest.workloadPenalty) {
+        lines.push("Lower workload than other eligible candidates");
+      } else if (winner.matchScore > nextBest.matchScore) {
+        lines.push("Stronger routing match than alternatives");
+      }
+    }
+    if (!slotReasoning.some((slot) => slot.candidates.length > 1)) {
+      lines.push("No lower-pressure eligible alternative was identified");
+    }
+    return lines.slice(0, 3);
+  }, [matchedFactorLines, explanation?.matchedCriteria, slotReasoning]);
+
+  const alternativesConsidered = useMemo(() => {
+    return slotReasoning.flatMap((slot) => {
+      const selected = slot.selectedOwnerKey?.trim();
+      const sorted = [...slot.candidates]
+        .sort((left, right) => right.finalScore - left.finalScore)
+        .filter((candidate) => {
+          if (!selected) {
+            return true;
+          }
+          return (
+            normalizeOwnerToken(candidate.ownerKey) !== normalizeOwnerToken(selected)
+          );
+        })
+        .slice(0, 2);
+
+      const alternatives = sorted.map((candidate) => {
+        const selectedCandidate = slot.candidates.find(
+          (item) =>
+            selected &&
+            normalizeOwnerToken(item.ownerKey) === normalizeOwnerToken(selected),
+        );
+        let reason = "weaker match";
+        if (selectedCandidate) {
+          if (candidate.workloadPenalty > selectedCandidate.workloadPenalty) {
+            reason = "higher workload";
+          } else if (candidate.matchScore < selectedCandidate.matchScore) {
+            reason = "weaker match";
+          }
+        }
+        return {
+          slotLabel: slot.label,
+          ownerLabel: buildOwnerLabel(candidate.ownerKey, candidate.displayName),
+          reason,
+        };
+      });
+
+      const skipped = slot.skipped
+        .filter((entry) => entry.reason?.includes("Eligible") || entry.reason === "UnresolvedRuleOwner")
+        .slice(0, 1)
+        .map((entry) => ({
+          slotLabel: slot.label,
+          ownerLabel: buildOwnerLabel(entry.ownerKey),
+          reason:
+            entry.reason === "UnresolvedRuleOwner"
+              ? entry.message ?? "not eligible (unresolved owner)"
+              : "not eligible",
+        }));
+
+      return [...alternatives, ...skipped];
+    });
+  }, [slotReasoning]);
+
+  const synitiOwnerDisplay = useMemo(() => {
+    const slot = explanation?.slots?.synitiOwner;
+    const ownerKey = decision?.chosenSynitiOwner?.trim() || slot?.selectedOwnerKey;
+    const displayName =
+      slot?.selectedOwnerDisplayName ||
+      (ownersMatch(ticket.synitiOwner, ownerKey ?? undefined)
+        ? ticket.synitiOwnerDisplayName
+        : undefined);
+    if (ownerKey || slot?.selectedOwnerDisplayName?.trim()) {
+      return buildOwnerLabel(ownerKey, displayName);
+    }
+    const hasSynitiRuleEvidence = Boolean(
+      slot &&
+        ((slot.candidates?.length ?? 0) > 0 ||
+          (slot.skippedReasons?.length ?? 0) > 0),
+    );
+    return hasSynitiRuleEvidence
+      ? "No Syniti owner assigned"
+      : "No Syniti owner rule applied";
+  }, [
+    decision?.chosenSynitiOwner,
+    explanation?.slots?.synitiOwner,
+    ticket.synitiOwner,
+    ticket.synitiOwnerDisplayName,
+  ]);
+
+  const businessOwnerDisplay = useMemo(() => {
+    const slot = explanation?.slots?.businessOwner;
+    const ownerKey =
+      decision?.chosenBusinessOwner?.trim() || slot?.selectedOwnerKey;
+    const displayName =
+      slot?.selectedOwnerDisplayName ||
+      (ownersMatch(ticket.businessOwner, ownerKey ?? undefined)
+        ? ticket.businessOwnerDisplayName
+        : undefined);
+    if (ownerKey || slot?.selectedOwnerDisplayName?.trim()) {
+      return buildOwnerLabel(ownerKey, displayName);
+    }
+    const hasBusinessRuleEvidence = Boolean(
+      slot &&
+        ((slot.candidates?.length ?? 0) > 0 ||
+          (slot.skippedReasons?.length ?? 0) > 0),
+    );
+    return hasBusinessRuleEvidence
+      ? "No business owner assigned"
+      : "No business owner rule applied";
+  }, [
+    decision?.chosenBusinessOwner,
+    explanation?.slots?.businessOwner,
+    ticket.businessOwner,
+    ticket.businessOwnerDisplayName,
+  ]);
+
+  const confidenceLabel = useMemo(() => {
+    if (!confidenceLevel) {
+      return null;
+    }
+    if (explanation?.confidenceClassification?.trim()) {
+      return explanation.confidenceClassification.trim();
+    }
+    const classifications = slotReasoning
+      .map((slot) => slot.classification)
+      .filter((value) => value.length > 0);
+    return toHumanConfidenceLabel(confidenceLevel, classifications);
+  }, [confidenceLevel, explanation?.confidenceClassification, slotReasoning]);
+
   const workloadKeys = useMemo(
-    () => (decision ? collectWorkloadOwnerKeys(decision, ticket) : []),
-    [decision, ticket],
+    () => (decision ? collectWorkloadOwnerKeys(decision, ticket, explanation) : []),
+    [decision, ticket, explanation],
   );
 
   useEffect(() => {
@@ -726,16 +1095,14 @@ export default function TicketRoutingInsight({
         type="button"
         onClick={() => setDecisionPanelExpanded((open) => !open)}
         className="flex w-full items-start justify-between gap-2 border-b border-slate-100 pb-3 text-left transition-colors hover:bg-slate-50/50 dark:border-slate-800/80 dark:hover:bg-slate-900/30"
-        aria-expanded={decisionPanelExpanded}
-        aria-controls="cortex-decision-panel-body"
         id="cortex-decision-panel-header"
       >
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-            Cortex Decision
+            Cortex Insight
           </h3>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Why this ticket was routed here
+            Unified AI + decision reasoning for this ticket
             {isLiveRoutingPreview && previewLoading && decision ? (
               <span className="ml-1.5 font-medium text-slate-400 dark:text-slate-500">
                 · Updating…
@@ -745,7 +1112,7 @@ export default function TicketRoutingInsight({
         </div>
         <span
           className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500"
-          aria-hidden
+          aria-hidden="true"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -766,8 +1133,14 @@ export default function TicketRoutingInsight({
         </span>
       </button>
 
-      {decisionPanelExpanded ? (
-        !isLiveRoutingPreview && loading ? (
+      <div
+        id="cortex-decision-panel-body"
+        role="region"
+        aria-labelledby="cortex-decision-panel-header"
+        hidden={!decisionPanelExpanded}
+      >
+        {decisionPanelExpanded ? (
+          !isLiveRoutingPreview && loading ? (
           <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
             Loading…
           </p>
@@ -792,58 +1165,132 @@ export default function TicketRoutingInsight({
           // the ticket modal. The section now flows at its natural height and
           // the parent side panel scrolls through it.
           <div
-            id="cortex-decision-panel-body"
             className={`mt-4 space-y-4 text-sm text-slate-800 dark:text-slate-100 ${
               isLiveRoutingPreview && previewLoading
                 ? "opacity-[0.88] transition-opacity duration-200"
                 : ""
             }`}
-            role="region"
-            aria-labelledby="cortex-decision-panel-header"
           >
+          {cortexDecision ? (
+            <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Cortex Insight
+              </p>
+              <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                {cortexDecision.summary}
+              </p>
+              <div className="mt-2 grid gap-1 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2">
+                <p>
+                  Risk: {cortexDecision.aiRiskLevel?.trim() || "—"}
+                </p>
+                <p>
+                  Suggested owner:{" "}
+                  {formatDisplayValue(
+                    formatOwnerFieldForDisplay(cortexDecision.aiRecommendedOwner) ||
+                      undefined,
+                  )}
+                </p>
+                <p>
+                  Suggested priority: {cortexDecision.aiRecommendedPriority?.trim() || "—"}
+                </p>
+                <p>
+                  Actual owner:{" "}
+                  {formatDisplayValue(
+                    formatOwnerFieldForDisplay(
+                      cortexDecision.recommendedOwnerUserId ??
+                        decision?.chosenSynitiOwner ??
+                        ticket.synitiOwner,
+                    ) || undefined,
+                  )}
+                </p>
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Confidence:{" "}
+                {cortexDecision.confidenceScore >= 0.8
+                  ? "High"
+                  : cortexDecision.confidenceScore >= 0.55
+                    ? "Medium"
+                    : "Low"}
+                {cortexDecision.aiConfidence != null
+                  ? ` · AI ${cortexDecision.aiConfidence.toFixed(2)}`
+                  : ""}
+              </p>
+              {cortexDecision.aiSummary?.trim() ? (
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  {cortexDecision.aiSummary}
+                </p>
+              ) : null}
+              {cortexDecision.reasons.length > 0 ? (
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-slate-600 dark:text-slate-300">
+                  {cortexDecision.reasons.slice(0, 3).map((reason, index) => (
+                    <li key={`${index}-${reason}`}>{reason}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {cortexDecision.warnings.length > 0 ? (
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-700 dark:text-amber-300">
+                  {cortexDecision.warnings.map((warning, index) => (
+                    <li key={`${index}-${warning}`}>{warning}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {cortexDecision.candidates.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                  {cortexDecision.candidates.slice(0, 3).map((candidate) => (
+                    <li key={candidate.userId}>
+                      {candidate.displayName} - Score {candidate.totalScore} -{" "}
+                      {candidate.currentlyOverloaded ? "Overloaded" : "Available"}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
           {/* A. SLA Risk — hero */}
           <div className="rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-50 to-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200/60 dark:border-slate-600/70 dark:from-slate-900/80 dark:to-slate-950/60 dark:ring-slate-700/50">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
                 SLA Risk
               </span>
-              <button
-                type="button"
-                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400/60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:focus:ring-slate-500/50"
-                aria-label="About SLA Risk"
-                title={SLA_RISK_ABOUT_TOOLTIP}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
-                  aria-hidden
+              <CortexTooltip content={SLA_RISK_ABOUT_TOOLTIP}>
+                <button
+                  type="button"
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400/60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:focus:ring-slate-500/50"
+                  aria-label="About SLA Risk"
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 1 1-.671 1.34l-.04-.022c-.666.44-1.567.22-2.006-.72l-.708-2.836-.042.02a.75.75 0 1 1 .671-1.34l.041.022ZM12 9a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 1 1-.671 1.34l-.04-.022c-.666.44-1.567.22-2.006-.72l-.708-2.836-.042.02a.75.75 0 1 1 .671-1.34l.041.022ZM12 9a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              </CortexTooltip>
               {workloadLoading ? (
                 <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
                   …
                 </span>
               ) : slaPreview ? (
-                <span
-                  title={SLA_RISK_LEVEL_TOOLTIP[slaPreview.risk]}
-                  className={
-                    slaPreview.risk === "High"
-                      ? "cursor-help rounded-md bg-red-100 px-2.5 py-1 text-sm font-semibold text-red-900 shadow-sm dark:bg-red-950/60 dark:text-red-100"
-                      : slaPreview.risk === "Medium"
-                        ? "cursor-help rounded-md bg-amber-100 px-2.5 py-1 text-sm font-semibold text-amber-950 shadow-sm dark:bg-amber-950/50 dark:text-amber-50"
-                        : "cursor-help rounded-md bg-emerald-100 px-2.5 py-1 text-sm font-semibold text-emerald-950 shadow-sm dark:bg-emerald-950/40 dark:text-emerald-100"
-                  }
-                >
-                  {slaPreview.risk}
-                </span>
+                <CortexTooltip content={SLA_RISK_LEVEL_TOOLTIP[slaPreview.risk]}>
+                  <span
+                    className={
+                      slaPreview.risk === "High"
+                        ? "cursor-help rounded-md bg-red-100 px-2.5 py-1 text-sm font-semibold text-red-900 shadow-sm dark:bg-red-950/60 dark:text-red-100"
+                        : slaPreview.risk === "Medium"
+                          ? "cursor-help rounded-md bg-amber-100 px-2.5 py-1 text-sm font-semibold text-amber-950 shadow-sm dark:bg-amber-950/50 dark:text-amber-50"
+                          : "cursor-help rounded-md bg-emerald-100 px-2.5 py-1 text-sm font-semibold text-emerald-950 shadow-sm dark:bg-emerald-950/40 dark:text-emerald-100"
+                    }
+                  >
+                    {slaPreview.risk}
+                  </span>
+                </CortexTooltip>
               ) : (
                 <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
                   —
@@ -931,10 +1378,7 @@ export default function TicketRoutingInsight({
                     Syniti owner selected
                   </p>
                   <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-50">
-                    {formatDisplayValue(
-                      formatOwnerFieldForDisplay(decision.chosenSynitiOwner) ||
-                        undefined,
-                    )}
+                    {synitiOwnerDisplay}
                   </p>
                 </div>
                 <div className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/50">
@@ -942,11 +1386,7 @@ export default function TicketRoutingInsight({
                     Business owner selected
                   </p>
                   <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-50">
-                    {formatDisplayValue(
-                      formatOwnerFieldForDisplay(
-                        decision.chosenBusinessOwner,
-                      ) || undefined,
-                    )}
+                    {businessOwnerDisplay}
                   </p>
                 </div>
               </div>
@@ -988,6 +1428,46 @@ export default function TicketRoutingInsight({
             )}
           </div>
 
+          <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Selected because
+            </p>
+            {selectedBecauseLines.length > 0 ? (
+              <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
+                {selectedBecauseLines.map((line, index) => (
+                  <li key={`${index}-${line}`}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                No lower-pressure eligible alternative was identified.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Alternatives considered
+            </p>
+            {alternativesConsidered.length > 0 ? (
+              <ul className="space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
+                {alternativesConsidered.map((entry, index) => (
+                  <li key={`${entry.slotLabel}-${entry.ownerLabel}-${index}`}>
+                    <span className="font-medium">{entry.ownerLabel}</span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {" "}
+                      ({entry.slotLabel}) - {entry.reason}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                No lower-pressure eligible alternatives were identified.
+              </p>
+            )}
+          </div>
+
           {confidencePresentation ? (
             <div className="border-t border-slate-100 pt-3 dark:border-slate-800/80">
               {confidencePresentation.kind === "soft" ? (
@@ -1000,7 +1480,10 @@ export default function TicketRoutingInsight({
                     Confidence
                   </span>
                   <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                    {confidencePresentation.text}
+                    {(confidenceLabel ?? confidencePresentation.text).replaceAll(
+                      " - ",
+                      " — ",
+                    )}
                   </span>
                 </div>
               )}
@@ -1032,13 +1515,19 @@ export default function TicketRoutingInsight({
             <button
               type="button"
               onClick={() => setTechExpanded((open) => !open)}
-              aria-expanded={techExpanded}
+              aria-expanded={techExpanded ? "true" : "false"}
+              aria-controls="cortex-decision-technical-details"
               className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline dark:text-slate-400 dark:hover:text-slate-200"
             >
               {techExpanded ? "Hide technical details" : "Technical details"}
             </button>
-            {techExpanded ? (
-              <div className="mt-2 rounded-md border border-dashed border-slate-200/90 bg-slate-50/50 p-3 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
+            <div
+              id="cortex-decision-technical-details"
+              className="mt-2 rounded-md border border-dashed border-slate-200/90 bg-slate-50/50 p-3 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400"
+              hidden={!techExpanded}
+            >
+              {techExpanded ? (
+                <>
                 {decision.explanationText ? (
                   <p className="mb-2 text-slate-600 dark:text-slate-300">
                     {decision.explanationText}
@@ -1062,12 +1551,14 @@ export default function TicketRoutingInsight({
                     timeStyle: "short",
                   })}
                 </p>
-              </div>
-            ) : null}
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
         )
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

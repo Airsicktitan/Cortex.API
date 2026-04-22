@@ -1,22 +1,26 @@
+import { CortexTooltip } from "./ui/Tooltip";
+
 const legendItems = [
   {
     label: "On Track",
-    description: "Comfortably inside the SLA window.",
+    description: "On track to resolve before the SLA deadline.",
     colorClass: "bg-green-500",
   },
   {
     label: "At Risk",
-    description: "Inside the warning window before the deadline.",
+    description:
+      "Inside the warning window — likely to breach without action.",
     colorClass: "bg-yellow-400",
   },
   {
     label: "Overdue",
-    description: "Past the SLA deadline while still open.",
+    description: "Past the SLA deadline and still open.",
     colorClass: "bg-red-500",
   },
   {
     label: "Resolved",
-    description: "Closed tickets show Resolved On Time or Resolved Late on the badge.",
+    description:
+      "Closed. Badge shows Resolved On Time or Resolved Late.",
     colorClass: "bg-emerald-600",
   },
 ];
@@ -33,14 +37,12 @@ export default function SlaLegend({ compact = false }: SlaLegendProps) {
           SLA Legend
         </span>
         {legendItems.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300"
-            title={item.description}
-          >
-            <span className={`h-3 w-3 rounded-full ${item.colorClass}`} />
-            <span>{item.label}</span>
-          </div>
+          <CortexTooltip key={item.label} content={item.description}>
+            <div className="flex cursor-help items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
+              <span className={`h-3 w-3 rounded-full ${item.colorClass}`} />
+              <span>{item.label}</span>
+            </div>
+          </CortexTooltip>
         ))}
       </div>
     );
@@ -59,14 +61,12 @@ export default function SlaLegend({ compact = false }: SlaLegendProps) {
 
         <div className="flex flex-wrap gap-4">
           {legendItems.map((item) => (
-            <div
-              key={item.label}
-              className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300"
-              title={item.description}
-            >
-              <span className={`h-3 w-3 rounded-full ${item.colorClass}`} />
-              <span>{item.label}</span>
-            </div>
+            <CortexTooltip key={item.label} content={item.description}>
+              <div className="flex cursor-help items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
+                <span className={`h-3 w-3 rounded-full ${item.colorClass}`} />
+                <span>{item.label}</span>
+              </div>
+            </CortexTooltip>
           ))}
         </div>
       </div>

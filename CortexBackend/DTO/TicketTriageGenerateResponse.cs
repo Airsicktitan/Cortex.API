@@ -17,6 +17,12 @@ public class TicketTriageGenerateResponse
     /// <summary>One concise sentence; no breach times or invented owner workload.</summary>
     public string? SlaRiskReason { get; set; }
 
+    /// <summary>Constrained intake category label (system vocabulary), when fusion prompts are enabled.</summary>
+    public string? SuggestedCategory { get; set; }
+
+    /// <summary>Advisory Syniti owner user id from the eligible candidate list, when fusion prompts are enabled.</summary>
+    public string? SuggestedOwnerUserId { get; set; }
+
     /// <summary>True when the provider is not configured or generation was skipped/failed gracefully.</summary>
     public bool Unavailable { get; set; }
 

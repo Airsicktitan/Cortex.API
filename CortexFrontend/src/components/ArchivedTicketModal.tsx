@@ -168,13 +168,13 @@ export default function ArchivedTicketModal({
 
       <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-4">
         <div
-          className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-hidden rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6"
+          className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl overflow-hidden rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6"
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"
           aria-label={`Archived ticket ${formatTicketIdentifier(ticket.id)}`}
         >
-          <div className="grid h-[calc(100dvh-6rem)] min-h-0 gap-6 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="grid h-[calc(100dvh-6rem)] min-h-0 grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
             <div className="relative flex min-h-0 min-w-0 flex-col">
               <div
                 ref={archivedDetailsScrollRef}
@@ -189,7 +189,7 @@ export default function ArchivedTicketModal({
                       type="text"
                       value={ticket.title}
                       readOnly
-                      className="mb-1 w-full cursor-not-allowed border-b border-gray-300 bg-transparent text-xl font-bold text-gray-900 opacity-80 focus:outline-none dark:border-slate-700 dark:text-slate-100"
+                      className="mb-1 w-full min-w-0 cursor-not-allowed truncate border-b border-gray-300 bg-transparent text-lg font-bold leading-tight text-gray-900 opacity-80 focus:outline-none dark:border-slate-700 dark:text-slate-100 sm:text-xl"
                     />
                     <p className="text-sm text-gray-500 dark:text-slate-400">
                       {formatTicketIdentifier(ticket.id)}

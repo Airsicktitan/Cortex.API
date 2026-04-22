@@ -17,4 +17,20 @@ public static class RebalanceHandlers
         var overview = await rebalanceOverviewService.GetOverviewAsync(cancellationToken);
         return Results.Ok(overview);
     }
+
+    public static async Task<IResult> GetSuggestions(
+        ICortexDecisionService cortexDecisionService,
+        CancellationToken cancellationToken)
+    {
+        var suggestions = await cortexDecisionService.GetRebalanceSuggestionsAsync(cancellationToken);
+        return Results.Ok(suggestions);
+    }
+
+    public static async Task<IResult> Execute(
+        ICortexDecisionService cortexDecisionService,
+        CancellationToken cancellationToken)
+    {
+        var result = await cortexDecisionService.ExecuteRebalanceAsync(cancellationToken);
+        return Results.Ok(result);
+    }
 }

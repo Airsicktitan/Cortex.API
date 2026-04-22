@@ -416,6 +416,31 @@ public static class TicketHandlers
         }
     }
 
+    public static async Task<IResult> GetTicketDecision(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ICortexDecisionService cortexDecisionService,
+        [FromServices] ICortexAiAssessmentService cortexAiAssessmentService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var assessment = await cortexAiAssessmentService.AssessTicketAsync(ticket, cancellationToken);
+        var decision = await cortexDecisionService.EvaluateAssignmentAsync(ticket, assessment, cancellationToken);
+        return Results.Ok(decision);
+    }
+
     public static async Task<IResult> PostOwnerWorkloadPreview(
         OwnerWorkloadPreviewRequest? request,
         IOwnerWorkloadPreviewService workloadPreviewService)
@@ -974,10 +999,28 @@ public static class TicketHandlers
             ticket.Id);
 
         var originalForAssignment = CloneTicket(ticket);
-        var resolvedSynitiOwner = routingDecision.RecommendedSynitiOwner ?? ticket.SynitiOwner;
-        var resolvedBusinessOwner = routingDecision.RecommendedBusinessOwner
-            ?? ticket.BusinessOwner
-            ?? (requester is not null ? GetDefaultBusinessOwner(requester) : null);
+        var resolvedSynitiOwner = string.IsNullOrWhiteSpace(ticket.SynitiOwner)
+            ? routingDecision.RecommendedSynitiOwner ?? ticket.SynitiOwner
+            : ticket.SynitiOwner;
+        var resolvedBusinessOwner = string.IsNullOrWhiteSpace(ticket.BusinessOwner)
+            ? routingDecision.RecommendedBusinessOwner
+                ?? ticket.BusinessOwner
+                ?? (requester is not null ? GetDefaultBusinessOwner(requester) : null)
+            : ticket.BusinessOwner;
+
+        try
+        {
+            var normalizedOwners = await TicketOwnerAssignmentValidation.NormalizeAndValidateAsync(
+                userRepository,
+                resolvedSynitiOwner,
+                resolvedBusinessOwner);
+            resolvedSynitiOwner = normalizedOwners.SynitiOwner;
+            resolvedBusinessOwner = normalizedOwners.BusinessOwner;
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { message = exception.Message });
+        }
 
         ticket.SynitiOwner = resolvedSynitiOwner;
         ticket.BusinessOwner = resolvedBusinessOwner;
@@ -1301,6 +1344,7 @@ public static class TicketHandlers
         IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory,
         IWorkflowMetricsService workflowMetrics,
+        ICortexDecisionService? cortexDecisionService,
         ILogger<TicketHandlersLogCategory> logger)
     {
         try
@@ -1328,10 +1372,18 @@ public static class TicketHandlers
             var routingDecision = await ticketRoutingRuleService.EvaluateAsync(routingFactors);
             var manualSynitiOwner = NormalizeOptionalValue(request.SynitiOwner);
             var manualBusinessOwner = NormalizeOptionalValue(request.BusinessOwner);
-            var resolvedSynitiOwner = manualSynitiOwner ?? routingDecision.RecommendedSynitiOwner;
+            var resolvedSynitiOwner = manualSynitiOwner
+                ?? routingDecision.RecommendedSynitiOwner;
             var resolvedBusinessOwner = manualBusinessOwner
                 ?? routingDecision.RecommendedBusinessOwner
                 ?? GetDefaultBusinessOwner(currentUser);
+
+            var normalizedOwners = await TicketOwnerAssignmentValidation.NormalizeAndValidateAsync(
+                userRepository,
+                resolvedSynitiOwner,
+                resolvedBusinessOwner);
+            resolvedSynitiOwner = normalizedOwners.SynitiOwner;
+            resolvedBusinessOwner = normalizedOwners.BusinessOwner;
 
             var ticket = new Ticket
             {
@@ -1351,6 +1403,20 @@ public static class TicketHandlers
 
             await repo.CreateTicketAsync(ticket);
             await repo.SaveChangesAsync();
+
+            await ticketRoutingRuleService.RecordDecisionAsync(ticket.Id, routingDecision);
+            if (manualSynitiOwner is not null || manualBusinessOwner is not null)
+            {
+                await ticketRoutingRuleService.RecordOverrideAsync(
+                    ticketId: ticket.Id,
+                    overriddenByUserId: currentUser.Id,
+                    previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
+                    previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
+                    newSynitiOwner: resolvedSynitiOwner,
+                    newBusinessOwner: resolvedBusinessOwner,
+                    reasonType: RoutingOverrideReasonType.ManualAssignment,
+                    reasonText: "Ticket created with manual owner selection.");
+            }
 
             var createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
 
@@ -1598,6 +1664,13 @@ public static class TicketHandlers
                     reasonType: ParseOverrideReasonType(request.ChangeReason),
                     reasonText: request.ChangeReason);
             }
+
+            var normalizedOwners = await TicketOwnerAssignmentValidation.NormalizeAndValidateAsync(
+                userRepository,
+                resolvedSynitiOwner,
+                resolvedBusinessOwner);
+            resolvedSynitiOwner = normalizedOwners.SynitiOwner;
+            resolvedBusinessOwner = normalizedOwners.BusinessOwner;
 
             existing.SynitiOwner = resolvedSynitiOwner;
             existing.BusinessOwner = resolvedBusinessOwner;
@@ -2174,12 +2247,7 @@ public static class TicketHandlers
 
     private static string? GetDefaultBusinessOwner(User user)
     {
-        if (!string.IsNullOrWhiteSpace(user.DisplayName))
-        {
-            return user.DisplayName.Trim();
-        }
-
-        return NormalizeOptionalValue(user.Email);
+        return OwnerFieldResolution.ToCanonicalOwnerKey(user);
     }
 
     private static int? ResolveStoryPoints(

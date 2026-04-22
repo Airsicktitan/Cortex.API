@@ -21,6 +21,8 @@ public class AdminUserResponse
     public DateTime? LastSeenDateUtc { get; set; }
     public DateTime? ExpiryDate { get; set; }
     public bool IsActive { get; set; }
+    public bool IsSynitiOwnerEligible { get; set; }
+    public bool IsBusinessOwnerEligible { get; set; }
     public string? Auth0Id { get; set; }
     public DateTime? LastModifiedDate { get; set; }
 }

@@ -475,7 +475,7 @@ export default function TicketsContainer({
 
       {!loading && !apiUnavailable && !error && tickets.length > 0 && (
         <>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-4">
             {pagedTickets.map((ticket) => (
               <TicketCard
                 key={ticket.id}

@@ -139,7 +139,7 @@ export function ReportsSkeleton() {
 export function TicketGridSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-4">
         {Array.from({ length: 6 }).map((_, index) => (
           <div
             key={index}

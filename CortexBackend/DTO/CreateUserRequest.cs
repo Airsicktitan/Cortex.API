@@ -10,5 +10,7 @@ public class CreateUserRequest
     public string? Department { get; set; }
     public required string Role { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool IsSynitiOwnerEligible { get; set; }
+    public bool IsBusinessOwnerEligible { get; set; }
     public DateTime? ExpiryDate { get; set; }
 }

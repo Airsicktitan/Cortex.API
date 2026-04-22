@@ -13,6 +13,28 @@ namespace Cortex.API.Tests;
 
 public class TicketHandlersCreateRealtimeTests
 {
+    private static List<User> RoutingOwnerDirectoryUsers() =>
+    [
+        new User
+        {
+            Id = 101,
+            DisplayName = "Syniti Owner",
+            Email = "syniti.owner@test.com",
+            Role = Auth0Roles.User,
+            IsActive = true,
+            IsSynitiOwnerEligible = true,
+        },
+        new User
+        {
+            Id = 102,
+            DisplayName = "Business Owner",
+            Email = "business.owner@test.com",
+            Role = Auth0Roles.User,
+            IsActive = true,
+            IsBusinessOwnerEligible = true,
+        },
+    ];
+
     [Fact]
     public async Task CreateTicket_PublishesSingleTicketCreatedRealtimeEvent()
     {
@@ -101,6 +123,9 @@ public class TicketHandlersCreateRealtimeTests
         userRepository
             .Setup(repository => repository.GetByIdAsync(currentUser.Id))
             .ReturnsAsync(currentUser);
+        userRepository
+            .Setup(repository => repository.GetAllUsersAsync())
+            .ReturnsAsync(RoutingOwnerDirectoryUsers());
 
         var triageAi = new Mock<ITicketTriageAiService>(MockBehavior.Strict);
         triageAi
@@ -127,6 +152,37 @@ public class TicketHandlersCreateRealtimeTests
         ticketRoutingRuleService
             .Setup(service => service.EvaluateAsync(It.IsAny<RoutingFactors>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(routingDecision);
+        ticketRoutingRuleService
+            .Setup(service => service.RecordDecisionAsync(
+                ticketId,
+                routingDecision,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TicketRoutingDecision
+            {
+                TicketId = ticketId,
+                MatchedRuleId = routingDecision.MatchedRuleId,
+                OutcomeType = routingDecision.OutcomeType,
+                ConfidenceLevel = routingDecision.ConfidenceLevel,
+                ChosenSynitiOwner = routingDecision.RecommendedSynitiOwner,
+                ChosenBusinessOwner = routingDecision.RecommendedBusinessOwner,
+                ExplanationJson = routingDecision.ExplanationJson,
+                ExplanationText = routingDecision.ExplanationText,
+                EngineVersion = routingDecision.EngineVersion,
+            });
+        var cortexDecisionService = new Mock<ICortexDecisionService>(MockBehavior.Strict);
+        cortexDecisionService
+            .Setup(service => service.EvaluateAssignmentAsync(
+                It.IsAny<Ticket>(),
+                It.IsAny<CortexAiAssessment?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CortexDecisionResult
+            {
+                DecisionType = "Assign",
+                RecommendedOwnerUserId = "Syniti Owner",
+                RecommendedOwnerDisplayName = "Syniti Owner",
+                Summary = "test",
+                ConfidenceScore = 0.9m
+            });
 
         var ticketAuditService = new Mock<ITicketAuditService>(MockBehavior.Strict);
         ticketAuditService
@@ -187,6 +243,7 @@ public class TicketHandlersCreateRealtimeTests
             realtimeAudienceResolver.Object,
             mappingContextFactory.Object,
             Mock.Of<IWorkflowMetricsService>(),
+            cortexDecisionService.Object,
             NullLogger<TicketHandlersLogCategory>.Instance);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status201Created);
@@ -197,8 +254,8 @@ public class TicketHandlersCreateRealtimeTests
         Assert.Equal(ticketId, realtimeMessage.TicketId);
         Assert.Equal(ticketId, realtimeMessage.EntityId);
         Assert.NotNull(realtimeMessage.Ticket);
-        Assert.Equal("Syniti Owner", realtimeMessage.Ticket!.SynitiOwner);
-        Assert.Equal("Business Owner", realtimeMessage.Ticket.BusinessOwner);
+        Assert.Equal("user:101", realtimeMessage.Ticket!.SynitiOwner);
+        Assert.Equal("user:102", realtimeMessage.Ticket.BusinessOwner);
         Assert.Equal(ApprovalStatus.PendingApproval, realtimeMessage.Ticket.ApprovalStatus);
     }
 
@@ -295,6 +352,9 @@ public class TicketHandlersCreateRealtimeTests
         userRepository
             .Setup(repository => repository.GetByIdAsync(currentUser.Id))
             .ReturnsAsync(currentUser);
+        userRepository
+            .Setup(repository => repository.GetAllUsersAsync())
+            .ReturnsAsync(RoutingOwnerDirectoryUsers());
 
         var triageAi = new Mock<ITicketTriageAiService>(MockBehavior.Strict);
         triageAi
@@ -334,6 +394,37 @@ public class TicketHandlersCreateRealtimeTests
         ticketRoutingRuleService
             .Setup(service => service.EvaluateAsync(It.IsAny<RoutingFactors>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(routingDecision);
+        ticketRoutingRuleService
+            .Setup(service => service.RecordDecisionAsync(
+                ticketId,
+                routingDecision,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TicketRoutingDecision
+            {
+                TicketId = ticketId,
+                MatchedRuleId = routingDecision.MatchedRuleId,
+                OutcomeType = routingDecision.OutcomeType,
+                ConfidenceLevel = routingDecision.ConfidenceLevel,
+                ChosenSynitiOwner = routingDecision.RecommendedSynitiOwner,
+                ChosenBusinessOwner = routingDecision.RecommendedBusinessOwner,
+                ExplanationJson = routingDecision.ExplanationJson,
+                ExplanationText = routingDecision.ExplanationText,
+                EngineVersion = routingDecision.EngineVersion,
+            });
+        var cortexDecisionService = new Mock<ICortexDecisionService>(MockBehavior.Strict);
+        cortexDecisionService
+            .Setup(service => service.EvaluateAssignmentAsync(
+                It.IsAny<Ticket>(),
+                It.IsAny<CortexAiAssessment?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CortexDecisionResult
+            {
+                DecisionType = "Assign",
+                RecommendedOwnerUserId = "Syniti Owner",
+                RecommendedOwnerDisplayName = "Syniti Owner",
+                Summary = "test",
+                ConfidenceScore = 0.9m
+            });
 
         var ticketAuditService = new Mock<ITicketAuditService>(MockBehavior.Strict);
         ticketAuditService
@@ -394,6 +485,7 @@ public class TicketHandlersCreateRealtimeTests
             realtimeAudienceResolver.Object,
             mappingContextFactory.Object,
             Mock.Of<IWorkflowMetricsService>(),
+            cortexDecisionService.Object,
             NullLogger<TicketHandlersLogCategory>.Instance);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status201Created);

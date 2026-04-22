@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rebalanceService } from "../services/rebalanceService";
-import { getUserFacingErrorMessage } from "../services/api";
+import { decisionService, getUserFacingErrorMessage } from "../services/api";
+import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 import type {
   OperationalRiskLevel,
   OwnerWorkloadSummaryResponse,
@@ -9,6 +10,7 @@ import type {
   RebalanceOverviewResponse,
   SlaRiskLevel,
 } from "../types/rebalance";
+import type { RebalanceSuggestion } from "../types/cortexDecision";
 
 interface RebalanceOverviewPanelProps {
   getApiToken: () => Promise<string>;
@@ -18,6 +20,7 @@ interface RebalanceOverviewPanelProps {
    * can drive the existing review-and-apply experience.
    */
   onOpenTicket: (ticketId: string) => Promise<void> | void;
+  onRebalanceApplied?: () => Promise<void> | void;
 }
 
 const PRESSURE_BADGE: Record<PressureLevel, string> = {
@@ -63,15 +66,27 @@ function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function normalizeOwnerToken(value: string | undefined | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 export default function RebalanceOverviewPanel({
   getApiToken,
   onOpenTicket,
+  onRebalanceApplied,
 }: RebalanceOverviewPanelProps) {
+  const rebalanceContentScrollRef = useRef<HTMLDivElement | null>(null);
   const [overview, setOverview] = useState<RebalanceOverviewResponse | null>(
     null,
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<RebalanceSuggestion[]>([]);
+  const [executing, setExecuting] = useState(false);
+  const [executionSummary, setExecutionSummary] = useState<string | null>(null);
+  const [executionImpactDetails, setExecutionImpactDetails] = useState<string[]>(
+    [],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,7 +94,9 @@ export default function RebalanceOverviewPanel({
     try {
       const token = await getApiToken();
       const response = await rebalanceService.getOverview(token);
+      const dynamicSuggestions = await decisionService.getRebalanceSuggestions(token);
       setOverview(response);
+      setSuggestions(dynamicSuggestions);
     } catch (caughtError) {
       setError(
         getUserFacingErrorMessage(
@@ -92,6 +109,30 @@ export default function RebalanceOverviewPanel({
     }
   }, [getApiToken]);
 
+  const handleExecuteRebalance = useCallback(async () => {
+    setExecuting(true);
+    setError(null);
+    setExecutionSummary(null);
+    setExecutionImpactDetails([]);
+    try {
+      const token = await getApiToken();
+      const result = await rebalanceService.executeRebalance(token);
+      setExecutionSummary(result.summary);
+      setExecutionImpactDetails(result.impactDetails ?? []);
+      await onRebalanceApplied?.();
+      await load();
+    } catch (caughtError) {
+      setError(
+        getUserFacingErrorMessage(
+          caughtError,
+          "Unable to execute rebalance actions",
+        ),
+      );
+    } finally {
+      setExecuting(false);
+    }
+  }, [getApiToken, load, onRebalanceApplied]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -102,8 +143,12 @@ export default function RebalanceOverviewPanel({
   const hasAnyData = overloadedOwners.length > 0 || candidates.length > 0;
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+    <div className="relative">
+      <div
+        ref={rebalanceContentScrollRef}
+        className="scroll-surface max-h-[calc(100vh-10rem)] space-y-6 overflow-y-auto pr-1"
+      >
+        <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
@@ -116,42 +161,83 @@ export default function RebalanceOverviewPanel({
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void load()}
-            disabled={loading}
-            className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-          >
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading || executing}
+              className="rounded-md bg-gray-100 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              {loading ? "Refreshing..." : "Refresh"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleExecuteRebalance()}
+              disabled={executing || loading}
+              className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark disabled:opacity-60"
+            >
+              {executing ? "Applying..." : "Apply Rebalance"}
+            </button>
+          </div>
         </div>
-      </section>
-
-      {error && (
-        <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
-          <p className="text-red-700 dark:text-red-300">{error}</p>
-        </div>
-      )}
-
-      <OverloadedOwnersSection
-        owners={overloadedOwners}
-        loading={loading && !overview}
-      />
-
-      <RebalanceCandidatesSection
-        candidates={candidates}
-        loading={loading && !overview}
-        onOpenTicket={onOpenTicket}
-      />
-
-      {!loading && !error && overview && !hasAnyData && (
-        <section className="rounded-lg border border-gray-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-sm text-gray-600 dark:text-slate-400">
-            No overloaded owners or rebalance opportunities right now. Check
-            back as the queue evolves.
-          </p>
         </section>
-      )}
+
+        {executionSummary && (
+          <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+            <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+              Rebalance Applied
+            </p>
+            <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
+              {executionSummary}
+            </p>
+            <p className="mt-1 text-xs text-emerald-700/90 dark:text-emerald-300/90">
+              {`${
+                executionImpactDetails.length > 0
+                  ? executionImpactDetails.length
+                  : 0
+              } impact signals captured`}
+            </p>
+            {executionImpactDetails.length > 0 ? (
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-emerald-700 dark:text-emerald-300">
+                {executionImpactDetails.map((detail, idx) => (
+                  <li key={`${idx}-${detail}`}>{detail}</li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        )}
+
+        {error && (
+          <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
+            <p className="text-red-700 dark:text-red-300">{error}</p>
+          </div>
+        )}
+
+        <OverloadedOwnersSection
+          owners={overloadedOwners}
+          loading={loading && !overview}
+        />
+
+        <RebalanceCandidatesSection
+          candidates={candidates}
+          suggestions={suggestions}
+          loading={loading && !overview}
+          onOpenTicket={onOpenTicket}
+        />
+
+        {!loading && !error && overview && !hasAnyData && (
+          <section className="rounded-lg border border-gray-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900">
+            <p className="text-sm text-gray-600 dark:text-slate-400">
+              No overloaded owners or rebalance opportunities right now. Check
+              back as the queue evolves.
+            </p>
+          </section>
+        )}
+      </div>
+      <ScrollToBottomButton
+        containerRef={rebalanceContentScrollRef}
+        aria-label="Scroll rebalance content to bottom"
+      />
     </div>
   );
 }
@@ -270,12 +356,14 @@ function StatBlock({ label, value, accent }: StatBlockProps) {
 
 interface RebalanceCandidatesSectionProps {
   candidates: RebalanceCandidateResponse[];
+  suggestions: RebalanceSuggestion[];
   loading: boolean;
   onOpenTicket: (ticketId: string) => Promise<void> | void;
 }
 
 function RebalanceCandidatesSection({
   candidates,
+  suggestions,
   loading,
   onOpenTicket,
 }: RebalanceCandidatesSectionProps) {
@@ -318,6 +406,46 @@ function RebalanceCandidatesSection({
         <p className="mt-6 text-sm text-gray-500 dark:text-slate-400">
           Loading candidates...
         </p>
+      ) : suggestions.length > 0 ? (
+        <ul className="mt-5 space-y-3">
+          {suggestions.map((suggestion) => {
+            const isOpening = openingTicketId === suggestion.ticketId;
+            return (
+              <li
+                key={`${suggestion.ticketId}-${suggestion.toUserId}`}
+                className="rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-950/40"
+              >
+                <p className="text-sm text-gray-900 dark:text-slate-100">
+                  Move{" "}
+                  <button
+                    type="button"
+                    onClick={() => void handleOpen(suggestion.ticketId)}
+                    disabled={isOpening}
+                    className="font-semibold text-cortex-blue hover:underline dark:text-sky-300"
+                  >
+                    {suggestion.ticketKey}
+                  </button>{" "}
+                  from{" "}
+                  <span className="font-medium">
+                    {suggestion.fromDisplayName || suggestion.fromUserId}
+                  </span>{" "}
+                  to{" "}
+                  <span className="font-medium">
+                    {suggestion.toDisplayName || suggestion.toUserId}
+                  </span>
+                </p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                  Expected impact: {suggestion.expectedImpact}
+                </p>
+                {suggestion.aiHighRisk ? (
+                  <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                    AI risk-aware priority: this is a high-risk ticket.
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
       ) : candidates.length === 0 ? (
         <p className="mt-6 text-sm text-gray-500 dark:text-slate-400">
           No actionable candidates right now.
@@ -326,6 +454,12 @@ function RebalanceCandidatesSection({
         <ul className="mt-5 space-y-3">
           {candidates.map((candidate) => {
             const isOpening = openingTicketId === candidate.ticketId;
+            const hasValidTopAlternative =
+              candidate.topSuggestedTarget != null &&
+              normalizeOwnerToken(candidate.topSuggestedTarget.ownerKey) !==
+                normalizeOwnerToken(candidate.currentOwnerId) &&
+              normalizeOwnerToken(candidate.topSuggestedTarget.displayName) !==
+                normalizeOwnerToken(candidate.currentOwnerName);
             return (
               <li
                 key={candidate.ticketId}
@@ -339,7 +473,7 @@ function RebalanceCandidatesSection({
                         onClick={() => void handleOpen(candidate.ticketId)}
                         disabled={isOpening}
                         className="truncate text-left text-sm font-semibold text-cortex-blue transition-colors hover:underline disabled:opacity-60 dark:text-sky-300"
-                        title={candidate.title}
+                        aria-label={`Open ticket ${candidate.ticketId}: ${candidate.title}`}
                       >
                         #{candidate.ticketId}
                       </button>
@@ -376,7 +510,7 @@ function RebalanceCandidatesSection({
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                       Suggested alternative
                     </p>
-                    {candidate.topSuggestedTarget ? (
+                    {hasValidTopAlternative && candidate.topSuggestedTarget ? (
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-gray-900 dark:text-slate-100">
@@ -399,7 +533,8 @@ function RebalanceCandidatesSection({
                         No lower-pressure alternatives surfaced.
                       </p>
                     )}
-                    {candidate.recommendedTargetCount > 1 && (
+                    {hasValidTopAlternative &&
+                      candidate.recommendedTargetCount > 1 && (
                       <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
                         {candidate.recommendedTargetCount - 1} additional
                         candidate

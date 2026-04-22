@@ -30,6 +30,12 @@ import type {
   RepeatIssueOverviewResponse,
 } from "../types/repeatIssues";
 import type {
+  CortexDecisionResult,
+  RebalanceSuggestion,
+  WorkloadSnapshot,
+} from "../types/cortexDecision";
+import type { CortexAiAssessment } from "../types/cortexAiAssessment";
+import type {
   AdminUpdateUserInput,
   Auth0RoleOption,
   CreateUserInput,
@@ -373,6 +379,17 @@ export const ticketService = {
     return response.json() as Promise<TicketRoutingLatestResponse>;
   },
 
+  async getTicketDecision(
+    id: string,
+    token: string,
+  ): Promise<CortexDecisionResult> {
+    const response = await fetch(`${API_BASE_URL}/tickets/${id}/decision`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load Cortex decision");
+    return response.json() as Promise<CortexDecisionResult>;
+  },
+
   async postWorkloadPreview(
     body: OwnerWorkloadPreviewRequest,
     token: string,
@@ -509,6 +526,23 @@ export const ticketService = {
 
     await ensureSuccess(response, API_USER_MESSAGES.loadTickets);
     return response.json() as Promise<PagedTicketList>;
+  },
+
+  /** Unified constrained AI intake + vision fusion (advisory; does not persist). */
+  async assessUnifiedIntake(
+    ticketId: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<CortexAiAssessment> {
+    const response = await fetch(`${API_BASE_URL}/ai/assess`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({ ticketId }),
+      signal,
+    });
+
+    await ensureSuccess(response, "Unable to load Cortex AI assessment");
+    return response.json() as Promise<CortexAiAssessment>;
   },
 
   /** Phase 1 advisory triage for PendingApproval intake review (200 OK may include `unavailable: true`). */
@@ -690,6 +724,26 @@ export const ticketService = {
 
     await ensureSuccess(response, "Unable to apply reassignment");
     return response.json() as Promise<ReassignmentApplyResponse>;
+  },
+};
+
+export const workloadService = {
+  async getSnapshots(token: string): Promise<WorkloadSnapshot[]> {
+    const response = await fetch(`${API_BASE_URL}/workload/snapshot`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load workload snapshot");
+    return response.json() as Promise<WorkloadSnapshot[]>;
+  },
+};
+
+export const decisionService = {
+  async getRebalanceSuggestions(token: string): Promise<RebalanceSuggestion[]> {
+    const response = await fetch(`${API_BASE_URL}/rebalance/suggestions`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load rebalance suggestions");
+    return response.json() as Promise<RebalanceSuggestion[]>;
   },
 };
 

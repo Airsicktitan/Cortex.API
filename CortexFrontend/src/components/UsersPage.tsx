@@ -1,6 +1,7 @@
 import type { UserRecord } from "../types/user";
 import type { UIEvent } from "react";
 import { UsersSkeleton } from "./LoadingSkeletons";
+import { CortexTooltip } from "./ui/Tooltip";
 import { formatStoredPhoneNumber } from "../utils/phoneNumber";
 import {
   formatDisplayDateTime,
@@ -54,6 +55,27 @@ function formatRolesDisplay(user: UserRecord) {
         </span>
       ))}
     </div>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.5 5.5h13" />
+      <path d="M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5" />
+      <path d="M15 5.5 14.4 16a1.5 1.5 0 0 1-1.5 1.4H7.1A1.5 1.5 0 0 1 5.6 16L5 5.5" />
+      <path d="M8.5 8.5v5" />
+      <path d="M11.5 8.5v5" />
+    </svg>
   );
 }
 
@@ -225,27 +247,50 @@ export default function UsersPage({
                     </td>
                     {(canEdit || canDelete) && (
                       <td className="px-4 py-3 align-top">
-                        <button
-                          onClick={() => onEdit(user)}
-                          disabled={!canEdit}
-                          className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          Edit
-                        </button>
-                        {canDelete && user.id !== currentUserId && (
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <button
-                            onClick={() => onDelete(user)}
-                            disabled={deletingUserId === user.id}
-                            className="ml-2 rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-950/30"
+                            type="button"
+                            onClick={() => onEdit(user)}
+                            disabled={!canEdit}
+                            className="inline-flex h-9 items-center justify-center rounded-md bg-gray-100 px-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                           >
-                            {deletingUserId === user.id ? "Deleting..." : "Delete"}
+                            Edit
                           </button>
-                        )}
-                        {canDelete && user.id === currentUserId && (
-                          <span className="ml-2 inline-flex px-2 py-2 text-xs text-gray-500 dark:text-slate-400">
-                            Current User
-                          </span>
-                        )}
+                          {canDelete && user.id !== currentUserId && (
+                            <CortexTooltip
+                              content={
+                                deletingUserId === user.id
+                                  ? "Deleting this user…"
+                                  : "Permanently delete this user from Auth0 and Cortex."
+                              }
+                            >
+                              <button
+                                type="button"
+                                onClick={() => onDelete(user)}
+                                disabled={deletingUserId === user.id}
+                                aria-label={`Delete ${
+                                  user.displayName || user.email || "user"
+                                }`}
+                                aria-busy={deletingUserId === user.id}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-950/30"
+                              >
+                                {deletingUserId === user.id ? (
+                                  <span
+                                    aria-hidden="true"
+                                    className="h-4 w-4 animate-spin rounded-full border-2 border-red-200 border-t-red-700 dark:border-red-900/60 dark:border-t-red-300"
+                                  />
+                                ) : (
+                                  <TrashIcon />
+                                )}
+                              </button>
+                            </CortexTooltip>
+                          )}
+                          {canDelete && user.id === currentUserId && (
+                            <span className="inline-flex h-9 items-center rounded-md px-2 text-xs font-medium text-gray-500 dark:text-slate-400">
+                              Current User
+                            </span>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>

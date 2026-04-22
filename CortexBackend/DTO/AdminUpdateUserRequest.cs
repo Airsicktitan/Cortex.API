@@ -9,5 +9,7 @@ public class AdminUpdateUserRequest
     public string? SlaRiskNotificationChannel { get; set; }
     public string? Role { get; set; }
     public bool IsActive { get; set; }
+    public bool IsSynitiOwnerEligible { get; set; }
+    public bool IsBusinessOwnerEligible { get; set; }
     public DateTime? ExpiryDate { get; set; }
 }

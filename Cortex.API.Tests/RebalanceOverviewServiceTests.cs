@@ -114,7 +114,8 @@ public class RebalanceOverviewServiceTests
         Assert.DoesNotContain(
             overview.OverloadedOwners,
             summary => summary.OwnerId == "owner-c");
-        Assert.Equal("Owner A", overview.OverloadedOwners[0].OwnerName);
+        // Owner key "owner-a" does not match DisplayName/email normalization in BuildUserLookup; name falls back to the key.
+        Assert.Equal("owner-a", overview.OverloadedOwners[0].OwnerName);
     }
 
     [Fact]

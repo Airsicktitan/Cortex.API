@@ -36,6 +36,7 @@ public class TicketRoutingRuleServiceWorkloadTests
             ]);
 
         await using var context = CreateContext();
+        await SeedEligibleOwnersAsync(context, "owner-a", "owner-b");
         var service = new TicketRoutingRuleService(
             repository.Object,
             context,
@@ -50,19 +51,23 @@ public class TicketRoutingRuleServiceWorkloadTests
             LegacyTitle: null));
 
         Assert.Equal(11, result.MatchedRuleId);
-        Assert.Equal("owner-b", result.RecommendedSynitiOwner);
-        Assert.Contains("|000001|0000000011", result.TieBreakKey);
-        Assert.Contains("Workload score broke a tie", result.ExplanationText);
+        Assert.Equal("user:2", result.RecommendedSynitiOwner);
+        Assert.Contains("Decision engine evaluated slots independently", result.ExplanationText);
 
         using var document = JsonDocument.Parse(result.ExplanationJson);
         var root = document.RootElement;
-        Assert.True(root.GetProperty("workloadTieBreakApplied").GetBoolean());
-        Assert.Equal(1, root.GetProperty("selectedWorkloadScore").GetInt32());
+        var slot = root
+            .GetProperty("slots")
+            .GetProperty("synitiOwner");
+        Assert.Equal("Moderate match", slot.GetProperty("classification").GetString());
+        Assert.True(slot.GetProperty("applied").GetBoolean());
 
         var candidateAssignments = root.GetProperty("candidateAssignments").EnumerateArray().ToList();
         Assert.Equal(2, candidateAssignments.Count);
-        Assert.Equal(11, candidateAssignments[0].GetProperty("matchedRuleId").GetInt32());
-        Assert.Equal(1, candidateAssignments[0].GetProperty("workloadScore").GetInt32());
+        Assert.Contains(candidateAssignments, assignment =>
+            assignment.GetProperty("matchedRuleId").GetInt32() == 11
+            && assignment.GetProperty("synitiOwner").GetString() == "user:2"
+            && assignment.GetProperty("workloadScore").GetInt32() == 1);
     }
 
     [Fact]
@@ -74,7 +79,7 @@ public class TicketRoutingRuleServiceWorkloadTests
             .ReturnsAsync(
             [
                 CreateRule(10, "owner-a", rulePriority: 60, weight: 20),
-                CreateRule(11, "owner-b", rulePriority: 50, weight: 20),
+                CreateRule(11, "owner-b", rulePriority: 0, weight: 0),
             ]);
 
         var workloadScoringService = new Mock<IOwnerWorkloadScoringService>(MockBehavior.Strict);
@@ -91,6 +96,7 @@ public class TicketRoutingRuleServiceWorkloadTests
             ]);
 
         await using var context = CreateContext();
+        await SeedEligibleOwnersAsync(context, "owner-a", "owner-b");
         var service = new TicketRoutingRuleService(
             repository.Object,
             context,
@@ -105,10 +111,207 @@ public class TicketRoutingRuleServiceWorkloadTests
             LegacyTitle: null));
 
         Assert.Equal(10, result.MatchedRuleId);
-        Assert.Equal("owner-a", result.RecommendedSynitiOwner);
+        Assert.Equal("user:1", result.RecommendedSynitiOwner);
 
         using var document = JsonDocument.Parse(result.ExplanationJson);
-        Assert.False(document.RootElement.GetProperty("workloadTieBreakApplied").GetBoolean());
+        var slot = document.RootElement
+            .GetProperty("slots")
+            .GetProperty("synitiOwner");
+        Assert.True(slot.GetProperty("applied").GetBoolean());
+        Assert.Equal("Moderate match", slot.GetProperty("classification").GetString());
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_WeakSignal_RanksButDoesNotAutoAssign()
+    {
+        var repository = new Mock<ITicketRoutingRuleRepository>(MockBehavior.Strict);
+        repository
+            .Setup(repo => repo.GetAllAsync())
+            .ReturnsAsync(
+            [
+                new TicketRoutingRule
+                {
+                    Id = 20,
+                    Department = "Operations",
+                    SynitiOwner = "owner-a",
+                    IsEnabled = true,
+                },
+            ]);
+
+        var workloadScoringService = new Mock<IOwnerWorkloadScoringService>(MockBehavior.Strict);
+        workloadScoringService
+            .Setup(service => service.GetScoresAsync(
+                It.Is<IEnumerable<string>>(keys => keys.SequenceEqual(new[] { "owner-a" })),
+                null,
+                false,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new OwnerWorkloadScoreSnapshot("owner-a", 0, 0, 0, 0, 0, 0)]);
+
+        await using var context = CreateContext();
+        await SeedEligibleOwnersAsync(context, "owner-a");
+        var service = new TicketRoutingRuleService(
+            repository.Object,
+            context,
+            workloadScoringService.Object);
+
+        var result = await service.EvaluateAsync(new RoutingFactors(
+            BoardId: null,
+            Priority: null,
+            RequesterDepartment: null,
+            RequesterRole: null,
+            LegacyDepartment: "Operations",
+            LegacyTitle: null));
+
+        Assert.Null(result.RecommendedSynitiOwner);
+
+        using var document = JsonDocument.Parse(result.ExplanationJson);
+        var slot = document.RootElement
+            .GetProperty("slots")
+            .GetProperty("synitiOwner");
+        Assert.False(slot.GetProperty("applied").GetBoolean());
+        Assert.Equal("Limited routing signals", slot.GetProperty("classification").GetString());
+        Assert.Equal("owner-a", slot.GetProperty("selectedOwnerDisplayName").GetString());
+        Assert.Contains(
+            "Limited routing signals",
+            slot.GetProperty("appliedReason").GetString());
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_ExplainsExcludedIneligibleRuleOwners()
+    {
+        var repository = new Mock<ITicketRoutingRuleRepository>(MockBehavior.Strict);
+        repository
+            .Setup(repo => repo.GetAllAsync())
+            .ReturnsAsync(
+            [
+                CreateRule(30, "owner-ineligible", rulePriority: 50, weight: 20),
+                CreateRule(31, "owner-good", rulePriority: 50, weight: 20),
+            ]);
+
+        var workloadScoringService = new Mock<IOwnerWorkloadScoringService>(MockBehavior.Strict);
+        workloadScoringService
+            .Setup(service => service.GetScoresAsync(
+                It.Is<IEnumerable<string>>(keys => keys.OrderBy(key => key).SequenceEqual(new[] { "owner-good", "owner-ineligible" })),
+                null,
+                false,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new OwnerWorkloadScoreSnapshot("owner-ineligible", 0, 0, 0, 0, 0, 0),
+                new OwnerWorkloadScoreSnapshot("owner-good", 0, 0, 0, 0, 0, 0),
+            ]);
+
+        await using var context = CreateContext();
+        context.Users.AddRange(
+            new User
+            {
+                Email = "owner-ineligible@example.com",
+                DisplayName = "owner-ineligible",
+                IsActive = true,
+                IsSynitiOwnerEligible = false,
+            },
+            new User
+            {
+                Email = "owner-good@example.com",
+                DisplayName = "owner-good",
+                IsActive = true,
+                IsSynitiOwnerEligible = true,
+            });
+        await context.SaveChangesAsync();
+
+        var service = new TicketRoutingRuleService(
+            repository.Object,
+            context,
+            workloadScoringService.Object);
+
+        var result = await service.EvaluateAsync(new RoutingFactors(
+            BoardId: "1",
+            Priority: "High",
+            RequesterDepartment: null,
+            RequesterRole: null,
+            LegacyDepartment: null,
+            LegacyTitle: null));
+
+        Assert.Equal("user:2", result.RecommendedSynitiOwner);
+
+        using var document = JsonDocument.Parse(result.ExplanationJson);
+        var skipped = document.RootElement
+            .GetProperty("slots")
+            .GetProperty("synitiOwner")
+            .GetProperty("skippedReasons")
+            .EnumerateArray()
+            .Single();
+        Assert.Equal("NotSynitiEligible", skipped.GetProperty("reason").GetString());
+        Assert.Equal("Rule target is not eligible for this assignment.", skipped.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task RecordDecisionAndOverrideAsync_CanonicalizesLegacyOwnerAliases()
+    {
+        await using var context = CreateContext();
+        context.Users.Add(new User
+        {
+            Id = 42,
+            DisplayName = "Adam Hooper",
+            Email = "adamcwhooper@yahoo.com",
+            IsActive = true,
+            IsSynitiOwnerEligible = true,
+            IsBusinessOwnerEligible = true,
+        });
+        await context.SaveChangesAsync();
+
+        var service = new TicketRoutingRuleService(
+            Mock.Of<ITicketRoutingRuleRepository>(),
+            context,
+            Mock.Of<IOwnerWorkloadScoringService>());
+        var decision = new RoutingDecisionResult(
+            MatchedRuleId: 1,
+            OutcomeType: RoutingOutcomeType.RuleMatch,
+            ConfidenceLevel: RoutingConfidenceLevel.High,
+            NoMatchReason: null,
+            RecommendedSynitiOwner: "Adam Hooper",
+            RecommendedBusinessOwner: "adamcwhooper@yahoo.com",
+            PrecedenceScore: 1,
+            TieBreakKey: "rule:1",
+            ExplanationJson: "{}",
+            ExplanationText: "test",
+            EngineVersion: "test",
+            MatchedCriteriaCount: 1);
+
+        var recordedDecision = await service.RecordDecisionAsync("T-42", decision);
+        var recordedOverride = await service.RecordOverrideAsync(
+            ticketId: "T-42",
+            overriddenByUserId: 7,
+            previousSynitiOwner: "Adam Hooper",
+            previousBusinessOwner: "adamcwhooper@yahoo.com",
+            newSynitiOwner: "user:42",
+            newBusinessOwner: "Adam Hooper",
+            reasonType: RoutingOverrideReasonType.ManualAssignment,
+            reasonText: "test");
+
+        Assert.Equal("user:42", recordedDecision.ChosenSynitiOwner);
+        Assert.Equal("user:42", recordedDecision.ChosenBusinessOwner);
+        Assert.Equal("user:42", recordedOverride.PreviousSynitiOwner);
+        Assert.Equal("user:42", recordedOverride.PreviousBusinessOwner);
+        Assert.Equal("user:42", recordedOverride.NewSynitiOwner);
+        Assert.Equal("user:42", recordedOverride.NewBusinessOwner);
+    }
+
+    private static async Task SeedEligibleOwnersAsync(CortexDbContext context, params string[] ownerKeys)
+    {
+        foreach (var ownerKey in ownerKeys)
+        {
+            context.Users.Add(new User
+            {
+                Email = $"{ownerKey}@example.com",
+                DisplayName = ownerKey,
+                IsActive = true,
+                IsSynitiOwnerEligible = true,
+                IsBusinessOwnerEligible = true
+            });
+        }
+
+        await context.SaveChangesAsync();
     }
 
     private static CortexDbContext CreateContext()

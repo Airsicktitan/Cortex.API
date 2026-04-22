@@ -104,10 +104,12 @@ public sealed class ReassignmentRecommendationService(
         {
             return BuildNoSuggestion("Current owner is missing.", assignmentField);
         }
+        currentOwnerKey = CanonicalizeOwnerKey(currentOwnerKey, userMatchLookup);
 
         var eligibleOwnerKeys = candidateAssignments
             .Select(candidate => assignmentField == "synitiOwner" ? candidate.SynitiOwner : candidate.BusinessOwner)
             .Where(ownerKey => ownerKey.Length > 0)
+            .Select(ownerKey => CanonicalizeOwnerKey(ownerKey, userMatchLookup))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (eligibleOwnerKeys.Count == 0)
@@ -297,8 +299,10 @@ public sealed class ReassignmentRecommendationService(
         var lookup = new Dictionary<string, User>(StringComparer.OrdinalIgnoreCase);
         foreach (var user in users)
         {
+            AddLookupIfMissing(lookup, OwnerFieldResolution.ToCanonicalOwnerKey(user), user);
             AddLookupIfMissing(lookup, user.DisplayName, user);
             AddLookupIfMissing(lookup, user.Email, user);
+            AddLookupIfMissing(lookup, user.NickName, user);
         }
 
         return lookup;
@@ -331,6 +335,16 @@ public sealed class ReassignmentRecommendationService(
         }
 
         return ownerKey;
+    }
+
+    private static string CanonicalizeOwnerKey(
+        string ownerKey,
+        IReadOnlyDictionary<string, User> userMatchLookup)
+    {
+        var normalized = NormalizeForLookup(ownerKey);
+        return normalized.Length > 0 && userMatchLookup.TryGetValue(normalized, out var user)
+            ? OwnerFieldResolution.ToCanonicalOwnerKey(user)
+            : ownerKey;
     }
 
     private static IEnumerable<string> CollectOwnerKeys(string? synitiOwner, string? businessOwner)

@@ -243,3 +243,17 @@ c:\Users\adamc\Documents\Cortex.API\_test_out\Cortex.API.Tests.deps.json
 c:\Users\adamc\Documents\Cortex.API\_test_out\Cortex.API.Tests.runtimeconfig.json
 c:\Users\adamc\Documents\Cortex.API\_test_out\Cortex.API.Tests.dll
 c:\Users\adamc\Documents\Cortex.API\_test_out\Cortex.API.Tests.pdb
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.deps.json
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.runtimeconfig.json
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\appsettings.Development.json
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\appsettings.json
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.staticwebassets.endpoints.json
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\testhost.dll
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\testhost.exe
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\xunit.runner.visualstudio.dotnetcore.testadapter.dll
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\xunit.runner.reporters.netcoreapp10.dll
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\xunit.runner.utility.netcoreapp10.dll
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.Tests.deps.json
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.Tests.runtimeconfig.json
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.Tests.dll
+C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.Tests.pdb

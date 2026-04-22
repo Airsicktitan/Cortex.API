@@ -18,6 +18,12 @@ public class User
     public DateTime? ExpiryDate { get; set; } // Nullable
     public bool IsActive { get; set; } = true; // Default to active
 
+    /// <summary>When true, the user may be assigned as Syniti owner on tickets (directory assignment, not an Auth0 role).</summary>
+    public bool IsSynitiOwnerEligible { get; set; }
+
+    /// <summary>When true, the user may be assigned as business owner on tickets (directory assignment, not an Auth0 role).</summary>
+    public bool IsBusinessOwnerEligible { get; set; }
+
     public string? Auth0Id { get; set; }
     public DateTime? LastModifiedDate { get; set; }
 
