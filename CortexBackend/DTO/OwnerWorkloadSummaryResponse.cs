@@ -23,13 +23,16 @@ public sealed class OwnerWorkloadSummaryResponse
 
     public int HighPriorityCount { get; set; }
 
+    public int OverdueTicketCount { get; set; }
+
     public int SlaRiskCount { get; set; }
 
+    public int StaleTicketCount { get; set; }
+
     /// <summary>
-    /// Numeric workload score from OwnerWorkloadScoringService
-    /// (activeCount + highPriority*2 + slaRisk*3).
+    /// Numeric workload score from OwnerWorkloadScoringService.
     /// </summary>
-    public int WorkloadScore { get; set; }
+    public decimal WorkloadScore { get; set; }
 
     /// <summary>low | moderate | high | critical</summary>
     public string PressureLevel { get; set; } = "low";

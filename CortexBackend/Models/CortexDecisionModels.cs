@@ -6,8 +6,10 @@ public sealed class WorkloadSnapshot
     public string DisplayName { get; set; } = string.Empty;
     public int ActiveTicketCount { get; set; }
     public int HighPriorityCount { get; set; }
+    public int OverdueTicketCount { get; set; }
     public int SlaRiskCount { get; set; }
-    public int WorkloadScore { get; set; }
+    public int StaleTicketCount { get; set; }
+    public decimal WorkloadScore { get; set; }
     public string Status { get; set; } = string.Empty;
 }
 
@@ -18,12 +20,14 @@ public sealed class CortexDecisionCandidate
     public bool Eligible { get; set; }
     public int ActiveTicketCount { get; set; }
     public int HighPriorityCount { get; set; }
+    public int OverdueTicketCount { get; set; }
     public int SlaRiskCount { get; set; }
-    public int WorkloadScore { get; set; }
+    public int StaleTicketCount { get; set; }
+    public decimal WorkloadScore { get; set; }
     public bool RuleMatched { get; set; }
     public bool PreferredByBoard { get; set; }
     public bool CurrentlyOverloaded { get; set; }
-    public int TotalScore { get; set; }
+    public decimal TotalScore { get; set; }
     public List<string> Notes { get; set; } = [];
 }
 
@@ -46,17 +50,40 @@ public sealed class CortexDecisionResult
     public string? AiRecommendedOwner { get; set; }
 }
 
+public sealed class RebalanceSuggestionAlternative
+{
+    public string UserId { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public decimal WorkloadScore { get; set; }
+    public string PressureLevel { get; set; } = "low";
+}
+
 public sealed class RebalanceSuggestion
 {
     public string TicketId { get; set; } = string.Empty;
     public string TicketKey { get; set; } = string.Empty;
+    public string TicketTitle { get; set; } = string.Empty;
     public string FromUserId { get; set; } = string.Empty;
     public string FromDisplayName { get; set; } = string.Empty;
     public string ToUserId { get; set; } = string.Empty;
     public string ToDisplayName { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
     public string ExpectedImpact { get; set; } = string.Empty;
+    public decimal ConfidenceScore { get; set; }
+    public string RecommendationStrength { get; set; } = string.Empty;
+    public List<string> Rationale { get; set; } = [];
+    public List<string> ImpactPreview { get; set; } = [];
+    public List<RebalanceSuggestionAlternative> AlternativeOwners { get; set; } = [];
     public bool AiHighRisk { get; set; }
+    public bool IsBlockedByManualOverride { get; set; }
+    public string? BlockedReason { get; set; }
+}
+
+public sealed class ExecuteRebalanceRequest
+{
+    public List<RebalanceSuggestion> Suggestions { get; set; } = [];
+    public List<string> ConfirmedManualOverrideTicketIds { get; set; } = [];
+    public bool DryRun { get; set; }
 }
 
 public sealed class ExecuteRebalanceResponse

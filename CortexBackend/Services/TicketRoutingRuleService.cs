@@ -198,7 +198,7 @@ public class TicketRoutingRuleService(
                 matchedRuleId = match.Rule.Id,
                 synitiOwner = canonicalSynitiOwner,
                 businessOwner = canonicalBusinessOwner,
-                workloadScore = ruleOwnerScores.Sum(score => score.WorkloadScore),
+                combinedAssignmentWorkloadScore = ruleOwnerScores.Sum(score => score.WorkloadScore),
                 ownerScores = ruleOwnerScores.Select(ToWorkloadExplanation)
             };
         });
@@ -528,7 +528,8 @@ public class TicketRoutingRuleService(
             highPriorityTicketCount = score.HighPriorityTicketCount,
             atRiskTicketCount = score.AtRiskTicketCount,
             outsideSlaOpenCount = score.OutsideSlaOpenCount,
-            slaRiskTicketCount = score.SlaRiskTicketCount
+            slaRiskTicketCount = score.SlaRiskTicketCount,
+            staleTicketCount = score.StaleTicketCount
         };
     }
 
@@ -881,12 +882,8 @@ public class TicketRoutingRuleService(
 
     private static int ComputeWorkloadPenalty(OwnerWorkloadScoreSnapshot snapshot)
     {
-        var calculatedPenalty =
-            snapshot.ActiveTicketCount
-            + (snapshot.HighPriorityTicketCount * 2)
-            + (snapshot.AtRiskTicketCount * 3)
-            + (snapshot.OutsideSlaOpenCount * 5);
-        return Math.Min(30, calculatedPenalty);
+        var penalty = Math.Min(30m, snapshot.WorkloadScore);
+        return (int)Math.Round(penalty, MidpointRounding.AwayFromZero);
     }
 
     private static bool IsBetterCandidate(

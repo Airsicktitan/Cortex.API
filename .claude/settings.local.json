@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(echo \"grep exit: $?\")",
+      "Bash(npx grep *)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(dotnet test *)",
+      "Bash(git stash *)",
+      "Bash(git restore *)"
+    ]
+  }
+}

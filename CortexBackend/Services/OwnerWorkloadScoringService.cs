@@ -18,7 +18,7 @@ public sealed class OwnerWorkloadScoringService(
         var normalizedOwnerKeys = ownerKeys
             .Where(ownerKey => !string.IsNullOrWhiteSpace(ownerKey))
             .Select(ownerKey => ownerKey.Trim())
-            .Distinct(StringComparer.Ordinal)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         if (normalizedOwnerKeys.Count == 0)
@@ -33,11 +33,13 @@ public sealed class OwnerWorkloadScoringService(
         var ownerRequests = normalizedOwnerKeys
             .Select(ownerKey => BuildOwnerWorkloadRequest(ownerKey, ownerAliases))
             .ToList();
+        var ownerKeysByMatchKey = BuildOwnerKeysByMatchKey(ownerRequests);
 
         var visibility = respectCurrentVisibility
             ? await ticketVisibilityService.GetCurrentVisibilityAsync()
             : null;
         var priorityMap = await slaConfigurationService.GetPriorityMapAsync();
+        var nowUtc = DateTime.UtcNow;
         var normalizedExcludeId = string.IsNullOrWhiteSpace(excludeTicketId)
             ? null
             : excludeTicketId.Trim();
@@ -55,46 +57,44 @@ public sealed class OwnerWorkloadScoringService(
             .Where(ticket => visibility is null || visibility.CanView(ticket))
             .ToList();
 
+        var metricsByOwnerKey = ownerRequests.ToDictionary(
+            ownerRequest => ownerRequest.OwnerKey,
+            _ => new WorkloadMetricAccumulator(),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var ticket in activeVisibleTickets)
+        {
+            var matchedOwnerKeys = ResolveMatchedOwnerKeys(ticket, ownerKeysByMatchKey);
+            if (matchedOwnerKeys.Count == 0)
+            {
+                continue;
+            }
+
+            var signals = WorkloadScoringPolicy.EvaluateTicket(ticket, priorityMap, nowUtc);
+            foreach (var ownerKey in matchedOwnerKeys)
+            {
+                metricsByOwnerKey[ownerKey].Add(signals);
+            }
+        }
+
         var scores = new List<OwnerWorkloadScoreSnapshot>(normalizedOwnerKeys.Count);
 
         foreach (var ownerRequest in ownerRequests)
         {
-            var ownerTickets = activeVisibleTickets
-                .Where(ticket =>
-                    MatchesOwner(ticket.SynitiOwner, ownerRequest.MatchKeys) ||
-                    MatchesOwner(ticket.BusinessOwner, ownerRequest.MatchKeys))
-                .ToList();
-
-            var highPriorityTicketCount = ownerTickets.Count(ticket => IsHighPriority(ticket.Priority));
-            var atRiskTicketCount = 0;
-            var outsideSlaOpenCount = 0;
-
-            foreach (var ticket in ownerTickets)
-            {
-                priorityMap.TryGetValue(ticket.Priority ?? string.Empty, out var configuration);
-                var snapshot = TicketSlaCalculator.Calculate(ticket, configuration);
-
-                if (snapshot.Status == "At Risk")
-                {
-                    atRiskTicketCount++;
-                }
-                else if (snapshot.Status == "Breached")
-                {
-                    outsideSlaOpenCount++;
-                }
-            }
-
-            var slaRiskTicketCount = atRiskTicketCount + outsideSlaOpenCount;
-            var workloadScore = ownerTickets.Count + (highPriorityTicketCount * 2) + (slaRiskTicketCount * 3);
-
+            var metrics = metricsByOwnerKey[ownerRequest.OwnerKey];
             scores.Add(new OwnerWorkloadScoreSnapshot(
                 OwnerKey: ownerRequest.OwnerKey,
-                ActiveTicketCount: ownerTickets.Count,
-                HighPriorityTicketCount: highPriorityTicketCount,
-                AtRiskTicketCount: atRiskTicketCount,
-                OutsideSlaOpenCount: outsideSlaOpenCount,
-                SlaRiskTicketCount: slaRiskTicketCount,
-                WorkloadScore: workloadScore));
+                ActiveTicketCount: metrics.OpenTicketCount,
+                HighPriorityTicketCount: metrics.HighPriorityTicketCount,
+                AtRiskTicketCount: metrics.SlaRiskTicketCount,
+                OutsideSlaOpenCount: metrics.OverdueTicketCount,
+                SlaRiskTicketCount: metrics.SlaRiskTicketCount,
+                WorkloadScore: WorkloadScoringPolicy.CalculateScore(
+                    metrics.OpenTicketCount,
+                    metrics.HighPriorityTicketCount,
+                    metrics.OverdueTicketCount,
+                    metrics.SlaRiskTicketCount,
+                    metrics.StaleTicketCount),
+                StaleTicketCount: metrics.StaleTicketCount));
         }
 
         return scores;
@@ -129,20 +129,88 @@ public sealed class OwnerWorkloadScoringService(
         }
     }
 
-    private static bool MatchesOwner(string? storedOwner, IReadOnlySet<string> ownerKeys)
+    private static Dictionary<string, List<string>> BuildOwnerKeysByMatchKey(
+        IEnumerable<OwnerWorkloadRequest> ownerRequests)
     {
-        return !string.IsNullOrWhiteSpace(storedOwner) &&
-            ownerKeys.Contains(storedOwner.Trim());
+        var lookup = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ownerRequest in ownerRequests)
+        {
+            foreach (var matchKey in ownerRequest.MatchKeys)
+            {
+                if (!lookup.TryGetValue(matchKey, out var ownerKeys))
+                {
+                    ownerKeys = [];
+                    lookup[matchKey] = ownerKeys;
+                }
+
+                if (!ownerKeys.Contains(ownerRequest.OwnerKey, StringComparer.OrdinalIgnoreCase))
+                {
+                    ownerKeys.Add(ownerRequest.OwnerKey);
+                }
+            }
+        }
+
+        return lookup;
     }
 
-    private static bool IsHighPriority(string? priority)
+    private static HashSet<string> ResolveMatchedOwnerKeys(
+        Ticket ticket,
+        IReadOnlyDictionary<string, List<string>> ownerKeysByMatchKey)
     {
-        return priority is not null &&
-            (priority.Equals("High", StringComparison.OrdinalIgnoreCase) ||
-             priority.Equals("Critical", StringComparison.OrdinalIgnoreCase));
+        var matchedOwnerKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddMatchedOwnerKeys(ticket.SynitiOwner, ownerKeysByMatchKey, matchedOwnerKeys);
+        AddMatchedOwnerKeys(ticket.BusinessOwner, ownerKeysByMatchKey, matchedOwnerKeys);
+        return matchedOwnerKeys;
+    }
+
+    private static void AddMatchedOwnerKeys(
+        string? storedOwner,
+        IReadOnlyDictionary<string, List<string>> ownerKeysByMatchKey,
+        ISet<string> matchedOwnerKeys)
+    {
+        if (string.IsNullOrWhiteSpace(storedOwner)
+            || !ownerKeysByMatchKey.TryGetValue(storedOwner.Trim(), out var ownerKeys))
+        {
+            return;
+        }
+
+        foreach (var ownerKey in ownerKeys)
+        {
+            matchedOwnerKeys.Add(ownerKey);
+        }
     }
 
     private sealed record OwnerWorkloadRequest(
         string OwnerKey,
         IReadOnlySet<string> MatchKeys);
+
+    private sealed class WorkloadMetricAccumulator
+    {
+        public int OpenTicketCount { get; private set; }
+        public int HighPriorityTicketCount { get; private set; }
+        public int OverdueTicketCount { get; private set; }
+        public int SlaRiskTicketCount { get; private set; }
+        public int StaleTicketCount { get; private set; }
+
+        public void Add(TicketWorkloadSignals signals)
+        {
+            OpenTicketCount++;
+            if (signals.IsHighPriority)
+            {
+                HighPriorityTicketCount++;
+            }
+            if (signals.IsOverdue)
+            {
+                OverdueTicketCount++;
+            }
+            if (signals.IsSlaRisk)
+            {
+                SlaRiskTicketCount++;
+            }
+            if (signals.IsStale)
+            {
+                StaleTicketCount++;
+            }
+        }
+    }
 }

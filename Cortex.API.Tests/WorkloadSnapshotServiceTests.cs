@@ -63,9 +63,11 @@ public class WorkloadSnapshotServiceTests
         Assert.Equal("user:1", snapshot.UserId);
         Assert.Equal(2, snapshot.ActiveTicketCount);
         Assert.Equal(2, snapshot.HighPriorityCount);
-        Assert.Equal(1, snapshot.SlaRiskCount);
-        Assert.Equal(9, snapshot.WorkloadScore);
-        Assert.Equal("Balanced", snapshot.Status);
+        Assert.Equal(1, snapshot.OverdueTicketCount);
+        Assert.Equal(0, snapshot.SlaRiskCount);
+        Assert.Equal(0, snapshot.StaleTicketCount);
+        Assert.Equal(9m, snapshot.WorkloadScore);
+        Assert.Equal("Available", snapshot.Status);
     }
 
     [Fact]
@@ -199,6 +201,35 @@ public class WorkloadSnapshotServiceTests
         var snapshot = Assert.Single(snapshots);
         Assert.Equal("user:1", snapshot.UserId);
         Assert.Equal(3, snapshot.ActiveTicketCount);
+    }
+
+    [Fact]
+    public async Task GetSnapshotsAsync_IncludesZeroTicketEligibleUsers_WithZeroWorkloadScore()
+    {
+        await using var context = CreateContext();
+        context.Users.Add(new User
+        {
+            Id = 1,
+            DisplayName = "available-owner",
+            Email = "available-owner@example.com",
+            IsActive = true,
+            IsSynitiOwnerEligible = true
+        });
+        await context.SaveChangesAsync();
+
+        var slaService = new Mock<ISlaConfigurationService>(MockBehavior.Strict);
+        slaService
+            .Setup(service => service.GetPriorityMapAsync())
+            .ReturnsAsync(new Dictionary<string, SlaConfiguration>(StringComparer.OrdinalIgnoreCase));
+
+        var service = new WorkloadSnapshotService(context, slaService.Object);
+        var snapshots = await service.GetSnapshotsAsync();
+
+        var snapshot = Assert.Single(snapshots);
+        Assert.Equal("user:1", snapshot.UserId);
+        Assert.Equal(0, snapshot.ActiveTicketCount);
+        Assert.Equal(0m, snapshot.WorkloadScore);
+        Assert.Equal("Available", snapshot.Status);
     }
 
     private static CortexDbContext CreateContext()

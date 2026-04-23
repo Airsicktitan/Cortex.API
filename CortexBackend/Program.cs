@@ -24,6 +24,11 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
+Console.WriteLine($"[ENV] {builder.Environment.EnvironmentName}");
+var conn = builder.Configuration.GetConnectionString("CortexDb");
+Console.WriteLine($"[DB] {conn}");
+
+
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -33,7 +38,7 @@ var connectionString = DatabaseConnectionConfiguration.ResolveFirstNonEmpty(buil
     ?? throw new InvalidOperationException(
         "Database connection string is not configured. " +
         "For local Development, set ConnectionStrings:CortexDb (see appsettings.Development.json). " +
-        "For Azure and other environments, set ConnectionStrings:AzureCortexDb or ConnectionStrings:CortexDB.");
+        "For Azure, set ConnectionStrings__CortexDb as an environment variable.");
 
 builder.Services.AddDbContext<CortexDbContext>(options =>
     options.UseSqlServer(

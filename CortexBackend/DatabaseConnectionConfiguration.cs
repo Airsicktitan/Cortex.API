@@ -4,11 +4,11 @@ namespace Cortex.API;
 
 /// <summary>
 /// Resolves the SQL connection string using the same key order as <see cref="Program"/>:
-/// CortexDb (local Development), then AzureCortexDb / CortexDB for Azure and existing deployments.
+/// Uses ConnectionStrings:CortexDb across all environments.
 /// </summary>
 internal static class DatabaseConnectionConfiguration
 {
-    internal static readonly string[] ConnectionStringKeys = ["CortexDb", "AzureCortexDb", "CortexDB"];
+    internal static readonly string[] ConnectionStringKeys = ["CortexDb"];
 
     internal static string? ResolveFirstNonEmpty(IConfiguration configuration)
     {

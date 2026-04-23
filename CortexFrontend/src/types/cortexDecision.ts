@@ -3,7 +3,9 @@ export interface WorkloadSnapshot {
   displayName: string;
   activeTicketCount: number;
   highPriorityCount: number;
+  overdueTicketCount: number;
   slaRiskCount: number;
+  staleTicketCount: number;
   workloadScore: number;
   status: "Available" | "Balanced" | "Overloaded" | string;
 }
@@ -14,7 +16,9 @@ export interface CortexDecisionCandidate {
   eligible: boolean;
   activeTicketCount: number;
   highPriorityCount: number;
+  overdueTicketCount: number;
   slaRiskCount: number;
+  staleTicketCount: number;
   workloadScore: number;
   ruleMatched: boolean;
   preferredByBoard: boolean;
@@ -41,16 +45,31 @@ export interface CortexDecisionResult {
   aiRecommendedOwner?: string | null;
 }
 
+export interface RebalanceSuggestionAlternative {
+  userId: string;
+  displayName: string;
+  workloadScore: number;
+  pressureLevel: string;
+}
+
 export interface RebalanceSuggestion {
   ticketId: string;
   ticketKey: string;
+  ticketTitle: string;
   fromUserId: string;
   fromDisplayName: string;
   toUserId: string;
   toDisplayName: string;
   reason: string;
   expectedImpact: string;
+  confidenceScore: number;
+  recommendationStrength: string;
+  rationale: string[];
+  impactPreview: string[];
+  alternativeOwners?: RebalanceSuggestionAlternative[];
   aiHighRisk?: boolean;
+  isBlockedByManualOverride?: boolean;
+  blockedReason?: string | null;
 }
 
 export interface AppliedRebalance {

@@ -22,7 +22,7 @@ public class ReassignmentOwnerSnapshotResponse
 
     public string DisplayName { get; set; } = string.Empty;
 
-    public int WorkloadScore { get; set; }
+    public decimal WorkloadScore { get; set; }
 
     /// <summary>low | moderate | high | critical</summary>
     public string PressureLevel { get; set; } = "low";

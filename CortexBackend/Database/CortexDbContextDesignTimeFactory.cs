@@ -28,7 +28,7 @@ public sealed class CortexDbContextDesignTimeFactory : IDesignTimeDbContextFacto
             ?? throw new InvalidOperationException(
                 "No database connection string found for EF Core tools. " +
                 "Use ASPNETCORE_ENVIRONMENT=Development with appsettings.Development.json, " +
-                "or set ConnectionStrings__CortexDb, ConnectionStrings__AzureCortexDb, or ConnectionStrings__CortexDB.");
+                "or set ConnectionStrings__CortexDb as an environment variable.");
 
         var optionsBuilder = new DbContextOptionsBuilder<CortexDbContext>();
         optionsBuilder.UseSqlServer(connectionString);

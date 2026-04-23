@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using Cortex.API.Database;
 using Cortex.API.Data;
 using Cortex.API.DTO;
 using Cortex.API.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Cortex.API.Services;
 
@@ -14,7 +16,8 @@ public sealed class CortexDecisionService(
     ITicketRepository ticketRepository,
     ITicketRoutingRuleService ticketRoutingRuleService,
     IRealtimeEventService realtimeEventService,
-    IRealtimeAudienceResolver realtimeAudienceResolver) : ICortexDecisionService
+    IRealtimeAudienceResolver realtimeAudienceResolver,
+    ILogger<CortexDecisionService> logger) : ICortexDecisionService
 {
     private const int MeaningfulImprovementThreshold = 10;
 
@@ -47,24 +50,52 @@ public sealed class CortexDecisionService(
     public async Task<IReadOnlyList<RebalanceSuggestion>> GetRebalanceSuggestionsAsync(
         CancellationToken cancellationToken = default)
     {
+        var totalStarted = Stopwatch.GetTimestamp();
         var resolvedStatuses = TicketStatusFilters.ResolvedStatusesUpper;
+        var ticketLoadStarted = Stopwatch.GetTimestamp();
         var activeTickets = await dbContext.Tickets
             .AsNoTracking()
             .Where(ticket => ticket.ApprovalStatus == ApprovalStatus.Approved)
             .Where(ticket => ticket.Status == null || !resolvedStatuses.Contains(ticket.Status.ToUpper()))
             .Where(ticket => !dbContext.ArchivedTickets.Any(archived => archived.Id == ticket.Id))
             .Where(ticket => !string.IsNullOrWhiteSpace(ticket.SynitiOwner))
+            .OrderBy(ticket => ticket.Id)
             .ToListAsync(cancellationToken);
+        var ticketLoadMs = ElapsedMilliseconds(ticketLoadStarted);
+
+        var snapshotLoadStarted = Stopwatch.GetTimestamp();
         var snapshots = await workloadSnapshotService.GetSnapshotsAsync(cancellationToken);
+        var snapshotLoadMs = ElapsedMilliseconds(snapshotLoadStarted);
         var overloadSet = snapshots
             .Where(snapshot => snapshot.Status == "Overloaded")
             .Select(snapshot => snapshot.UserId)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ownerAliasLoadStarted = Stopwatch.GetTimestamp();
         var ownerAliases = OwnerFieldResolution.BuildAliasLookup(await dbContext.Users
             .AsNoTracking()
             .ToListAsync(cancellationToken));
+        var ownerAliasLoadMs = ElapsedMilliseconds(ownerAliasLoadStarted);
+        var activeTicketIds = activeTickets
+            .Select(ticket => ticket.Id)
+            .ToList();
+        var relevantOverrides = await dbContext.TicketRoutingOverrides
+            .AsNoTracking()
+            .Where(overrideEntry => activeTicketIds.Contains(overrideEntry.TicketId))
+            .ToListAsync(cancellationToken);
+        var latestOverridesByTicketId = relevantOverrides
+            .GroupBy(overrideEntry => overrideEntry.TicketId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(overrideEntry => overrideEntry.CreatedDateUtc)
+                .First())
+            .ToDictionary(
+                overrideEntry => overrideEntry.TicketId,
+                overrideEntry => overrideEntry,
+                StringComparer.OrdinalIgnoreCase);
 
         var suggestions = new List<RebalanceSuggestion>();
+        var overloadedTicketCount = 0;
+        var evaluatedTicketCount = 0;
+        var evaluationStarted = Stopwatch.GetTimestamp();
         foreach (var ticket in activeTickets)
         {
             var currentOwnerKey = OwnerFieldResolution.CanonicalizeOwnerField(ticket.SynitiOwner, ownerAliases);
@@ -73,9 +104,11 @@ public sealed class CortexDecisionService(
                 continue;
             }
 
+            overloadedTicketCount++;
             try
             {
-                var decision = await EvaluateRebalanceAsync(ticket, cancellationToken);
+                var decision = await EvaluateRebalanceDeterministicAsync(ticket, cancellationToken);
+                evaluatedTicketCount++;
                 if (decision.DecisionType != "RecommendRebalance"
                     || string.IsNullOrWhiteSpace(decision.RecommendedOwnerUserId)
                     || IsSameOwner(
@@ -86,17 +119,62 @@ public sealed class CortexDecisionService(
                     continue;
                 }
 
+                var currentOwnerSnapshot = ResolveSnapshot(currentOwnerKey, snapshots);
+                var recommendedCandidate = ResolveRecommendedCandidate(decision);
+                var expectedImpact = ResolveExpectedImpact(decision);
+                var sourceDisplayName = ResolveOwnerDisplayName(currentOwnerKey, ownerAliases);
+                var latestOverride = latestOverridesByTicketId.GetValueOrDefault(ticket.Id);
+                var isBlockedByManualOverride =
+                    latestOverride is not null
+                    && !string.IsNullOrWhiteSpace(latestOverride.NewSynitiOwner)
+                    && string.Equals(
+                        latestOverride.NewSynitiOwner.Trim(),
+                        ticket.SynitiOwner?.Trim(),
+                        StringComparison.OrdinalIgnoreCase);
+
                 suggestions.Add(new RebalanceSuggestion
                 {
                     TicketId = ticket.Id,
                     TicketKey = ticket.Id,
+                    TicketTitle = ResolveTicketTitle(ticket),
                     FromUserId = currentOwnerKey,
-                    FromDisplayName = ResolveOwnerDisplayName(currentOwnerKey, ownerAliases),
+                    FromDisplayName = sourceDisplayName,
                     ToUserId = decision.RecommendedOwnerUserId ?? string.Empty,
                     ToDisplayName = decision.RecommendedOwnerDisplayName ?? decision.RecommendedOwnerUserId ?? string.Empty,
                     Reason = decision.Summary,
+                    ConfidenceScore = decision.ConfidenceScore,
+                    RecommendationStrength = ResolveRecommendationStrength(decision.ConfidenceScore),
+                    Rationale = BuildRecommendationRationale(
+                        ticket,
+                        sourceDisplayName,
+                        currentOwnerSnapshot,
+                        decision,
+                        recommendedCandidate),
+                    ImpactPreview = BuildImpactPreview(
+                        sourceDisplayName,
+                        currentOwnerSnapshot,
+                        decision,
+                        recommendedCandidate),
+                    AlternativeOwners = decision.Candidates
+                        .Where(candidate => !string.Equals(
+                            candidate.UserId,
+                            decision.RecommendedOwnerUserId,
+                            StringComparison.OrdinalIgnoreCase))
+                        .Take(2)
+                        .Select(candidate => new RebalanceSuggestionAlternative
+                        {
+                            UserId = candidate.UserId,
+                            DisplayName = candidate.DisplayName,
+                            WorkloadScore = candidate.WorkloadScore,
+                            PressureLevel = WorkloadScoringPolicy.ToPressureLevel(candidate.WorkloadScore),
+                        })
+                        .ToList(),
                     AiHighRisk = string.Equals(decision.AiRiskLevel, "High", StringComparison.OrdinalIgnoreCase),
-                    ExpectedImpact = ResolveExpectedImpact(decision)
+                    ExpectedImpact = expectedImpact,
+                    IsBlockedByManualOverride = isBlockedByManualOverride,
+                    BlockedReason = isBlockedByManualOverride
+                        ? "Manual override exists and currently controls ticket ownership."
+                        : null
                 });
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
@@ -105,18 +183,41 @@ public sealed class CortexDecisionService(
                 continue;
             }
         }
+        var evaluationMs = ElapsedMilliseconds(evaluationStarted);
+
+        logger.LogInformation(
+            "Rebalance suggestions generated in {TotalElapsedMs}ms (tickets {TicketLoadMs}ms, snapshots {SnapshotLoadMs}ms, owner aliases {OwnerAliasLoadMs}ms, evaluations {EvaluationMs}ms). ActiveTickets={ActiveTicketCount}, OverloadedTickets={OverloadedTicketCount}, EvaluatedTickets={EvaluatedTicketCount}, Suggestions={SuggestionCount}.",
+            ElapsedMilliseconds(totalStarted),
+            ticketLoadMs,
+            snapshotLoadMs,
+            ownerAliasLoadMs,
+            evaluationMs,
+            activeTickets.Count,
+            overloadedTicketCount,
+            evaluatedTicketCount,
+            suggestions.Count);
 
         return suggestions
             .OrderByDescending(suggestion => suggestion.AiHighRisk)
             .ThenBy(suggestion => suggestion.TicketId, StringComparer.Ordinal)
-            .Take(5)
             .ToList();
     }
 
     public async Task<ExecuteRebalanceResponse> ExecuteRebalanceAsync(
+        IReadOnlyList<RebalanceSuggestion>? requestedSuggestions = null,
+        IReadOnlySet<string>? confirmedManualOverrideTicketIds = null,
+        bool dryRun = false,
         CancellationToken cancellationToken = default)
     {
-        var suggestions = await GetRebalanceSuggestionsAsync(cancellationToken);
+        var suggestions = requestedSuggestions is { Count: > 0 }
+            ? requestedSuggestions
+                .Where(suggestion =>
+                    !string.IsNullOrWhiteSpace(suggestion.TicketId)
+                    && !string.IsNullOrWhiteSpace(suggestion.ToUserId))
+                .GroupBy(suggestion => suggestion.TicketId, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList()
+            : await GetRebalanceSuggestionsAsync(cancellationToken);
         var beforeSnapshots = await workloadSnapshotService.GetSnapshotsAsync(cancellationToken);
         var response = new ExecuteRebalanceResponse
         {
@@ -139,12 +240,15 @@ public sealed class CortexDecisionService(
                 }
 
                 var latestOverride = await ticketRoutingRuleService.GetLatestOverrideAsync(ticket.Id, cancellationToken);
+                var manualOverrideConfirmed =
+                    confirmedManualOverrideTicketIds?.Contains(ticket.Id) == true;
                 if (latestOverride is not null
                     && !string.IsNullOrWhiteSpace(latestOverride.NewSynitiOwner)
                     && string.Equals(
                         latestOverride.NewSynitiOwner.Trim(),
                         ticket.SynitiOwner?.Trim(),
-                        StringComparison.OrdinalIgnoreCase))
+                        StringComparison.OrdinalIgnoreCase)
+                    && !manualOverrideConfirmed)
                 {
                     response.Skipped.Add(new SkippedRebalance
                     {
@@ -154,60 +258,82 @@ public sealed class CortexDecisionService(
                     continue;
                 }
 
-                var decision = await EvaluateRebalanceAsync(ticket, cancellationToken);
-                if (!string.Equals(decision.RecommendedOwnerUserId, suggestion.ToUserId, StringComparison.OrdinalIgnoreCase))
-                {
-                    response.Skipped.Add(new SkippedRebalance
-                    {
-                        TicketId = suggestion.TicketId,
-                        Reason = "Suggestion became stale after re-evaluation."
-                    });
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(decision.RecommendedOwnerUserId))
-                {
-                    response.Skipped.Add(new SkippedRebalance
-                    {
-                        TicketId = suggestion.TicketId,
-                        Reason = "No recommended owner is currently available."
-                    });
-                    continue;
-                }
-
-                if (string.Equals(ticket.SynitiOwner, decision.RecommendedOwnerUserId, StringComparison.OrdinalIgnoreCase))
-                {
-                    response.Skipped.Add(new SkippedRebalance
-                    {
-                        TicketId = suggestion.TicketId,
-                        Reason = "Ticket is already assigned to the recommended owner."
-                    });
-                    continue;
-                }
-
                 var fromOwner = ticket.SynitiOwner ?? string.Empty;
-                ticket.SynitiOwner = decision.RecommendedOwnerUserId;
-                ticket.LastModifiedDate = DateTime.UtcNow;
-                await ticketRepository.UpdateTicketAsync(ticket);
-                await ticketRepository.SaveChangesAsync();
-
-                response.Applied.Add(new AppliedRebalance
+                if (!dryRun)
                 {
-                    TicketId = ticket.Id,
-                    TicketKey = ticket.Id,
-                    FromUserId = fromOwner,
-                    ToUserId = decision.RecommendedOwnerUserId,
-                    Reason = decision.Summary
-                });
+                    var decision = await EvaluateRebalanceDeterministicAsync(ticket, cancellationToken);
 
-                var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(ticket, cancellationToken);
-                await realtimeEventService.PublishAsync(new RealtimeEventMessage
+                    if (decision.Candidates.Count == 0)
+                    {
+                        response.Skipped.Add(new SkippedRebalance
+                        {
+                            TicketId = suggestion.TicketId,
+                            Reason = "No recommended owner is currently available."
+                        });
+                        continue;
+                    }
+
+                    // Validate that the submitted target is still in the eligible candidate
+                    // pool. Rank drift — a different candidate winning due to minor workload
+                    // score changes between requests — does not make an explicit override
+                    // stale. Only reject when the requested target has become ineligible.
+                    var targetIsInPool = decision.Candidates.Any(c =>
+                        string.Equals(c.UserId, suggestion.ToUserId, StringComparison.OrdinalIgnoreCase));
+
+                    if (!targetIsInPool)
+                    {
+                        response.Skipped.Add(new SkippedRebalance
+                        {
+                            TicketId = suggestion.TicketId,
+                            Reason = "Suggestion became stale after re-evaluation."
+                        });
+                        continue;
+                    }
+
+                    if (string.Equals(ticket.SynitiOwner, suggestion.ToUserId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        response.Skipped.Add(new SkippedRebalance
+                        {
+                            TicketId = suggestion.TicketId,
+                            Reason = "Ticket is already assigned to the recommended owner."
+                        });
+                        continue;
+                    }
+
+                    ticket.SynitiOwner = suggestion.ToUserId;
+                    ticket.LastModifiedDate = DateTime.UtcNow;
+                    await ticketRepository.UpdateTicketAsync(ticket);
+                    await ticketRepository.SaveChangesAsync();
+
+                    response.Applied.Add(new AppliedRebalance
+                    {
+                        TicketId = ticket.Id,
+                        TicketKey = ticket.Id,
+                        FromUserId = fromOwner,
+                        ToUserId = suggestion.ToUserId,
+                        Reason = suggestion.Reason
+                    });
+
+                    var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(ticket, cancellationToken);
+                    await realtimeEventService.PublishAsync(new RealtimeEventMessage
+                    {
+                        EventType = "ticket.updated",
+                        TicketId = ticket.Id,
+                        EntityId = ticket.Id,
+                        AudienceUserIds = audienceUserIds
+                    }, cancellationToken);
+                }
+                else
                 {
-                    EventType = "ticket.updated",
-                    TicketId = ticket.Id,
-                    EntityId = ticket.Id,
-                    AudienceUserIds = audienceUserIds
-                }, cancellationToken);
+                    response.Applied.Add(new AppliedRebalance
+                    {
+                        TicketId = ticket.Id,
+                        TicketKey = ticket.Id,
+                        FromUserId = fromOwner,
+                        ToUserId = suggestion.ToUserId,
+                        Reason = suggestion.Reason
+                    });
+                }
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -220,10 +346,27 @@ public sealed class CortexDecisionService(
         }
 
         response.TotalApplied = response.Applied.Count;
-        var afterSnapshots = await workloadSnapshotService.GetSnapshotsAsync(cancellationToken);
-        response.ImpactDetails = BuildImpactDetails(response, suggestions, beforeSnapshots, afterSnapshots);
-        response.Summary = BuildExecuteSummary(response);
+        if (dryRun)
+        {
+            response.ImpactDetails = [];
+            response.Summary = response.TotalApplied == 0
+                ? "No executable rebalance actions are currently available."
+                : $"{response.TotalApplied} executable rebalance action{(response.TotalApplied == 1 ? string.Empty : "s")} ready.";
+        }
+        else
+        {
+            var afterSnapshots = await workloadSnapshotService.GetSnapshotsAsync(cancellationToken);
+            response.ImpactDetails = BuildImpactDetails(response, suggestions, beforeSnapshots, afterSnapshots);
+            response.Summary = BuildExecuteSummary(response);
+        }
         return response;
+    }
+
+    private Task<CortexDecisionResult> EvaluateRebalanceDeterministicAsync(
+        Ticket ticket,
+        CancellationToken cancellationToken)
+    {
+        return EvaluateCoreAsync(ticket, forRebalance: true, aiAssessment: null, cancellationToken);
     }
 
     private async Task<CortexDecisionResult> EvaluateCoreAsync(
@@ -265,33 +408,33 @@ public sealed class CortexDecisionService(
 
         foreach (var candidate in candidates)
         {
-            var score = 100;
-            score -= candidate.WorkloadScore * 5;
+            var score = 100m;
+            score -= candidate.WorkloadScore * 5m;
             score -= candidate.SlaRiskCount * 8;
             score -= candidate.HighPriorityCount * 4;
             if (candidate.RuleMatched)
             {
-                score += 15;
+                score += 15m;
             }
             if (candidate.PreferredByBoard)
             {
-                score += 10;
+                score += 10m;
             }
             if (!string.IsNullOrWhiteSpace(ticket.SynitiOwner)
                 && ticket.SynitiOwner.Equals(candidate.UserId, StringComparison.OrdinalIgnoreCase))
             {
-                score += 5;
+                score += 5m;
             }
             if (candidate.CurrentlyOverloaded)
             {
-                score -= 25;
+                score -= 25m;
             }
 
             if (aiAssessment is not null
                 && string.Equals(aiAssessment.RiskLevel, "High", StringComparison.OrdinalIgnoreCase)
                 && candidate.CurrentlyOverloaded)
             {
-                score -= 8;
+                score -= 8m;
                 candidate.Notes.Add("High AI risk ticket: overloaded owners receive additional penalty.");
             }
 
@@ -301,7 +444,7 @@ public sealed class CortexDecisionService(
                     aiAssessment.RecommendedOwnerUserId.Trim(),
                     StringComparison.OrdinalIgnoreCase))
             {
-                score += 10;
+                score += 10m;
                 candidate.Notes.Add("Soft signal: unified AI assessment favored this eligible owner (+10).");
             }
 
@@ -327,7 +470,9 @@ public sealed class CortexDecisionService(
         };
         if (current is not null && !current.UserId.Equals(winner.UserId, StringComparison.OrdinalIgnoreCase))
         {
-            reasons.Add($"{winner.DisplayName} scored {winner.TotalScore} versus {current.DisplayName} at {current.TotalScore}.");
+            var workloadDelta = winner.WorkloadScore - current.WorkloadScore;
+            reasons.Add(
+                $"Workload difference vs current owner: {workloadDelta:+0.##;-0.##;0} ({winner.DisplayName}: {winner.WorkloadScore}, {current.DisplayName}: {current.WorkloadScore}).");
         }
         if (winner.SlaRiskCount == 0)
         {
@@ -459,6 +604,188 @@ public sealed class CortexDecisionService(
             : user.Email.Trim();
     }
 
+    private static string ResolveTicketTitle(Ticket ticket)
+    {
+        return string.IsNullOrWhiteSpace(ticket.Title)
+            ? ticket.Id
+            : ticket.Title.Trim();
+    }
+
+    private static WorkloadSnapshot? ResolveSnapshot(
+        string ownerKey,
+        IReadOnlyList<WorkloadSnapshot> snapshots)
+    {
+        return snapshots.FirstOrDefault(snapshot =>
+            IsSameOwner(ownerKey, snapshot.UserId, snapshot.DisplayName));
+    }
+
+    private static CortexDecisionCandidate? ResolveRecommendedCandidate(
+        CortexDecisionResult decision)
+    {
+        if (decision.Candidates.Count == 0)
+        {
+            return null;
+        }
+
+        return decision.Candidates.FirstOrDefault(candidate =>
+                IsSameOwner(
+                    decision.RecommendedOwnerUserId,
+                    candidate.UserId,
+                    candidate.DisplayName))
+            ?? decision.Candidates[0];
+    }
+
+    private static string ResolveRecommendationStrength(decimal confidenceScore)
+    {
+        if (confidenceScore >= 0.7m)
+        {
+            return "Strong fit";
+        }
+
+        if (confidenceScore >= 0.35m)
+        {
+            return "Good fit";
+        }
+
+        return "Limited fit";
+    }
+
+    private static List<string> BuildRecommendationRationale(
+        Ticket ticket,
+        string sourceDisplayName,
+        WorkloadSnapshot? sourceSnapshot,
+        CortexDecisionResult decision,
+        CortexDecisionCandidate? recommendedCandidate)
+    {
+        var rationale = new List<string>
+        {
+            BuildSourcePressureRationale(sourceDisplayName, sourceSnapshot),
+            BuildTicketCandidateRationale(ticket, decision),
+        };
+
+        if (recommendedCandidate is not null)
+        {
+            rationale.Add(BuildTargetFitRationale(recommendedCandidate));
+        }
+        else if (!string.IsNullOrWhiteSpace(decision.RecommendedOwnerDisplayName))
+        {
+            rationale.Add($"{decision.RecommendedOwnerDisplayName} is the best available owner from the current routing evaluation.");
+        }
+
+        return rationale.Take(4).ToList();
+    }
+
+    private static string BuildSourcePressureRationale(
+        string sourceDisplayName,
+        WorkloadSnapshot? sourceSnapshot)
+    {
+        if (sourceSnapshot is null)
+        {
+            return $"{sourceDisplayName} is currently marked overloaded.";
+        }
+
+        var pressureSignals = new List<string>();
+        if (sourceSnapshot.ActiveTicketCount > 0)
+        {
+            pressureSignals.Add($"{sourceSnapshot.ActiveTicketCount} active ticket{Pluralize(sourceSnapshot.ActiveTicketCount)}");
+        }
+        if (sourceSnapshot.SlaRiskCount > 0)
+        {
+            pressureSignals.Add($"{sourceSnapshot.SlaRiskCount} at SLA risk");
+        }
+        if (sourceSnapshot.HighPriorityCount > 0)
+        {
+            pressureSignals.Add($"{sourceSnapshot.HighPriorityCount} high priority");
+        }
+
+        if (pressureSignals.Count == 0 && sourceSnapshot.WorkloadScore == 0)
+        {
+            return $"{sourceDisplayName} is marked overloaded in the current workload snapshot.";
+        }
+
+        pressureSignals.Add($"workload score {sourceSnapshot.WorkloadScore}");
+        return $"{sourceDisplayName} is overloaded: {string.Join(", ", pressureSignals)}.";
+    }
+
+    private static string BuildTicketCandidateRationale(
+        Ticket ticket,
+        CortexDecisionResult decision)
+    {
+        if (string.Equals(decision.AiRiskLevel, "High", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Ticket carries elevated delivery risk and should not remain concentrated on an overloaded owner.";
+        }
+
+        if (string.Equals(ticket.Priority, "Critical", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ticket.Priority, "High", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{ticket.Priority} priority ticket is active work on an overloaded owner with a better owner fit available.";
+        }
+
+        return "Ticket is active work on an overloaded owner with a material owner-fit improvement available.";
+    }
+
+    private static string BuildTargetFitRationale(CortexDecisionCandidate recommendedCandidate)
+    {
+        var fitSignals = new List<string>
+        {
+            $"workload score {recommendedCandidate.WorkloadScore}",
+        };
+
+        if (recommendedCandidate.SlaRiskCount == 0)
+        {
+            fitSignals.Add("no current SLA-risk tickets");
+        }
+        else
+        {
+            fitSignals.Add($"{recommendedCandidate.SlaRiskCount} current SLA-risk ticket{Pluralize(recommendedCandidate.SlaRiskCount)}");
+        }
+
+        if (recommendedCandidate.RuleMatched)
+        {
+            fitSignals.Add("matches routing criteria");
+        }
+
+        return $"{recommendedCandidate.DisplayName} is an appropriate target: {string.Join(", ", fitSignals)}.";
+    }
+
+    private static List<string> BuildImpactPreview(
+        string sourceDisplayName,
+        WorkloadSnapshot? sourceSnapshot,
+        CortexDecisionResult decision,
+        CortexDecisionCandidate? recommendedCandidate)
+    {
+        var preview = new List<string>();
+
+        if (sourceSnapshot?.SlaRiskCount > 0)
+        {
+            preview.Add($"Reduces SLA concentration on {sourceDisplayName}.");
+        }
+
+        if (string.Equals(decision.AiRiskLevel, "High", StringComparison.OrdinalIgnoreCase))
+        {
+            preview.Add("Lowers high-risk workload on an overloaded owner.");
+        }
+
+        if (sourceSnapshot is not null
+            && recommendedCandidate is not null
+            && recommendedCandidate.WorkloadScore < sourceSnapshot.WorkloadScore)
+        {
+            preview.Add(
+                $"Moves work to lower-pressure capacity ({sourceSnapshot.WorkloadScore} to {recommendedCandidate.WorkloadScore} workload score).");
+        }
+        else
+        {
+            preview.Add("Moves work to a lower-pressure owner.");
+        }
+
+        preview.Add("Keeps the correction scoped to a specific ticket.");
+
+        return preview.Distinct(StringComparer.Ordinal).Take(4).ToList();
+    }
+
+    private static string Pluralize(int count) => count == 1 ? string.Empty : "s";
+
     private async Task<CortexAiAssessment?> TryGetAssessmentAsync(
         Ticket ticket,
         CancellationToken cancellationToken)
@@ -506,16 +833,19 @@ public sealed class CortexDecisionService(
 
         var top = ranked[0].TotalScore;
         var second = ranked[1].TotalScore;
-        var gap = Math.Max(0, top - second);
-        var normalized = Math.Min(1d, gap / 40d);
-        return Math.Round((decimal)normalized, 2, MidpointRounding.AwayFromZero);
+        var gap = Math.Max(0m, top - second);
+        var normalized = Math.Min(1m, gap / 40m);
+        return Math.Round(normalized, 2, MidpointRounding.AwayFromZero);
     }
+
+    private static double ElapsedMilliseconds(long startTimestamp) =>
+        Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
 
     private static string ResolveExpectedImpact(CortexDecisionResult decision)
     {
         if (string.Equals(decision.AiRiskLevel, "High", StringComparison.OrdinalIgnoreCase))
         {
-            return "Reduces SLA risk identified by AI and moves high-risk work to available capacity.";
+            return "Lowers high-risk workload on overloaded owner and moves it to available capacity.";
         }
 
         return decision.Candidates.FirstOrDefault()?.SlaRiskCount > 0

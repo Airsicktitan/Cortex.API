@@ -22,7 +22,7 @@ public sealed class OperationalRiskResponse
 
 public sealed class OwnerPressureResponse
 {
-    public int WorkloadScore { get; set; }
+    public decimal WorkloadScore { get; set; }
 
     /// <summary>low | moderate | high | critical</summary>
     public string PressureLevel { get; set; } = "low";

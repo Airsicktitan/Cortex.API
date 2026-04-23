@@ -62,6 +62,7 @@ import {
   formatSlaSummary,
   getSlaBadgeClass,
   getSlaDisplayLabel,
+  getUrgencyChip,
 } from "../utils/ticketSla";
 import {
   formatDisplayDateTime,
@@ -74,8 +75,12 @@ import {
   canCreateTickets,
   canEditTickets,
 } from "../utils/role";
-import { readOnlyOwnerDetailDisplay } from "../utils/ownerIdentity";
+import { readOnlyOwnerDetailDisplay, USER_ID_TOKEN_PREFIX } from "../utils/ownerIdentity";
 import { filterScreenshotInsightNoise } from "../utils/screenshotInsightDisplay";
+import {
+  getActivitySignal,
+  getWaitingOnLabel,
+} from "../utils/ticketActivity";
 
 const API_AUDIENCE = "https://cortex-api";
 const MAX_TITLE_LENGTH = 200;
@@ -656,7 +661,7 @@ export default function TicketModal({
   const selectedBoardRequiresStoryPoints =
     selectedBoard?.requiresStoryPoints ?? false;
 
-  /** Merged ticket + current form fields so Cortex Decision compares draft owners to live routing. */
+  /** Merged ticket + current form fields so Cortex Recommendation compares draft owners to live inputs. */
   const cortexDecisionTicket = useMemo(
     (): Ticket => ({
       ...ticket,
@@ -1488,6 +1493,48 @@ export default function TicketModal({
     validateCreateForm,
   ]);
 
+  const handleAssignToMe = useCallback(async () => {
+    if (!currentUser?.id || !canUpdateTicket || saving || archiving) return;
+    const ownerToken = `${USER_ID_TOKEN_PREFIX}${currentUser.id}`;
+    setSynitiOwner(ownerToken);
+    try {
+      await onSave(
+        {
+          title,
+          description,
+          priority,
+          status,
+          boardId,
+          storyPoints:
+            selectedBoardRequiresStoryPoints && storyPoints !== ""
+              ? Number(storyPoints)
+              : undefined,
+          synitiOwner: ownerToken,
+          businessOwner: businessOwner || undefined,
+          concurrencyToken: ticket.concurrencyToken,
+        },
+        [],
+      );
+    } catch {
+      // parent surfaces the error
+    }
+  }, [
+    currentUser,
+    canUpdateTicket,
+    saving,
+    archiving,
+    onSave,
+    title,
+    description,
+    priority,
+    status,
+    boardId,
+    selectedBoardRequiresStoryPoints,
+    storyPoints,
+    businessOwner,
+    ticket.concurrencyToken,
+  ]);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -1578,11 +1625,13 @@ export default function TicketModal({
     attachmentsLoadVersion.current += 1;
   }, [isOpen, ticket.id]);
 
-  const reloadComments = useCallback(async () => {
+  const reloadComments = useCallback(async (options?: { silent?: boolean }) => {
     if (!ticket.id) return;
 
     const myVersion = ++commentsLoadVersion.current;
-    setLoadingComments(true);
+    if (!options?.silent) {
+      setLoadingComments(true);
+    }
 
     try {
       const token = await getApiToken();
@@ -1592,7 +1641,7 @@ export default function TicketModal({
 
       setComments((current) => reconcileCommentsById(current, data));
     } finally {
-      if (commentsLoadVersion.current === myVersion) {
+      if (!options?.silent && commentsLoadVersion.current === myVersion) {
         setLoadingComments(false);
       }
     }
@@ -1784,10 +1833,18 @@ export default function TicketModal({
         const isExpired = Date.now() > pending.expiresAt;
 
         if (!isExpired) {
-          if (
+          const isLikelySelfEcho =
             latestRealtimeEvent.entityId === pending.id ||
-            !latestRealtimeEvent.entityId
-          ) {
+            !latestRealtimeEvent.entityId;
+          if (isLikelySelfEcho) {
+            // Upsert if the event carries a full comment — idempotent for our own
+            // echo (same ID overwrites with server data) and safe for the rare case
+            // where another user's comment arrives without an entityId.
+            if (latestRealtimeEvent.comment) {
+              setComments((currentComments) =>
+                upsertCommentById(currentComments, latestRealtimeEvent.comment!),
+              );
+            }
             return;
           }
         } else {
@@ -1802,7 +1859,7 @@ export default function TicketModal({
         return;
       }
 
-      void reloadComments();
+      void reloadComments({ silent: true });
     }
 
     if (latestRealtimeEvent.eventType === "comment.typing") {
@@ -2274,6 +2331,25 @@ export default function TicketModal({
   const slaTooltip = buildSlaTooltip(ticket);
   const slaDisplayLabel = getSlaDisplayLabel(ticket);
   const slaBadgeClass = getSlaBadgeClass(slaDisplayLabel);
+  const urgencyChip = hasPersistedSla && !isRequesterIntakeTicket ? getUrgencyChip(ticket) : null;
+  const ticketActivity = hasPersistedSla && !isRequesterIntakeTicket ? getActivitySignal(ticket) : null;
+  const waitingOnLabel = hasPersistedSla && !isRequesterIntakeTicket ? getWaitingOnLabel(ticket) : null;
+  const urgencyGuidanceText =
+    slaDisplayLabel === "Overdue"
+      ? `SLA overdue${waitingOnLabel ? ` — ${waitingOnLabel}` : " — assign or update before further delay"}.`
+      : slaDisplayLabel === "At Risk"
+        ? `SLA at risk${waitingOnLabel ? ` — ${waitingOnLabel}` : " — consider reassigning or escalating"}.`
+        : waitingOnLabel && ticketActivity?.isStale
+          ? `${waitingOnLabel} · no activity for ${ticketActivity.label}.`
+          : null;
+  const currentUserOwnerToken =
+    currentUser?.id != null ? `${USER_ID_TOKEN_PREFIX}${currentUser.id}` : null;
+  const canAssignToMe =
+    Boolean(ticket.id) &&
+    canUpdateTicket &&
+    !isRequesterIntakeTicket &&
+    Boolean(currentUserOwnerToken) &&
+    synitiOwner !== currentUserOwnerToken;
   const showApprovedApprovalState = approvalDisplayContext !== "active";
   const approvalBadgePresentation = (() => {
     const s = getTicketApprovalStatus(ticket);
@@ -2323,12 +2399,12 @@ export default function TicketModal({
   const synitiOwnerHelperText = ownerDirectoryError
     ? ownerDirectoryError
     : !ticket.id
-      ? "Leave blank to use the matching routing rule."
+      ? "Leave blank to use the matching Cortex recommendation."
       : undefined;
   const businessOwnerHelperText = ownerDirectoryError
     ? ownerDirectoryError
     : !ticket.id
-      ? "Leave blank to use routing first, then default this ticket to you as the requester."
+      ? "Leave blank to use the Cortex recommendation first, then default this ticket to you as the requester."
       : undefined;
   const requesterSummaryToneClass = (() => {
     switch (requesterApprovalStatus) {
@@ -2362,6 +2438,17 @@ export default function TicketModal({
           {formatDisplayDateTime(ticket.createdDate)}
         </p>
       </div>
+      {ticket.lastModifiedDate ? (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+            Last Updated
+          </p>
+          <p className={`mt-1 ${ticketActivity ? ticketActivity.textClass : "text-gray-800 dark:text-slate-200"}`}>
+            {formatDisplayDateTime(ticket.lastModifiedDate)}
+            {ticketActivity ? ` · ${ticketActivity.label}` : ""}
+          </p>
+        </div>
+      ) : null}
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Board
@@ -2439,6 +2526,17 @@ export default function TicketModal({
               {formatSlaSummary(ticket)}
             </p>
           </div>
+          {waitingOnLabel ? (
+            <div className="sm:col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                Waiting On
+              </p>
+              <p className="mt-1 text-gray-700 dark:text-slate-300">
+                {waitingOnLabel}
+                {ticketActivity ? ` · ${ticketActivity.label}` : ""}
+              </p>
+            </div>
+          ) : null}
           {ticket.slaCompletedDate && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
@@ -2564,6 +2662,35 @@ export default function TicketModal({
                       ×
                     </button>
                   </div>
+
+                  {(urgencyGuidanceText || canAssignToMe) ? (
+                    <div
+                      className={`flex flex-wrap items-center justify-between gap-3 rounded-md border px-4 py-3 ${
+                        urgencyChip
+                          ? urgencyChip.chipClass
+                          : "border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800/50"
+                      }`}
+                    >
+                      {urgencyGuidanceText ? (
+                        <p className="text-sm font-medium">
+                          {urgencyGuidanceText}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-gray-600 dark:text-slate-300">
+                          Quick actions
+                        </p>
+                      )}
+                      {canAssignToMe && (
+                        <button
+                          onClick={() => void handleAssignToMe()}
+                          disabled={saving || archiving}
+                          className="shrink-0 rounded-md border border-current bg-white/60 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-black/20 dark:hover:bg-black/40"
+                        >
+                          Assign to me
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
 
                   {ticket.id ? (
                     <div className="space-y-3">
@@ -2742,7 +2869,7 @@ export default function TicketModal({
                   {!ticket.id && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                        Routing Department
+                        Recommendation Department
                       </label>
                       <input
                         type="text"
@@ -2752,7 +2879,7 @@ export default function TicketModal({
                         className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                       />
                       <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-                        Used with title and department routing rules when you
+                        Used with title and department decision factors when you
                         leave the owner fields blank.
                       </p>
                     </div>

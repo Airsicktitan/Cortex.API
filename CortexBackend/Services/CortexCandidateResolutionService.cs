@@ -46,6 +46,14 @@ public sealed class CortexCandidateResolutionService(
             .Where(user => user.IsActive)
             .ToListAsync(cancellationToken);
         var userAliases = OwnerFieldResolution.BuildAliasLookup(users);
+        AddDepartmentDeveloperPool(ownerKeys, users, requester, routing);
+        if (ownerKeys.Count == 0)
+        {
+            return [];
+        }
+
+        var snapshots = await workloadSnapshotService.GetSnapshotsAsync(cancellationToken);
+        var snapshotLookup = BuildSnapshotLookup(snapshots);
         var candidates = new List<CortexDecisionCandidate>();
         foreach (var ownerKey in ownerKeys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
         {
@@ -54,7 +62,7 @@ public sealed class CortexCandidateResolutionService(
                 ? ownerKey
                 : OwnerFieldResolution.ToCanonicalOwnerKey(user);
 
-            var snapshot = await workloadSnapshotService.GetSnapshotAsync(canonicalOwnerKey, cancellationToken)
+            var snapshot = ResolveSnapshot(canonicalOwnerKey, user, snapshotLookup)
                 ?? new WorkloadSnapshot
                 {
                     UserId = canonicalOwnerKey,
@@ -71,7 +79,9 @@ public sealed class CortexCandidateResolutionService(
                 Eligible = user is { IsSynitiOwnerEligible: true, IsActive: true },
                 ActiveTicketCount = snapshot.ActiveTicketCount,
                 HighPriorityCount = snapshot.HighPriorityCount,
+                OverdueTicketCount = snapshot.OverdueTicketCount,
                 SlaRiskCount = snapshot.SlaRiskCount,
+                StaleTicketCount = snapshot.StaleTicketCount,
                 WorkloadScore = snapshot.WorkloadScore,
                 RuleMatched = ruleMatched,
                 PreferredByBoard = ruleMatched && routing.MatchedRuleId.HasValue,
@@ -97,8 +107,88 @@ public sealed class CortexCandidateResolutionService(
         return candidates;
     }
 
+    private static void AddDepartmentDeveloperPool(
+        ISet<string> ownerKeys,
+        IEnumerable<User> users,
+        User? requester,
+        RoutingDecisionResult routing)
+    {
+        if (routing.OutcomeType != RoutingOutcomeType.RuleMatch
+            || !routing.MatchedRuleId.HasValue)
+        {
+            return;
+        }
+
+        var department = NormalizeForMatch(requester?.Department);
+        if (department.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var user in users)
+        {
+            if (!user.IsActive
+                || !user.IsSynitiOwnerEligible
+                || !string.Equals(user.Role, Auth0Roles.Developer, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(NormalizeForMatch(user.Department), department, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            ownerKeys.Add(OwnerFieldResolution.ToCanonicalOwnerKey(user));
+        }
+    }
+
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string NormalizeForMatch(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant();
+
+    private static IReadOnlyDictionary<string, WorkloadSnapshot> BuildSnapshotLookup(
+        IEnumerable<WorkloadSnapshot> snapshots)
+    {
+        var lookup = new Dictionary<string, WorkloadSnapshot>(StringComparer.OrdinalIgnoreCase);
+        foreach (var snapshot in snapshots)
+        {
+            AddSnapshotLookup(lookup, snapshot.UserId, snapshot);
+            AddSnapshotLookup(lookup, snapshot.DisplayName, snapshot);
+        }
+
+        return lookup;
+    }
+
+    private static void AddSnapshotLookup(
+        IDictionary<string, WorkloadSnapshot> lookup,
+        string? key,
+        WorkloadSnapshot snapshot)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
+
+        lookup.TryAdd(key.Trim(), snapshot);
+    }
+
+    private static WorkloadSnapshot? ResolveSnapshot(
+        string canonicalOwnerKey,
+        User? user,
+        IReadOnlyDictionary<string, WorkloadSnapshot> snapshotLookup)
+    {
+        if (snapshotLookup.TryGetValue(canonicalOwnerKey, out var byOwnerKey))
+        {
+            return byOwnerKey;
+        }
+
+        if (!string.IsNullOrWhiteSpace(user?.DisplayName)
+            && snapshotLookup.TryGetValue(user.DisplayName.Trim(), out var byDisplayName))
+        {
+            return byDisplayName;
+        }
+
+        return null;
+    }
 
     private static List<CandidateAssignment> ParseExplanation(string? explanationJson)
     {

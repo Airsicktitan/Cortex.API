@@ -7,7 +7,11 @@ public sealed record OwnerWorkloadScoreSnapshot(
     int AtRiskTicketCount,
     int OutsideSlaOpenCount,
     int SlaRiskTicketCount,
-    int WorkloadScore);
+    decimal WorkloadScore,
+    int StaleTicketCount = 0)
+{
+    public int OverdueTicketCount => OutsideSlaOpenCount;
+}
 
 public interface IOwnerWorkloadScoringService
 {

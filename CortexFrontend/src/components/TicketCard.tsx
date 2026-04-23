@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { ApprovalStatus, Ticket } from "../types/ticket";
 import {
   buildSlaTooltip,
+  getUrgencyChip,
   getSlaAccentClass,
   getSlaDisplayLabel,
 } from "../utils/ticketSla";
@@ -15,6 +16,10 @@ import {
   readOnlySynitiOwnerLabel,
 } from "../utils/ownerIdentity";
 import { CortexTooltip } from "./ui/Tooltip";
+import {
+  getActivitySignal,
+  getOwnershipGapChip,
+} from "../utils/ticketActivity";
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -262,7 +267,20 @@ function cardTimingTail(ticket: Ticket): string {
 }
 
 function mergedTimingLine(ticket: Ticket): string {
-  return `${formatDuePhrase(ticket.slaTargetDate)} · ${cardTimingTail(ticket)}`;
+  const duePhrase = formatDuePhrase(ticket.slaTargetDate);
+  if (duePhrase === "No SLA target") {
+    return `SLA target unavailable · ${cardTimingTail(ticket)}`;
+  }
+
+  return `SLA ${duePhrase.toLowerCase()} · ${cardTimingTail(ticket)}`;
+}
+
+function urgencyTooltip(label: string): string {
+  if (label === "Overdue") {
+    return "Past SLA target - work is already late.";
+  }
+
+  return "Approaching SLA target - work may miss deadline without action.";
 }
 
 export default function TicketCard({
@@ -307,6 +325,10 @@ export default function TicketCard({
       ? requesterLifecycleCardToneClass(ticket)
       : "";
   const slaTooltip = buildSlaTooltip(ticket);
+  const urgencyChip = isRequesterContext ? null : getUrgencyChip(ticket);
+  const ownershipGapChip = isRequesterIntakeTicket ? null : getOwnershipGapChip(ticket);
+  const activity = isRequesterIntakeTicket ? null : getActivitySignal(ticket);
+  const showStaleChip = Boolean(activity?.isStale && !isRequesterIntakeTicket);
   const chipBaseClass =
     "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium";
 
@@ -397,6 +419,36 @@ export default function TicketCard({
             {ticket.priority}
           </span>
         ) : null}
+        {!isRequesterIntakeTicket && urgencyChip ? (
+          <CortexTooltip content={urgencyTooltip(urgencyChip.label)}>
+            <span
+              className={`${chipBaseClass} cursor-help ${urgencyChip.chipClass}`}
+              tabIndex={0}
+            >
+              {urgencyChip.label}
+            </span>
+          </CortexTooltip>
+        ) : null}
+        {ownershipGapChip ? (
+          <CortexTooltip content="No Syniti Owner - no one is currently responsible.">
+            <span
+              className={`${chipBaseClass} cursor-help ${ownershipGapChip.chipClass}`}
+              tabIndex={0}
+            >
+              {ownershipGapChip.label}
+            </span>
+          </CortexTooltip>
+        ) : null}
+        {showStaleChip ? (
+          <CortexTooltip content="No update in 48h - confirm status or next action.">
+            <span
+              className={`${chipBaseClass} cursor-help border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200`}
+              tabIndex={0}
+            >
+              Stale
+            </span>
+          </CortexTooltip>
+        ) : null}
       </div>
       {approvalHelper && !secondaryStatusLabel ? (
         <p
@@ -431,7 +483,7 @@ export default function TicketCard({
       {!isRequesterIntakeTicket ? (
         <CortexTooltip content={slaTooltip}>
           <p
-            className="mt-3 line-clamp-2 cursor-help text-left text-xs leading-snug text-gray-500 dark:text-slate-500"
+            className={`mt-3 line-clamp-2 cursor-help text-left text-xs leading-snug ${urgencyChip?.timingClass ?? "text-gray-500 dark:text-slate-500"}`}
             tabIndex={0}
           >
             {mergedTimingLine(ticket)}
@@ -453,6 +505,12 @@ export default function TicketCard({
               {formatDisplayValue(readOnlyBusinessOwnerLabel(ticket))}
             </p>
           </CortexTooltip>
+          {activity ? (
+            <p className={`truncate ${activity.textClass}`}>
+              <span className="text-gray-500 dark:text-slate-500">Updated:</span>{" "}
+              {activity.label}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

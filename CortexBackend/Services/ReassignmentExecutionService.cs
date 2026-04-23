@@ -117,7 +117,7 @@ public sealed class ReassignmentExecutionService(
         var impactSnapshot = new DecisionImpactSnapshot(
             PreviousOwnerId: recommendation.CurrentOwner?.UserId,
             AssignmentField: assignmentField,
-            PreviousOwnerWorkload: recommendation.CurrentOwner?.WorkloadScore ?? 0,
+            PreviousOwnerWorkload: ToStoredWorkloadScore(recommendation.CurrentOwner?.WorkloadScore ?? 0m),
             PreviousPressureLevel: Normalize(recommendation.CurrentOwner?.PressureLevel).Length > 0
                 ? Normalize(recommendation.CurrentOwner?.PressureLevel)
                 : "low",
@@ -166,4 +166,7 @@ public sealed class ReassignmentExecutionService(
 
     private static string Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+
+    private static int ToStoredWorkloadScore(decimal workloadScore) =>
+        (int)Math.Round(workloadScore, MidpointRounding.AwayFromZero);
 }

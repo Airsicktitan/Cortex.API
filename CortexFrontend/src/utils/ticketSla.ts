@@ -160,6 +160,37 @@ export function buildSlaTooltip(ticket: SlaLabelInput) {
   }
 }
 
+export type UrgencyChip = {
+  label: string;
+  chipClass: string;
+  timingClass: string;
+} | null;
+
+/**
+ * Returns urgency chip config for Overdue and At Risk tickets.
+ * Returns null for healthy / resolved states so callers can render nothing.
+ */
+export function getUrgencyChip(ticket: SlaLabelInput): UrgencyChip {
+  const label = getSlaDisplayLabel(ticket);
+  if (label === "Overdue") {
+    return {
+      label: "Overdue",
+      chipClass:
+        "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-200 dark:border-red-800",
+      timingClass: "text-red-600 dark:text-red-400",
+    };
+  }
+  if (label === "At Risk") {
+    return {
+      label: "SLA Risk",
+      chipClass:
+        "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700",
+      timingClass: "text-amber-600 dark:text-amber-400",
+    };
+  }
+  return null;
+}
+
 function formatDuration(totalMinutes: number) {
   const absoluteMinutes = Math.abs(totalMinutes);
 

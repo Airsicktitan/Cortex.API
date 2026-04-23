@@ -15,7 +15,7 @@ public class OwnerWorkloadScoringServiceTests
         var now = DateTime.UtcNow;
 
         context.Tickets.AddRange(
-            CreateTicket("T-100", "owner-a", "owner-a", "Low", ApprovalStatus.Approved, "New", now),
+            CreateTicket("T-100", "owner-a", "owner-a", "Low", ApprovalStatus.Approved, "New", now.AddHours(-49)),
             CreateTicket("T-101", "owner-a", null, "High", ApprovalStatus.Approved, "New", now),
             CreateTicket("T-102", "owner-a", null, "Medium", ApprovalStatus.Approved, "New", now.AddHours(-1)),
             CreateTicket("T-103", "owner-a", null, "Medium", ApprovalStatus.Approved, "New", now.AddHours(-5)),
@@ -49,7 +49,7 @@ public class OwnerWorkloadScoringServiceTests
             .Setup(service => service.GetPriorityMapAsync())
             .ReturnsAsync(new Dictionary<string, SlaConfiguration>
             {
-                ["Low"] = new() { Priority = "Low", TargetHours = 24, WarningHours = 8 },
+                ["Low"] = new() { Priority = "Low", TargetHours = 240, WarningHours = 8 },
                 ["High"] = new() { Priority = "High", TargetHours = 8, WarningHours = 2 },
                 ["Medium"] = new() { Priority = "Medium", TargetHours = 4, WarningHours = 4 },
             });
@@ -70,8 +70,9 @@ public class OwnerWorkloadScoringServiceTests
         Assert.Equal(1, score.HighPriorityTicketCount);
         Assert.Equal(1, score.AtRiskTicketCount);
         Assert.Equal(1, score.OutsideSlaOpenCount);
-        Assert.Equal(2, score.SlaRiskTicketCount);
-        Assert.Equal(12, score.WorkloadScore);
+        Assert.Equal(1, score.SlaRiskTicketCount);
+        Assert.Equal(1, score.StaleTicketCount);
+        Assert.Equal(13m, score.WorkloadScore);
 
         visibilityService.Verify(service => service.GetCurrentVisibilityAsync(), Times.Never);
     }

@@ -10,9 +10,9 @@ public sealed class DecisionImpactResponse
 
     public bool RiskImproved { get; set; }
 
-    public int PreviousOwnerWorkload { get; set; }
+    public decimal PreviousOwnerWorkload { get; set; }
 
-    public int CurrentOwnerWorkload { get; set; }
+    public decimal CurrentOwnerWorkload { get; set; }
 
     public bool WorkloadImproved { get; set; }
 

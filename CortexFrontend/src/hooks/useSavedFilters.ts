@@ -21,7 +21,8 @@ function isFilterOption(value: string): value is FilterOption {
     value === "all" ||
     value === "status" ||
     value === "priority" ||
-    value === "sla"
+    value === "sla" ||
+    value === "attention"
   );
 }
 

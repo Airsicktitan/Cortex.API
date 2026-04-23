@@ -452,7 +452,7 @@ public class RebalanceOverviewServiceTests
         var userRepository = new Mock<IUserRepository>(MockBehavior.Strict);
         userRepository
             .Setup(r => r.GetAllUsersAsync())
-            .ReturnsAsync(users ?? []);
+            .ReturnsAsync(users ?? CreateUnmatchedEligibleUsers(ownerScores.Count));
 
         return new RebalanceOverviewService(
             context,
@@ -522,7 +522,29 @@ public class RebalanceOverviewServiceTests
         Id = Math.Abs(key.GetHashCode()) % 100000,
         DisplayName = displayName,
         Email = $"{key}@example.com",
+        IsActive = true,
+        IsSynitiOwnerEligible = true,
+        IsBusinessOwnerEligible = true,
     };
+
+    private static IReadOnlyList<User> CreateUnmatchedEligibleUsers(int count)
+    {
+        var users = new List<User>(count);
+        for (var i = 1; i <= count; i++)
+        {
+            users.Add(new User
+            {
+                Id = i,
+                DisplayName = $"Unmatched eligible owner {i}",
+                Email = $"unmatched-{i}@example.com",
+                IsActive = true,
+                IsSynitiOwnerEligible = true,
+                IsBusinessOwnerEligible = true,
+            });
+        }
+
+        return users;
+    }
 
     private static CortexDbContext CreateContext()
     {

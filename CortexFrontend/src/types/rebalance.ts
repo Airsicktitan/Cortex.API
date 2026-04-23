@@ -21,7 +21,9 @@ export interface OwnerWorkloadSummaryResponse {
   ownerName: string;
   totalOpenTickets: number;
   highPriorityCount: number;
+  overdueTicketCount: number;
   slaRiskCount: number;
+  staleTicketCount: number;
   workloadScore: number;
   pressureLevel: PressureLevel;
   highRiskTicketCount: number;
@@ -45,6 +47,7 @@ export interface RebalanceCandidateResponse {
   slaRiskLevel: SlaRiskLevel;
   recommendedTargetCount: number;
   topSuggestedTarget: RebalanceSuggestedTargetResponse | null;
+  alternativeTargets: RebalanceSuggestedTargetResponse[];
   potentialImpactSummary: string;
 }
 

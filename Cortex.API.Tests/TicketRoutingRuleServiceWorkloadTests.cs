@@ -67,7 +67,7 @@ public class TicketRoutingRuleServiceWorkloadTests
         Assert.Contains(candidateAssignments, assignment =>
             assignment.GetProperty("matchedRuleId").GetInt32() == 11
             && assignment.GetProperty("synitiOwner").GetString() == "user:2"
-            && assignment.GetProperty("workloadScore").GetInt32() == 1);
+            && assignment.GetProperty("combinedAssignmentWorkloadScore").GetInt32() == 1);
     }
 
     [Fact]

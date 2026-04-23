@@ -12,7 +12,7 @@ public sealed class ReassignmentRecommendationService(
     IUserRepository userRepository) : IReassignmentRecommendationService
 {
     private const int MaxTargets = 3;
-    private const int MeaningfulWorkloadDelta = 3;
+    private const decimal MeaningfulWorkloadDelta = 3m;
 
     private readonly ITicketRoutingRuleService _ticketRoutingRuleService = ticketRoutingRuleService;
     private readonly IOwnerWorkloadScoringService _ownerWorkloadScoringService = ownerWorkloadScoringService;
@@ -50,6 +50,7 @@ public sealed class ReassignmentRecommendationService(
             output[ticket.Id] = await EvaluateInternalAsync(
                 ticket,
                 riskByTicket.TryGetValue(ticket.Id, out var risk) ? risk : null,
+                users,
                 userMatchLookup,
                 cancellationToken);
         }
@@ -60,6 +61,7 @@ public sealed class ReassignmentRecommendationService(
     private async Task<ReassignmentRecommendationResponse> EvaluateInternalAsync(
         Ticket ticket,
         OperationalRiskResponse? risk,
+        IReadOnlyList<User> users,
         IReadOnlyDictionary<string, User> userMatchLookup,
         CancellationToken cancellationToken)
     {
@@ -112,6 +114,13 @@ public sealed class ReassignmentRecommendationService(
             .Select(ownerKey => CanonicalizeOwnerKey(ownerKey, userMatchLookup))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        AddDepartmentDeveloperPool(
+            eligibleOwnerKeys,
+            users,
+            requester,
+            routingDecision,
+            assignmentField);
+
         if (eligibleOwnerKeys.Count == 0)
         {
             return BuildNoSuggestion("No eligible reassignment alternatives are available.", assignmentField);
@@ -194,13 +203,6 @@ public sealed class ReassignmentRecommendationService(
             var output = new List<CandidateAssignment>();
             foreach (var candidate in assignments.EnumerateArray())
             {
-                if (!candidate.TryGetProperty("workloadScore", out var workloadNode)
-                    || workloadNode.ValueKind != JsonValueKind.Number
-                    || !workloadNode.TryGetInt32(out var workloadScore))
-                {
-                    continue;
-                }
-
                 var synitiOwner = candidate.TryGetProperty("synitiOwner", out var synitiNode)
                     && synitiNode.ValueKind == JsonValueKind.String
                     ? synitiNode.GetString()
@@ -218,8 +220,7 @@ public sealed class ReassignmentRecommendationService(
 
                 output.Add(new CandidateAssignment(
                     SynitiOwner: Normalize(synitiOwner),
-                    BusinessOwner: Normalize(businessOwner),
-                    WorkloadScore: workloadScore));
+                    BusinessOwner: Normalize(businessOwner)));
             }
 
             return output;
@@ -232,7 +233,7 @@ public sealed class ReassignmentRecommendationService(
 
     private static ReassignmentOwnerSnapshotResponse BuildCurrentOwnerSnapshot(
         string ownerKey,
-        int workloadScore,
+        decimal workloadScore,
         string pressureLevel,
         IReadOnlyDictionary<string, User> userMatchLookup)
     {
@@ -255,9 +256,9 @@ public sealed class ReassignmentRecommendationService(
 
     private static ReassignmentTargetResponse BuildTarget(
         string ownerKey,
-        int workloadScore,
+        decimal workloadScore,
         IReadOnlyDictionary<string, User> userMatchLookup,
-        int currentWorkloadScore,
+        decimal currentWorkloadScore,
         string currentPressureLevel)
     {
         var pressureLevel = ToPressureLevel(workloadScore);
@@ -306,6 +307,44 @@ public sealed class ReassignmentRecommendationService(
         }
 
         return lookup;
+    }
+
+    private static void AddDepartmentDeveloperPool(
+        IList<string> ownerKeys,
+        IEnumerable<User> users,
+        User? requester,
+        RoutingDecisionResult routingDecision,
+        string assignmentField)
+    {
+        if (assignmentField != "synitiOwner"
+            || routingDecision.OutcomeType != RoutingOutcomeType.RuleMatch
+            || !routingDecision.MatchedRuleId.HasValue)
+        {
+            return;
+        }
+
+        var department = NormalizeForLookup(requester?.Department);
+        if (department.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var user in users)
+        {
+            if (!user.IsActive
+                || !user.IsSynitiOwnerEligible
+                || !string.Equals(user.Role, Auth0Roles.Developer, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(NormalizeForLookup(user.Department), department, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var ownerKey = OwnerFieldResolution.ToCanonicalOwnerKey(user);
+            if (!ownerKeys.Contains(ownerKey, StringComparer.OrdinalIgnoreCase))
+            {
+                ownerKeys.Add(ownerKey);
+            }
+        }
     }
 
     private static void AddLookupIfMissing(
@@ -376,22 +415,8 @@ public sealed class ReassignmentRecommendationService(
         };
     }
 
-    private static string ToPressureLevel(int workloadScore)
-    {
-        if (workloadScore >= 31)
-        {
-            return "critical";
-        }
-        if (workloadScore >= 21)
-        {
-            return "high";
-        }
-        if (workloadScore >= 11)
-        {
-            return "moderate";
-        }
-        return "low";
-    }
+    private static string ToPressureLevel(decimal workloadScore) =>
+        WorkloadScoringPolicy.ToPressureLevel(workloadScore);
 
     private static string ResolveAssignmentField(Ticket ticket)
     {
@@ -422,6 +447,5 @@ public sealed class ReassignmentRecommendationService(
 
     private sealed record CandidateAssignment(
         string SynitiOwner,
-        string BusinessOwner,
-        int WorkloadScore);
+        string BusinessOwner);
 }

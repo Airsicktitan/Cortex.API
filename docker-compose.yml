@@ -22,8 +22,7 @@ services:
       - cortex-sql
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__AzureCortexDb=Server=cortex-sql;Database=CortexDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;Encrypt=False;
-      - ConnectionStrings__CortexDB=Server=cortex-sql;Database=CortexDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;Encrypt=False;
+      - ConnectionStrings__CortexDb=Server=cortex-sql;Database=CortexDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;Encrypt=False;
 
   cortex-sql:
     image: mcr.microsoft.com/mssql/server:2022-latest

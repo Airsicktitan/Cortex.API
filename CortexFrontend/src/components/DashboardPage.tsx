@@ -1,5 +1,7 @@
 import type { Ticket } from "../types/ticket";
+import type { AttentionFilterValue } from "../utils/ticketAttention";
 import { DashboardSkeleton } from "./LoadingSkeletons";
+import ExecutiveAttentionPanel from "./ExecutiveAttentionPanel";
 import { formatSlaSummary, getSlaBadgeClass, getSlaDisplayLabel } from "../utils/ticketSla";
 import {
   formatDisplayDateTime,
@@ -15,8 +17,10 @@ interface DashboardPageProps {
   tickets: Ticket[];
   loading: boolean;
   error: string | null;
+  activeAttentionFilterValue: string;
   onRefresh: () => void;
   onOpenTicket: (ticket: Ticket) => void;
+  onAttentionDrillDown: (filterValue: AttentionFilterValue) => void;
 }
 
 const CLOSED_STATUSES = new Set(["resolved", "closed"]);
@@ -273,8 +277,10 @@ export default function DashboardPage({
   tickets,
   loading,
   error,
+  activeAttentionFilterValue,
   onRefresh,
   onOpenTicket,
+  onAttentionDrillDown,
 }: DashboardPageProps) {
   if (loading) {
     return <DashboardSkeleton />;
@@ -311,7 +317,7 @@ export default function DashboardPage({
               Dashboard
             </h2>
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              A quick view of queue health, ownership, and the tickets that need attention.
+              Operational health, ownership gaps, and the work that needs management attention.
             </p>
           </div>
 
@@ -334,6 +340,12 @@ export default function DashboardPage({
         </div>
       ) : (
         <>
+          <ExecutiveAttentionPanel
+            tickets={tickets}
+            activeFilterValue={activeAttentionFilterValue}
+            onDrillDown={onAttentionDrillDown}
+          />
+
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <SummaryCard
               title="Visible Tickets"

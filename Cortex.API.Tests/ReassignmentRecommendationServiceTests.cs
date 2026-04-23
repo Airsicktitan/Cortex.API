@@ -147,6 +147,48 @@ public class ReassignmentRecommendationServiceTests
     }
 
     [Fact]
+    public async Task EvaluateAsync_IncludesZeroTicketFinanceDeveloperTargets()
+    {
+        var users = new[]
+        {
+            User(1, "owner-a", "Finance", Auth0Roles.Developer, eligible: true),
+            User(2, "owner-zero", "Finance", Auth0Roles.Developer, eligible: true),
+            User(3, "owner-hr", "HR", Auth0Roles.Developer, eligible: true),
+            User(4, "owner-user", "Finance", Auth0Roles.User, eligible: true),
+        };
+
+        var service = CreateService(
+            risk: new OperationalRiskResponse
+            {
+                RiskLevel = "high",
+                IsOwnerOverloaded = true,
+            },
+            routingResult: BuildRoutingResult(("owner-a", null, 30)),
+            ownerScores:
+            [
+                new OwnerWorkloadScoreSnapshot("user:1", 10, 4, 3, 2, 5, 30),
+                new OwnerWorkloadScoreSnapshot("user:2", 0, 0, 0, 0, 0, 0),
+            ],
+            users: users,
+            requester: new User
+            {
+                Id = 42,
+                DisplayName = "Requester",
+                Email = "requester@example.com",
+                Department = "Finance",
+                Role = Auth0Roles.User,
+            });
+
+        var recommendation = await service.EvaluateAsync(CreateTicket("T-FIN-1", "owner-a", null));
+
+        Assert.True(recommendation.ShouldSuggestReassignment);
+        var target = Assert.Single(recommendation.SuggestedTargets);
+        Assert.Equal("user:2", target.OwnerKey);
+        Assert.Equal("owner-zero", target.DisplayName);
+        Assert.Equal(0, target.WorkloadScore);
+    }
+
+    [Fact]
     public async Task EvaluateAsync_PreservesDeterministicOrderingForTies()
     {
         var service = CreateService(
@@ -179,7 +221,8 @@ public class ReassignmentRecommendationServiceTests
         OperationalRiskResponse risk,
         RoutingDecisionResult routingResult,
         IReadOnlyList<OwnerWorkloadScoreSnapshot> ownerScores,
-        IReadOnlyList<User> users)
+        IReadOnlyList<User> users,
+        User? requester = null)
     {
         var routingService = new Mock<ITicketRoutingRuleService>(MockBehavior.Strict);
         routingService
@@ -212,7 +255,7 @@ public class ReassignmentRecommendationServiceTests
             .ReturnsAsync(users);
         userRepository
             .Setup(repository => repository.GetByIdAsync(It.IsAny<int>()))
-            .ReturnsAsync(new User
+            .ReturnsAsync(requester ?? new User
             {
                 Id = 42,
                 DisplayName = "Requester",
@@ -271,6 +314,26 @@ public class ReassignmentRecommendationServiceTests
         }
 
         return users;
+    }
+
+    private static User User(
+        int id,
+        string displayName,
+        string department,
+        string role,
+        bool eligible)
+    {
+        return new User
+        {
+            Id = id,
+            DisplayName = displayName,
+            Email = $"{displayName}@example.com",
+            Department = department,
+            Role = role,
+            IsActive = true,
+            IsSynitiOwnerEligible = eligible,
+            IsBusinessOwnerEligible = eligible,
+        };
     }
 
     private static Ticket CreateTicket(

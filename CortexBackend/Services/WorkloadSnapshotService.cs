@@ -17,6 +17,7 @@ public sealed class WorkloadSnapshotService(
             .ToListAsync(cancellationToken);
         var ownerAliases = OwnerFieldResolution.BuildAliasLookup(users);
         var priorityMap = await slaConfigurationService.GetPriorityMapAsync();
+        var nowUtc = DateTime.UtcNow;
         var tickets = await dbContext.Tickets
             .AsNoTracking()
             .Where(ticket => ticket.ApprovalStatus == ApprovalStatus.Approved)
@@ -43,12 +44,38 @@ public sealed class WorkloadSnapshotService(
                 ? matches
                 : [];
 
-            var highPriorityCount = ownerTickets.Count(ticket =>
-                ticket.Priority.Equals("High", StringComparison.OrdinalIgnoreCase)
-                || ticket.Priority.Equals("Critical", StringComparison.OrdinalIgnoreCase));
+            var highPriorityCount = 0;
+            var overdueTicketCount = 0;
+            var slaRiskCount = 0;
+            var staleTicketCount = 0;
 
-            var slaRiskCount = ownerTickets.Count(ticket => IsSlaRiskTicket(ticket, priorityMap));
-            var workloadScore = ownerTickets.Count + (highPriorityCount * 2) + (slaRiskCount * 3);
+            foreach (var ticket in ownerTickets)
+            {
+                var signals = WorkloadScoringPolicy.EvaluateTicket(ticket, priorityMap, nowUtc);
+                if (signals.IsHighPriority)
+                {
+                    highPriorityCount++;
+                }
+                if (signals.IsOverdue)
+                {
+                    overdueTicketCount++;
+                }
+                if (signals.IsSlaRisk)
+                {
+                    slaRiskCount++;
+                }
+                if (signals.IsStale)
+                {
+                    staleTicketCount++;
+                }
+            }
+
+            var workloadScore = WorkloadScoringPolicy.CalculateScore(
+                ownerTickets.Count,
+                highPriorityCount,
+                overdueTicketCount,
+                slaRiskCount,
+                staleTicketCount);
 
             snapshots.Add(new WorkloadSnapshot
             {
@@ -58,9 +85,11 @@ public sealed class WorkloadSnapshotService(
                     : user.DisplayName.Trim(),
                 ActiveTicketCount = ownerTickets.Count,
                 HighPriorityCount = highPriorityCount,
+                OverdueTicketCount = overdueTicketCount,
                 SlaRiskCount = slaRiskCount,
+                StaleTicketCount = staleTicketCount,
                 WorkloadScore = workloadScore,
-                Status = ResolveWorkloadStatus(workloadScore)
+                Status = WorkloadScoringPolicy.ToSnapshotStatus(workloadScore)
             });
         }
 
@@ -81,35 +110,6 @@ public sealed class WorkloadSnapshotService(
         return snapshots.FirstOrDefault(snapshot =>
             snapshot.UserId.Equals(normalized, StringComparison.OrdinalIgnoreCase)
             || snapshot.DisplayName.Equals(normalized, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool IsSlaRiskTicket(
-        Ticket ticket,
-        IReadOnlyDictionary<string, SlaConfiguration> priorityMap)
-    {
-        priorityMap.TryGetValue(ticket.Priority ?? string.Empty, out var configuration);
-        var snapshot = TicketSlaCalculator.Calculate(ticket, configuration);
-        if (snapshot.IsBreached)
-        {
-            return true;
-        }
-
-        return snapshot.TargetDateUtc <= DateTime.UtcNow.AddHours(24);
-    }
-
-    private static string ResolveWorkloadStatus(int workloadScore)
-    {
-        if (workloadScore <= 5)
-        {
-            return "Available";
-        }
-
-        if (workloadScore <= 10)
-        {
-            return "Balanced";
-        }
-
-        return "Overloaded";
     }
 
     private static string? CanonicalizeOwnerKey(

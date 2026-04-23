@@ -84,13 +84,14 @@ public sealed class DecisionImpactService(
             var currentOwner = ResolveCurrentOwner(ticket, snapshot);
             var currentOwnerWorkload = currentOwner is not null
                 && currentScoreByOwner.TryGetValue(currentOwner, out var score)
-                    ? score
-                    : 0;
-            var currentPressure = ToPressureLevel(currentOwnerWorkload);
+                    ? WorkloadScoringPolicy.NormalizeScore(score)
+                    : 0m;
+            var currentPressure = WorkloadScoringPolicy.ToPressureLevel(currentOwnerWorkload);
             var previousRisk = NormalizeLevel(snapshot.DecisionImpactPreviousRiskLevel, "low");
             var currentRiskLevel = NormalizeLevel(currentRisk.RiskLevel, "low");
             var previousPressure = NormalizeLevel(snapshot.DecisionImpactPreviousPressureLevel, "low");
-            var previousWorkload = snapshot.DecisionImpactPreviousOwnerWorkload ?? 0;
+            decimal previousWorkload = WorkloadScoringPolicy.NormalizeScore(
+                snapshot.DecisionImpactPreviousOwnerWorkload ?? 0);
             var riskImproved = RiskRank(previousRisk) > RiskRank(currentRiskLevel);
             var workloadImproved = previousWorkload > currentOwnerWorkload;
             var pressureImproved = PressureRank(previousPressure) > PressureRank(currentPressure);
@@ -169,23 +170,6 @@ public sealed class DecisionImpactService(
         }
 
         return "No significant improvement detected";
-    }
-
-    private static string ToPressureLevel(int workloadScore)
-    {
-        if (workloadScore >= 31)
-        {
-            return "critical";
-        }
-        if (workloadScore >= 21)
-        {
-            return "high";
-        }
-        if (workloadScore >= 11)
-        {
-            return "moderate";
-        }
-        return "low";
     }
 
     private static string? NormalizeOptional(string? value) =>

@@ -12,24 +12,24 @@ public static class CortexInsightNarrativeBuilder
     {
         var aiRisk = aiAssessment?.RiskLevel?.Trim();
         var aiRiskLead = string.Equals(aiRisk, "High", StringComparison.OrdinalIgnoreCase)
-            ? "High-risk ticket detected."
+            ? "High risk signal."
             : string.Equals(aiRisk, "Medium", StringComparison.OrdinalIgnoreCase)
-                ? "Moderate-risk ticket detected."
-                : "Ticket risk remains manageable.";
+                ? "Moderate risk signal."
+                : "Low risk signal.";
 
         var assignmentLead = decisionType switch
         {
-            "KeepCurrentOwner" => $"Kept with {winner.DisplayName}",
-            "RecommendRebalance" => $"Recommend moving to {winner.DisplayName}",
-            _ => $"Assigned to {winner.DisplayName}"
+            "KeepCurrentOwner" => $"Final owner: {winner.DisplayName}.",
+            "RecommendRebalance" => $"Recommended owner: {winner.DisplayName}.",
+            _ => $"Assigned owner: {winner.DisplayName}."
         };
 
         if (current is not null
             && !string.Equals(current.UserId, winner.UserId, StringComparison.OrdinalIgnoreCase))
         {
-            return $"{aiRiskLead} {assignmentLead} to avoid overload on {current.DisplayName} and reduce SLA exposure.";
+            return $"{aiRiskLead} {assignmentLead} Current owner {current.DisplayName} has higher workload pressure.";
         }
 
-        return $"{aiRiskLead} {assignmentLead} based on routing fit and workload balance.";
+        return $"{aiRiskLead} {assignmentLead} Routing fit and workload balance support this recommendation.";
     }
 }

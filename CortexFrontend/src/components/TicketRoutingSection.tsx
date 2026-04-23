@@ -58,7 +58,7 @@ function describeRule(
   ownerDirectory: UserDirectoryEntry[],
 ) {
   const criteria: string[] = [];
-  const assignments: string[] = [];
+  const finalAssignments: string[] = [];
 
   if (rule.titleContains.trim()) {
     criteria.push(`Title contains "${rule.titleContains}"`);
@@ -85,17 +85,17 @@ function describeRule(
     const label =
       ownerDisplayLabel(rule.synitiOwner, ownerDirectory).trim() ||
       rule.synitiOwner.trim();
-    assignments.push(`Syniti: ${label}`);
+    finalAssignments.push(`Syniti: ${label}`);
   }
 
   if (rule.businessOwner.trim()) {
     const label =
       ownerDisplayLabel(rule.businessOwner, ownerDirectory).trim() ||
       rule.businessOwner.trim();
-    assignments.push(`Business: ${label}`);
+    finalAssignments.push(`Business: ${label}`);
   }
 
-  return `P${rule.rulePriority}/W${rule.weight} :: ${criteria.join(" + ") || "No match criteria"} -> ${assignments.join(" | ") || "No assignments"}`;
+  return `Priority ${rule.rulePriority} / Influence ${rule.weight}: ${criteria.join(" + ") || "No decision factors"} -> ${finalAssignments.join(" | ") || "No final assignment"}`;
 }
 
 export default function TicketRoutingSection({
@@ -164,7 +164,7 @@ export default function TicketRoutingSection({
       const directoryEntries = await userService.getDirectory(token);
       setOwnerDirectory(directoryEntries);
     } catch (error) {
-      console.error("Failed to load user directory for routing rules", error);
+      console.error("Failed to load user directory for recommendation rules", error);
       setOwnerDirectoryError(
         getUserFacingErrorMessage(error, "Unable to load users."),
       );
@@ -214,7 +214,7 @@ export default function TicketRoutingSection({
           setRoutingRoleDefinitions(roles);
         }
       } catch (error) {
-        console.error("Failed to load role definitions for routing rules", error);
+        console.error("Failed to load role definitions for recommendation rules", error);
       }
     })();
 
@@ -241,8 +241,8 @@ export default function TicketRoutingSection({
   return (
     <ConfigPageShell>
       <ConfigPageHeader
-        title="Routing rules"
-        description="Match new tickets and assign Syniti or business owners. Higher rule priority wins; ties use weight."
+        title="Cortex recommendation rules"
+        description="Define decision factors for recommended Syniti and business owners. Higher decision priority runs first; ties use influence."
         actions={
           <>
             <ConfigPrimaryButton onClick={onNew} disabled={isBusy}>
@@ -259,7 +259,7 @@ export default function TicketRoutingSection({
 
       {loading ? (
         <div className="px-6 py-10 text-center text-sm text-gray-500 dark:text-slate-400">
-          Loading routing rules…
+          Loading recommendation rules…
         </div>
       ) : (
         <ConfigPageBody>
@@ -270,7 +270,7 @@ export default function TicketRoutingSection({
               <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-8 text-center dark:border-slate-700 dark:bg-slate-800/30">
                 <p className="text-sm font-medium text-gray-800 dark:text-slate-200">No rules yet</p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                  Create a rule to route work by board, priority, department, or role.
+                  Create a decision rule for board, priority, department, or role.
                 </p>
                 <div className="mt-4 flex justify-center">
                   <ConfigPrimaryButton onClick={onNew} disabled={isBusy}>
@@ -294,7 +294,7 @@ export default function TicketRoutingSection({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-medium text-gray-900 dark:text-slate-100">
-                          Rule #{rule.id} (P{rule.rulePriority}, W{rule.weight})
+                          Rule #{rule.id} (Priority {rule.rulePriority}, Influence {rule.weight})
                         </p>
                         <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
                           {describeRule(rule, boardNameById, ownerDirectory)}
@@ -324,7 +324,7 @@ export default function TicketRoutingSection({
               <>
                 <ConfigDetailCard
                   title={isNewRule ? "New rule" : `Rule #${selectedRule.id}`}
-                  subtitle="Match criteria"
+                  subtitle="Decision factors"
                 >
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
@@ -398,7 +398,7 @@ export default function TicketRoutingSection({
                     </div>
                 </ConfigDetailCard>
 
-                <ConfigDetailCard title="Assign to" subtitle="Syniti and business owners">
+                  <ConfigDetailCard title="Final Assignment" subtitle="Recommended Syniti and business owners">
                     <div className="space-y-4">
                       <UserCombobox
                         label="Syniti owner"
@@ -431,7 +431,7 @@ export default function TicketRoutingSection({
                       className="flex w-full items-center justify-between rounded-t-xl px-4 py-3 text-left"
                     >
                       <h5 className="text-sm font-semibold text-gray-800 dark:text-slate-200">
-                        Advanced: priority &amp; weight
+                        Advanced: priority &amp; influence
                       </h5>
                       <span className="text-xs text-gray-500 dark:text-slate-400">
                         {isAdvancedOpen ? "Hide" : "Show"}
@@ -442,11 +442,11 @@ export default function TicketRoutingSection({
                         <div className="grid gap-4 md:grid-cols-2">
                           <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-slate-400">
-                              Rule Priority (higher runs first)
-                              <CortexTooltip content="Highest Rule Priority wins when multiple rules match a ticket.">
+                              Decision Priority (higher runs first)
+                              <CortexTooltip content="Highest decision priority runs first when multiple decision rules match a ticket.">
                                 <span
                                   className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
-                                  aria-label="About Rule Priority"
+                                  aria-label="About Decision Priority"
                                   tabIndex={0}
                                 >
                                   ?
@@ -464,11 +464,11 @@ export default function TicketRoutingSection({
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-slate-400">
-                              Weight
-                              <CortexTooltip content="Tie-breaker when two rules share the same Rule Priority. Higher weight wins.">
+                              Influence
+                              <CortexTooltip content="Influence breaks ties when two decision rules share the same priority. Higher influence wins.">
                                 <span
                                   className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
-                                  aria-label="About Weight"
+                                  aria-label="About Influence"
                                   tabIndex={0}
                                 >
                                   ?
@@ -511,7 +511,7 @@ export default function TicketRoutingSection({
                         selectedRule.requesterRole.trim()) &&
                       (selectedRule.synitiOwner.trim() || selectedRule.businessOwner.trim())
                         ? describeRule(selectedRule, boardNameById, ownerDirectory)
-                        : "Add at least one match and one owner."}
+                        : "Add at least one decision factor and one owner."}
                     </p>
                 </ConfigDetailCard>
 

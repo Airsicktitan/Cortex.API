@@ -56,6 +56,7 @@ import {
   canEditTickets,
   hasElevatedAccess,
 } from "./utils/role";
+import type { AttentionFilterValue } from "./utils/ticketAttention";
 
 const API_AUDIENCE = "https://cortex-api";
 const API_AUTHORIZATION_PARAMS = {
@@ -883,6 +884,39 @@ function App() {
     setMyTicketApprovalFilter("all");
   }, [clearBaseTicketFilters, setMyTicketApprovalFilter]);
 
+  const activeAttentionFilterValue = filter === "attention" ? filterValue : "";
+  const handleExecutiveAttentionDrillDown = useCallback(
+    (attentionFilterValue: AttentionFilterValue) => {
+      setSelectedSavedFilterId("");
+      setSelectedBoardId("all");
+      setMyTicketsOnly(false);
+      setMyTicketApprovalFilter("all");
+      handleSearchChange("");
+      handleFilterChange("attention");
+      handleFilterValueChange(attentionFilterValue);
+      setTicketListSort(
+        attentionFilterValue === "immediate" ||
+          attentionFilterValue === "overdue" ||
+          attentionFilterValue === "sla-risk"
+          ? "most-overdue"
+          : "oldest-first",
+      );
+      setCurrentPage(1);
+      setActiveView("tickets");
+    },
+    [
+      handleFilterChange,
+      handleFilterValueChange,
+      handleSearchChange,
+      setCurrentPage,
+      setMyTicketApprovalFilter,
+      setMyTicketsOnly,
+      setSelectedBoardId,
+      setSelectedSavedFilterId,
+      setTicketListSort,
+    ],
+  );
+
   // loadSlaConfigurations and other configuration loaders live in useConfiguration.
 
   // continueSessionAfterWarning is defined after useConfiguration (below) because its
@@ -1366,7 +1400,7 @@ function App() {
             event.eventType === "ticket.reactivated") &&
           event.ticket
         ) {
-          upsertActiveTicketLocallyRef.current(event.ticket);
+          upsertActiveTicketLocallyRef.current(event.ticket, { syncSelectedTicket: true });
           return;
         }
 
@@ -2388,6 +2422,18 @@ function App() {
     }
   });
 
+  const assignTicketToMe = useStableCallback(async (ticketId: string, ownerToken: string) => {
+    try {
+      const token = await getApiToken();
+      const saved = await ticketService.update(ticketId, { synitiOwner: ownerToken }, token);
+      upsertActiveTicketLocally(saved, { syncSelectedTicket: true });
+      toast.success("Assigned to you");
+    } catch (error) {
+      console.error("Failed to assign ticket", error);
+      toast.error(getUserFacingErrorMessage(error, "Unable to assign ticket"));
+    }
+  });
+
   const toggleThemeFromMenu = useStableCallback(() => {
     setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
     setIsUserMenuOpen(false);
@@ -2689,6 +2735,8 @@ function App() {
         onRefreshNotifications={handleRefreshNotifications}
         onMarkAllNotificationsRead={markAllNotificationsRead}
         onOpenNotification={openNotification}
+        onMarkNotificationRead={markNotificationAsRead}
+        onAssignToMe={assignTicketToMe}
         canManageJobs={canManageJobsNav}
         failedJobsCount={failedJobsCount}
         onOpenFailedJobsQueue={openFailedJobsQueue}
@@ -2719,8 +2767,10 @@ function App() {
               tickets={allTickets}
               loading={loading || apiUnavailable}
               error={apiUnavailable ? null : error}
+              activeAttentionFilterValue={activeAttentionFilterValue}
               onRefresh={() => void loadAllTickets()}
               onOpenTicket={openTicket}
+              onAttentionDrillDown={handleExecutiveAttentionDrillDown}
             />
           ) : activeView === "tickets" ? (
             <TicketsContainer
@@ -3173,4 +3223,3 @@ function App() {
 }
 
 export default App;
-

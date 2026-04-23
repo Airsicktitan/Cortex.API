@@ -1,8 +1,9 @@
-import { memo, type RefObject } from "react";
+import { memo, useMemo, type RefObject } from "react";
 import type { UserNotification } from "../types/notification";
 import type { UserProfile } from "../types/user";
 import NotificationPanel from "./NotificationPanel";
 import TicketHeaderActions from "./TicketHeaderActions";
+import { hasHighPriorityUnread } from "../utils/notificationPriority";
 
 type AppHeaderView =
   | "dashboard"
@@ -60,6 +61,8 @@ type AppHeaderProps = {
   onRefreshNotifications: () => void;
   onMarkAllNotificationsRead: () => Promise<void>;
   onOpenNotification: (notification: UserNotification) => Promise<void>;
+  onMarkNotificationRead: (notification: UserNotification) => Promise<void>;
+  onAssignToMe: (ticketId: string, ownerToken: string) => Promise<void>;
   canManageJobs: boolean;
   failedJobsCount: number;
   onOpenFailedJobsQueue: () => void;
@@ -111,6 +114,8 @@ function AppHeader({
   onRefreshNotifications,
   onMarkAllNotificationsRead,
   onOpenNotification,
+  onMarkNotificationRead,
+  onAssignToMe,
   canManageJobs,
   failedJobsCount,
   onOpenFailedJobsQueue,
@@ -125,6 +130,11 @@ function AppHeader({
   onToggleThemeFromMenu,
   onLogout,
 }: AppHeaderProps) {
+  const highPriorityUnread = useMemo(
+    () => notificationUnreadCount > 0 && hasHighPriorityUnread(notifications),
+    [notifications, notificationUnreadCount],
+  );
+
   return (
     <header className="relative z-40 border-b border-gray-200 bg-white/92 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-cortex-ink-dark/92">
       <div className="mx-auto flex w-full max-w-[2200px] flex-col gap-4 px-4 py-4 sm:px-6 sm:py-5 2xl:px-8 xl:flex-row xl:items-center xl:justify-between">
@@ -334,7 +344,13 @@ function AppHeader({
                   <path d="M8.5 16.5a1.5 1.5 0 0 0 3 0" />
                 </svg>
                 {notificationUnreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-cortex-cyan px-1 text-[11px] font-semibold leading-none text-cortex-ink">
+                  <span
+                    className={`absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-semibold leading-none ${
+                      highPriorityUnread
+                        ? "bg-red-500 text-white"
+                        : "bg-cortex-cyan text-cortex-ink"
+                    }`}
+                  >
                     {notificationUnreadCount > 9 ? "9+" : notificationUnreadCount}
                   </span>
                 )}
@@ -351,6 +367,9 @@ function AppHeader({
                   onRefresh={onRefreshNotifications}
                   onMarkAllRead={onMarkAllNotificationsRead}
                   onOpenNotification={onOpenNotification}
+                  onMarkRead={onMarkNotificationRead}
+                  onAssignToMe={onAssignToMe}
+                  currentUser={currentUser}
                 />
               )}
             </div>
@@ -512,6 +531,8 @@ function areAppHeaderPropsEqual(
     previousProps.onMarkAllNotificationsRead ===
       nextProps.onMarkAllNotificationsRead &&
     previousProps.onOpenNotification === nextProps.onOpenNotification &&
+    previousProps.onMarkNotificationRead === nextProps.onMarkNotificationRead &&
+    previousProps.onAssignToMe === nextProps.onAssignToMe &&
     previousProps.canManageJobs === nextProps.canManageJobs &&
     previousProps.failedJobsCount === nextProps.failedJobsCount &&
     previousProps.onOpenFailedJobsQueue === nextProps.onOpenFailedJobsQueue &&

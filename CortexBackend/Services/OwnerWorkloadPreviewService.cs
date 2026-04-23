@@ -40,6 +40,7 @@ public sealed class OwnerWorkloadPreviewService(
                     AtRiskTicketCount = score.AtRiskTicketCount,
                     OutsideSlaOpenCount = score.OutsideSlaOpenCount,
                     SlaRiskTicketCount = score.SlaRiskTicketCount,
+                    StaleTicketCount = score.StaleTicketCount,
                     WorkloadScore = score.WorkloadScore
                 })
                 .ToList()

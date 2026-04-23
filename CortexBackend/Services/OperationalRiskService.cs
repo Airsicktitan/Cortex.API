@@ -191,22 +191,8 @@ public sealed class OperationalRiskService(
         return "low";
     }
 
-    private static string ToPressureLevel(int workloadScore)
-    {
-        if (workloadScore >= 31)
-        {
-            return "critical";
-        }
-        if (workloadScore >= 21)
-        {
-            return "high";
-        }
-        if (workloadScore >= 11)
-        {
-            return "moderate";
-        }
-        return "low";
-    }
+    private static string ToPressureLevel(decimal workloadScore) =>
+        WorkloadScoringPolicy.ToPressureLevel(workloadScore);
 
     private static string RecommendAction(
         bool missingSynitiOwner,

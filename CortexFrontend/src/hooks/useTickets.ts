@@ -27,6 +27,10 @@ import {
   ticketService,
 } from "../services/api";
 import type { PagedTicketList } from "../types/pagedList";
+import {
+  isAttentionFilterValue,
+  ticketMatchesAttentionFilter,
+} from "../utils/ticketAttention";
 import toast from "react-hot-toast";
 
 /**
@@ -119,7 +123,7 @@ export type RequesterLifecycleSummary = {
   rejected: number;
 };
 
-export type FilterOption = "all" | "status" | "priority" | "sla";
+export type FilterOption = "all" | "status" | "priority" | "sla" | "attention";
 export type PageSizeOption = 10 | 25 | 50 | "all";
 export type TicketListSortOption =
   | "newest-first"
@@ -1318,6 +1322,12 @@ export function useTickets({
         filteredTickets = filteredTickets.filter((ticket) =>
           normalize(ticket.slaStatus ?? "").includes(filterInput),
         );
+      } else if (filter === "attention") {
+        filteredTickets = isAttentionFilterValue(filterInput)
+          ? filteredTickets.filter((ticket) =>
+              ticketMatchesAttentionFilter(ticket, filterInput),
+            )
+          : [];
       } else {
         filteredTickets = filteredTickets.filter((ticket) =>
           normalize(ticket.priority ?? "").includes(filterInput),

@@ -375,7 +375,7 @@ export const ticketService = {
       },
     );
 
-    await ensureSuccess(response, "Unable to load routing insight");
+    await ensureSuccess(response, "Unable to load recommendation details");
     return response.json() as Promise<TicketRoutingLatestResponse>;
   },
 
@@ -426,7 +426,7 @@ export const ticketService = {
       }),
     });
 
-    await ensureSuccess(response, "Routing preview unavailable");
+    await ensureSuccess(response, "Recommendation preview unavailable");
     return response.json() as Promise<RoutingPreviewResponse>;
   },
 

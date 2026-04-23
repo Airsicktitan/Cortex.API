@@ -1,5 +1,8 @@
 import type { RebalanceOverviewResponse } from "../types/rebalance";
-import type { ExecuteRebalanceResponse } from "../types/cortexDecision";
+import type {
+  ExecuteRebalanceResponse,
+  RebalanceSuggestion,
+} from "../types/cortexDecision";
 import { ensureSuccess } from "./api";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
@@ -23,10 +26,23 @@ export const rebalanceService = {
     return response.json() as Promise<RebalanceOverviewResponse>;
   },
 
-  async executeRebalance(token: string): Promise<ExecuteRebalanceResponse> {
+  async executeRebalance(
+    token: string,
+    suggestions?: RebalanceSuggestion[],
+    options?: { confirmedManualOverrideTicketIds?: string[]; dryRun?: boolean },
+  ): Promise<ExecuteRebalanceResponse> {
     const response = await fetch(`${API_BASE_URL}/rebalance/execute`, {
       method: "POST",
-      headers: authHeaders(token),
+      headers: {
+        ...authHeaders(token),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        suggestions: suggestions ?? [],
+        confirmedManualOverrideTicketIds:
+          options?.confirmedManualOverrideTicketIds ?? [],
+        dryRun: options?.dryRun === true,
+      }),
     });
 
     await ensureSuccess(response, "Unable to execute rebalance");

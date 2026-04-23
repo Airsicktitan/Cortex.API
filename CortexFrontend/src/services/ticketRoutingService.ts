@@ -19,7 +19,7 @@ export const ticketRoutingService = {
       },
     });
 
-    await ensureSuccess(response, "Failed to load ticket routing rules");
+    await ensureSuccess(response, "Failed to load Cortex recommendation rules");
     return response.json();
   },
 
@@ -33,7 +33,7 @@ export const ticketRoutingService = {
       body: JSON.stringify(definition),
     });
 
-    await ensureSuccess(response, "Failed to create ticket routing rule");
+    await ensureSuccess(response, "Failed to create Cortex recommendation rule");
     return response.json();
   },
 
@@ -48,7 +48,7 @@ export const ticketRoutingService = {
       body: JSON.stringify(definition),
     });
 
-    await ensureSuccess(response, "Failed to save ticket routing rule");
+    await ensureSuccess(response, "Failed to save Cortex recommendation rule");
     return response.json();
   },
 
@@ -60,6 +60,6 @@ export const ticketRoutingService = {
       },
     });
 
-    await ensureSuccess(response, "Failed to delete ticket routing rule");
+    await ensureSuccess(response, "Failed to delete Cortex recommendation rule");
   },
 };

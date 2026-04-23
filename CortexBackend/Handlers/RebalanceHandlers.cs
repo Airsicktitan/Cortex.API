@@ -1,4 +1,5 @@
 using Cortex.API.DTO;
+using Cortex.API.Models;
 using Cortex.API.Services;
 
 namespace Cortex.API.Handlers;
@@ -28,9 +29,23 @@ public static class RebalanceHandlers
 
     public static async Task<IResult> Execute(
         ICortexDecisionService cortexDecisionService,
+        ExecuteRebalanceRequest? request,
         CancellationToken cancellationToken)
     {
-        var result = await cortexDecisionService.ExecuteRebalanceAsync(cancellationToken);
+        var requestedSuggestions = request?.Suggestions is { Count: > 0 }
+            ? request.Suggestions
+            : null;
+        var confirmedManualOverrideTicketIds = request?.ConfirmedManualOverrideTicketIds is { Count: > 0 }
+            ? request.ConfirmedManualOverrideTicketIds
+                .Where(ticketId => !string.IsNullOrWhiteSpace(ticketId))
+                .Select(ticketId => ticketId.Trim())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+        var result = await cortexDecisionService.ExecuteRebalanceAsync(
+            requestedSuggestions,
+            confirmedManualOverrideTicketIds,
+            request?.DryRun == true,
+            cancellationToken);
         return Results.Ok(result);
     }
 }

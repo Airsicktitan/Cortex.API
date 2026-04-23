@@ -62,7 +62,8 @@ export interface RoutingExplanationPayload {
     matchedRuleId: number;
     synitiOwner: string | null;
     businessOwner: string | null;
-    workloadScore: number;
+    combinedAssignmentWorkloadScore?: number;
+    workloadScore?: number;
     ownerScores: RoutingExplanationOwnerWorkloadDto[];
   }>;
   noMatchReason?: string;
@@ -129,6 +130,7 @@ export interface OwnerWorkloadSummaryDto {
   atRiskTicketCount: number;
   outsideSlaOpenCount: number;
   slaRiskTicketCount: number;
+  staleTicketCount: number;
   workloadScore: number;
 }
 

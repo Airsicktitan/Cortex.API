@@ -194,7 +194,6 @@ C:\Users\adamc\AppData\Local\Temp\cortex-build-verify2\Cortex.API.deps.json
 C:\Users\adamc\AppData\Local\Temp\cortex-build-verify2\Cortex.API.runtimeconfig.json
 C:\Users\adamc\AppData\Local\Temp\cortex-build-verify2\Cortex.API.dll
 C:\Users\adamc\AppData\Local\Temp\cortex-build-verify2\Cortex.API.pdb
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.exe
 c:\Users\adamc\AppData\Local\Temp\cortex-build-out\appsettings.Development.json
 c:\Users\adamc\AppData\Local\Temp\cortex-build-out\appsettings.json
 c:\Users\adamc\AppData\Local\Temp\cortex-build-out\Cortex.API.staticwebassets.endpoints.json
@@ -778,3 +777,4 @@ C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.deps.js
 C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.runtimeconfig.json
 C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.dll
 C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.pdb
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.exe

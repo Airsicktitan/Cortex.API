@@ -18,9 +18,12 @@ public sealed class OwnerWorkloadSummaryDto
     /// <summary>Open tickets whose SLA status is Breached.</summary>
     public int OutsideSlaOpenCount { get; set; }
 
-    /// <summary>Open tickets currently At Risk or Breached.</summary>
+    /// <summary>Open tickets currently near SLA breach.</summary>
     public int SlaRiskTicketCount { get; set; }
 
-    /// <summary>Starter workload score: open + (high priority * 2) + (SLA risk * 3).</summary>
-    public int WorkloadScore { get; set; }
+    /// <summary>Open tickets with no activity in the stale-work window.</summary>
+    public int StaleTicketCount { get; set; }
+
+    /// <summary>Open + high priority*2 + overdue*3 + SLA risk*2.5 + stale*1.5.</summary>
+    public decimal WorkloadScore { get; set; }
 }

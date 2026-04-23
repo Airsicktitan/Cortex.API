@@ -51,10 +51,11 @@ public sealed class RebalanceOverviewService(
         var users = (await userRepository.GetAllUsersAsync()).ToList();
         var userByLookupKey = BuildUserLookup(users);
 
-        // 2. We aggregate by SynitiOwner (product decision for v1).
-        var synitiOwnerKeys = activeTickets
-            .Select(t => NormalizeOwner(t.SynitiOwner, userByLookupKey))
-            .Where(key => key.Length > 0)
+        // 2. Score every active eligible Syniti owner, including owners with
+        //    zero assigned tickets, so capacity is represented consistently.
+        var synitiOwnerKeys = users
+            .Where(user => user.IsActive && user.IsSynitiOwnerEligible)
+            .Select(OwnerFieldResolution.ToCanonicalOwnerKey)
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
@@ -195,7 +196,9 @@ public sealed class RebalanceOverviewService(
                 OwnerName = ResolveDisplayName(score.OwnerKey, userByLookupKey),
                 TotalOpenTickets = score.ActiveTicketCount,
                 HighPriorityCount = score.HighPriorityTicketCount,
+                OverdueTicketCount = score.OverdueTicketCount,
                 SlaRiskCount = score.SlaRiskTicketCount,
+                StaleTicketCount = score.StaleTicketCount,
                 WorkloadScore = score.WorkloadScore,
                 PressureLevel = ToPressureLevel(score.WorkloadScore),
                 HighRiskTicketCount = highRiskCountByOwner.GetValueOrDefault(score.OwnerKey, 0),
@@ -209,8 +212,10 @@ public sealed class RebalanceOverviewService(
                 var ownerName = ResolveDisplayName(ownerKey, userByLookupKey);
                 var ownerPressure = ToPressureLevel(ranked.OwnerScore.WorkloadScore);
                 var recommendation = recommendationsByTicket.GetValueOrDefault(ranked.Ticket.Id);
-                var topTarget = recommendation?.SuggestedTargets.FirstOrDefault(
-                    target => target.IsBetterThanCurrent);
+                var betterTargets = recommendation?.SuggestedTargets
+                    .Where(target => target.IsBetterThanCurrent)
+                    .ToList() ?? [];
+                var topTarget = betterTargets.FirstOrDefault();
 
                 return new RebalanceCandidateResponse
                 {
@@ -222,7 +227,7 @@ public sealed class RebalanceOverviewService(
                     CurrentOwnerPressureLevel = ownerPressure,
                     OperationalRiskLevel = ranked.OperationalRiskLevel,
                     SlaRiskLevel = ranked.SlaRiskLevel,
-                    RecommendedTargetCount = recommendation?.SuggestedTargets.Count ?? 0,
+                    RecommendedTargetCount = betterTargets.Count,
                     TopSuggestedTarget = topTarget is null
                         ? null
                         : new RebalanceSuggestedTargetResponse
@@ -232,6 +237,15 @@ public sealed class RebalanceOverviewService(
                             WorkloadScore = topTarget.WorkloadScore,
                             PressureLevel = topTarget.PressureLevel,
                         },
+                    AlternativeTargets = betterTargets.Skip(1).Take(2)
+                        .Select(target => new RebalanceSuggestedTargetResponse
+                        {
+                            OwnerKey = target.OwnerKey,
+                            DisplayName = target.DisplayName,
+                            WorkloadScore = target.WorkloadScore,
+                            PressureLevel = target.PressureLevel,
+                        })
+                        .ToList(),
                     PotentialImpactSummary = BuildImpactSummary(topTarget, recommendation),
                 };
             })
@@ -279,22 +293,8 @@ public sealed class RebalanceOverviewService(
     /// and ReassignmentRecommendationService. Intentionally a local helper —
     /// the threshold policy is the scoring pipeline's, not this service's.
     /// </summary>
-    private static string ToPressureLevel(int workloadScore)
-    {
-        if (workloadScore >= 31)
-        {
-            return "critical";
-        }
-        if (workloadScore >= 21)
-        {
-            return "high";
-        }
-        if (workloadScore >= 11)
-        {
-            return "moderate";
-        }
-        return "low";
-    }
+    private static string ToPressureLevel(decimal workloadScore) =>
+        WorkloadScoringPolicy.ToPressureLevel(workloadScore);
 
     private static string ToSlaLevel(string slaStatus, bool isBreached)
     {

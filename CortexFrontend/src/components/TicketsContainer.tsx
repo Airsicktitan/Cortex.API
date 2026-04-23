@@ -13,9 +13,16 @@ import type { SavedTicketFilter } from "../hooks/useSavedFilters";
 import type { ThemeMode } from "../theme";
 import type { Ticket } from "../types/ticket";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
+import {
+  ATTENTION_FILTER_LABELS,
+  ATTENTION_FILTER_OPTIONS,
+  type AttentionFilterValue,
+} from "../utils/ticketAttention";
 
 const SLA_FILTER_OPTIONS = ["Breached", "At Risk", "Met"] as const;
 const PAGE_SIZE_OPTIONS: ReadonlyArray<PageSizeOption> = [10, 25, 50, "all"];
+const ATTENTION_FILTER_SELECT_OPTIONS: ReadonlyArray<AttentionFilterValue> =
+  ATTENTION_FILTER_OPTIONS;
 const TICKET_AUTO_REFRESH_INTERVAL_MS = 15000;
 
 export type TicketsContainerProps = {
@@ -130,7 +137,6 @@ export default function TicketsContainer({
   const searchPlaceholder = myTicketsOnly
     ? "Search my requests..."
     : "Search tickets...";
-
   useEffect(() => {
     if (
       !isAuthenticated ||
@@ -270,6 +276,7 @@ export default function TicketsContainer({
             <option value="status">By Status</option>
             <option value="priority">By Priority</option>
             <option value="sla">By SLA</option>
+            <option value="attention">By Attention</option>
           </select>
 
           <label className="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600 dark:border-slate-700 dark:text-slate-400">
@@ -302,6 +309,21 @@ export default function TicketsContainer({
               {SLA_FILTER_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {option}
+                </option>
+              ))}
+            </select>
+          ) : filter === "attention" ? (
+            <select
+              value={filterValue}
+              onChange={(event) =>
+                handleFilterValueChange(event.target.value)
+              }
+              className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="">Select attention view</option>
+              {ATTENTION_FILTER_SELECT_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {ATTENTION_FILTER_LABELS[option]}
                 </option>
               ))}
             </select>

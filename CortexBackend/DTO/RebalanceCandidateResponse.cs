@@ -15,7 +15,7 @@ public sealed class RebalanceCandidateResponse
 
     public string CurrentOwnerName { get; set; } = string.Empty;
 
-    public int CurrentOwnerWorkloadScore { get; set; }
+    public decimal CurrentOwnerWorkloadScore { get; set; }
 
     /// <summary>low | moderate | high | critical</summary>
     public string CurrentOwnerPressureLevel { get; set; } = "low";
@@ -36,6 +36,11 @@ public sealed class RebalanceCandidateResponse
     public RebalanceSuggestedTargetResponse? TopSuggestedTarget { get; set; }
 
     /// <summary>
+    /// Up to two additional ranked alternatives beyond the top target.
+    /// </summary>
+    public List<RebalanceSuggestedTargetResponse> AlternativeTargets { get; set; } = [];
+
+    /// <summary>
     /// Short one-line narrative ("Better owner available", "Lower workload",
     /// etc.) used as panel microcopy — not a decision, just a hint.
     /// </summary>
@@ -48,7 +53,7 @@ public sealed class RebalanceSuggestedTargetResponse
 
     public string DisplayName { get; set; } = string.Empty;
 
-    public int WorkloadScore { get; set; }
+    public decimal WorkloadScore { get; set; }
 
     /// <summary>low | moderate | high | critical</summary>
     public string PressureLevel { get; set; } = "low";

@@ -545,12 +545,12 @@ export function useConfiguration({
         setTicketRoutingLoadedOnce(true);
         setApiUnavailable(false);
       } catch (error) {
-        console.error("Failed to load ticket routing rules", error);
+        console.error("Failed to load Cortex recommendation rules", error);
         if (isLikelyNetworkError(error)) {
           setApiUnavailable(true);
         } else {
           setApiUnavailable(false);
-          setTicketRoutingError("Failed to load ticket routing rules.");
+          setTicketRoutingError("Failed to load Cortex recommendation rules.");
         }
       } finally {
         setTicketRoutingLoading(false);
@@ -1393,14 +1393,16 @@ export function useConfiguration({
       setSelectedTicketRoutingRule(savedRule);
       setTicketRoutingLoadedOnce(true);
       toast.success(
-        isNewRule ? "Ticket routing rule created" : "Ticket routing rule saved",
+        isNewRule
+          ? "Cortex recommendation rule created"
+          : "Cortex recommendation rule saved",
       );
     } catch (error) {
-      console.error("Failed to save ticket routing rule", error);
+      console.error("Failed to save Cortex recommendation rule", error);
       setTicketRoutingError(
-        getUserFacingErrorMessage(error, "Failed to save ticket routing rule."),
+        getUserFacingErrorMessage(error, "Failed to save Cortex recommendation rule."),
       );
-      toast.error("Failed to save ticket routing rule");
+      toast.error("Failed to save Cortex recommendation rule");
       throw error;
     } finally {
       setTicketRoutingSaving(false);
@@ -1410,7 +1412,7 @@ export function useConfiguration({
   const deleteTicketRoutingRule = useCallback(async () => {
     if (!selectedTicketRoutingRule || selectedTicketRoutingRule.id === 0) return;
     const confirmed = window.confirm(
-      `Delete routing rule #${selectedTicketRoutingRule.id}?`,
+      `Delete Cortex recommendation rule #${selectedTicketRoutingRule.id}?`,
     );
     if (!confirmed) return;
     try {
@@ -1428,13 +1430,16 @@ export function useConfiguration({
         );
         return remaining[0] ?? null;
       });
-      toast.success("Ticket routing rule deleted");
+      toast.success("Cortex recommendation rule deleted");
     } catch (error) {
-      console.error("Failed to delete ticket routing rule", error);
+      console.error("Failed to delete Cortex recommendation rule", error);
       setTicketRoutingError(
-        getUserFacingErrorMessage(error, "Failed to delete ticket routing rule."),
+        getUserFacingErrorMessage(
+          error,
+          "Failed to delete Cortex recommendation rule.",
+        ),
       );
-      toast.error("Failed to delete ticket routing rule");
+      toast.error("Failed to delete Cortex recommendation rule");
       throw error;
     } finally {
       setDeletingTicketRoutingRuleId(null);
