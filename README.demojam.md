@@ -7,13 +7,13 @@ A demonstration of how enterprise support workflows can be transformed by making
 - ownership explicit
 - input structured
 - evidence understood
-- readiness measurable
+- **decisions explainable**
 
 ---
 
 ## 🎯 Demo Objective
 
-> **Bad tickets create delays. CORTEX fixes the ticket before the reviewer ever sees it.**
+> **Bad tickets create delays. CORTEX fixes the ticket — and optimizes ownership — before work begins.**
 
 ---
 
@@ -30,25 +30,27 @@ Result:
 
 - delays
 - back-and-forth
-- manual coordination
+- overloaded teams
 
 ---
 
 ## 💡 What CORTEX Changes
 
-CORTEX transforms the workflow:
-
 ### Before
 
 - vague ticket
 - reviewer guesses
+- uneven workload
 - multiple follow-ups
+
+---
 
 ### After
 
 - structured request
 - AI-extracted context
 - clear readiness signal
+- **optimized ownership**
 
 ---
 
@@ -73,8 +75,6 @@ CORTEX transforms the workflow:
 - extract real issue
 - suggest likely cause
 
-> Even with poor input, Cortex understands the problem.
-
 ---
 
 ### 4. Reviewer View
@@ -83,21 +83,44 @@ Show:
 
 - Ready / Needs Detail signal
 - structured description
-- screenshot insight already available
+- screenshot insight
 
-> Reviewer doesn’t have to guess.
+> Reviewer doesn’t guess — they act
 
 ---
 
-### 5. Metrics (Proof)
+### 5. Rebalance (💥 moment)
 
-Switch to Reports:
+Show:
+
+- overloaded owner
+- recommended reassignment
+- why the move matters
+- alternative owners considered
+
+> Cortex doesn’t just route — it optimizes
+
+---
+
+### 6. Apply Decision
+
+- safe execution
+- override when needed
+- no invalid actions
+
+> Decisions are **controlled and explainable**
+
+---
+
+### 7. Metrics (Proof)
+
+Show:
 
 - readiness distribution
 - follow-up proxy
-- usage metrics
+- workload balance
 
-> “We can measure the improvement.”
+> “We can measure the improvement”
 
 ---
 
@@ -109,37 +132,30 @@ Switch to Reports:
 
 ### Behavior
 
-- uses only valid statuses
-- uses only valid priorities
-- cannot invent workflow states
-
-### Result
-
-AI becomes:
-
-- decision support
-- not operational risk
+- uses valid system values only
+- never invents workflow states
+- enhances decisions, not authority
 
 ---
 
 ## 🧠 Key Insight
 
-> CORTEX doesn’t just process tickets — it improves them before work begins.
+> CORTEX doesn’t just process tickets — it improves them and decides what should happen next.
 
 ---
 
 ## 🎤 Close
 
-> **Better tickets → fewer follow-ups → faster decisions**
+> **Better tickets → smarter decisions → faster operations**
 
 ---
 
 ## 👨‍💻 Author
 
-Adam Hooper  
+Adam Hooper
 Senior Consultant, Syniti
 
 ---
 
-**Status:** Demo-ready  
+**Status:** Demo-ready
 **Audience:** Leadership & Engineering

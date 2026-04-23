@@ -2,7 +2,7 @@
 
 **Central Operations & Routing Technology EXpert**
 
-A modern operations platform designed to eliminate ambiguity in enterprise support workflows by making **ownership, readiness, and evidence explicit** — with AI that enhances decisions without breaking system rules.
+An enterprise operations platform that transforms support workflows by making **ownership, readiness, and decision-making explicit** — with AI that enhances decisions without breaking system rules.
 
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![.NET](https://img.shields.io/badge/.NET-8-purple)
@@ -20,7 +20,7 @@ Enterprise ticketing systems (SharePoint, email, legacy tools) create friction:
 - Follow-up is constant
 - SLA risk is hidden
 
-CORTEX was built to remove that friction.
+CORTEX removes that friction by turning tickets into **actionable, measurable decisions**.
 
 > **The goal: better tickets → fewer follow-ups → faster decisions**
 
@@ -28,34 +28,43 @@ CORTEX was built to remove that friction.
 
 ## 🎯 Core Value Proposition
 
-CORTEX answers one critical question:
+CORTEX answers two critical questions:
 
-> _Can a reviewer act on this ticket immediately — or will they need follow-up?_
+> _Can I act on this ticket immediately?_
+> _If not — what is the best next action?_
 
-It achieves this by:
+It achieves this by combining:
 
-- Improving input quality (intake assist)
-- Extracting signal from evidence (screenshot insight)
-- Surfacing readiness (reviewer signal)
-- Measuring outcomes (workflow metrics)
+- Input quality improvement (intake assist)
+- Evidence understanding (screenshot insight)
+- Readiness signaling (reviewer signal)
+- **Decision support (rebalance + routing)**
+- Outcome measurement (workflow metrics)
 
 ---
 
 ## ⚡ What Makes CORTEX Different
 
-### 🧠 AI that works inside the system
+### 🧠 Decision Engine (NEW)
+
+CORTEX doesn’t just route tickets — it **optimizes ownership**.
+
+- Evaluates all eligible owners
+- Scores workload, risk, and fit
+- Recommends reassignment with reasoning
+- Surfaces **ranked alternatives**
+- Applies changes safely with validation
+
+> From “who owns this?” → **“who should own this now?”**
+
+---
+
+### 🤖 AI inside system constraints
 
 - No hallucinated statuses or priorities
 - Uses live system configuration
 - Fully validated before persistence
-
-### 🧩 Multi-source understanding
-
-CORTEX understands:
-
-- User input (description)
-- System rules (triage + SLA)
-- Visual evidence (screenshots)
+- Enhances decisions, never overrides system authority
 
 ---
 
@@ -70,12 +79,26 @@ Ownership is explicit, enforced, and auditable.
 
 ---
 
+## 🔁 Rebalance (Operational Intelligence)
+
+CORTEX continuously evaluates workload distribution:
+
+- Identifies overloaded owners
+- Recommends optimal reassignment
+- Explains **why the move matters**
+- Shows **alternatives considered**
+- Prevents unsafe or invalid changes
+
+> Not just routing — **continuous operational correction**
+
+---
+
 ## 🤖 AI Capabilities
 
 ### 1. Intake Assist (Requester-side)
 
 - Improves descriptions before submission
-- Structures input for reviewer clarity
+- Structures input for clarity
 - Identifies missing details
 
 ---
@@ -92,27 +115,35 @@ Ownership is explicit, enforced, and auditable.
 
 ### 3. Screenshot Insight (Vision AI)
 
-- Extracts meaning from attached screenshots
+- Extracts meaning from screenshots
 - Identifies visible issues
 - Suggests likely causes
-- Recommends follow-up
 
-✔ Persisted with the ticket  
-✔ Survives modal close  
-✔ Auto-runs when needed (token-safe)
+✔ Persisted with the ticket
+✔ Survives modal close
 
 ---
 
-### 4. Workflow Metrics (Proof Layer)
+### 4. Decision Explanation (NEW)
 
-CORTEX doesn’t just help — it measures impact:
+Every recommendation includes:
 
-- Intake assist usage
-- Reviewer readiness distribution
+- Why this move
+- Expected impact
+- Constraints (manual override, stale, etc.)
+
+> CORTEX doesn’t just decide — it explains
+
+---
+
+### 5. Workflow Metrics (Proof Layer)
+
+- Readiness distribution
 - Follow-up proxy (comment count)
-- Screenshot insight usage
+- AI usage metrics
+- Operational load distribution
 
-> Moves from “this helps” → “this improves workflows”
+> Moves from “this helps” → **“this improves workflows”**
 
 ---
 
@@ -133,16 +164,8 @@ CORTEX doesn’t just help — it measures impact:
 - Make responsibility explicit
 - Constrain AI with system rules
 - Persist AI insight (not just generate it)
-- Measure outcomes, not just actions
-
----
-
-## 📁 Repository Layout
-
-- `CortexBackend/`
-- `CortexFrontend/`
-- `Cortex.API.sln`
-- `docker-compose.yml`
+- **Explain decisions, not just outcomes**
+- Measure impact, not assumptions
 
 ---
 
@@ -151,20 +174,21 @@ CORTEX doesn’t just help — it measures impact:
 - **Clarity over complexity**
 - **Signal over noise**
 - **System authority over AI guesswork**
-- **Measurement over assumption**
+- **Consistency over cleverness**
+- **Trust through explainability**
 
 ---
 
 ## 📌 Status
 
 - 🚧 Active development
-- 🧪 Demo + pilot ready
+- 🧪 Demo-ready (decision engine + rebalance)
 - 🎯 Production direction
 
 ---
 
 ## 👨‍💻 Author
 
-Adam Hooper  
-Senior Consultant, Syniti  
+Adam Hooper
+Senior Consultant, Syniti
 GitHub: https://github.com/Airsicktitan
