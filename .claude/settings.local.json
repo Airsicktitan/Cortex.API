@@ -7,7 +7,12 @@
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
       "Bash(dotnet test *)",
       "Bash(git stash *)",
-      "Bash(git restore *)"
+      "Bash(git restore *)",
+      "Bash(grep -E \"^-.*\\\\.tsx$|^-.*\\\\.ts$\")",
+      "Bash(xargs grep *)",
+      "Bash(grep -v \"^[0-9]*:\\\\s*//\")",
+      "Bash(npm run *)",
+      "Bash(dotnet build *)"
     ]
   }
 }

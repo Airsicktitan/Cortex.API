@@ -5,6 +5,7 @@ import type { ArchiveConfiguration } from "../types/archiveConfiguration";
 import type {
   CustomReportDefinition,
   DatabaseViewDefinition,
+  ReportSource,
   UpsertCustomReportDefinitionInput,
 } from "../types/customReport";
 import type { NotificationChannelConfiguration } from "../types/notificationChannelConfiguration";
@@ -162,6 +163,8 @@ interface ConfigurationPageProps {
   customReports: CustomReportDefinition[];
   databaseViews: DatabaseViewDefinition[];
   databaseViewsLoading: boolean;
+  reportSources: ReportSource[];
+  reportSourcesLoading: boolean;
   customReportError: string | null;
   customReportLoading: boolean;
   customReportSaving: boolean;
@@ -326,6 +329,8 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     customReports,
     databaseViews,
     databaseViewsLoading,
+    reportSources,
+    reportSourcesLoading,
     customReportError,
     customReportLoading,
     customReportSaving,
@@ -755,6 +760,8 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                     reports={customReports}
                     databaseViews={databaseViews}
                     databaseViewsLoading={databaseViewsLoading}
+                    reportSources={reportSources}
+                    reportSourcesLoading={reportSourcesLoading}
                     loading={customReportLoading}
                     error={customReportError}
                     saving={customReportSaving}

@@ -30,6 +30,9 @@ public partial class ReportDefinitionService(
     [GeneratedRegex("\\b(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE|GRANT|REVOKE|DENY|DBCC|BACKUP|RESTORE)\\b", RegexOptions.IgnoreCase)]
     private static partial Regex BlockedKeywordPattern();
 
+    [GeneratedRegex("\\bSELECT(?:\\s+DISTINCT|\\s+TOP\\s+\\d+)?\\s+\\*", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex SelectStarPattern();
+
     public async Task<IReadOnlyList<ReportDefinition>> GetAllAsync()
     {
         var definitions = (await _repository.GetAllAsync()).ToList();
@@ -57,22 +60,30 @@ public partial class ReportDefinitionService(
         var normalized = Normalize(definition);
         await ValidateAsync(normalized, null);
 
-        await using var transaction = await _context.Database.BeginTransactionAsync();
-        try
+        if (string.IsNullOrWhiteSpace(normalized.SourceKey))
         {
-            await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
-        }
-        catch (SqlException exception)
-        {
-            throw new ArgumentException(
-                $"SQL Server could not create the view '{normalized.ViewName}'. {exception.Message}",
-                nameof(definition),
-                exception);
-        }
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
+            }
+            catch (SqlException exception)
+            {
+                throw new ArgumentException(
+                    $"SQL Server could not create the view '{normalized.ViewName}'. {exception.Message}",
+                    nameof(definition),
+                    exception);
+            }
 
-        await _repository.AddAsync(normalized);
-        await _repository.SaveChangesAsync();
-        await transaction.CommitAsync();
+            await _repository.AddAsync(normalized);
+            await _repository.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        else
+        {
+            await _repository.AddAsync(normalized);
+            await _repository.SaveChangesAsync();
+        }
 
         return normalized;
     }
@@ -83,38 +94,64 @@ public partial class ReportDefinitionService(
             ?? throw new KeyNotFoundException("Report definition was not found.");
 
         var originalViewName = existing.ViewName;
+        var originalSourceKey = existing.SourceKey;
         var normalized = Normalize(definition);
         await ValidateAsync(normalized, id);
 
-        await using var transaction = await _context.Database.BeginTransactionAsync();
-        try
+        if (string.IsNullOrWhiteSpace(normalized.SourceKey))
         {
-            await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                await _programmabilityService.CreateOrAlterViewAsync(normalized.ViewName, normalized.SqlQuery);
+            }
+            catch (SqlException exception)
+            {
+                throw new ArgumentException(
+                    $"SQL Server could not update the view '{normalized.ViewName}'. {exception.Message}",
+                    nameof(definition),
+                    exception);
+            }
+
+            existing.Name = normalized.Name;
+            existing.ViewName = normalized.ViewName;
+            existing.Description = normalized.Description;
+            existing.SqlQuery = normalized.SqlQuery;
+            existing.IsEnabled = normalized.IsEnabled;
+            existing.SourceKey = null;
+            existing.SelectedColumns = null;
+            existing.LastModifiedDateUtc = DateTime.UtcNow;
+
+            await _repository.SaveChangesAsync();
+
+            if (!string.IsNullOrWhiteSpace(originalViewName)
+                && !string.Equals(originalViewName, normalized.ViewName, StringComparison.OrdinalIgnoreCase))
+            {
+                await _programmabilityService.DropViewAsync(originalViewName);
+            }
+
+            await transaction.CommitAsync();
         }
-        catch (SqlException exception)
+        else
         {
-            throw new ArgumentException(
-                $"SQL Server could not update the view '{normalized.ViewName}'. {exception.Message}",
-                nameof(definition),
-                exception);
+            existing.Name = normalized.Name;
+            existing.ViewName = normalized.ViewName;
+            existing.Description = normalized.Description;
+            existing.SqlQuery = normalized.SqlQuery;
+            existing.IsEnabled = normalized.IsEnabled;
+            existing.SourceKey = normalized.SourceKey;
+            existing.SelectedColumns = normalized.SelectedColumns;
+            existing.LastModifiedDateUtc = DateTime.UtcNow;
+
+            await _repository.SaveChangesAsync();
+
+            if (!string.IsNullOrWhiteSpace(originalViewName)
+                && string.IsNullOrWhiteSpace(originalSourceKey))
+            {
+                await _programmabilityService.DropViewAsync(originalViewName);
+            }
         }
 
-        existing.Name = normalized.Name;
-        existing.ViewName = normalized.ViewName;
-        existing.Description = normalized.Description;
-        existing.SqlQuery = normalized.SqlQuery;
-        existing.IsEnabled = normalized.IsEnabled;
-        existing.LastModifiedDateUtc = DateTime.UtcNow;
-
-        await _repository.SaveChangesAsync();
-
-        if (!string.IsNullOrWhiteSpace(originalViewName)
-            && !string.Equals(originalViewName, normalized.ViewName, StringComparison.OrdinalIgnoreCase))
-        {
-            await _programmabilityService.DropViewAsync(originalViewName);
-        }
-
-        await transaction.CommitAsync();
         return existing;
     }
 
@@ -146,7 +183,12 @@ public partial class ReportDefinitionService(
             throw new InvalidOperationException("This report is currently disabled.");
         }
 
-        await ValidateSqlShapeAsync(definition.SqlQuery);
+        var sqlToExecute = !string.IsNullOrWhiteSpace(definition.SourceKey)
+            && !string.IsNullOrWhiteSpace(definition.SelectedColumns)
+            ? ReportSourceRegistry.GenerateSql(definition.SourceKey, definition.SelectedColumns)
+            : definition.SqlQuery;
+
+        await ValidateSqlShapeAsync(sqlToExecute);
 
         var rows = new List<Dictionary<string, object?>>();
         var columns = new List<string>();
@@ -161,7 +203,7 @@ public partial class ReportDefinitionService(
         try
         {
             await using var command = connection.CreateCommand();
-            command.CommandText = definition.SqlQuery;
+            command.CommandText = sqlToExecute;
             command.CommandType = CommandType.Text;
             command.CommandTimeout = 30;
 
@@ -310,12 +352,22 @@ public partial class ReportDefinitionService(
             throw new ArgumentException("View name is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(definition.SqlQuery))
+        if (!string.IsNullOrWhiteSpace(definition.SourceKey))
         {
-            throw new ArgumentException("SQL query is required.");
+            if (string.IsNullOrWhiteSpace(definition.SelectedColumns))
+            {
+                throw new ArgumentException("At least one column must be selected.");
+            }
         }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(definition.SqlQuery))
+            {
+                throw new ArgumentException("SQL query is required.");
+            }
 
-        await ValidateSqlShapeAsync(definition.SqlQuery);
+            await ValidateSqlShapeAsync(definition.SqlQuery);
+        }
 
         var duplicateName = await _repository.GetByNameAsync(definition.Name);
         if (duplicateName is not null && duplicateName.Id != existingId)
@@ -354,6 +406,11 @@ public partial class ReportDefinitionService(
             throw new ArgumentException("Custom reports only support read-only SQL.");
         }
 
+        if (SelectStarPattern().IsMatch(normalized))
+        {
+            throw new ArgumentException("SELECT * is not allowed. Please select explicit columns.");
+        }
+
         return Task.CompletedTask;
     }
 
@@ -383,8 +440,51 @@ public partial class ReportDefinitionService(
     private static ReportDefinition Normalize(ReportDefinition definition)
     {
         var normalizedName = definition.Name.Trim();
-        var normalizedSqlQuery = NormalizeSqlQuery(definition.SqlQuery);
-        var viewNameFromSql = TryExtractViewNameFromSql(definition.SqlQuery);
+
+        string normalizedSqlQuery;
+        string? sourceKey = null;
+        string? selectedColumns = null;
+
+        if (!string.IsNullOrWhiteSpace(definition.SourceKey))
+        {
+            var source = ReportSourceRegistry.TryGet(definition.SourceKey)
+                ?? throw new ArgumentException($"Unknown report source '{definition.SourceKey}'.");
+
+            var requestedKeys = string.IsNullOrWhiteSpace(definition.SelectedColumns)
+                ? []
+                : definition.SelectedColumns
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            if (requestedKeys.Length == 0)
+            {
+                throw new ArgumentException("At least one column must be selected.");
+            }
+
+            var validKeys = source.Columns
+                .Select(c => c.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var invalidKeys = requestedKeys
+                .Where(k => !validKeys.Contains(k))
+                .ToList();
+
+            if (invalidKeys.Count > 0)
+            {
+                throw new ArgumentException(
+                    $"Unknown columns for source '{source.Label}': {string.Join(", ", invalidKeys)}.");
+            }
+
+            sourceKey = source.Key;
+            selectedColumns = string.Join(",", requestedKeys);
+            normalizedSqlQuery = ReportSourceRegistry.GenerateSql(source.Key, selectedColumns);
+        }
+        else
+        {
+            normalizedSqlQuery = NormalizeSqlQuery(definition.SqlQuery ?? string.Empty);
+        }
+
+        var viewNameFromSql = string.IsNullOrWhiteSpace(definition.SourceKey)
+            ? TryExtractViewNameFromSql(definition.SqlQuery ?? string.Empty)
+            : null;
         var rawViewName = string.IsNullOrWhiteSpace(definition.ViewName)
             ? viewNameFromSql ?? GenerateDefaultViewName(normalizedName)
             : definition.ViewName;
@@ -398,6 +498,8 @@ public partial class ReportDefinitionService(
                 : definition.Description.Trim(),
             SqlQuery = normalizedSqlQuery,
             IsEnabled = definition.IsEnabled,
+            SourceKey = sourceKey,
+            SelectedColumns = selectedColumns,
             CreatedDateUtc = definition.CreatedDateUtc == default
                 ? DateTime.UtcNow
                 : definition.CreatedDateUtc,

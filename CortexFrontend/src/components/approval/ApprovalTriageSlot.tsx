@@ -9,7 +9,7 @@ import {
 } from "../../utils/approvalTriage";
 import { filterScreenshotInsightNoise } from "../../utils/screenshotInsightDisplay";
 import { getTriageClarityIndicator } from "../../utils/triageClarity";
-import { ScrollToBottomButton } from "../ui/ScrollToBottomButton";
+import { ScrollableViewport } from "../ui/ScrollableViewport";
 
 function priorityBadgeClass(priorityRaw: string): string {
   const p = priorityRaw.trim().toLowerCase();
@@ -473,11 +473,12 @@ export function ApprovalTriageModalColumn({
             </p>
           ) : null}
         </div>
-        <div className="relative min-h-0 flex-1">
-          <div
-            ref={triageScrollRef}
-            className="scroll-surface h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4"
-          >
+        <ScrollableViewport
+          viewportRef={triageScrollRef}
+          outerClassName="flex-1"
+          viewportClassName="h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4"
+          affordanceAriaLabel="Scroll intake insight to bottom"
+        >
             <ApprovalTriagePanel
               triage={ticket.approvalTriagePreview}
               presentation="modalColumn"
@@ -491,12 +492,7 @@ export function ApprovalTriageModalColumn({
                 />
               </div>
             ) : null}
-          </div>
-          <ScrollToBottomButton
-            containerRef={triageScrollRef}
-            aria-label="Scroll intake insight to bottom"
-          />
-        </div>
+        </ScrollableViewport>
         {applyControls ? (
           <div className="shrink-0 border-t border-gray-100 px-3 py-3 dark:border-slate-800 sm:px-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">

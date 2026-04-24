@@ -204,9 +204,33 @@ public class ReassignmentRecommendationServiceTests
             ownerScores: [new OwnerWorkloadScoreSnapshot("user:1", 10, 4, 3, 2, 5, 30)],
             users: new[]
             {
-                new User { Id = 1, DisplayName = "owner-a", Email = "owner-a@example.com" },
-                new User { Id = 2, DisplayName = "Sarah", Email = "sarah@example.com" },
-                new User { Id = 3, DisplayName = "Adam", Email = "adam@example.com" },
+                new User
+                {
+                    Id = 1,
+                    DisplayName = "owner-a",
+                    Email = "owner-a@example.com",
+                    Role = Auth0Roles.Developer,
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
+                new User
+                {
+                    Id = 2,
+                    DisplayName = "Sarah",
+                    Email = "sarah@example.com",
+                    Role = Auth0Roles.Developer,
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
+                new User
+                {
+                    Id = 3,
+                    DisplayName = "Adam",
+                    Email = "adam@example.com",
+                    Role = Auth0Roles.Developer,
+                    IsActive = true,
+                    IsSynitiOwnerEligible = true,
+                },
             });
 
         var ticket = CreateTicket("T-6", "owner-a", null);
@@ -310,6 +334,10 @@ public class ReassignmentRecommendationServiceTests
                 Id = i + 1,
                 DisplayName = ownerKeys[i],
                 Email = $"{ownerKeys[i]}@example.com",
+                Role = Auth0Roles.Developer,
+                IsActive = true,
+                IsSynitiOwnerEligible = true,
+                IsBusinessOwnerEligible = false,
             });
         }
 

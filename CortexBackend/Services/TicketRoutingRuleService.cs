@@ -581,25 +581,25 @@ public class TicketRoutingRuleService(
                 continue;
             }
 
-            if (isSynitiSlot && !user.IsSynitiOwnerEligible)
+            if (isSynitiSlot && !OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(user))
             {
                 skippedReasons.Add(new SlotSkippedOwner(
                     RuleId: match.Rule.Id,
                     OwnerKey: ownerKey,
                     UserId: user.Id,
-                    Reason: "NotSynitiEligible",
-                    Message: "Rule target is not eligible for this assignment."));
+                    Reason: "InvalidSynitiOwnerRole",
+                    Message: "Rule target must be an active Developer eligible as Syniti owner."));
                 continue;
             }
 
-            if (!isSynitiSlot && !user.IsBusinessOwnerEligible)
+            if (!isSynitiSlot && !OwnerRoleAssignmentRules.IsValidBusinessOwnerAssignment(user))
             {
                 skippedReasons.Add(new SlotSkippedOwner(
                     RuleId: match.Rule.Id,
                     OwnerKey: ownerKey,
                     UserId: user.Id,
-                    Reason: "NotBusinessEligible",
-                    Message: "Rule target is not eligible for this assignment."));
+                    Reason: "InvalidBusinessOwnerRole",
+                    Message: "Rule target must be an active non-developer, non-guest user eligible as business owner."));
                 continue;
             }
 

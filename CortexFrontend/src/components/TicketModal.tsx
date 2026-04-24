@@ -49,7 +49,7 @@ import TicketRoutingInsight from "./TicketRoutingInsight";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
-import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 import {
   deriveReviewerIntakeQualitySignal,
   getReviewerIntakeQualityCopy,
@@ -481,6 +481,14 @@ type TypingPresence = {
   expiresAt: number;
 };
 
+function isDirectoryDeveloperRole(role: string | undefined): boolean {
+  return (role ?? "").trim().toLowerCase() === "developer";
+}
+
+function isDirectoryGuestRole(role: string | undefined): boolean {
+  return (role ?? "").trim().toLowerCase() === "guest";
+}
+
 export default function TicketModal({
   ticket,
   latestRealtimeEvent,
@@ -630,11 +638,25 @@ export default function TicketModal({
     [currentUser?.roles, currentUser?.role],
   );
   const synitiOwnerOptions = useMemo(
-    () => ownerDirectory.filter((u) => u.isActive && u.isSynitiOwnerEligible),
+    () =>
+      ownerDirectory.filter(
+        (u) =>
+          u.isActive &&
+          u.isSynitiOwnerEligible &&
+          isDirectoryDeveloperRole(u.role) &&
+          !isDirectoryGuestRole(u.role),
+      ),
     [ownerDirectory],
   );
   const businessOwnerOptions = useMemo(
-    () => ownerDirectory.filter((u) => u.isActive && u.isBusinessOwnerEligible),
+    () =>
+      ownerDirectory.filter(
+        (u) =>
+          u.isActive &&
+          u.isBusinessOwnerEligible &&
+          !isDirectoryDeveloperRole(u.role) &&
+          !isDirectoryGuestRole(u.role),
+      ),
     [ownerDirectory],
   );
   const isCreateMode = !ticket.id;
@@ -2571,23 +2593,12 @@ export default function TicketModal({
           >
             {/* ================= MAIN: ticket details / editing ================= */}
             <div className="relative flex min-h-0 min-w-0 flex-col">
-              {/*
-                Scroll-viewport positioning context.
-
-                The ScrollToBottomButton uses `absolute bottom-3 right-3` and
-                anchors to its nearest `relative` ancestor. This wrapper sits
-                *around the scroll viewport only* so the icon pins to the
-                bottom-right of the visible scrollable content body.
-
-                Review Actions and the Actions footer are intentionally kept
-                as SIBLINGS of this wrapper (outside its positioning context)
-                so the icon never lands on top of Save / Cancel / History.
-              */}
-              <div className="relative flex min-h-0 flex-1 flex-col">
-                <div
-                  ref={mainColumnScrollRef}
-                  className="scroll-surface relative min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
-                >
+              <ScrollableViewport
+                viewportRef={mainColumnScrollRef}
+                outerClassName="flex min-h-0 flex-1 flex-col"
+                viewportClassName="relative min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
+                affordanceAriaLabel="Scroll ticket details to bottom"
+              >
                   {/* Header */}
                   <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
                     <div className="min-w-0 flex-1">
@@ -3287,15 +3298,10 @@ export default function TicketModal({
                             </div>
                           ))}
                         </div>
-                      )}
+                  )}
                     </div>
                   </div>
-                </div>
-                <ScrollToBottomButton
-                  containerRef={mainColumnScrollRef}
-                  aria-label="Scroll ticket details to bottom"
-                />
-              </div>
+              </ScrollableViewport>
 
               {intakeApprovalHandlers && ticket.id ? (
                 <div className="border-t border-gray-200 pt-3 dark:border-slate-800">
@@ -3498,10 +3504,12 @@ export default function TicketModal({
                   </span>
                 </div>
 
-                <div
-                  ref={commentThreadScrollRef}
-                  onScroll={handleCommentThreadScroll}
-                  className="scroll-surface relative min-h-0 flex-1 overflow-y-auto pr-1"
+                <ScrollableViewport
+                  viewportRef={commentThreadScrollRef}
+                  outerClassName="min-h-0 flex-1"
+                  viewportClassName="relative h-full min-h-0 overflow-y-auto pr-1"
+                  affordanceAriaLabel="Scroll comments to bottom"
+                  viewportProps={{ onScroll: handleCommentThreadScroll }}
                 >
                   {loadingComments ? (
                     <p className="text-sm text-gray-500 dark:text-slate-400">
@@ -3524,11 +3532,7 @@ export default function TicketModal({
                       </button>
                     </div>
                   )}
-                </div>
-                <ScrollToBottomButton
-                  containerRef={commentThreadScrollRef}
-                  aria-label="Scroll comments to bottom"
-                />
+                </ScrollableViewport>
 
                 <div className="mt-3">
                   {typingIndicatorText && (
@@ -3582,18 +3586,13 @@ export default function TicketModal({
                 </span>
               </button>
             </div>
-            <div className="relative">
-              <div
-                ref={ticketDetailsScrollRef}
-                className="scroll-surface max-h-[min(70dvh,28rem)] overflow-y-auto p-4"
-              >
+            <ScrollableViewport
+              viewportRef={ticketDetailsScrollRef}
+              viewportClassName="max-h-[min(70dvh,28rem)] overflow-y-auto p-4"
+              affordanceAriaLabel="Scroll ticket details summary to bottom"
+            >
                 {ticketDetailsBody}
-              </div>
-              <ScrollToBottomButton
-                containerRef={ticketDetailsScrollRef}
-                aria-label="Scroll ticket details summary to bottom"
-              />
-            </div>
+            </ScrollableViewport>
           </div>
         </div>
       )}

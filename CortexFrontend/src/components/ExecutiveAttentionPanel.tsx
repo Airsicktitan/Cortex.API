@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { Ticket } from "../types/ticket";
 import {
   ATTENTION_FILTER_LABELS,
@@ -8,11 +8,16 @@ import {
   isBlockedOrWaiting,
   isAttentionFilterValue,
   isTicketOverdue,
-  needsImmediateAttention,
+  isTicketSlaRisk,
 } from "../utils/ticketAttention";
 import { getActivitySignal, getWaitingOnLabel } from "../utils/ticketActivity";
 import { formatDisplayValue, formatTicketIdentifier } from "../utils/presentation";
 import { getSlaDisplayLabel } from "../utils/ticketSla";
+import {
+  readOnlyBusinessOwnerLabel,
+  readOnlySynitiOwnerLabel,
+} from "../utils/ownerIdentity";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 
 type SummaryItem = {
   filterValue: AttentionFilterValue;
@@ -23,12 +28,15 @@ type SummaryItem = {
   getCount: (counts: ReturnType<typeof buildExecutiveSummaryCounts>) => number;
 };
 
+type ActionPanelTone = "critical" | "warning" | "neutral";
+
 type AttentionBucket = {
   filterValue: AttentionFilterValue;
   title: string;
-  reason: string;
+  subtitle: string;
+  footerLabel: string;
   emptyText: string;
-  tone: "critical" | "warning" | "neutral";
+  tone: ActionPanelTone;
   getTickets: (tickets: Ticket[]) => Ticket[];
 };
 
@@ -36,15 +44,15 @@ const SUMMARY_ITEMS: SummaryItem[] = [
   {
     filterValue: "overdue",
     title: "Overdue",
-    reason: "past SLA target and still open",
-    emptyText: "No open work is past target.",
+    reason: "Open tickets past SLA deadline.",
+    emptyText: "No open tickets are past SLA deadline.",
     tone: "critical",
     getCount: (counts) => counts.overdue,
   },
   {
     filterValue: "sla-risk",
     title: "SLA Risk",
-    reason: "approaching SLA target",
+    reason: "Tickets approaching SLA breach.",
     emptyText: "No tickets are inside the warning window.",
     tone: "warning",
     getCount: (counts) => counts.slaRisk,
@@ -52,32 +60,32 @@ const SUMMARY_ITEMS: SummaryItem[] = [
   {
     filterValue: "stale",
     title: "Stale",
-    reason: "no updates in 48h",
-    emptyText: "All visible work has recent activity.",
+    reason: "No updates in the configured stale window.",
+    emptyText: "All visible tickets have recent activity.",
     tone: "warning",
     getCount: (counts) => counts.stale,
   },
   {
     filterValue: "unassigned",
     title: "Unassigned",
-    reason: "no Syniti Owner",
-    emptyText: "Every visible ticket has a Syniti Owner.",
+    reason: "Active tickets without an owner.",
+    emptyText: "Every active ticket has an owner.",
     tone: "neutral",
     getCount: (counts) => counts.unassigned,
   },
   {
     filterValue: "waiting-business",
     title: "Waiting on Business",
-    reason: "progress depends on business response",
-    emptyText: "No ticket is waiting on business response.",
+    reason: "Waiting on business response.",
+    emptyText: "No tickets are waiting on business response.",
     tone: "warning",
     getCount: (counts) => counts.waitingBusiness,
   },
   {
     filterValue: "waiting-reviewer",
     title: "Waiting on Reviewer",
-    reason: "reviewer decision required",
-    emptyText: "No ticket is waiting on reviewer decision.",
+    reason: "Waiting on reviewer decision.",
+    emptyText: "No tickets are waiting on reviewer decision.",
     tone: "warning",
     getCount: (counts) => counts.waitingReviewer,
   },
@@ -85,25 +93,19 @@ const SUMMARY_ITEMS: SummaryItem[] = [
 
 const ATTENTION_BUCKETS: AttentionBucket[] = [
   {
-    filterValue: "immediate",
-    title: "Needs Immediate Attention",
-    reason: "work at risk of delay",
-    emptyText: "No urgent delay signals in this board state.",
-    tone: "critical",
-    getTickets: (tickets) => tickets.filter(needsImmediateAttention),
-  },
-  {
     filterValue: "ownership-gaps",
     title: "Ownership Gaps",
-    reason: "no one is currently responsible",
-    emptyText: "Ownership is clear for visible work.",
+    subtitle: "Tickets that need a clear owner.",
+    footerLabel: "Open ownership gap queue →",
+    emptyText: "Every visible ticket has a clear owner.",
     tone: "neutral",
     getTickets: (tickets) => tickets.filter(hasOwnershipGap),
   },
   {
     filterValue: "blocked-waiting",
     title: "Blocked / Waiting",
-    reason: "progress depends on others",
+    subtitle: "Tickets waiting on another response or decision.",
+    footerLabel: "Open blocked / waiting queue →",
     emptyText: "No visible work is blocked by another party.",
     tone: "warning",
     getTickets: (tickets) => tickets.filter(isBlockedOrWaiting),
@@ -119,17 +121,13 @@ function getTicketTime(ticket: Ticket, field: "created" | "activity") {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function sortPreviewTickets(
+function sortActionTickets(
   filterValue: AttentionFilterValue,
   tickets: Ticket[],
 ) {
   const copy = [...tickets];
 
-  if (
-    filterValue === "immediate" ||
-    filterValue === "overdue" ||
-    filterValue === "sla-risk"
-  ) {
+  if (filterValue === "overdue" || filterValue === "sla-risk") {
     return copy.sort((left, right) => {
       const overdueDelta =
         Number(isTicketOverdue(right)) - Number(isTicketOverdue(left));
@@ -139,14 +137,6 @@ function sortPreviewTickets(
       if (slaDelta !== 0) return slaDelta;
 
       return getTicketTime(left, "created") - getTicketTime(right, "created");
-    });
-  }
-
-  if (filterValue === "stale") {
-    return copy.sort((left, right) => {
-      const leftActivity = getActivitySignal(left)?.minutesSince ?? 0;
-      const rightActivity = getActivitySignal(right)?.minutesSince ?? 0;
-      return rightActivity - leftActivity;
     });
   }
 
@@ -163,10 +153,10 @@ function sortPreviewTickets(
   );
 }
 
-function getPreviewReason(ticket: Ticket) {
+function getBucketTicketDetail(ticket: Ticket) {
   const slaLabel = getSlaDisplayLabel(ticket);
   if (slaLabel === "Overdue") return "Overdue";
-  if (slaLabel === "At Risk") return "SLA Risk";
+  if (slaLabel === "At Risk") return "At Risk";
 
   const activitySignal = getActivitySignal(ticket);
   if (activitySignal?.isStale) return `Stale ${activitySignal.label}`;
@@ -182,7 +172,7 @@ function getPreviewReason(ticket: Ticket) {
 function getButtonClass(
   isActive: boolean,
   hasCount: boolean,
-  tone: "critical" | "warning" | "neutral",
+  tone: ActionPanelTone,
 ) {
   const base =
     "rounded-md border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-cortex-blue/40";
@@ -206,16 +196,278 @@ function getButtonClass(
   return `${base} border-gray-200 bg-white text-gray-900 hover:border-cortex-blue hover:bg-blue-50/70 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-blue-400 dark:hover:bg-blue-950/30`;
 }
 
+function getActionPanelClass(tone: ActionPanelTone, isActive: boolean) {
+  const base =
+    "flex min-h-0 flex-col overflow-hidden rounded-lg border p-4 shadow-sm lg:h-full";
+  const active =
+    isActive
+      ? "border-cortex-blue ring-2 ring-cortex-blue/15 dark:border-blue-400 dark:ring-cortex-blue/20"
+      : "";
+
+  if (tone === "critical") {
+    return `${base} border-red-200 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/10 ${active}`;
+  }
+
+  if (tone === "warning") {
+    return `${base} border-amber-200 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/10 ${active}`;
+  }
+
+  return `${base} border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900 ${active}`;
+}
+
+function getActionPanelBadgeClass(
+  tone: ActionPanelTone,
+  isActive: boolean,
+  hasCount: boolean,
+) {
+  if (isActive) {
+    return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200";
+  }
+
+  if (!hasCount) {
+    return "bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-slate-400";
+  }
+
+  if (tone === "critical") {
+    return "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200";
+  }
+
+  if (tone === "warning") {
+    return "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200";
+  }
+
+  return "bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-200";
+}
+
+function getActionPanelFooterClass(tone: ActionPanelTone, isActive: boolean) {
+  const base =
+    "text-xs font-medium transition-colors hover:underline focus:outline-none focus:ring-2 focus:ring-cortex-blue/40";
+
+  if (isActive) {
+    return `${base} text-cortex-blue dark:text-blue-300`;
+  }
+
+  if (tone === "critical") {
+    return `${base} text-red-700 dark:text-red-400`;
+  }
+
+  if (tone === "warning") {
+    return `${base} text-amber-700 dark:text-amber-400`;
+  }
+
+  return `${base} text-cortex-blue dark:text-blue-300`;
+}
+
+function fmtDuration(totalMinutes: number): string {
+  const abs = Math.abs(totalMinutes);
+  if (abs === 0) return "0m";
+  if (abs < 60) return `${abs}m`;
+  if (abs < 24 * 60) {
+    const h = Math.round((abs / 60) * 10) / 10;
+    return Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`;
+  }
+  const d = Math.round((abs / (24 * 60)) * 10) / 10;
+  return Number.isInteger(d) ? `${d}d` : `${d.toFixed(1)}d`;
+}
+
+function getRiskOwnerLabel(ticket: Ticket): string {
+  const syniti = readOnlySynitiOwnerLabel(ticket).trim();
+  if (syniti && syniti !== "—") return syniti;
+  const business = readOnlyBusinessOwnerLabel(ticket).trim();
+  return business && business !== "—" ? business : "Unassigned";
+}
+
+function ActionTicketRow({
+  ticket,
+  detail,
+  onOpenTicket,
+}: {
+  ticket: Ticket;
+  detail: string;
+  onOpenTicket: (ticket: Ticket) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenTicket(ticket)}
+      className="w-full rounded-md border border-gray-100 bg-gray-50 px-3 py-2.5 text-left text-xs transition-colors hover:border-gray-200 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-cortex-blue/40 dark:border-slate-800 dark:bg-slate-950/50 dark:hover:border-slate-700 dark:hover:bg-slate-900/80"
+    >
+      <p className="font-medium text-gray-900 dark:text-slate-100">
+        {formatTicketIdentifier(ticket.id)}
+      </p>
+      <p className="mt-0.5 truncate text-gray-500 dark:text-slate-400">
+        {formatDisplayValue(ticket.title)}
+      </p>
+      <p className="mt-1 font-medium text-gray-600 dark:text-slate-300">{detail}</p>
+    </button>
+  );
+}
+
+function ActionPanel({
+  title,
+  subtitle,
+  emptyText,
+  footerLabel,
+  tone,
+  isActive,
+  tickets,
+  onFooterClick,
+  onOpenTicket,
+  getDetail,
+}: {
+  title: string;
+  subtitle: string;
+  emptyText: string;
+  footerLabel: string;
+  tone: ActionPanelTone;
+  isActive: boolean;
+  tickets: Ticket[];
+  onFooterClick: () => void;
+  onOpenTicket: (ticket: Ticket) => void;
+  getDetail: (ticket: Ticket) => string;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const hasTickets = tickets.length > 0;
+
+  return (
+    <section className={getActionPanelClass(tone, isActive)}>
+      <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-3 dark:border-slate-800">
+        <div>
+          <h4 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+            {title}
+          </h4>
+          <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
+            {subtitle}
+          </p>
+        </div>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${getActionPanelBadgeClass(tone, isActive, hasTickets)}`}
+        >
+          {tickets.length}
+        </span>
+      </div>
+
+      <ScrollableViewport
+        viewportRef={scrollRef}
+        outerClassName="mt-3 flex-1"
+        viewportClassName="scroll-chain-auto h-full overflow-y-auto pr-1"
+        affordanceAriaLabel={`Scroll ${title.toLowerCase()} panel to bottom`}
+      >
+          {hasTickets ? (
+            <div className="space-y-2 pb-1">
+              {tickets.map((ticket) => (
+                <ActionTicketRow
+                  key={ticket.id}
+                  ticket={ticket}
+                  detail={getDetail(ticket)}
+                  onOpenTicket={onOpenTicket}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center px-2">
+              <p className="rounded-md border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400 dark:border-slate-800 dark:text-slate-600">
+                {emptyText}
+              </p>
+            </div>
+          )}
+      </ScrollableViewport>
+
+      {hasTickets ? (
+        <div className="mt-3 border-t border-gray-200 pt-3 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={onFooterClick}
+            className={getActionPanelFooterClass(tone, isActive)}
+          >
+            {footerLabel}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function CriticalIssuesPanel({
+  tickets,
+  isActive,
+  onDrillDown,
+  onOpenTicket,
+}: {
+  tickets: Ticket[];
+  isActive: boolean;
+  onDrillDown: (filterValue: AttentionFilterValue) => void;
+  onOpenTicket: (ticket: Ticket) => void;
+}) {
+  const overdueTickets = sortActionTickets(
+    "overdue",
+    tickets.filter(isTicketOverdue),
+  );
+
+  return (
+    <ActionPanel
+      title="Critical Issues"
+      subtitle="Open tickets past SLA deadline."
+      emptyText="No overdue work."
+      footerLabel="Open overdue queue →"
+      tone="critical"
+      isActive={isActive}
+      tickets={overdueTickets}
+      onFooterClick={() => onDrillDown("overdue")}
+      onOpenTicket={onOpenTicket}
+      getDetail={(ticket) =>
+        `${fmtDuration(ticket.slaRemainingMinutes)} overdue · Owner: ${getRiskOwnerLabel(ticket)}`
+      }
+    />
+  );
+}
+
+function AtRiskPanel({
+  tickets,
+  isActive,
+  onDrillDown,
+  onOpenTicket,
+}: {
+  tickets: Ticket[];
+  isActive: boolean;
+  onDrillDown: (filterValue: AttentionFilterValue) => void;
+  onOpenTicket: (ticket: Ticket) => void;
+}) {
+  const atRiskTickets = sortActionTickets(
+    "sla-risk",
+    tickets.filter(isTicketSlaRisk),
+  );
+
+  return (
+    <ActionPanel
+      title="At Risk"
+      subtitle="Tickets approaching SLA breach."
+      emptyText="No work is currently inside the warning window."
+      footerLabel="Open at-risk queue →"
+      tone="warning"
+      isActive={isActive}
+      tickets={atRiskTickets}
+      onFooterClick={() => onDrillDown("sla-risk")}
+      onOpenTicket={onOpenTicket}
+      getDetail={(ticket) =>
+        `Due in ${fmtDuration(ticket.slaRemainingMinutes)} · Owner: ${getRiskOwnerLabel(ticket)}`
+      }
+    />
+  );
+}
+
 interface ExecutiveAttentionPanelProps {
   tickets: Ticket[];
   activeFilterValue: string;
   onDrillDown: (filterValue: AttentionFilterValue) => void;
+  onOpenTicket: (ticket: Ticket) => void;
 }
 
 export default function ExecutiveAttentionPanel({
   tickets,
   activeFilterValue,
   onDrillDown,
+  onOpenTicket,
 }: ExecutiveAttentionPanelProps) {
   const counts = useMemo(() => buildExecutiveSummaryCounts(tickets), [tickets]);
   const buckets = useMemo(
@@ -224,8 +476,7 @@ export default function ExecutiveAttentionPanel({
         const bucketTickets = bucket.getTickets(tickets);
         return {
           ...bucket,
-          tickets: bucketTickets,
-          preview: sortPreviewTickets(bucket.filterValue, bucketTickets).slice(0, 2),
+          tickets: sortActionTickets(bucket.filterValue, bucketTickets),
         };
       }),
     [tickets],
@@ -243,7 +494,7 @@ export default function ExecutiveAttentionPanel({
     0;
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase text-cortex-blue dark:text-blue-300">
@@ -274,7 +525,7 @@ export default function ExecutiveAttentionPanel({
         </div>
       ) : null}
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {SUMMARY_ITEMS.map((item) => {
           const count = item.getCount(counts);
           const isActive = activeFilterValue === item.filterValue;
@@ -301,62 +552,34 @@ export default function ExecutiveAttentionPanel({
         })}
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-3">
-        {buckets.map((bucket) => {
-          const count = bucket.tickets.length;
-          const isActive = activeFilterValue === bucket.filterValue;
-          const hasCount = count > 0;
-
-          return (
-            <button
-              key={bucket.filterValue}
-              type="button"
-              onClick={() => onDrillDown(bucket.filterValue)}
-              disabled={!hasCount}
-              className={getButtonClass(isActive, hasCount, bucket.tone)}
-              aria-label={`${bucket.title}: ${count}`}
-            >
-              <span className="flex items-start justify-between gap-3">
-                <span>
-                  <span className="block text-sm font-semibold">
-                    {bucket.title}
-                  </span>
-                  <span className="mt-1 block text-xs text-gray-500 dark:text-slate-400">
-                    {bucket.reason}
-                  </span>
-                </span>
-                <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 dark:bg-slate-800 dark:text-slate-200">
-                  {count}
-                </span>
-              </span>
-
-              <span className="mt-3 block space-y-2">
-                {bucket.preview.length > 0 ? (
-                  bucket.preview.map((ticket) => (
-                    <span
-                      key={ticket.id}
-                      className="block rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-950/50"
-                    >
-                      <span className="block font-medium text-gray-900 dark:text-slate-100">
-                        {formatTicketIdentifier(ticket.id)}
-                      </span>
-                      <span className="mt-0.5 block truncate text-gray-500 dark:text-slate-400">
-                        {formatDisplayValue(ticket.title)}
-                      </span>
-                      <span className="mt-1 block font-medium text-gray-600 dark:text-slate-300">
-                        {getPreviewReason(ticket)}
-                      </span>
-                    </span>
-                  ))
-                ) : (
-                  <span className="block rounded-md border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-400 dark:border-slate-800 dark:text-slate-600">
-                    {bucket.emptyText}
-                  </span>
-                )}
-              </span>
-            </button>
-          );
-        })}
+      <div className="mt-4 grid gap-3 lg:min-h-0 lg:flex-1 lg:auto-rows-fr lg:grid-cols-2">
+        <CriticalIssuesPanel
+          tickets={tickets}
+          isActive={activeFilterValue === "overdue"}
+          onDrillDown={onDrillDown}
+          onOpenTicket={onOpenTicket}
+        />
+        <AtRiskPanel
+          tickets={tickets}
+          isActive={activeFilterValue === "sla-risk"}
+          onDrillDown={onDrillDown}
+          onOpenTicket={onOpenTicket}
+        />
+        {buckets.map((bucket) => (
+          <ActionPanel
+            key={bucket.filterValue}
+            title={bucket.title}
+            subtitle={bucket.subtitle}
+            emptyText={bucket.emptyText}
+            footerLabel={bucket.footerLabel}
+            tone={bucket.tone}
+            isActive={activeFilterValue === bucket.filterValue}
+            tickets={bucket.tickets}
+            onFooterClick={() => onDrillDown(bucket.filterValue)}
+            onOpenTicket={onOpenTicket}
+            getDetail={getBucketTicketDetail}
+          />
+        ))}
       </div>
     </section>
   );

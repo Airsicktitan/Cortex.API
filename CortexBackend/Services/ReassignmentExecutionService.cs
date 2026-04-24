@@ -99,6 +99,22 @@ public sealed class ReassignmentExecutionService(
                 "Selected user is not eligible to be assigned as business owner.");
         }
 
+        try
+        {
+            if (assignmentField == "synitiOwner")
+            {
+                OwnerRoleAssignmentRules.EnsureSynitiOwnerAssignment(selectedUser);
+            }
+            else
+            {
+                OwnerRoleAssignmentRules.EnsureBusinessOwnerAssignment(selectedUser);
+            }
+        }
+        catch (ArgumentException exception)
+        {
+            return Failed(StatusCodes.Status400BadRequest, exception.Message);
+        }
+
         var newOwner = OwnerFieldResolution.ToCanonicalOwnerKey(selectedUser);
 
         if (string.Equals(newOwner, currentOwner, StringComparison.OrdinalIgnoreCase))

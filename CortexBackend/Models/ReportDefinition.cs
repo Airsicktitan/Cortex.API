@@ -8,6 +8,8 @@ public class ReportDefinition
     public string? Description { get; set; }
     public string SqlQuery { get; set; } = string.Empty;
     public bool IsEnabled { get; set; } = true;
+    public string? SourceKey { get; set; }
+    public string? SelectedColumns { get; set; }
     public DateTime CreatedDateUtc { get; set; } = DateTime.UtcNow;
     public DateTime? LastModifiedDateUtc { get; set; }
 }

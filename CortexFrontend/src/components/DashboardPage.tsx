@@ -1,7 +1,9 @@
+import { useRef, useState } from "react";
 import type { Ticket } from "../types/ticket";
 import type { AttentionFilterValue } from "../utils/ticketAttention";
 import { DashboardSkeleton } from "./LoadingSkeletons";
 import ExecutiveAttentionPanel from "./ExecutiveAttentionPanel";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 import { formatSlaSummary, getSlaBadgeClass, getSlaDisplayLabel } from "../utils/ticketSla";
 import {
   formatDisplayDateTime,
@@ -109,26 +111,6 @@ function sortByMostRecent(tickets: Ticket[]) {
 
     return rightDate - leftDate;
   });
-}
-
-function SummaryCard({
-  title,
-  value,
-  description,
-  className,
-}: {
-  title: string;
-  value: number;
-  description: string;
-  className: string;
-}) {
-  return (
-    <div className={`rounded-lg border p-5 ${className}`}>
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-3 text-3xl font-semibold">{value}</p>
-      <p className="mt-2 text-sm opacity-80">{description}</p>
-    </div>
-  );
 }
 
 function DistributionCard({
@@ -273,6 +255,14 @@ function TicketTable({
   );
 }
 
+type DashboardTab = "overview" | "analytics" | "activity";
+
+const TABS: { id: DashboardTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "analytics", label: "Analytics" },
+  { id: "activity", label: "Activity" },
+];
+
 export default function DashboardPage({
   tickets,
   loading,
@@ -282,17 +272,15 @@ export default function DashboardPage({
   onOpenTicket,
   onAttentionDrillDown,
 }: DashboardPageProps) {
+  const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
+  const tabScrollRef = useRef<HTMLDivElement | null>(null);
+
   if (loading) {
     return <DashboardSkeleton />;
   }
 
   const activeTickets = tickets.filter((ticket) => !isClosedTicket(ticket));
   const closedTickets = tickets.filter(isClosedTicket);
-  const breachedTickets = activeTickets.filter((ticket) => ticket.slaStatus === "Breached");
-  const atRiskTickets = activeTickets.filter((ticket) => ticket.slaStatus === "At Risk");
-  const unassignedTickets = activeTickets.filter(
-    (ticket) => getOwnerLabel(ticket) === "—",
-  );
 
   const statusBreakdown = buildCounts(tickets.map((ticket) => ticket.status));
   const priorityBreakdown = buildCounts(
@@ -309,8 +297,8 @@ export default function DashboardPage({
   const recentlyUpdatedTickets = sortByMostRecent(tickets).slice(0, 8);
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+    <div className="flex min-h-0 flex-col gap-6 lg:h-full lg:overflow-hidden">
+      <section className="shrink-0 rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
@@ -328,140 +316,143 @@ export default function DashboardPage({
             Refresh
           </button>
         </div>
+
+        <div className="mt-5 flex gap-1 border-t border-gray-100 pt-4 dark:border-slate-800">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cortex-blue/40 ${
+                  isActive
+                    ? "bg-cortex-blue text-white"
+                    : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </section>
 
-      {error ? (
-        <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
-          <p className="text-red-700 dark:text-red-300">{error}</p>
-        </div>
-      ) : tickets.length === 0 ? (
-        <div className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center text-gray-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-          No ticket data is available for the dashboard yet.
-        </div>
-      ) : (
-        <>
-          <ExecutiveAttentionPanel
-            tickets={tickets}
-            activeFilterValue={activeAttentionFilterValue}
-            onDrillDown={onAttentionDrillDown}
-          />
-
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <SummaryCard
-              title="Visible Tickets"
-              value={tickets.length}
-              description="All tickets available to your current role."
-              className="border-gray-200 bg-white text-gray-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
-            />
-            <SummaryCard
-              title="Active Queue"
-              value={activeTickets.length}
-              description="Tickets still being worked."
-              className="border-cortex-blue/30 bg-cortex-blue-soft text-cortex-ink dark:border-cortex-blue/30 dark:bg-cortex-blue/20 dark:text-slate-100"
-            />
-            <SummaryCard
-              title="Overdue"
-              value={breachedTickets.length}
-              description="Open tickets past their SLA deadline."
-              className="border-red-200 bg-red-50 text-red-900 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-100"
-            />
-            <SummaryCard
-              title="At Risk"
-              value={atRiskTickets.length}
-              description="Open tickets inside the warning window."
-              className="border-yellow-200 bg-yellow-50 text-yellow-900 dark:border-yellow-900/40 dark:bg-yellow-950/20 dark:text-yellow-100"
-            />
-            <SummaryCard
-              title="Unassigned"
-              value={unassignedTickets.length}
-              description="Active tickets without an owner."
-              className="border-gray-300 bg-gray-50 text-gray-900 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-100"
-            />
-          </section>
-
-          <div className="grid gap-6 xl:grid-cols-3">
-            <DistributionCard
-              title="Status Mix"
-              description="Current ticket statuses across your visible set."
-              items={statusBreakdown}
-              total={tickets.length}
-            />
-            <DistributionCard
-              title="Priority Mix"
-              description="Priority distribution for the active queue."
-              items={priorityBreakdown}
-              total={activeTickets.length}
-            />
-            <DistributionCard
-              title="Owner Workload"
-              description="Top active-ticket ownership counts."
-              items={ownerBreakdown}
-              total={activeTickets.length}
-            />
+      <div className="min-h-0 flex-1 lg:overflow-hidden">
+        {error ? (
+          <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
+            <p className="text-red-700 dark:text-red-300">{error}</p>
           </div>
-
-          <div className="grid gap-6 xl:grid-cols-2">
-            <TicketTable
-              title="Needs Attention"
-              description="Overdue and at-risk tickets sorted by urgency."
-              tickets={attentionTickets}
-              emptyMessage="No active tickets currently need urgent SLA attention."
-              rightColumnLabel="Due"
-              renderRightColumn={(ticket) => formatDisplayDateTime(ticket.slaTargetDate)}
-              onOpenTicket={onOpenTicket}
-            />
-            <TicketTable
-              title="Recently Updated"
-              description="The most recently changed tickets in your visible set."
-              tickets={recentlyUpdatedTickets}
-              emptyMessage="No recently updated tickets found."
-              rightColumnLabel="Updated"
-              renderRightColumn={(ticket) =>
-                formatDisplayDateTime(ticket.lastModifiedDate ?? ticket.createdDate)
-              }
+        ) : tickets.length === 0 ? (
+          <div className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center text-gray-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+            No ticket data is available for the dashboard yet.
+          </div>
+        ) : activeTab === "overview" ? (
+          <div className="lg:h-full lg:min-h-0 lg:overflow-hidden">
+            <ExecutiveAttentionPanel
+              tickets={tickets}
+              activeFilterValue={activeAttentionFilterValue}
+              onDrillDown={onAttentionDrillDown}
               onOpenTicket={onOpenTicket}
             />
           </div>
-
-          <section className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-lg border border-green-200 bg-green-50 p-5 dark:border-green-900/40 dark:bg-green-950/20">
-              <p className="text-sm font-medium text-green-700 dark:text-green-300">
-                Closed in SLA
-              </p>
-              <p className="mt-3 text-3xl font-semibold text-green-900 dark:text-green-100">
-                {tickets.filter((ticket) => ticket.slaStatus === "Met").length}
-              </p>
-              <p className="mt-2 text-sm text-green-700/80 dark:text-green-300/80">
-                Resolved or closed within the target window.
-              </p>
+        ) : activeTab === "analytics" ? (
+          <ScrollableViewport
+            viewportRef={tabScrollRef}
+            outerClassName="lg:h-full"
+            viewportClassName="scroll-chain-auto space-y-6 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1"
+            affordanceAriaLabel="Scroll dashboard analytics to bottom"
+          >
+            <div className="grid gap-6 xl:grid-cols-3">
+              <DistributionCard
+                title="Status Mix"
+                description="Current ticket statuses across your visible set."
+                items={statusBreakdown}
+                total={tickets.length}
+              />
+              <DistributionCard
+                title="Priority Mix"
+                description="Priority distribution for the active queue."
+                items={priorityBreakdown}
+                total={activeTickets.length}
+              />
+              <DistributionCard
+                title="Owner Workload"
+                description="Top active-ticket ownership counts."
+                items={ownerBreakdown}
+                total={activeTickets.length}
+              />
             </div>
 
-            <div className="rounded-lg border border-orange-200 bg-orange-50 p-5 dark:border-orange-900/40 dark:bg-orange-950/20">
-              <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
-                Resolved Late
-              </p>
-              <p className="mt-3 text-3xl font-semibold text-orange-900 dark:text-orange-100">
-                {tickets.filter((ticket) => ticket.slaStatus === "Resolved Late").length}
-              </p>
-              <p className="mt-2 text-sm text-orange-700/80 dark:text-orange-300/80">
-                Completed after the SLA target was missed.
-              </p>
-            </div>
+            <section className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg border border-green-200 bg-green-50 p-5 dark:border-green-900/40 dark:bg-green-950/20">
+                <p className="text-sm font-medium text-green-700 dark:text-green-300">
+                  Closed in SLA
+                </p>
+                <p className="mt-3 text-3xl font-semibold text-green-900 dark:text-green-100">
+                  {tickets.filter((ticket) => ticket.slaStatus === "Met").length}
+                </p>
+                <p className="mt-2 text-sm text-green-700/80 dark:text-green-300/80">
+                  Resolved or closed within the target window.
+                </p>
+              </div>
 
-            <div className="rounded-lg border border-slate-300 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/80">
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Closed / Resolved
-              </p>
-              <p className="mt-3 text-3xl font-semibold text-slate-900 dark:text-slate-100">
-                {closedTickets.length}
-              </p>
-              <p className="mt-2 text-sm text-slate-700/80 dark:text-slate-300/80">
-                Tickets no longer in the active working queue.
-              </p>
+              <div className="rounded-lg border border-orange-200 bg-orange-50 p-5 dark:border-orange-900/40 dark:bg-orange-950/20">
+                <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                  Resolved Late
+                </p>
+                <p className="mt-3 text-3xl font-semibold text-orange-900 dark:text-orange-100">
+                  {tickets.filter((ticket) => ticket.slaStatus === "Resolved Late").length}
+                </p>
+                <p className="mt-2 text-sm text-orange-700/80 dark:text-orange-300/80">
+                  Completed after the SLA target was missed.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-slate-300 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900/80">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Closed / Resolved
+                </p>
+                <p className="mt-3 text-3xl font-semibold text-slate-900 dark:text-slate-100">
+                  {closedTickets.length}
+                </p>
+                <p className="mt-2 text-sm text-slate-700/80 dark:text-slate-300/80">
+                  Tickets no longer in the active working queue.
+                </p>
+              </div>
+            </section>
+          </ScrollableViewport>
+        ) : (
+          <ScrollableViewport
+            viewportRef={tabScrollRef}
+            outerClassName="lg:h-full"
+            viewportClassName="scroll-chain-auto lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1"
+            affordanceAriaLabel="Scroll dashboard activity to bottom"
+          >
+            <div className="grid gap-6 xl:grid-cols-2">
+              <TicketTable
+                title="Needs Attention"
+                description="Overdue and at-risk tickets sorted by urgency."
+                tickets={attentionTickets}
+                emptyMessage="No active tickets currently need urgent SLA attention."
+                rightColumnLabel="Due"
+                renderRightColumn={(ticket) => formatDisplayDateTime(ticket.slaTargetDate)}
+                onOpenTicket={onOpenTicket}
+              />
+              <TicketTable
+                title="Recently Updated"
+                description="The most recently changed tickets in your visible set."
+                tickets={recentlyUpdatedTickets}
+                emptyMessage="No recently updated tickets found."
+                rightColumnLabel="Updated"
+                renderRightColumn={(ticket) =>
+                  formatDisplayDateTime(ticket.lastModifiedDate ?? ticket.createdDate)
+                }
+                onOpenTicket={onOpenTicket}
+              />
             </div>
-          </section>
-        </>
-      )}
+          </ScrollableViewport>
+        )}
+      </div>
     </div>
   );
 }

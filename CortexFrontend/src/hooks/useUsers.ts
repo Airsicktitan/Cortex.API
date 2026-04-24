@@ -25,7 +25,7 @@ import {
   isLikelyNetworkError,
   ApiError,
 } from "../services/api";
-import { normalizeRoles } from "../utils/role";
+import { AUTH0_ROLES, normalizeRoles } from "../utils/role";
 import toast from "react-hot-toast";
 
 function isForbiddenError(error: unknown): boolean {
@@ -353,10 +353,19 @@ export function useUsers({
 
   const handleCreateUserDraftChange = useCallback(
     (field: keyof CreateUserInput, value: string | boolean) => {
-      setCreateUserDraft((currentDraft) => ({
-        ...currentDraft,
-        [field]: value,
-      }));
+      setCreateUserDraft((currentDraft) => {
+        const next: CreateUserInput = { ...currentDraft, [field]: value };
+        if (field === "role" && typeof value === "string") {
+          const isDeveloper =
+            value.trim().toLowerCase() ===
+            AUTH0_ROLES.Developer.toLowerCase();
+          const deptEmpty = !currentDraft.department?.trim();
+          if (isDeveloper && deptEmpty) {
+            next.department = "Syniti";
+          }
+        }
+        return next;
+      });
     },
     [],
   );

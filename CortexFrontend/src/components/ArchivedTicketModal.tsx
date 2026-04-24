@@ -15,7 +15,7 @@ import {
   readOnlyBusinessOwnerLabel,
   readOnlySynitiOwnerLabel,
 } from "../utils/ownerIdentity";
-import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 
 type ArchivedTicketModalProps = {
   ticket: ArchivedTicket | null;
@@ -175,10 +175,12 @@ export default function ArchivedTicketModal({
           aria-label={`Archived ticket ${formatTicketIdentifier(ticket.id)}`}
         >
           <div className="grid h-[calc(100dvh-6rem)] min-h-0 grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
-            <div className="relative flex min-h-0 min-w-0 flex-col">
-              <div
-                ref={archivedDetailsScrollRef}
-                className="scroll-surface min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
+            <div className="flex min-h-0 min-w-0 flex-col">
+              <ScrollableViewport
+                viewportRef={archivedDetailsScrollRef}
+                outerClassName="flex min-h-0 flex-1 flex-col"
+                viewportClassName="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
+                affordanceAriaLabel="Scroll archived ticket details to bottom"
               >
                 <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
                   <div className="min-w-0 flex-1">
@@ -363,11 +365,7 @@ export default function ArchivedTicketModal({
                     )}
                   </div>
                 </div>
-              </div>
-              <ScrollToBottomButton
-                containerRef={archivedDetailsScrollRef}
-                aria-label="Scroll archived ticket details to bottom"
-              />
+              </ScrollableViewport>
 
               <div className="flex shrink-0 flex-col gap-3 border-t border-gray-200 bg-white pt-4 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-xs text-gray-500 dark:text-slate-400">
@@ -397,11 +395,12 @@ export default function ArchivedTicketModal({
                 </div>
               </div>
 
-              <div className="relative min-h-0 flex-1">
-                <div
-                  ref={archivedCommentsScrollRef}
-                  className="scroll-surface h-full overflow-y-auto px-4 py-4"
-                >
+              <ScrollableViewport
+                viewportRef={archivedCommentsScrollRef}
+                outerClassName="min-h-0 flex-1"
+                viewportClassName="h-full overflow-y-auto px-4 py-4"
+                affordanceAriaLabel="Scroll archived comments to bottom"
+              >
                   {loadingComments ? (
                     <p className="text-sm text-gray-500 dark:text-slate-400">Loading comments…</p>
                   ) : commentsError ? (
@@ -409,12 +408,7 @@ export default function ArchivedTicketModal({
                   ) : (
                     <CommentList comments={comments} />
                   )}
-                </div>
-                <ScrollToBottomButton
-                  containerRef={archivedCommentsScrollRef}
-                  aria-label="Scroll archived comments to bottom"
-                />
-              </div>
+              </ScrollableViewport>
               <div className="border-t border-gray-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
                 <p className="text-xs text-gray-500 dark:text-slate-400">
                   Archived tickets are read-only. Comments are shown for context.

@@ -24,11 +24,6 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-Console.WriteLine($"[ENV] {builder.Environment.EnvironmentName}");
-var conn = builder.Configuration.GetConnectionString("CortexDb");
-Console.WriteLine($"[DB] {conn}");
-
-
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -177,6 +172,7 @@ builder.Services.AddHttpClient<IRepeatIssueAiReviewService, RepeatIssueAiReviewS
 builder.Services.AddSingleton<IRealtimeEventService, RealtimeEventService>();
 builder.Services.AddHostedService<ScheduledJobHostedService>();
 builder.Services.AddHostedService<SlaNotificationHostedService>();
+builder.Services.AddHostedService<OwnerAssignmentRoleIntegrityAuditHostedService>();
 builder.Services.AddHttpContextAccessor(); // Register the built-in IHttpContextAccessor
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();

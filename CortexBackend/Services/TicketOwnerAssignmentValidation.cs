@@ -47,24 +47,13 @@ public static class TicketOwnerAssignmentValidation
                     : "Business owner must reference a user from the directory.");
         }
 
-        if (!resolved.IsActive)
+        if (synitiSlot)
         {
-            throw new ArgumentException(
-                synitiSlot
-                    ? "Syniti owner must reference an active user from the directory."
-                    : "Business owner must reference an active user from the directory.");
+            OwnerRoleAssignmentRules.EnsureSynitiOwnerAssignment(resolved);
         }
-
-        if (synitiSlot && !resolved.IsSynitiOwnerEligible)
+        else
         {
-            throw new ArgumentException(
-                "The selected user is not eligible to be assigned as Syniti owner.");
-        }
-
-        if (!synitiSlot && !resolved.IsBusinessOwnerEligible)
-        {
-            throw new ArgumentException(
-                "The selected user is not eligible to be assigned as business owner.");
+            OwnerRoleAssignmentRules.EnsureBusinessOwnerAssignment(resolved);
         }
 
         return OwnerFieldResolution.ToCanonicalOwnerKey(resolved);

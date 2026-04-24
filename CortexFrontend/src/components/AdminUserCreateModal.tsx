@@ -1,7 +1,11 @@
 import type { CreateUserInput } from "../types/user";
-import { AUTH0_ROLES } from "../utils/role";
 import PhoneNumberInput from "./PhoneNumberInput";
 import { humanizeEnumLabel } from "../utils/presentation";
+import { AUTH0_ROLES } from "../utils/role";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
+
+const DEVELOPER_DEPT_HINT =
+  "Developers typically belong to Syniti; change only for intentional cross-team cases.";
 
 interface AdminUserCreateModalProps {
   isOpen: boolean;
@@ -56,14 +60,18 @@ export default function AdminUserCreateModal({
     : BASE_ROLE_OPTIONS;
 
   return (
-    <div className="scroll-surface fixed inset-0 z-50 overflow-y-auto">
+    <div className="fixed inset-0 z-50 overflow-hidden">
       <div
         className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
         onClick={onClose}
       />
 
       <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-4">
-        <div className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-4xl overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6">
+        <ScrollableViewport
+          outerClassName="w-full max-w-4xl rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
+          viewportClassName="max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-4 sm:max-h-[calc(100dvh-2rem)] sm:p-6"
+          affordanceAriaLabel="Scroll add user dialog to bottom"
+        >
           <div className="mb-6 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-xl font-semibold sm:text-2xl">Add User</h2>
@@ -151,9 +159,16 @@ export default function AdminUserCreateModal({
                 type="text"
                 value={draft.department ?? ""}
                 onChange={(event) => onChange("department", event.target.value)}
-                placeholder="Finance"
+                placeholder={
+                  draft.role === AUTH0_ROLES.Developer ? "Syniti" : "Finance"
+                }
                 className="w-full rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
+              {draft.role === AUTH0_ROLES.Developer ? (
+                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                  {DEVELOPER_DEPT_HINT}
+                </p>
+              ) : null}
             </div>
 
             <div>
@@ -263,7 +278,7 @@ export default function AdminUserCreateModal({
               {saving ? "Creating..." : "Create User"}
             </button>
           </div>
-        </div>
+        </ScrollableViewport>
       </div>
     </div>
   );

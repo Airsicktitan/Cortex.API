@@ -54,7 +54,7 @@ public sealed class RebalanceOverviewService(
         // 2. Score every active eligible Syniti owner, including owners with
         //    zero assigned tickets, so capacity is represented consistently.
         var synitiOwnerKeys = users
-            .Where(user => user.IsActive && user.IsSynitiOwnerEligible)
+            .Where(user => OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(user))
             .Select(OwnerFieldResolution.ToCanonicalOwnerKey)
             .Distinct(StringComparer.Ordinal)
             .ToList();

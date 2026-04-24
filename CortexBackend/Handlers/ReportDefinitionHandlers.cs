@@ -23,6 +23,20 @@ public static class ReportDefinitionHandlers
         return Results.Ok(definitions.Select(definition => definition.ToResponse()));
     }
 
+    public static IResult GetReportSources()
+    {
+        var sources = ReportSourceRegistry.Sources.Select(source => new ReportSourceResponse
+        {
+            Key = source.Key,
+            Label = source.Label,
+            Description = source.Description,
+            Columns = source.Columns
+                .Select(col => new ReportSourceColumnResponse { Key = col.Key, Label = col.Label })
+                .ToList()
+        });
+        return Results.Ok(sources);
+    }
+
     public static async Task<IResult> CreateReportDefinition(
         UpsertReportDefinitionRequest request,
         IReportDefinitionService service)
@@ -34,12 +48,18 @@ public static class ReportDefinitionHandlers
                 Name = request.Name,
                 ViewName = request.ViewName,
                 Description = request.Description,
-                SqlQuery = request.SqlQuery,
-                IsEnabled = request.IsEnabled
+                SqlQuery = request.SqlQuery ?? string.Empty,
+                IsEnabled = request.IsEnabled,
+                SourceKey = request.SourceKey,
+                SelectedColumns = request.SelectedColumns,
             };
 
             var saved = await service.CreateAsync(definition);
             return Results.Created($"/api/settings/reports/{saved.Id}", saved.ToResponse());
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Results.BadRequest(new { message = exception.Message });
         }
         catch (ArgumentException exception)
         {
@@ -59,8 +79,10 @@ public static class ReportDefinitionHandlers
                 Name = request.Name,
                 ViewName = request.ViewName,
                 Description = request.Description,
-                SqlQuery = request.SqlQuery,
-                IsEnabled = request.IsEnabled
+                SqlQuery = request.SqlQuery ?? string.Empty,
+                IsEnabled = request.IsEnabled,
+                SourceKey = request.SourceKey,
+                SelectedColumns = request.SelectedColumns,
             };
 
             var saved = await service.UpdateAsync(id, definition);
@@ -69,6 +91,10 @@ public static class ReportDefinitionHandlers
         catch (KeyNotFoundException)
         {
             return Results.NotFound();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Results.BadRequest(new { message = exception.Message });
         }
         catch (ArgumentException exception)
         {

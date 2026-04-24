@@ -18,6 +18,7 @@ import type {
   CustomReportDefinition,
   CustomReportResult,
   DatabaseViewDefinition,
+  ReportSource,
   UpsertCustomReportDefinitionInput,
 } from "../types/customReport";
 import type { NotificationChannelConfiguration } from "../types/notificationChannelConfiguration";
@@ -303,6 +304,8 @@ export function useConfiguration({
   const [customReports, setCustomReports] = useState<CustomReportDefinition[]>([]);
   const [databaseViews, setDatabaseViews] = useState<DatabaseViewDefinition[]>([]);
   const [databaseViewsLoading, setDatabaseViewsLoading] = useState(false);
+  const [reportSources, setReportSources] = useState<ReportSource[]>([]);
+  const [reportSourcesLoading, setReportSourcesLoading] = useState(false);
   const [customReportsLoadedOnce, setCustomReportsLoadedOnce] = useState(false);
   const [customReportsLoading, setCustomReportsLoading] = useState(false);
   const [customReportsSaving, setCustomReportsSaving] = useState(false);
@@ -827,6 +830,24 @@ export function useConfiguration({
         if (isLikelyNetworkError(error)) setApiUnavailable(true);
       } finally {
         setDatabaseViewsLoading(false);
+      }
+    },
+    [getApiToken, setApiUnavailable],
+  );
+
+  const loadReportSources = useCallback(
+    async (providedToken?: string) => {
+      setReportSourcesLoading(true);
+      try {
+        const token = providedToken ?? (await getApiToken());
+        const data = await customReportService.getSources(token);
+        setReportSources(data);
+        setApiUnavailable(false);
+      } catch (error) {
+        console.error("Failed to load report sources", error);
+        if (isLikelyNetworkError(error)) setApiUnavailable(true);
+      } finally {
+        setReportSourcesLoading(false);
       }
     },
     [getApiToken, setApiUnavailable],
@@ -2099,6 +2120,8 @@ export function useConfiguration({
     customReports,
     databaseViews,
     databaseViewsLoading,
+    reportSources,
+    reportSourcesLoading,
     customReportsLoadedOnce,
     customReportsLoading,
     customReportsSaving,
@@ -2110,6 +2133,7 @@ export function useConfiguration({
     loadCustomReports,
     loadCustomReportDefinitions,
     loadDatabaseViews,
+    loadReportSources,
     runCustomReport,
     createCustomReport,
     updateCustomReport,

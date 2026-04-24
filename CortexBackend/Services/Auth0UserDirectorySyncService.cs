@@ -77,6 +77,7 @@ public class Auth0UserDirectorySyncService(
 
             var roleNames = await GetCanonicalRoleNamesAsync(auth0Id, cancellationToken);
             var displayName = PickDisplayName(remote, normalizedEmail);
+            var resolvedRole = Auth0Roles.GetHighestRole(roleNames);
             var user = new User
             {
                 Auth0Id = auth0Id,
@@ -84,8 +85,8 @@ public class Auth0UserDirectorySyncService(
                 DisplayName = displayName,
                 NickName = NormalizeOptional(remote.Nickname),
                 PhoneNumber = null,
-                Department = null,
-                Role = Auth0Roles.GetHighestRole(roleNames),
+                Department = UserDepartmentPolicy.ApplyDeveloperDepartmentDefault(null, resolvedRole),
+                Role = resolvedRole,
                 // Newly discovered Auth0 users land as inactive/pending. An admin must
                 // explicitly approve them via the user-management endpoints before the
                 // approval gate (see IAccessApprovalService) will let them in.

@@ -1,5 +1,6 @@
 import type { UpdateUserProfileInput, UserProfile } from "../types/user";
 import PhoneNumberInput from "./PhoneNumberInput";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 
 const NOTIFICATION_CHANNEL_OPTIONS = [
   { value: "", label: "Use system default" },
@@ -31,20 +32,24 @@ export default function UserProfileModal({
   if (!isOpen || !user) return null;
 
   return (
-    <div className="scroll-surface fixed inset-0 z-50 overflow-y-auto">
+    <div className="fixed inset-0 z-50 overflow-hidden">
       <div
         className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
         onClick={onClose}
       />
 
       <div className="flex min-h-full items-center justify-center p-4">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSave();
-          }}
-          className="relative bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 rounded-lg shadow-xl border border-gray-200 dark:border-slate-800 max-w-2xl w-full p-6"
+        <ScrollableViewport
+          outerClassName="w-full max-w-2xl rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
+          viewportClassName="max-h-[calc(100dvh-2rem)] overflow-y-auto p-6"
+          affordanceAriaLabel="Scroll profile dialog to bottom"
         >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSave();
+            }}
+          >
           <div className="flex items-start justify-between mb-6">
             <div>
               <h2 className="text-2xl font-semibold">Edit Profile</h2>
@@ -191,7 +196,8 @@ export default function UserProfileModal({
               {saving ? "Saving..." : "Save Profile"}
             </button>
           </div>
-        </form>
+          </form>
+        </ScrollableViewport>
       </div>
     </div>
   );

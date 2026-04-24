@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 
 function SkeletonBlock({ className = "" }: { className?: string }) {
   return (
@@ -90,26 +91,32 @@ function TableSkeleton({
 
 export function DashboardSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-col gap-6 lg:h-full lg:overflow-hidden">
       <HeaderSkeleton />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <SummaryCardSkeleton key={index} />
-        ))}
-      </section>
+      <ScrollableViewport
+        outerClassName="lg:min-h-0 lg:flex-1"
+        viewportClassName="scroll-chain-auto space-y-6 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1"
+        affordanceAriaLabel="Scroll dashboard loading state to bottom"
+      >
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <SummaryCardSkeleton key={index} />
+          ))}
+        </section>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <TableSkeleton key={index} columns={2} rows={4} />
-        ))}
-      </div>
+        <div className="grid gap-6 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <TableSkeleton key={index} columns={2} rows={4} />
+          ))}
+        </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        {Array.from({ length: 2 }).map((_, index) => (
-          <TableSkeleton key={index} columns={5} rows={5} />
-        ))}
-      </div>
+        <div className="grid gap-6 xl:grid-cols-2">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <TableSkeleton key={index} columns={5} rows={5} />
+          ))}
+        </div>
+      </ScrollableViewport>
     </div>
   );
 }

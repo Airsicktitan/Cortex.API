@@ -121,6 +121,28 @@ public sealed class ReassignmentRecommendationService(
             routingDecision,
             assignmentField);
 
+        var ownerAliases = OwnerFieldResolution.BuildAliasLookup(users);
+        eligibleOwnerKeys = eligibleOwnerKeys
+            .Where(key =>
+            {
+                if (string.Equals(key, currentOwnerKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                var user = OwnerFieldResolution.ResolveUser(key, ownerAliases);
+                if (user is null)
+                {
+                    return false;
+                }
+
+                return assignmentField == "synitiOwner"
+                    ? OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(user)
+                    : OwnerRoleAssignmentRules.IsValidBusinessOwnerAssignment(user);
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         if (eligibleOwnerKeys.Count == 0)
         {
             return BuildNoSuggestion("No eligible reassignment alternatives are available.", assignmentField);

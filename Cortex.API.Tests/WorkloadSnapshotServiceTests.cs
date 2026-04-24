@@ -17,6 +17,7 @@ public class WorkloadSnapshotServiceTests
             Id = 1,
             DisplayName = "owner-a",
             Email = "owner-a@example.com",
+            Role = Auth0Roles.Developer,
             IsActive = true,
             IsSynitiOwnerEligible = true
         });
@@ -79,6 +80,7 @@ public class WorkloadSnapshotServiceTests
             Id = 1,
             DisplayName = "owner-a",
             Email = "owner-a@example.com",
+            Role = Auth0Roles.Developer,
             IsActive = true,
             IsSynitiOwnerEligible = true
         });
@@ -148,6 +150,7 @@ public class WorkloadSnapshotServiceTests
             Id = 1,
             DisplayName = "Adam Hooper",
             Email = "adamcwhooper@yahoo.com",
+            Role = Auth0Roles.Developer,
             IsActive = true,
             IsSynitiOwnerEligible = true
         });
@@ -212,6 +215,7 @@ public class WorkloadSnapshotServiceTests
             Id = 1,
             DisplayName = "available-owner",
             Email = "available-owner@example.com",
+            Role = Auth0Roles.Developer,
             IsActive = true,
             IsSynitiOwnerEligible = true
         });

@@ -2247,7 +2247,9 @@ public static class TicketHandlers
 
     private static string? GetDefaultBusinessOwner(User user)
     {
-        return OwnerFieldResolution.ToCanonicalOwnerKey(user);
+        return OwnerRoleAssignmentRules.IsValidBusinessOwnerAssignment(user)
+            ? OwnerFieldResolution.ToCanonicalOwnerKey(user)
+            : null;
     }
 
     private static int? ResolveStoryPoints(

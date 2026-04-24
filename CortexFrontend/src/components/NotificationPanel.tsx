@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { UserNotification } from "../types/notification";
 import type { UserProfile } from "../types/user";
-import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 import {
   getNotificationPriority,
   sortNotificationsByPriority,
@@ -163,11 +163,11 @@ export default function NotificationPanel({
           No notifications yet.
         </div>
       ) : (
-        <div className="relative">
-          <div
-            ref={notificationListScrollRef}
-            className="scroll-surface max-h-[26rem] overflow-y-auto bg-white dark:bg-slate-900"
-          >
+        <ScrollableViewport
+          viewportRef={notificationListScrollRef}
+          viewportClassName="max-h-[26rem] overflow-y-auto bg-white dark:bg-slate-900"
+          affordanceAriaLabel="Scroll notifications to bottom"
+        >
             <div className="divide-y divide-gray-100 dark:divide-slate-800">
               {sorted.map((notification) => {
                 const priority = getNotificationPriority(notification);
@@ -261,12 +261,7 @@ export default function NotificationPanel({
                 );
               })}
             </div>
-          </div>
-          <ScrollToBottomButton
-            containerRef={notificationListScrollRef}
-            aria-label="Scroll notifications to bottom"
-          />
-        </div>
+        </ScrollableViewport>
       )}
     </div>
   );

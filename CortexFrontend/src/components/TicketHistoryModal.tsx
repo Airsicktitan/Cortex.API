@@ -3,7 +3,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { getUserFacingErrorMessage, ticketService } from "../services/api";
 import type { TicketAuditEntry } from "../types/ticketAudit";
 import { formatDisplayDateTime, formatDisplayValue } from "../utils/presentation";
-import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 
 const API_AUDIENCE = "https://cortex-api";
 
@@ -136,11 +136,11 @@ export default function TicketHistoryModal({
             </button>
           </div>
 
-          <div className="relative">
-            <div
-              ref={historyScrollRef}
-              className="scroll-surface max-h-[calc(min(90dvh,85vh)-5.5rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5"
-            >
+          <ScrollableViewport
+            viewportRef={historyScrollRef}
+            viewportClassName="max-h-[calc(min(90dvh,85vh)-5.5rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5"
+            affordanceAriaLabel="Scroll audit history to bottom"
+          >
               {loading ? (
                 <div className="space-y-4">
                   {Array.from({ length: 4 }).map((_, index) => (
@@ -233,12 +233,7 @@ export default function TicketHistoryModal({
                   ))}
                 </div>
               )}
-            </div>
-            <ScrollToBottomButton
-              containerRef={historyScrollRef}
-              aria-label="Scroll audit history to bottom"
-            />
-          </div>
+          </ScrollableViewport>
         </div>
       </div>
     </div>

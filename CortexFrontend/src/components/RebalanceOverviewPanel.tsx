@@ -2,12 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { rebalanceService } from "../services/rebalanceService";
 import { decisionService, getUserFacingErrorMessage } from "../services/api";
 import type {
-  OperationalRiskLevel,
   OwnerWorkloadSummaryResponse,
   PressureLevel,
   RebalanceCandidateResponse,
   RebalanceOverviewResponse,
-  SlaRiskLevel,
 } from "../types/rebalance";
 import type {
   ExecuteRebalanceResponse,
@@ -32,27 +30,6 @@ const PRESSURE_BADGE: Record<PressureLevel, string> = {
     "bg-sky-100 text-sky-800 dark:bg-sky-950/30 dark:text-sky-200",
   high: "bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200",
   critical: "bg-red-100 text-red-800 dark:bg-red-950/30 dark:text-red-200",
-};
-
-const RISK_BADGE: Record<OperationalRiskLevel, string> = {
-  low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200",
-  moderate:
-    "bg-sky-100 text-sky-800 dark:bg-sky-950/30 dark:text-sky-200",
-  high: "bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200",
-  critical: "bg-red-100 text-red-800 dark:bg-red-950/30 dark:text-red-200",
-};
-
-const SLA_BADGE: Record<SlaRiskLevel, string> = {
-  safe: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200",
-  at_risk:
-    "bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200",
-  breached: "bg-red-100 text-red-800 dark:bg-red-950/30 dark:text-red-200",
-};
-
-const SLA_LABEL: Record<SlaRiskLevel, string> = {
-  safe: "SLA Safe",
-  at_risk: "SLA At Risk",
-  breached: "SLA Breached",
 };
 
 const PRESSURE_LABEL: Record<PressureLevel, string> = {
@@ -130,66 +107,6 @@ function resolveCandidateStrength(
   }
 
   return "Limited fit";
-}
-
-function buildCandidateRationale(
-  candidate: RebalanceCandidateResponse,
-  hasValidTarget: boolean,
-) {
-  const currentOwner = candidate.currentOwnerName || candidate.currentOwnerId;
-  const currentPressure =
-    PRESSURE_LABEL[candidate.currentOwnerPressureLevel].toLowerCase();
-  const slaLabel = SLA_LABEL[candidate.slaRiskLevel].toLowerCase();
-  const rationale = [
-    `${currentOwner} is under ${currentPressure} with workload score ${candidate.currentOwnerWorkloadScore}.`,
-    `${capitalize(candidate.operationalRiskLevel)} operational risk and ${
-      slaLabel
-    } make this ticket a rebalance candidate.`,
-  ];
-
-  if (hasValidTarget && candidate.topSuggestedTarget) {
-    const target = candidate.topSuggestedTarget;
-    const targetName = target.displayName || target.ownerKey;
-    const targetPressure = PRESSURE_LABEL[target.pressureLevel].toLowerCase();
-    rationale.push(
-      `${targetName} has ${targetPressure} and workload score ${target.workloadScore}.`,
-    );
-  }
-
-  return rationale;
-}
-
-function buildCandidateImpactPreview(
-  candidate: RebalanceCandidateResponse,
-  hasValidTarget: boolean,
-) {
-  const impact = [
-    candidate.potentialImpactSummary ||
-      "Lowers high-risk workload on an overloaded owner.",
-  ];
-
-  if (candidate.slaRiskLevel !== "safe") {
-    const slaLabel = SLA_LABEL[candidate.slaRiskLevel].toLowerCase();
-    impact.push(
-      `Reduces ${slaLabel} concentration on the current owner.`,
-    );
-  }
-
-  if (hasValidTarget && candidate.topSuggestedTarget) {
-    impact.push(
-      `Moves work to a lower-pressure owner (${candidate.currentOwnerWorkloadScore} to ${candidate.topSuggestedTarget.workloadScore} workload score).`,
-    );
-  }
-
-  impact.push("Keeps the correction scoped to a specific ticket.");
-  return impact;
-}
-
-function capitalize(value: string) {
-  if (!value) {
-    return value;
-  }
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function normalizeOwnerToken(value: string | undefined | null): string {

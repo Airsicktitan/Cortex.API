@@ -2,6 +2,7 @@ import type {
   CustomReportDefinition,
   CustomReportResult,
   DatabaseViewDefinition,
+  ReportSource,
   UpsertCustomReportDefinitionInput,
 } from "../types/customReport";
 import { ensureSuccess } from "./api";
@@ -97,6 +98,17 @@ export const customReportService = {
     });
 
     await ensureSuccess(response, "Failed to load database views");
+    return response.json();
+  },
+
+  async getSources(token: string): Promise<ReportSource[]> {
+    const response = await fetch(`${API_BASE_URL}/settings/reports/sources`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    await ensureSuccess(response, "Failed to load report sources");
     return response.json();
   },
 };

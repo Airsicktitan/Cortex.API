@@ -1,7 +1,8 @@
-import { useCallback, useState, type UIEvent } from "react";
+import { useCallback, useRef, useState, type UIEvent } from "react";
 import type { ArchivedTicket } from "../types/archivedTicket";
 import ArchivedTicketModal from "./ArchivedTicketModal";
 import { ArchivedTicketsSkeleton } from "./LoadingSkeletons";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 import {
   formatDisplayDateTime,
   formatDisplayValue,
@@ -48,6 +49,7 @@ export default function ArchivedTicketsPage({
   const [selectedTicket, setSelectedTicket] = useState<ArchivedTicket | null>(
     null,
   );
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
 
   const handleContainerScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
@@ -69,8 +71,8 @@ export default function ArchivedTicketsPage({
   }
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+      <section className="shrink-0 rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
@@ -104,12 +106,12 @@ export default function ArchivedTicketsPage({
       </section>
 
       {error && (
-        <div className="rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
+        <div className="shrink-0 rounded border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-950/40">
           <p className="text-red-700 dark:text-red-300">{error}</p>
         </div>
       )}
 
-      <section className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="border-b border-gray-100 px-4 py-3 dark:border-slate-800">
           <input
             type="text"
@@ -124,9 +126,12 @@ export default function ArchivedTicketsPage({
             No archived tickets found.
           </div>
         ) : (
-          <div
-            className="scroll-surface max-h-[70vh] overflow-auto"
-            onScroll={handleContainerScroll}
+          <ScrollableViewport
+            viewportRef={tableScrollRef}
+            outerClassName="min-h-0 flex-1"
+            viewportClassName="min-h-0 h-full overflow-auto"
+            affordanceAriaLabel="Scroll archived tickets to bottom"
+            viewportProps={{ onScroll: handleContainerScroll }}
           >
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-left text-gray-600 dark:bg-slate-800/80 dark:text-slate-300">
@@ -229,7 +234,7 @@ export default function ArchivedTicketsPage({
                 Loading more archived tickets...
               </div>
             )}
-          </div>
+          </ScrollableViewport>
         )}
       </section>
 

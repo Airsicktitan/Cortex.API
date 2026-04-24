@@ -37,6 +37,7 @@ import AppHeader from "./components/AppHeader";
 import AppSidebar from "./components/AppSidebar";
 import TicketsContainer from "./components/TicketsContainer";
 import ApprovalQueuePage from "./components/ApprovalQueuePage";
+import { ScrollableViewport } from "./components/ui/ScrollableViewport";
 import { applyTheme, getPreferredTheme, type ThemeMode } from "./theme";
 import { useUsers } from "./hooks/useUsers";
 import { useConfiguration } from "./hooks/useConfiguration";
@@ -455,6 +456,7 @@ function App() {
   const appMenuRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const notificationPanelRef = useRef<HTMLDivElement | null>(null);
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const statusTooltipShowTimerRef = useRef<number | null>(null);
   const statusTooltipHideTimerRef = useRef<number | null>(null);
   const lastKnownAuthRolesRef = useRef<string[]>([]);
@@ -538,6 +540,8 @@ function App() {
   const canDeleteUsers = sessionUnlocked && canManageUsers(effectiveAuthRoles);
   // failedJobsCount is computed after useConfiguration (below) because it depends on jobs.
   const activeViewLabel = APP_VIEW_LABELS[activeView];
+  const isDashboardView = activeView === "dashboard" && canViewDashboard;
+  const isReportsView = activeView === "reports" && canViewReportsNav;
 
   const navigationItems = useMemo(() => {
     const isEnabledByView: Record<AppView, boolean> = {
@@ -1128,6 +1132,8 @@ function App() {
     customReports,
     databaseViews,
     databaseViewsLoading,
+    reportSources,
+    reportSourcesLoading,
     customReportsLoadedOnce,
     customReportsLoading,
     customReportsSaving,
@@ -1139,6 +1145,7 @@ function App() {
     loadCustomReports,
     loadCustomReportDefinitions,
     loadDatabaseViews,
+    loadReportSources,
     runCustomReport,
     createCustomReport,
     updateCustomReport,
@@ -1890,6 +1897,7 @@ function App() {
         archiveLoadedOnce &&
         customReportsLoadedOnce &&
         databaseViews.length > 0 &&
+        reportSources.length > 0 &&
         databaseStoredProcedures.length > 0 &&
         storedProcedures.length > 0)
     ) {
@@ -1936,6 +1944,10 @@ function App() {
       void loadDatabaseViews();
     }
 
+    if (reportSources.length === 0) {
+      void loadReportSources();
+    }
+
     if (storedProcedures.length === 0) {
       void loadStoredProcedures();
     }
@@ -1951,6 +1963,7 @@ function App() {
     customReportsLoadedOnce,
     databaseStoredProcedures.length,
     databaseViews.length,
+    reportSources.length,
     loadNotificationChannelConfiguration,
     canManageCustomReportDefinitions,
     loadCustomReportDefinitions,
@@ -1958,6 +1971,7 @@ function App() {
     loadAiSettings,
     loadDatabaseStoredProcedures,
     loadDatabaseViews,
+    loadReportSources,
     loadSessionConfiguration,
     loadStoredProcedures,
     loadTicketRoutingRules,
@@ -2588,10 +2602,12 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center text-gray-900 dark:text-slate-100">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cortex-blue mx-auto" />
-          <p className="mt-4 text-gray-600 dark:text-slate-400">Loading...</p>
+      <div className="scroll-surface flex h-full overflow-y-auto bg-gradient-to-br from-cortex-surface to-cortex-surface-alt text-gray-900 dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
+        <div className="flex min-h-full w-full items-center justify-center px-6 py-8">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cortex-blue mx-auto" />
+            <p className="mt-4 text-gray-600 dark:text-slate-400">Loading...</p>
+          </div>
         </div>
       </div>
     );
@@ -2599,25 +2615,27 @@ function App() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center px-6 text-gray-900 dark:text-slate-100">
-        <div className="text-center bg-white/85 dark:bg-cortex-ink/85 border border-white/60 dark:border-slate-800 rounded-2xl shadow-xl px-8 py-10 backdrop-blur">
-          <h1 className="text-4xl font-bold mb-4">🧠 CORTEX</h1>
-          <p className="text-gray-600 dark:text-slate-400 mb-6">
-            Central Operations & Routing Technology EXpert
-          </p>
-          <button
-            onClick={() =>
-              loginWithRedirect({
-                authorizationParams: {
-                  ...API_AUTHORIZATION_PARAMS,
-                  scope: "openid profile email",
-                },
-              })
-            }
-            className="px-6 py-3 bg-cortex-blue text-white rounded-md hover:bg-cortex-blue-dark transition-colors"
-          >
-            Log In
-          </button>
+      <div className="scroll-surface flex h-full overflow-y-auto bg-gradient-to-br from-cortex-surface to-cortex-surface-alt px-6 text-gray-900 dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
+        <div className="flex min-h-full w-full items-center justify-center py-8">
+          <div className="text-center bg-white/85 dark:bg-cortex-ink/85 border border-white/60 dark:border-slate-800 rounded-2xl shadow-xl px-8 py-10 backdrop-blur">
+            <h1 className="text-4xl font-bold mb-4">🧠 CORTEX</h1>
+            <p className="text-gray-600 dark:text-slate-400 mb-6">
+              Central Operations & Routing Technology EXpert
+            </p>
+            <button
+              onClick={() =>
+                loginWithRedirect({
+                  authorizationParams: {
+                    ...API_AUTHORIZATION_PARAMS,
+                    scope: "openid profile email",
+                  },
+                })
+              }
+              className="px-6 py-3 bg-cortex-blue text-white rounded-md hover:bg-cortex-blue-dark transition-colors"
+            >
+              Log In
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -2625,23 +2643,25 @@ function App() {
 
   if (accessDenied) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center px-6 text-gray-900 dark:text-slate-100">
-        <div className="max-w-xl rounded-2xl border border-amber-200 bg-white/90 px-8 py-10 text-center shadow-xl backdrop-blur dark:border-amber-900/40 dark:bg-slate-900/90">
-          <h1 className="mb-4 text-3xl font-bold">Access not approved</h1>
-          <p className="text-gray-600 dark:text-slate-400">
-            Your account is authenticated, but access to Cortex has not been
-            approved yet.
-          </p>
-          <p className="mt-3 text-sm text-gray-500 dark:text-slate-500">
-            Please contact a Cortex administrator to request access.
-          </p>
-          <div className="mt-6 flex justify-center">
-            <button
-              onClick={performLogout}
-              className="rounded-md bg-amber-600 px-4 py-2 text-white transition-colors hover:bg-amber-700"
-            >
-              Log Out
-            </button>
+      <div className="scroll-surface flex h-full overflow-y-auto bg-gradient-to-br from-cortex-surface to-cortex-surface-alt px-6 text-gray-900 dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
+        <div className="flex min-h-full w-full items-center justify-center py-8">
+          <div className="max-w-xl rounded-2xl border border-amber-200 bg-white/90 px-8 py-10 text-center shadow-xl backdrop-blur dark:border-amber-900/40 dark:bg-slate-900/90">
+            <h1 className="mb-4 text-3xl font-bold">Access not approved</h1>
+            <p className="text-gray-600 dark:text-slate-400">
+              Your account is authenticated, but access to Cortex has not been
+              approved yet.
+            </p>
+            <p className="mt-3 text-sm text-gray-500 dark:text-slate-500">
+              Please contact a Cortex administrator to request access.
+            </p>
+            <div className="mt-6 flex justify-center">
+              <button
+                onClick={performLogout}
+                className="rounded-md bg-amber-600 px-4 py-2 text-white transition-colors hover:bg-amber-700"
+              >
+                Log Out
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2650,26 +2670,28 @@ function App() {
 
   if (isAccountExpired) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center px-6 text-gray-900 dark:text-slate-100">
-        <div className="max-w-xl rounded-2xl border border-red-200 bg-white/90 px-8 py-10 text-center shadow-xl backdrop-blur dark:border-red-900/40 dark:bg-slate-900/90">
-          <h1 className="mb-4 text-3xl font-bold">
-            Your account has been expired
-          </h1>
-          <p className="text-gray-600 dark:text-slate-400">
-            Please contact an administrator if you believe this is a mistake.
-          </p>
-          {currentUser?.expiryDate && (
-            <p className="mt-3 text-sm text-gray-500 dark:text-slate-500">
-              Expired on {new Date(currentUser.expiryDate).toLocaleDateString()}
+      <div className="scroll-surface flex h-full overflow-y-auto bg-gradient-to-br from-cortex-surface to-cortex-surface-alt px-6 text-gray-900 dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
+        <div className="flex min-h-full w-full items-center justify-center py-8">
+          <div className="max-w-xl rounded-2xl border border-red-200 bg-white/90 px-8 py-10 text-center shadow-xl backdrop-blur dark:border-red-900/40 dark:bg-slate-900/90">
+            <h1 className="mb-4 text-3xl font-bold">
+              Your account has been expired
+            </h1>
+            <p className="text-gray-600 dark:text-slate-400">
+              Please contact an administrator if you believe this is a mistake.
             </p>
-          )}
-          <div className="mt-6 flex justify-center">
-            <button
-              onClick={performLogout}
-              className="rounded-md bg-red-600 px-4 py-2 text-white transition-colors hover:bg-red-700"
-            >
-              Log Out
-            </button>
+            {currentUser?.expiryDate && (
+              <p className="mt-3 text-sm text-gray-500 dark:text-slate-500">
+                Expired on {new Date(currentUser.expiryDate).toLocaleDateString()}
+              </p>
+            )}
+            <div className="mt-6 flex justify-center">
+              <button
+                onClick={performLogout}
+                className="rounded-md bg-red-600 px-4 py-2 text-white transition-colors hover:bg-red-700"
+              >
+                Log Out
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2678,19 +2700,21 @@ function App() {
 
   if (isAccountInactive) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-cortex-surface to-cortex-surface-alt dark:from-cortex-ink-dark dark:to-cortex-ink flex items-center justify-center px-6 text-gray-900 dark:text-slate-100">
-        <div className="max-w-xl rounded-2xl border border-amber-200 bg-white/90 px-8 py-10 text-center shadow-xl backdrop-blur dark:border-amber-900/40 dark:bg-slate-900/90">
-          <h1 className="mb-4 text-3xl font-bold">Your account is inactive</h1>
-          <p className="text-gray-600 dark:text-slate-400">
-            Please contact an administrator if you believe this is a mistake.
-          </p>
-          <div className="mt-6 flex justify-center">
-            <button
-              onClick={performLogout}
-              className="rounded-md bg-amber-600 px-4 py-2 text-white transition-colors hover:bg-amber-700"
-            >
-              Log Out
-            </button>
+      <div className="scroll-surface flex h-full overflow-y-auto bg-gradient-to-br from-cortex-surface to-cortex-surface-alt px-6 text-gray-900 dark:from-cortex-ink-dark dark:to-cortex-ink dark:text-slate-100">
+        <div className="flex min-h-full w-full items-center justify-center py-8">
+          <div className="max-w-xl rounded-2xl border border-amber-200 bg-white/90 px-8 py-10 text-center shadow-xl backdrop-blur dark:border-amber-900/40 dark:bg-slate-900/90">
+            <h1 className="mb-4 text-3xl font-bold">Your account is inactive</h1>
+            <p className="text-gray-600 dark:text-slate-400">
+              Please contact an administrator if you believe this is a mistake.
+            </p>
+            <div className="mt-6 flex justify-center">
+              <button
+                onClick={performLogout}
+                className="rounded-md bg-amber-600 px-4 py-2 text-white transition-colors hover:bg-amber-700"
+              >
+                Log Out
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2761,328 +2785,346 @@ function App() {
           onResize={handleSidebarResize}
         />
 
-        <main className="min-w-0 flex-1 min-h-0 overflow-y-auto">
-          {activeView === "dashboard" && canViewDashboard ? (
-            <DashboardPage
-              tickets={allTickets}
-              loading={loading || apiUnavailable}
-              error={apiUnavailable ? null : error}
-              activeAttentionFilterValue={activeAttentionFilterValue}
-              onRefresh={() => void loadAllTickets()}
-              onOpenTicket={openTicket}
-              onAttentionDrillDown={handleExecutiveAttentionDrillDown}
-            />
-          ) : activeView === "tickets" ? (
-            <TicketsContainer
-              theme={theme}
-              isAuthenticated={isAuthenticated}
-              bootstrapComplete={bootstrapComplete}
-              needsConsent={needsConsent}
-              canViewTicketSections={canViewTicketSections}
-              boardTabs={boardTabs}
-              boardCountsById={boardCountsById}
-              loading={loading}
-              apiUnavailable={apiUnavailable}
-              error={error}
-              savedFilters={savedFilters}
-              selectedSavedFilterId={selectedSavedFilterId}
-              setSelectedSavedFilterId={setSelectedSavedFilterId}
-              openSaveFilterModal={openSaveFilterModal}
-              deleteSavedFilter={deleteSavedFilter}
-              clearTicketFilters={clearTicketFilters}
-              applySavedFilter={applySavedFilter}
-              handleFilterChange={handleFilterChange}
-              handleFilterValueChange={handleFilterValueChange}
-              handleSearchChange={handleSearchChange}
-              handlePageSizeChange={handlePageSizeChange}
-              filter={filter}
-              filterValue={filterValue}
-              searchQuery={searchQuery}
-              pageSize={pageSize}
-              selectedBoardId={selectedBoardId}
-              setSelectedBoardId={setSelectedBoardId}
-              myTicketsOnly={myTicketsOnly}
-              setMyTicketsOnly={setMyTicketsOnly}
-              myTicketApprovalFilter={myTicketApprovalFilter}
-              setMyTicketApprovalFilter={setMyTicketApprovalFilter}
-              ticketListSort={ticketListSort}
-              setTicketListSort={setTicketListSort}
-              tickets={tickets}
-              pagedTickets={pagedTickets}
-              totalTickets={totalTickets}
-              totalPages={totalPages}
-              currentPage={currentPage}
-              setCurrentPage={setCurrentPage}
-              showingStart={showingStart}
-              showingEnd={showingEnd}
-              requesterLifecycleSummary={requesterLifecycleSummary}
-              isModalOpen={isModalOpen}
-              syncTicketChangesSilently={syncTicketChangesSilently}
-              openTicket={openTicket}
-            />
-          ) : activeView === "approval" && canEditTicketsCap ? (
-            <ApprovalQueuePage
-              theme={theme}
-              isAuthenticated={isAuthenticated}
-              bootstrapComplete={bootstrapComplete}
-              needsConsent={needsConsent}
-              getApiToken={getApiToken}
-              authRoles={effectiveAuthRoles}
-              openTicketById={openTicketById}
-              externalRefreshNonce={approvalQueueRefreshNonce}
-            />
-          ) : activeView === "archived" && canViewArchived ? (
-            <ArchivedTicketsPage
-              tickets={archivedTicketsForView}
-              totalTickets={archivedTicketsForView.length}
-              searchQuery={archivedSearchQuery}
-              onSearchQueryChange={setArchivedSearchQuery}
-              loading={archivedLoading || apiUnavailable}
-              error={apiUnavailable ? null : archivedError}
-              highlightedTicketId={highlightedArchivedTicketId}
-              onRefresh={() => void loadArchivedTickets()}
-              onLoadMore={() => void loadArchivedTickets(undefined, { append: true })}
-              hasMore={archivedHasMore}
-              loadingMore={archivedLoadingMore}
-              canReactivate={canEditTicketsCap}
-              reactivatingTicketId={reactivatingArchivedTicketId}
-              onReactivate={handleReactivateArchivedTicket}
-            />
-          ) : activeView === "reports" && canViewReportsNav ? (
-            <ReportsPage
-              tickets={allTickets}
-              onlineUsers={onlineUsers}
-              customReports={customReports.filter((report) => report.isEnabled)}
-              customReportResult={customReportResult}
-              loading={loading || apiUnavailable}
-              onlineUsersLoading={onlineUsersLoading || apiUnavailable}
-              customReportLoading={customReportResultLoading || apiUnavailable}
-              error={apiUnavailable ? null : error}
-              onlineUsersError={apiUnavailable ? null : onlineUsersError}
-              customReportError={
-                apiUnavailable ? null : customReportResultError
+        <div className="min-w-0 flex-1 min-h-0 overflow-hidden">
+          <main className="h-full min-h-0 min-w-0">
+            <ScrollableViewport
+              viewportRef={mainScrollRef}
+              outerClassName="h-full min-w-0"
+              viewportClassName={
+                isDashboardView
+                  ? "scroll-chain-auto h-full min-w-0 min-h-0 overflow-y-auto lg:overflow-hidden"
+                  : isReportsView
+                    ? "scroll-chain-auto h-full min-w-0 min-h-0 overflow-hidden"
+                    : "scroll-chain-auto h-full min-w-0 min-h-0 overflow-y-auto"
               }
-              showSlaLegend={showReportSlaLegend}
-              canViewOnlineUsers={canViewOnlineUsersReport}
-              canViewCustomReports={canViewReportsNav}
-              activeSection={activeReportSection}
-              onChangeSection={setActiveReportSection}
-              selectedCustomReportId={selectedCustomReportId}
-              onSelectCustomReport={setSelectedCustomReportId}
-              onToggleSlaLegend={() =>
-                setShowReportSlaLegend((currentValue) => !currentValue)
-              }
-              onRefresh={() => void loadAllTickets()}
-              onRefreshOnlineUsers={() => void loadOnlineUsers()}
-              onRefreshCustomReport={() => {
-                if (selectedCustomReportId !== null) {
-                  void runCustomReport(selectedCustomReportId);
-                }
-              }}
-              onExportCsv={() => void exportReportCsv(false)}
-              onExportGoogleSheets={() => void exportReportCsv(true)}
-              onOpenTicket={openTicket}
-              onCreateRootCauseTask={handleCreateRootCauseTask}
-            />
-          ) : activeView === "rebalance" && canViewRebalanceNav ? (
-            <RebalanceOverviewPanel
-              getApiToken={getApiToken}
-              onOpenTicket={async (ticketId) => {
-                await openTicketById(ticketId);
-              }}
-              onRebalanceApplied={async () => {
-                await loadAllTickets();
-              }}
-            />
-          ) : activeView === "jobs" && canViewJobActivityNav ? (
-            <JobsPage
-              jobs={jobs}
-              loading={jobsLoading}
-              error={jobsError}
-              runningJobId={runningJobId}
-              canViewSensitiveDetails={canManageJobsNav}
-              canRetryNow={canManageJobsNav}
-              onRefresh={() => void loadJobs()}
-              onRunNow={runScheduledJobNow}
-            />
-          ) : activeView === "sla" && canManageConfiguration ? (
-            apiUnavailable ? (
-              <ConfigurationSkeleton />
-            ) : (
-              <ConfigurationPage
-                slaConfigurations={slaConfigurations}
-                slaError={slaError}
-                slaLoading={slaLoading}
-                slaSaving={slaSaving}
-                onSlaChange={handleSlaConfigurationChange}
-                onRefreshSla={() => void loadSlaConfigurations()}
-                onSaveSla={() => void saveSlaConfigurations()}
-                sessionConfiguration={sessionConfiguration}
-                sessionError={sessionError}
-                sessionLoading={sessionLoading}
-                sessionSaving={sessionSaving}
-                onSessionChange={handleSessionConfigurationChange}
-                onRefreshSession={() => void loadSessionConfiguration()}
-                onSaveSession={() => void saveSessionConfiguration()}
-                aiSettings={aiSettings}
-                aiSettingsError={aiSettingsError}
-                aiSettingsLoading={aiSettingsLoading}
-                aiSettingsSaving={aiSettingsSaving}
-                onAiSettingsChange={handleAiSettingsChange}
-                onRefreshAiSettings={() => void loadAiSettings()}
-                onSaveAiSettings={() => void saveAiSettings()}
-                notificationChannelConfiguration={
-                  notificationChannelConfiguration
-                }
-                notificationChannelError={notificationChannelError}
-                notificationChannelLoading={notificationChannelLoading}
-                notificationChannelSaving={notificationChannelSaving}
-                onNotificationChannelChange={
-                  handleNotificationChannelConfigurationChange
-                }
-                onRefreshNotificationChannels={() =>
-                  void loadNotificationChannelConfiguration()
-                }
-                onSaveNotificationChannels={() =>
-                  void saveNotificationChannelConfiguration()
-                }
-                ticketBoards={ticketBoards}
-                ticketBoardError={ticketBoardError}
-                ticketBoardLoading={ticketBoardLoading}
-                ticketBoardSaving={ticketBoardSaving}
-                ticketBoardDeletingId={deletingTicketBoardId}
-                onRefreshTicketBoards={() => void loadTicketBoards()}
-                onCreateTicketBoard={createTicketBoard}
-                onUpdateTicketBoard={updateTicketBoard}
-                onDeleteTicketBoard={deleteTicketBoard}
-                ticketStatuses={ticketStatuses}
-                ticketStatusError={ticketStatusError}
-                ticketStatusLoading={ticketStatusLoading}
-                ticketStatusSaving={ticketStatusSaving}
-                ticketStatusDeletingId={deletingTicketStatusId}
-                onRefreshTicketStatuses={() => void loadTicketStatuses()}
-                onCreateTicketStatus={createTicketStatusDefinition}
-                onUpdateTicketStatus={updateTicketStatusDefinition}
-                onDeleteTicketStatus={deleteTicketStatusDefinition}
-                ticketRoutingRules={ticketRoutingRules}
-                selectedTicketRoutingRule={selectedTicketRoutingRule}
-                ticketRoutingError={ticketRoutingError}
-                ticketRoutingLoading={ticketRoutingLoading}
-                ticketRoutingSaving={ticketRoutingSaving}
-                ticketRoutingDeletingId={deletingTicketRoutingRuleId}
-                onRefreshTicketRouting={() => void loadTicketRoutingRules()}
-                onCreateTicketRoutingRule={createTicketRoutingRule}
-                onSelectTicketRoutingRule={selectTicketRoutingRule}
-                onTicketRoutingChange={handleTicketRoutingRuleChange}
-                onSaveTicketRoutingRule={saveTicketRoutingRule}
-                onDeleteTicketRoutingRule={deleteTicketRoutingRule}
-                roleDefinitions={roleDefinitions}
-                selectedRoleDefinition={selectedRoleDefinition}
-                rolePermissionOptions={rolePermissionOptions}
-                roleDefinitionError={roleDefinitionError}
-                roleDefinitionLoading={roleDefinitionLoading}
-                roleDefinitionSaving={roleDefinitionSaving}
-                roleDefinitionDeletingId={roleDefinitionDeletingId}
-                roleDefinitionsLoadedOnce={roleDefinitionsLoadedOnce}
-                roleDefinitionSyncingFromAuth0={roleDefinitionSyncingFromAuth0}
-                onRefreshRoleDefinitions={() => void loadRoleDefinitions()}
-                onSyncRoleDefinitionsFromAuth0={() =>
-                  void syncRoleDefinitionsFromAuth0()
-                }
-                onCreateRoleDefinition={createRoleDefinition}
-                onSelectRoleDefinition={selectRoleDefinition}
-                onRoleDefinitionChange={handleRoleDefinitionChange}
-                onSaveRoleDefinition={saveRoleDefinition}
-                onDeleteRoleDefinition={deleteRoleDefinition}
-                archiveConfigurations={archiveConfigurations}
-                archiveConfiguration={archiveConfiguration}
-                archiveError={archiveError}
-                archiveLoading={archiveLoading}
-                archiveSaving={archiveSaving}
-                archiveDeletingId={deletingArchiveConfigurationId}
-                archiveRunning={archiveRunning}
-                onCreateArchivePolicy={createArchivePolicy}
-                onSelectArchivePolicy={selectArchivePolicy}
-                onArchiveChange={handleArchiveConfigurationChange}
-                onRefreshArchive={() => void loadArchiveConfigurations()}
-                onSaveArchive={() => void saveArchiveConfiguration()}
-                onDeleteArchive={() => void deleteArchiveConfiguration()}
-                onRunArchiveNow={() => void runArchiveNow()}
-                customReports={customReports}
-                databaseViews={databaseViews}
-                databaseViewsLoading={databaseViewsLoading}
-                customReportError={customReportsError}
-                customReportLoading={customReportsLoading}
-                customReportSaving={customReportsSaving}
-                customReportDeletingId={deletingCustomReportId}
-                onRefreshCustomReports={() =>
-                  void loadCustomReportDefinitions()
-                }
-                onCreateCustomReport={createCustomReport}
-                onUpdateCustomReport={updateCustomReport}
-                onDeleteCustomReport={deleteCustomReport}
-                storedProcedures={storedProcedures}
-                databaseStoredProcedures={databaseStoredProcedures}
-                databaseStoredProceduresLoading={
-                  databaseStoredProceduresLoading
-                }
-                storedProcedureError={storedProcedureError}
-                storedProcedureLoading={storedProcedureLoading}
-                storedProcedureSaving={storedProcedureSaving}
-                storedProcedureDeletingId={deletingStoredProcedureId}
-                onRefreshStoredProcedures={() => void loadStoredProcedures()}
-                onCreateStoredProcedure={createStoredProcedureDefinition}
-                onUpdateStoredProcedure={updateStoredProcedureDefinition}
-                onDeleteStoredProcedure={deleteStoredProcedureDefinition}
-                canExportAdminLogs={isAdmin}
-                onExportAdminLogs={exportAdminLogs}
-                canManageJobs={canManageJobsNav}
-                canManageAiSettings={isAdmin}
-                jobs={jobs}
-                jobsLoading={jobsLoading}
-                jobsError={jobsError}
-                jobsSaving={jobsSaving}
-                runningJobId={runningJobId}
-                onRefreshJobs={() => void loadJobs()}
-                onCreateScheduledJob={createScheduledJob}
-                onUpdateScheduledJob={updateScheduledJob}
-                onRunScheduledJobNow={runScheduledJobNow}
-                canManageReportDefinitions={canManageCustomReportDefinitions}
-                onOpenJobs={() => setActiveView("jobs")}
-                onOpenUsers={() => setActiveView("users")}
-              />
-            )
-          ) : activeView === "users" && canViewUsers ? (
-            <UsersPage
-              users={usersVisible}
-              totalUsers={users.length}
-              searchQuery={usersSearchQuery}
-              onSearchQueryChange={setUsersSearchQuery}
-              hasMore={usersHasMore}
-              loadingMore={false}
-              onLoadMore={loadMoreUsers}
-              loading={usersLoading || apiUnavailable}
-              syncingFromAuth0={usersSyncingFromAuth0}
-              error={apiUnavailable ? null : usersError}
-              canCreate={canCreateUsers}
-              canEdit={canEditUsers}
-              canDelete={canDeleteUsers}
-              currentUserId={currentUser?.id}
-              deletingUserId={deletingUserId}
-              onRefresh={() => void loadUsers()}
-              onSyncFromAuth0={() => void syncUsersFromAuth0()}
-              onCreate={openCreateUserModal}
-              onEdit={openAdminUserModal}
-              onDelete={(userRecord) => void deleteUserRecord(userRecord)}
-            />
-          ) : (
-            <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6">
-              <p className="text-gray-600 dark:text-slate-400">
-                You do not have permission to view this section.
-              </p>
-            </div>
-          )}
-        </main>
+              showAffordance={!isDashboardView && !isReportsView}
+              affordanceAriaLabel="Scroll workspace to bottom"
+            >
+              {isDashboardView ? (
+                <DashboardPage
+                  tickets={allTickets}
+                  loading={loading || apiUnavailable}
+                  error={apiUnavailable ? null : error}
+                  activeAttentionFilterValue={activeAttentionFilterValue}
+                  onRefresh={() => void loadAllTickets()}
+                  onOpenTicket={openTicket}
+                  onAttentionDrillDown={handleExecutiveAttentionDrillDown}
+                />
+              ) : activeView === "tickets" ? (
+                <TicketsContainer
+                  theme={theme}
+                  isAuthenticated={isAuthenticated}
+                  bootstrapComplete={bootstrapComplete}
+                  needsConsent={needsConsent}
+                  canViewTicketSections={canViewTicketSections}
+                  boardTabs={boardTabs}
+                  boardCountsById={boardCountsById}
+                  loading={loading}
+                  apiUnavailable={apiUnavailable}
+                  error={error}
+                  savedFilters={savedFilters}
+                  selectedSavedFilterId={selectedSavedFilterId}
+                  setSelectedSavedFilterId={setSelectedSavedFilterId}
+                  openSaveFilterModal={openSaveFilterModal}
+                  deleteSavedFilter={deleteSavedFilter}
+                  clearTicketFilters={clearTicketFilters}
+                  applySavedFilter={applySavedFilter}
+                  handleFilterChange={handleFilterChange}
+                  handleFilterValueChange={handleFilterValueChange}
+                  handleSearchChange={handleSearchChange}
+                  handlePageSizeChange={handlePageSizeChange}
+                  filter={filter}
+                  filterValue={filterValue}
+                  searchQuery={searchQuery}
+                  pageSize={pageSize}
+                  selectedBoardId={selectedBoardId}
+                  setSelectedBoardId={setSelectedBoardId}
+                  myTicketsOnly={myTicketsOnly}
+                  setMyTicketsOnly={setMyTicketsOnly}
+                  myTicketApprovalFilter={myTicketApprovalFilter}
+                  setMyTicketApprovalFilter={setMyTicketApprovalFilter}
+                  ticketListSort={ticketListSort}
+                  setTicketListSort={setTicketListSort}
+                  tickets={tickets}
+                  pagedTickets={pagedTickets}
+                  totalTickets={totalTickets}
+                  totalPages={totalPages}
+                  currentPage={currentPage}
+                  setCurrentPage={setCurrentPage}
+                  showingStart={showingStart}
+                  showingEnd={showingEnd}
+                  requesterLifecycleSummary={requesterLifecycleSummary}
+                  isModalOpen={isModalOpen}
+                  syncTicketChangesSilently={syncTicketChangesSilently}
+                  openTicket={openTicket}
+                />
+              ) : activeView === "approval" && canEditTicketsCap ? (
+                <ApprovalQueuePage
+                  theme={theme}
+                  isAuthenticated={isAuthenticated}
+                  bootstrapComplete={bootstrapComplete}
+                  needsConsent={needsConsent}
+                  getApiToken={getApiToken}
+                  authRoles={effectiveAuthRoles}
+                  openTicketById={openTicketById}
+                  externalRefreshNonce={approvalQueueRefreshNonce}
+                />
+              ) : activeView === "archived" && canViewArchived ? (
+                <ArchivedTicketsPage
+                  tickets={archivedTicketsForView}
+                  totalTickets={archivedTicketsForView.length}
+                  searchQuery={archivedSearchQuery}
+                  onSearchQueryChange={setArchivedSearchQuery}
+                  loading={archivedLoading || apiUnavailable}
+                  error={apiUnavailable ? null : archivedError}
+                  highlightedTicketId={highlightedArchivedTicketId}
+                  onRefresh={() => void loadArchivedTickets()}
+                  onLoadMore={() => void loadArchivedTickets(undefined, { append: true })}
+                  hasMore={archivedHasMore}
+                  loadingMore={archivedLoadingMore}
+                  canReactivate={canEditTicketsCap}
+                  reactivatingTicketId={reactivatingArchivedTicketId}
+                  onReactivate={handleReactivateArchivedTicket}
+                />
+              ) : activeView === "reports" && canViewReportsNav ? (
+                <ReportsPage
+                  tickets={allTickets}
+                  onlineUsers={onlineUsers}
+                  customReports={customReports.filter((report) => report.isEnabled)}
+                  customReportResult={customReportResult}
+                  loading={loading || apiUnavailable}
+                  onlineUsersLoading={onlineUsersLoading || apiUnavailable}
+                  customReportLoading={customReportResultLoading || apiUnavailable}
+                  error={apiUnavailable ? null : error}
+                  onlineUsersError={apiUnavailable ? null : onlineUsersError}
+                  customReportError={
+                    apiUnavailable ? null : customReportResultError
+                  }
+                  showSlaLegend={showReportSlaLegend}
+                  canViewOnlineUsers={canViewOnlineUsersReport}
+                  canViewCustomReports={canViewReportsNav}
+                  activeSection={activeReportSection}
+                  onChangeSection={setActiveReportSection}
+                  selectedCustomReportId={selectedCustomReportId}
+                  onSelectCustomReport={setSelectedCustomReportId}
+                  onToggleSlaLegend={() =>
+                    setShowReportSlaLegend((currentValue) => !currentValue)
+                  }
+                  onRefresh={() => void loadAllTickets()}
+                  onRefreshOnlineUsers={() => void loadOnlineUsers()}
+                  onRefreshCustomReport={() => {
+                    if (selectedCustomReportId !== null) {
+                      void runCustomReport(selectedCustomReportId);
+                    }
+                  }}
+                  onExportCsv={() => void exportReportCsv(false)}
+                  onExportGoogleSheets={() => void exportReportCsv(true)}
+                  onOpenTicket={openTicket}
+                  onCreateRootCauseTask={handleCreateRootCauseTask}
+                />
+              ) : activeView === "rebalance" && canViewRebalanceNav ? (
+                <RebalanceOverviewPanel
+                  getApiToken={getApiToken}
+                  onOpenTicket={async (ticketId) => {
+                    await openTicketById(ticketId);
+                  }}
+                  onRebalanceApplied={async () => {
+                    await loadAllTickets();
+                  }}
+                />
+              ) : activeView === "jobs" && canViewJobActivityNav ? (
+                <JobsPage
+                  jobs={jobs}
+                  loading={jobsLoading}
+                  error={jobsError}
+                  runningJobId={runningJobId}
+                  canViewSensitiveDetails={canManageJobsNav}
+                  canRetryNow={canManageJobsNav}
+                  onRefresh={() => void loadJobs()}
+                  onRunNow={runScheduledJobNow}
+                />
+              ) : activeView === "sla" && canManageConfiguration ? (
+                apiUnavailable ? (
+                  <ConfigurationSkeleton />
+                ) : (
+                  <ConfigurationPage
+                    slaConfigurations={slaConfigurations}
+                    slaError={slaError}
+                    slaLoading={slaLoading}
+                    slaSaving={slaSaving}
+                    onSlaChange={handleSlaConfigurationChange}
+                    onRefreshSla={() => void loadSlaConfigurations()}
+                    onSaveSla={() => void saveSlaConfigurations()}
+                    sessionConfiguration={sessionConfiguration}
+                    sessionError={sessionError}
+                    sessionLoading={sessionLoading}
+                    sessionSaving={sessionSaving}
+                    onSessionChange={handleSessionConfigurationChange}
+                    onRefreshSession={() => void loadSessionConfiguration()}
+                    onSaveSession={() => void saveSessionConfiguration()}
+                    aiSettings={aiSettings}
+                    aiSettingsError={aiSettingsError}
+                    aiSettingsLoading={aiSettingsLoading}
+                    aiSettingsSaving={aiSettingsSaving}
+                    onAiSettingsChange={handleAiSettingsChange}
+                    onRefreshAiSettings={() => void loadAiSettings()}
+                    onSaveAiSettings={() => void saveAiSettings()}
+                    notificationChannelConfiguration={
+                      notificationChannelConfiguration
+                    }
+                    notificationChannelError={notificationChannelError}
+                    notificationChannelLoading={notificationChannelLoading}
+                    notificationChannelSaving={notificationChannelSaving}
+                    onNotificationChannelChange={
+                      handleNotificationChannelConfigurationChange
+                    }
+                    onRefreshNotificationChannels={() =>
+                      void loadNotificationChannelConfiguration()
+                    }
+                    onSaveNotificationChannels={() =>
+                      void saveNotificationChannelConfiguration()
+                    }
+                    ticketBoards={ticketBoards}
+                    ticketBoardError={ticketBoardError}
+                    ticketBoardLoading={ticketBoardLoading}
+                    ticketBoardSaving={ticketBoardSaving}
+                    ticketBoardDeletingId={deletingTicketBoardId}
+                    onRefreshTicketBoards={() => void loadTicketBoards()}
+                    onCreateTicketBoard={createTicketBoard}
+                    onUpdateTicketBoard={updateTicketBoard}
+                    onDeleteTicketBoard={deleteTicketBoard}
+                    ticketStatuses={ticketStatuses}
+                    ticketStatusError={ticketStatusError}
+                    ticketStatusLoading={ticketStatusLoading}
+                    ticketStatusSaving={ticketStatusSaving}
+                    ticketStatusDeletingId={deletingTicketStatusId}
+                    onRefreshTicketStatuses={() => void loadTicketStatuses()}
+                    onCreateTicketStatus={createTicketStatusDefinition}
+                    onUpdateTicketStatus={updateTicketStatusDefinition}
+                    onDeleteTicketStatus={deleteTicketStatusDefinition}
+                    ticketRoutingRules={ticketRoutingRules}
+                    selectedTicketRoutingRule={selectedTicketRoutingRule}
+                    ticketRoutingError={ticketRoutingError}
+                    ticketRoutingLoading={ticketRoutingLoading}
+                    ticketRoutingSaving={ticketRoutingSaving}
+                    ticketRoutingDeletingId={deletingTicketRoutingRuleId}
+                    onRefreshTicketRouting={() => void loadTicketRoutingRules()}
+                    onCreateTicketRoutingRule={createTicketRoutingRule}
+                    onSelectTicketRoutingRule={selectTicketRoutingRule}
+                    onTicketRoutingChange={handleTicketRoutingRuleChange}
+                    onSaveTicketRoutingRule={saveTicketRoutingRule}
+                    onDeleteTicketRoutingRule={deleteTicketRoutingRule}
+                    roleDefinitions={roleDefinitions}
+                    selectedRoleDefinition={selectedRoleDefinition}
+                    rolePermissionOptions={rolePermissionOptions}
+                    roleDefinitionError={roleDefinitionError}
+                    roleDefinitionLoading={roleDefinitionLoading}
+                    roleDefinitionSaving={roleDefinitionSaving}
+                    roleDefinitionDeletingId={roleDefinitionDeletingId}
+                    roleDefinitionsLoadedOnce={roleDefinitionsLoadedOnce}
+                    roleDefinitionSyncingFromAuth0={roleDefinitionSyncingFromAuth0}
+                    onRefreshRoleDefinitions={() => void loadRoleDefinitions()}
+                    onSyncRoleDefinitionsFromAuth0={() =>
+                      void syncRoleDefinitionsFromAuth0()
+                    }
+                    onCreateRoleDefinition={createRoleDefinition}
+                    onSelectRoleDefinition={selectRoleDefinition}
+                    onRoleDefinitionChange={handleRoleDefinitionChange}
+                    onSaveRoleDefinition={saveRoleDefinition}
+                    onDeleteRoleDefinition={deleteRoleDefinition}
+                    archiveConfigurations={archiveConfigurations}
+                    archiveConfiguration={archiveConfiguration}
+                    archiveError={archiveError}
+                    archiveLoading={archiveLoading}
+                    archiveSaving={archiveSaving}
+                    archiveDeletingId={deletingArchiveConfigurationId}
+                    archiveRunning={archiveRunning}
+                    onCreateArchivePolicy={createArchivePolicy}
+                    onSelectArchivePolicy={selectArchivePolicy}
+                    onArchiveChange={handleArchiveConfigurationChange}
+                    onRefreshArchive={() => void loadArchiveConfigurations()}
+                    onSaveArchive={() => void saveArchiveConfiguration()}
+                    onDeleteArchive={() => void deleteArchiveConfiguration()}
+                    onRunArchiveNow={() => void runArchiveNow()}
+                    customReports={customReports}
+                    databaseViews={databaseViews}
+                    databaseViewsLoading={databaseViewsLoading}
+                    reportSources={reportSources}
+                    reportSourcesLoading={reportSourcesLoading}
+                    customReportError={customReportsError}
+                    customReportLoading={customReportsLoading}
+                    customReportSaving={customReportsSaving}
+                    customReportDeletingId={deletingCustomReportId}
+                    onRefreshCustomReports={() =>
+                      void loadCustomReportDefinitions()
+                    }
+                    onCreateCustomReport={createCustomReport}
+                    onUpdateCustomReport={updateCustomReport}
+                    onDeleteCustomReport={deleteCustomReport}
+                    storedProcedures={storedProcedures}
+                    databaseStoredProcedures={databaseStoredProcedures}
+                    databaseStoredProceduresLoading={
+                      databaseStoredProceduresLoading
+                    }
+                    storedProcedureError={storedProcedureError}
+                    storedProcedureLoading={storedProcedureLoading}
+                    storedProcedureSaving={storedProcedureSaving}
+                    storedProcedureDeletingId={deletingStoredProcedureId}
+                    onRefreshStoredProcedures={() => void loadStoredProcedures()}
+                    onCreateStoredProcedure={createStoredProcedureDefinition}
+                    onUpdateStoredProcedure={updateStoredProcedureDefinition}
+                    onDeleteStoredProcedure={deleteStoredProcedureDefinition}
+                    canExportAdminLogs={isAdmin}
+                    onExportAdminLogs={exportAdminLogs}
+                    canManageJobs={canManageJobsNav}
+                    canManageAiSettings={isAdmin}
+                    jobs={jobs}
+                    jobsLoading={jobsLoading}
+                    jobsError={jobsError}
+                    jobsSaving={jobsSaving}
+                    runningJobId={runningJobId}
+                    onRefreshJobs={() => void loadJobs()}
+                    onCreateScheduledJob={createScheduledJob}
+                    onUpdateScheduledJob={updateScheduledJob}
+                    onRunScheduledJobNow={runScheduledJobNow}
+                    canManageReportDefinitions={canManageCustomReportDefinitions}
+                    onOpenJobs={() => setActiveView("jobs")}
+                    onOpenUsers={() => setActiveView("users")}
+                  />
+                )
+              ) : activeView === "users" && canViewUsers ? (
+                <UsersPage
+                  users={usersVisible}
+                  totalUsers={users.length}
+                  searchQuery={usersSearchQuery}
+                  onSearchQueryChange={setUsersSearchQuery}
+                  hasMore={usersHasMore}
+                  loadingMore={false}
+                  onLoadMore={loadMoreUsers}
+                  loading={usersLoading || apiUnavailable}
+                  syncingFromAuth0={usersSyncingFromAuth0}
+                  error={apiUnavailable ? null : usersError}
+                  canCreate={canCreateUsers}
+                  canEdit={canEditUsers}
+                  canDelete={canDeleteUsers}
+                  currentUserId={currentUser?.id}
+                  deletingUserId={deletingUserId}
+                  onRefresh={() => void loadUsers()}
+                  onSyncFromAuth0={() => void syncUsersFromAuth0()}
+                  onCreate={openCreateUserModal}
+                  onEdit={openAdminUserModal}
+                  onDelete={(userRecord) => void deleteUserRecord(userRecord)}
+                />
+              ) : (
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6">
+                  <p className="text-gray-600 dark:text-slate-400">
+                    You do not have permission to view this section.
+                  </p>
+                </div>
+              )}
+            </ScrollableViewport>
+          </main>
+        </div>
       </div>
 
       {selectedTicket && isModalOpen && (

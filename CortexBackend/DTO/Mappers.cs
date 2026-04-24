@@ -648,6 +648,8 @@ public static class ReportDefinitionMappings
             Description = definition.Description,
             SqlQuery = definition.SqlQuery,
             IsEnabled = definition.IsEnabled,
+            SourceKey = definition.SourceKey,
+            SelectedColumns = definition.SelectedColumns,
             CreatedDateUtc = definition.CreatedDateUtc,
             LastModifiedDateUtc = definition.LastModifiedDateUtc
         };

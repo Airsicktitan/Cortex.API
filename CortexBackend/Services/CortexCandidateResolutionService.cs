@@ -76,7 +76,8 @@ public sealed class CortexCandidateResolutionService(
             {
                 UserId = canonicalOwnerKey,
                 DisplayName = user?.DisplayName?.Trim() ?? canonicalOwnerKey,
-                Eligible = user is { IsSynitiOwnerEligible: true, IsActive: true },
+                Eligible = user is not null
+                    && OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(user),
                 ActiveTicketCount = snapshot.ActiveTicketCount,
                 HighPriorityCount = snapshot.HighPriorityCount,
                 OverdueTicketCount = snapshot.OverdueTicketCount,

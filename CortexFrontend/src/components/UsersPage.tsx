@@ -1,7 +1,8 @@
 import type { UserRecord } from "../types/user";
-import type { UIEvent } from "react";
+import { useRef, type UIEvent } from "react";
 import { UsersSkeleton } from "./LoadingSkeletons";
 import { CortexTooltip } from "./ui/Tooltip";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 import { formatStoredPhoneNumber } from "../utils/phoneNumber";
 import {
   formatDisplayDateTime,
@@ -101,6 +102,8 @@ export default function UsersPage({
   onEdit,
   onDelete,
 }: UsersPageProps) {
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+
   const handleContainerScroll = (event: UIEvent<HTMLDivElement>) => {
     if (!hasMore || loadingMore || loading) return;
     const target = event.currentTarget;
@@ -115,8 +118,8 @@ export default function UsersPage({
   }
 
   return (
-    <div className="space-y-6">
-      <section className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+      <section className="shrink-0 bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
@@ -159,12 +162,12 @@ export default function UsersPage({
       </section>
 
       {error && (
-        <div className="bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 p-4 rounded">
+        <div className="shrink-0 bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 p-4 rounded">
           <p className="text-red-700 dark:text-red-300">{error}</p>
         </div>
       )}
 
-      <section className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 overflow-hidden">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="border-b border-gray-100 px-4 py-3 dark:border-slate-800">
           <input
             type="text"
@@ -179,9 +182,12 @@ export default function UsersPage({
             No users found.
           </div>
         ) : (
-          <div
-            className="scroll-surface max-h-[70vh] overflow-auto"
-            onScroll={handleContainerScroll}
+          <ScrollableViewport
+            viewportRef={tableScrollRef}
+            outerClassName="min-h-0 flex-1"
+            viewportClassName="min-h-0 h-full overflow-auto"
+            affordanceAriaLabel="Scroll users to bottom"
+            viewportProps={{ onScroll: handleContainerScroll }}
           >
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 dark:bg-slate-800/80 text-left text-gray-600 dark:text-slate-300">
@@ -297,12 +303,12 @@ export default function UsersPage({
                 ))}
               </tbody>
             </table>
-            {loadingMore && (
-              <div className="sticky bottom-0 border-t border-gray-200 bg-white/95 px-4 py-3 text-center text-sm text-gray-500 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 dark:text-slate-300">
-                Loading more users...
-              </div>
-            )}
-          </div>
+              {loadingMore && (
+                <div className="sticky bottom-0 border-t border-gray-200 bg-white/95 px-4 py-3 text-center text-sm text-gray-500 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 dark:text-slate-300">
+                  Loading more users...
+                </div>
+              )}
+          </ScrollableViewport>
         )}
       </section>
     </div>

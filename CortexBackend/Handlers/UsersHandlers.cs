@@ -274,6 +274,9 @@ public static class UserHandlers
             var fresh = await auth0Management.GetUserRolesAsync(user.Auth0Id!, cancellationToken);
             var nameList = NormalizeAuth0RoleNames(fresh);
             user.Role = Auth0Roles.GetHighestRole(nameList);
+            user.Department = UserDepartmentPolicy.ApplyDeveloperDepartmentDefault(
+                user.Department,
+                user.Role);
             user.LastModifiedDate = DateTime.UtcNow;
             await repo.SaveChangesAsync();
             await roleSync.SyncRoleToAuth0Async(user, cancellationToken);
@@ -503,7 +506,9 @@ public static class UserHandlers
         {
             user.NickName = NormalizeOptionalValue(request.NickName);
             user.PhoneNumber = NormalizeOptionalValue(request.PhoneNumber);
-            user.Department = NormalizeOptionalValue(request.Department);
+            user.Department = UserDepartmentPolicy.ApplyDeveloperDepartmentDefault(
+                NormalizeOptionalValue(request.Department),
+                role);
             user.AssignmentNotificationChannel = ParseNotificationChannelOrNull(
                 request.AssignmentNotificationChannel,
                 nameof(request.AssignmentNotificationChannel));
@@ -598,7 +603,9 @@ public static class UserHandlers
                 NickName = NormalizeOptionalValue(request.NickName),
                 Email = normalizedEmail,
                 PhoneNumber = NormalizeOptionalValue(request.PhoneNumber),
-                Department = NormalizeOptionalValue(request.Department),
+                Department = UserDepartmentPolicy.ApplyDeveloperDepartmentDefault(
+                    NormalizeOptionalValue(request.Department),
+                    role),
                 Role = role,
                 IsActive = request.IsActive,
                 IsSynitiOwnerEligible = request.IsSynitiOwnerEligible,
@@ -648,6 +655,9 @@ public static class UserHandlers
             }
 
             createdUser.Role = Auth0Roles.GetHighestRole(nameList);
+            createdUser.Department = UserDepartmentPolicy.ApplyDeveloperDepartmentDefault(
+                createdUser.Department,
+                createdUser.Role);
             createdUser.LastModifiedDate = DateTime.UtcNow;
             await repo.SaveChangesAsync();
 

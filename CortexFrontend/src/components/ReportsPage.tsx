@@ -1,5 +1,5 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Ticket } from "../types/ticket";
 import type {
   CustomReportDefinition,
@@ -24,6 +24,13 @@ import {
   readOnlySynitiOwnerLabel,
 } from "../utils/ownerIdentity";
 import { isOpenTicket } from "../utils/ticketLifecycle";
+import {
+  UNASSIGNED_FILTER,
+  computeColumnDistincts,
+  getCustomReportColumnFilterKind,
+  hasAnyCustomReportFilter,
+  rowMatchesCustomReportFilters,
+} from "../utils/customReportFilters";
 import type { WorkflowMetricsSnapshot } from "../types/workflowMetrics";
 import type {
   RepeatIssueAiReviewResponse,
@@ -33,6 +40,7 @@ import type {
 } from "../types/repeatIssues";
 import { metricsService, repeatIssuesService } from "../services/api";
 import { CortexTooltip } from "./ui/Tooltip";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 
 const API_AUDIENCE = "https://cortex-api";
 
@@ -117,7 +125,18 @@ function TelemetryDonutChart({ slices }: { slices: TelemetryDonutSlice[] }) {
   const strokeWidth = 24;
   const center = 90;
   const circumference = 2 * Math.PI * radius;
-  let runningFraction = 0;
+  const chartSlices = slices.map((slice, index) => {
+    const fraction = slice.count / total;
+    const offsetFraction = slices
+      .slice(0, index)
+      .reduce((sum, priorSlice) => sum + priorSlice.count / total, 0);
+
+    return {
+      slice,
+      dash: fraction * circumference,
+      offset: -offsetFraction * circumference,
+    };
+  });
 
   return (
     <div className="grid gap-4 lg:grid-cols-[13rem_minmax(0,1fr)]">
@@ -135,27 +154,21 @@ function TelemetryDonutChart({ slices }: { slices: TelemetryDonutSlice[] }) {
             strokeWidth={strokeWidth}
             className="stroke-gray-100 dark:stroke-slate-800"
           />
-          {slices.map((slice) => {
-            const fraction = slice.count / total;
-            const dash = fraction * circumference;
-            const offset = -runningFraction * circumference;
-            runningFraction += fraction;
-            return (
-              <circle
-                key={slice.label}
-                cx={center}
-                cy={center}
-                r={radius}
-                fill="none"
-                strokeWidth={strokeWidth}
-                strokeLinecap="butt"
-                strokeDasharray={`${dash} ${circumference - dash}`}
-                strokeDashoffset={offset}
-                transform={`rotate(-90 ${center} ${center})`}
-                className={slice.colorClass}
-              />
-            );
-          })}
+          {chartSlices.map(({ slice, dash, offset }) => (
+            <circle
+              key={slice.label}
+              cx={center}
+              cy={center}
+              r={radius}
+              fill="none"
+              strokeWidth={strokeWidth}
+              strokeLinecap="butt"
+              strokeDasharray={`${dash} ${circumference - dash}`}
+              strokeDashoffset={offset}
+              transform={`rotate(-90 ${center} ${center})`}
+              className={slice.colorClass}
+            />
+          ))}
           <text
             x={center}
             y={center - 4}
@@ -1866,6 +1879,7 @@ export default function ReportsPage({
 }: ReportsPageProps) {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const reportsScrollRef = useRef<HTMLDivElement | null>(null);
   const { getAccessTokenSilently } = useAuth0();
   const [workflowMetrics, setWorkflowMetrics] =
     useState<WorkflowMetricsSnapshot | null>(null);
@@ -1873,6 +1887,53 @@ export default function ReportsPage({
     string | null
   >(null);
   const [workflowMetricsLoading, setWorkflowMetricsLoading] = useState(true);
+
+  const [customReportRowFilter, setCustomReportRowFilter] = useState("");
+  const [customReportColumnFilters, setCustomReportColumnFilters] = useState<
+    Record<string, string>
+  >({});
+
+  useEffect(() => {
+    setCustomReportRowFilter("");
+    setCustomReportColumnFilters({});
+  }, [selectedCustomReportId, customReportResult?.generatedDateUtc]);
+
+  const customReportColumnDistincts = useMemo(() => {
+    if (!customReportResult) {
+      return {};
+    }
+    return computeColumnDistincts(
+      customReportResult.columns,
+      customReportResult.rows,
+    );
+  }, [customReportResult]);
+
+  const hasActiveCustomReportFilters = useMemo(
+    () =>
+      hasAnyCustomReportFilter(
+        customReportRowFilter,
+        customReportColumnFilters,
+      ),
+    [customReportRowFilter, customReportColumnFilters],
+  );
+
+  const filteredCustomReportRows = useMemo(() => {
+    if (!customReportResult) {
+      return [];
+    }
+    return customReportResult.rows.filter((row) =>
+      rowMatchesCustomReportFilters(
+        row,
+        customReportResult.columns,
+        customReportColumnFilters,
+        customReportRowFilter,
+      ),
+    );
+  }, [
+    customReportResult,
+    customReportColumnFilters,
+    customReportRowFilter,
+  ]);
 
   useEffect(() => {
     if (!isExportMenuOpen) {
@@ -1922,7 +1983,16 @@ export default function ReportsPage({
     (activeSection === "online-users" && onlineUsersLoading) ||
     (activeSection === "custom" && customReportLoading)
   ) {
-    return <ReportsSkeleton />;
+    return (
+      <ScrollableViewport
+        viewportRef={reportsScrollRef}
+        outerClassName="h-full"
+        viewportClassName="scroll-chain-auto h-full overflow-y-auto"
+        affordanceAriaLabel="Scroll reports workspace to bottom"
+      >
+        <ReportsSkeleton />
+      </ScrollableViewport>
+    );
   }
 
   const totalTickets = tickets.length;
@@ -1951,7 +2021,13 @@ export default function ReportsPage({
   const executiveSummary = buildSlaExecutiveSummary(openTickets);
 
   return (
-    <div className="space-y-6">
+    <ScrollableViewport
+      viewportRef={reportsScrollRef}
+      outerClassName="h-full"
+      viewportClassName="scroll-chain-auto h-full overflow-y-auto"
+      affordanceAriaLabel="Scroll reports workspace to bottom"
+    >
+        <div className="space-y-6 pb-6">
       <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2331,21 +2407,65 @@ export default function ReportsPage({
             </div>
           ) : (
             <div className="space-y-4 px-6 py-6">
-              <div className="flex flex-col gap-2 text-sm text-gray-500 dark:text-slate-400">
-                <span>
-                  Generated{" "}
-                  {formatDisplayDateTime(customReportResult.generatedDateUtc)}
-                </span>
-                {customReportResult.isTruncated && (
-                  <span className="text-amber-700 dark:text-amber-300">
-                    Showing the first 500 rows for performance.
+              <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-x-4">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-slate-400">
+                  <span className="shrink-0">
+                    Generated{" "}
+                    {formatDisplayDateTime(customReportResult.generatedDateUtc)}
                   </span>
-                )}
+                  <span className="font-medium text-gray-700 dark:text-slate-300">
+                    {!hasActiveCustomReportFilters
+                      ? customReportResult.rows.length === 1
+                        ? "1 row"
+                        : `${customReportResult.rows.length} rows`
+                      : `Showing ${filteredCustomReportRows.length} of ${customReportResult.rows.length} rows`}
+                  </span>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end lg:w-auto">
+                  {hasActiveCustomReportFilters ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomReportRowFilter("");
+                        setCustomReportColumnFilters({});
+                      }}
+                      className="shrink-0 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Clear filters
+                    </button>
+                  ) : null}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-md">
+                    <label
+                      className="sr-only"
+                      htmlFor="custom-report-row-filter"
+                    >
+                      Search across all columns
+                    </label>
+                    <input
+                      id="custom-report-row-filter"
+                      type="search"
+                      value={customReportRowFilter}
+                      onChange={(e) => setCustomReportRowFilter(e.target.value)}
+                      placeholder="Search all columns..."
+                      autoComplete="off"
+                      className="w-full min-w-0 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-cortex-blue focus:outline-none focus:ring-1 focus:ring-cortex-blue dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-cortex-cyan dark:focus:ring-cortex-cyan"
+                    />
+                  </div>
+                </div>
               </div>
+              {customReportResult.isTruncated && (
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  Showing the first 500 rows for performance.
+                </p>
+              )}
 
               {customReportResult.rows.length === 0 ? (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 px-6 py-12 text-center text-gray-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400">
                   This report returned no rows.
+                </div>
+              ) : filteredCustomReportRows.length === 0 ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-6 py-12 text-center text-gray-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                  No rows match the current filters.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -2353,14 +2473,97 @@ export default function ReportsPage({
                     <thead className="bg-gray-50 text-left text-gray-600 dark:bg-slate-800/80 dark:text-slate-300">
                       <tr>
                         {customReportResult.columns.map((column) => (
-                          <th key={column} className="px-4 py-3 font-medium">
+                          <th
+                            key={column}
+                            className="min-w-[9rem] px-3 py-3 font-medium"
+                          >
                             {column}
                           </th>
                         ))}
                       </tr>
+                      <tr className="border-t border-gray-200 dark:border-slate-700">
+                        {customReportResult.columns.map((column) => {
+                          const kind =
+                            getCustomReportColumnFilterKind(column);
+                          const value =
+                            customReportColumnFilters[column] ?? "";
+                          const distinct = customReportColumnDistincts[column] ?? {
+                            values: [],
+                            hasBlank: false,
+                          };
+
+                          if (kind === "select" || kind === "owner") {
+                            return (
+                              <th
+                                key={`filter-${column}`}
+                                className="min-w-[9rem] px-2 py-2 align-top font-normal"
+                              >
+                                <label className="sr-only" htmlFor={`crf-${column}`}>
+                                  Filter by {column}
+                                </label>
+                                <select
+                                  id={`crf-${column}`}
+                                  value={value}
+                                  onChange={(e) =>
+                                    setCustomReportColumnFilters((prev) => ({
+                                      ...prev,
+                                      [column]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full max-w-[14rem] rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900 focus:border-cortex-blue focus:outline-none focus:ring-1 focus:ring-cortex-blue dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-cortex-cyan dark:focus:ring-cortex-cyan"
+                                >
+                                  <option value="">All</option>
+                                  {distinct.hasBlank ? (
+                                    <option value={UNASSIGNED_FILTER}>
+                                      (Unassigned)
+                                    </option>
+                                  ) : null}
+                                  {distinct.values.map((opt) => (
+                                    <option key={opt} value={opt}>
+                                      {opt}
+                                    </option>
+                                  ))}
+                                </select>
+                              </th>
+                            );
+                          }
+
+                          const placeholder =
+                            column.length > 22
+                              ? `Filter ${column.slice(0, 18)}...`
+                              : `Filter ${column}...`;
+
+                          return (
+                            <th
+                              key={`filter-${column}`}
+                              className="min-w-[9rem] px-2 py-2 align-top font-normal"
+                            >
+                              <label className="sr-only" htmlFor={`crf-${column}`}>
+                                {kind === "date" ? "Text filter for" : "Contains filter for"}{" "}
+                                {column}
+                              </label>
+                              <input
+                                id={`crf-${column}`}
+                                type="search"
+                                value={value}
+                                onChange={(e) =>
+                                  setCustomReportColumnFilters((prev) => ({
+                                    ...prev,
+                                    [column]: e.target.value,
+                                  }))
+                                }
+                                placeholder={placeholder}
+                                title={`Filter ${column} (${kind === "date" ? "text" : "contains"})`}
+                                autoComplete="off"
+                                className="w-full max-w-[14rem] rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:border-cortex-blue focus:outline-none focus:ring-1 focus:ring-cortex-blue dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-cortex-cyan dark:focus:ring-cortex-cyan"
+                              />
+                            </th>
+                          );
+                        })}
+                      </tr>
                     </thead>
                     <tbody>
-                      {customReportResult.rows.map((row, rowIndex) => (
+                      {filteredCustomReportRows.map((row, rowIndex) => (
                         <tr
                           key={rowIndex}
                           className="border-t border-gray-100 text-gray-700 dark:border-slate-800 dark:text-slate-200"
@@ -2368,7 +2571,7 @@ export default function ReportsPage({
                           {customReportResult.columns.map((column) => (
                             <td
                               key={`${rowIndex}-${column}`}
-                              className="px-4 py-3 align-top"
+                              className="px-3 py-3 align-top"
                             >
                               {String(row[column] ?? "—")}
                             </td>
@@ -2383,6 +2586,7 @@ export default function ReportsPage({
           )}
         </section>
       )}
-    </div>
+        </div>
+    </ScrollableViewport>
   );
 }

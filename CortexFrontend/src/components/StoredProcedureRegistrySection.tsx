@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type {
   DatabaseStoredProcedureDefinition,
   StoredProcedureDefinition,
   UpsertStoredProcedureDefinitionInput,
 } from "../types/storedProcedure";
+import { ScrollableViewport } from "./ui/ScrollableViewport";
 
 interface StoredProcedureRegistrySectionProps {
   storedProcedures: StoredProcedureDefinition[];
@@ -52,6 +53,7 @@ export default function StoredProcedureRegistrySection({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] =
     useState<UpsertStoredProcedureDefinitionInput>(EMPTY_DRAFT);
+  const databaseProcedureListRef = useRef<HTMLDivElement | null>(null);
   const isBusy = saving || deletingId !== null;
 
   const saveLabel = useMemo(() => {
@@ -400,7 +402,12 @@ export default function StoredProcedureRegistrySection({
                 Use an existing SQL stored procedure as the starting point for the registry.
               </p>
 
-              <div className="scroll-surface mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+              <ScrollableViewport
+                viewportRef={databaseProcedureListRef}
+                outerClassName="mt-3"
+                viewportClassName="max-h-56 space-y-2 overflow-y-auto pr-1"
+                affordanceAriaLabel="Scroll database procedures to bottom"
+              >
                 {databaseStoredProceduresLoading ? (
                   <p className="text-sm text-gray-500 dark:text-slate-400">
                     Loading database stored procedures...
@@ -435,7 +442,7 @@ export default function StoredProcedureRegistrySection({
                     </div>
                   ))
                 )}
-              </div>
+              </ScrollableViewport>
             </div>
           </div>
         </div>

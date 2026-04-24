@@ -11,8 +11,9 @@ import {
  * and cause jitter / "freeze" feel right at the bottom edge.
  */
 const DEFAULT_BOTTOM_THRESHOLD_PX = 24;
+const SCROLLABLE_OVERFLOW_VALUES = new Set(["auto", "scroll", "overlay"]);
 
-export function scrollElementToBottom(
+function scrollElementToBottom(
   el: HTMLElement,
   behavior: ScrollBehavior = "smooth",
 ) {
@@ -55,6 +56,13 @@ export function ScrollToBottomButton({
       setVisible(false);
       return;
     }
+
+    const { overflowY } = window.getComputedStyle(el);
+    if (!SCROLLABLE_OVERFLOW_VALUES.has(overflowY)) {
+      setVisible(false);
+      return;
+    }
+
     const { scrollTop, clientHeight, scrollHeight } = el;
     const hasOverflow = scrollHeight > clientHeight;
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
@@ -74,7 +82,7 @@ export function ScrollToBottomButton({
       raf = requestAnimationFrame(() => updateVisibility());
     };
 
-    updateVisibility();
+    scheduleUpdate();
     // Passive + observational: never calls scrollTo / preventDefault here.
     // This listener only computes and sets visibility state.
     el.addEventListener("scroll", scheduleUpdate, { passive: true });
@@ -106,7 +114,7 @@ export function ScrollToBottomButton({
     // invisible area around the button can swallow scroll / wheel / hover
     // interaction with the scrollable panel. `w-9 h-9` keeps the wrapper
     // exactly button-sized so the hitbox can never grow larger than the icon.
-    <div className="pointer-events-none absolute bottom-3 right-3 z-10 h-9 w-9">
+    <div className="pointer-events-none absolute bottom-4 right-4 z-20 h-9 w-9">
       <button
         type="button"
         onClick={() => {
