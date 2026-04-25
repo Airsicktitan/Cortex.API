@@ -2,7 +2,8 @@
 
 **Central Operations & Routing Technology EXpert**
 
-An enterprise operations platform that transforms support workflows by making **ownership, readiness, and decision-making explicit** — with AI that enhances decisions without breaking system rules.
+An enterprise operations platform that transforms support workflows by making
+**ownership, readiness, and decisions explicit — with measurable impact.**
 
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![.NET](https://img.shields.io/badge/.NET-8-purple)
@@ -13,177 +14,163 @@ An enterprise operations platform that transforms support workflows by making **
 
 ## 🚀 Why CORTEX Exists
 
-Enterprise ticketing systems (SharePoint, email, legacy tools) create friction:
+Enterprise ticketing systems create hidden cost:
 
-- Ownership is unclear
-- Tickets are low-quality
-- Follow-up is constant
-- SLA risk is hidden
+- unclear ownership
+- low-quality tickets
+- constant follow-up
+- invisible SLA risk
 
-CORTEX removes that friction by turning tickets into **actionable, measurable decisions**.
+> **Teams don’t lose time solving problems — they lose time clarifying them.**
 
-> **The goal: better tickets → fewer follow-ups → faster decisions**
+CORTEX removes that friction by turning tickets into:
+
+👉 **actionable, explainable decisions**
 
 ---
 
 ## 🎯 Core Value Proposition
 
-CORTEX answers two critical questions:
+CORTEX answers:
 
-> _Can I act on this ticket immediately?_
-> _If not — what is the best next action?_
+> _Can I act on this immediately?_
+> _If not — what is the correct next decision?_
 
-It achieves this by combining:
+---
 
-- Input quality improvement (intake assist)
-- Evidence understanding (screenshot insight)
-- Readiness signaling (reviewer signal)
-- **Decision support (rebalance + routing)**
-- Outcome measurement (workflow metrics)
+## 💡 Business Impact
+
+CORTEX reduces:
+
+- follow-up cycles
+- incorrect routing
+- SLA breaches
+- workload imbalance
+
+> **Better tickets → fewer follow-ups → faster decisions → measurable time savings**
 
 ---
 
 ## ⚡ What Makes CORTEX Different
 
-### 🧠 Decision Engine (NEW)
+### 🧠 Decision Engine
 
-CORTEX doesn’t just route tickets — it **optimizes ownership**.
+CORTEX does not just route tickets — it **optimizes ownership in real time**
 
-- Evaluates all eligible owners
-- Scores workload, risk, and fit
-- Recommends reassignment with reasoning
-- Surfaces **ranked alternatives**
-- Applies changes safely with validation
+- evaluates all eligible owners
+- scores workload + risk
+- recommends best assignment
+- explains every decision
+- surfaces alternatives
 
 > From “who owns this?” → **“who should own this now?”**
 
 ---
 
-### 🤖 AI inside system constraints
+### ⚖️ Rebalance (Operational Intelligence)
 
-- No hallucinated statuses or priorities
-- Uses live system configuration
-- Fully validated before persistence
-- Enhances decisions, never overrides system authority
+- detects overload
+- recommends safe reassignment
+- prevents instability (no ping-pong)
+- explains impact
 
----
-
-### 👥 Dual ownership model
-
-| Role           | Responsibility          |
-| -------------- | ----------------------- |
-| Syniti Owner   | Technical execution     |
-| Business Owner | Validation / acceptance |
-
-Ownership is explicit, enforced, and auditable.
+> Continuous correction, not static routing
 
 ---
 
-## 🔁 Rebalance (Operational Intelligence)
+### 🤖 AI — Constrained and Useful
 
-CORTEX continuously evaluates workload distribution:
+- improves ticket input
+- extracts meaning from screenshots
+- identifies missing details
+- suggests priorities
 
-- Identifies overloaded owners
-- Recommends optimal reassignment
-- Explains **why the move matters**
-- Shows **alternatives considered**
-- Prevents unsafe or invalid changes
-
-> Not just routing — **continuous operational correction**
-
----
-
-## 🤖 AI Capabilities
-
-### 1. Intake Assist (Requester-side)
-
-- Improves descriptions before submission
-- Structures input for clarity
-- Identifies missing details
+✔ No hallucinations
+✔ No system overrides
+✔ Fully explainable
 
 ---
 
-### 2. Reviewer Quality Signal
+### 📊 Workflow Metrics (Proof Layer)
 
-- Ready for Review
-- Small Gaps Remain
-- Needs Detail First
+- readiness distribution
+- follow-up friction
+- workload balance
+- AI usage impact
 
-> Instantly answers: “Can I act on this?”
-
----
-
-### 3. Screenshot Insight (Vision AI)
-
-- Extracts meaning from screenshots
-- Identifies visible issues
-- Suggests likely causes
-
-✔ Persisted with the ticket
-✔ Survives modal close
+> Moves from “this helps” → **“this improves operations”**
 
 ---
 
-### 4. Decision Explanation (NEW)
+## 🧩 Core Capabilities
 
-Every recommendation includes:
+### Intake Assist
 
-- Why this move
-- Expected impact
-- Constraints (manual override, stale, etc.)
-
-> CORTEX doesn’t just decide — it explains
+Improves ticket quality before submission
 
 ---
 
-### 5. Workflow Metrics (Proof Layer)
+### Reviewer Readiness
 
-- Readiness distribution
-- Follow-up proxy (comment count)
-- AI usage metrics
-- Operational load distribution
+Instantly answers: “Can I act on this?”
 
-> Moves from “this helps” → **“this improves workflows”**
+---
+
+### Screenshot Insight
+
+Turns visual evidence into structured signal
+
+---
+
+### Decision Explanation
+
+Explains every recommendation clearly
+
+---
+
+### Rebalance Engine
+
+Optimizes workload continuously
 
 ---
 
 ## 🏗 Architecture
 
-- .NET 8 (Minimal APIs)
+- .NET 8 Minimal APIs
 - React + TypeScript
 - SQL Server
 - EF Core
-- Auth0 authentication
-- Docker deployment
+- Auth0
+- Docker / Azure Container Apps
 
 ---
 
-## 🧠 Key Design Principles
+## 🧠 Design Principles
 
-- Model real workflows, not ideal states
-- Make responsibility explicit
-- Constrain AI with system rules
-- Persist AI insight (not just generate it)
-- **Explain decisions, not just outcomes**
-- Measure impact, not assumptions
+- model real workflows, not ideal ones
+- make responsibility explicit
+- constrain AI with system rules
+- persist insight, don’t regenerate it
+- **explain decisions, not just outcomes**
+- measure impact, not assumptions
 
 ---
 
 ## 📊 Product Philosophy
 
-- **Clarity over complexity**
-- **Signal over noise**
-- **System authority over AI guesswork**
-- **Consistency over cleverness**
-- **Trust through explainability**
+- clarity over complexity
+- signal over noise
+- system authority over AI guesswork
+- consistency over cleverness
+- trust through explainability
 
 ---
 
 ## 📌 Status
 
+- 🧪 Demo-ready
 - 🚧 Active development
-- 🧪 Demo-ready (decision engine + rebalance)
-- 🎯 Production direction
+- 🎯 Pilot-ready
 
 ---
 

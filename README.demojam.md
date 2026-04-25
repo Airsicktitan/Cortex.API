@@ -13,7 +13,8 @@ A demonstration of how enterprise support workflows can be transformed by making
 
 ## 🎯 Demo Objective
 
-> **Bad tickets create delays. CORTEX fixes the ticket — and optimizes ownership — before work begins.**
+> **Bad tickets don’t just slow work — they create hidden operational cost.
+> CORTEX removes that cost before work even begins.**
 
 ---
 
@@ -26,11 +27,12 @@ Today’s ticket:
 - missing context
 - requires follow-up
 
-Result:
+### Result
 
 - delays
-- back-and-forth
+- repeated handoffs
 - overloaded teams
+- hidden SLA risk
 
 ---
 
@@ -58,22 +60,26 @@ Result:
 
 ### 1. Create weak ticket
 
-> “SAP not working”
+> “SAP invoice posting failing — blocking finance close”
 
 ---
 
-### 2. Improve Request (AI)
+### 2. Improve Request (Cortex Assist)
 
 - structured description
 - missing details surfaced
+
+> Cortex prevents bad tickets from entering the system
 
 ---
 
 ### 3. Screenshot Insight (🔥 moment)
 
-- analyze screenshot
-- extract real issue
-- suggest likely cause
+- analyzes screenshot
+- extracts real issue
+- suggests likely cause
+
+> Evidence is understood, not ignored
 
 ---
 
@@ -82,33 +88,35 @@ Result:
 Show:
 
 - Ready / Needs Detail signal
-- structured description
-- screenshot insight
+- structured request
+- extracted insight
 
 > Reviewer doesn’t guess — they act
 
 ---
 
-### 5. Rebalance (💥 moment)
+### 5. Cortex Recommendation (💥 moment)
+
+Show:
+
+- recommended owner
+- reasoning
+- alternatives considered
+- confidence
+
+> Cortex doesn’t assign — it explains
+
+---
+
+### 6. Rebalance (⚖️ system-level impact)
 
 Show:
 
 - overloaded owner
-- recommended reassignment
-- why the move matters
-- alternative owners considered
+- safe reassignment
+- blocked instability (ping-pong prevention)
 
-> Cortex doesn’t just route — it optimizes
-
----
-
-### 6. Apply Decision
-
-- safe execution
-- override when needed
-- no invalid actions
-
-> Decisions are **controlled and explainable**
+> Cortex optimizes workload without creating churn
 
 ---
 
@@ -117,10 +125,10 @@ Show:
 Show:
 
 - readiness distribution
-- follow-up proxy
+- follow-up friction
 - workload balance
 
-> “We can measure the improvement”
+> “This is where time is being lost — and recovered”
 
 ---
 
@@ -128,25 +136,26 @@ Show:
 
 ### Principle
 
-> AI operates within system rules — not outside them.
+> AI operates within system rules — not outside them
 
 ### Behavior
 
-- uses valid system values only
-- never invents workflow states
+- uses only valid system values
+- never mutates core fields automatically
 - enhances decisions, not authority
 
 ---
 
 ## 🧠 Key Insight
 
-> CORTEX doesn’t just process tickets — it improves them and decides what should happen next.
+> CORTEX doesn’t process tickets — it improves them and decides what should happen next.
 
 ---
 
 ## 🎤 Close
 
-> **Better tickets → smarter decisions → faster operations**
+> **Without Cortex: tickets bounce, teams guess, time is lost.**
+> **With Cortex: tickets are clear, ownership is correct, and decisions happen immediately.**
 
 ---
 
