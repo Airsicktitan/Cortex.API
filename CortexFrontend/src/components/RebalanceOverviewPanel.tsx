@@ -17,11 +17,11 @@ interface RebalanceOverviewPanelProps {
   getApiToken: () => Promise<string>;
   /**
    * Reuses the existing TicketModal flow. The panel itself does not embed
-   * reassignment UI — clicking a row opens the standard modal so the user
+   * reassignment UI - clicking a row opens the standard modal so the user
    * can drive the existing review-and-apply experience.
    */
   onOpenTicket: (ticketId: string) => Promise<void> | void;
-  onRebalanceApplied?: () => Promise<void> | void;
+  onRebalanceApplied?: (result: ExecuteRebalanceResponse) => Promise<void> | void;
 }
 
 const PRESSURE_BADGE: Record<PressureLevel, string> = {
@@ -78,11 +78,17 @@ function getSuggestionTicketTitle(suggestion: RebalanceSuggestion) {
     return title;
   }
 
-  return suggestion.ticketKey || suggestion.ticketId;
+  return "this ticket";
 }
 
 function getSuggestionTicketMeta(suggestion: RebalanceSuggestion) {
-  return suggestion.ticketKey || suggestion.ticketId;
+  const key = suggestion.ticketKey?.trim();
+  return key && key !== suggestion.ticketId ? key : null;
+}
+
+function getOwnerDisplayName(displayName: string | undefined | null) {
+  const clean = displayName?.trim();
+  return clean || "Unassigned owner";
 }
 
 function resolveCandidateStrength(
@@ -139,23 +145,21 @@ function mapCandidateToDisplaySuggestion(
     ticketKey: candidate.ticketId,
     ticketTitle: candidate.title,
     fromUserId: candidate.currentOwnerId,
-    fromDisplayName: candidate.currentOwnerName || candidate.currentOwnerId,
+    fromDisplayName: getOwnerDisplayName(candidate.currentOwnerName),
     toUserId: candidate.topSuggestedTarget.ownerKey,
     toDisplayName:
-      candidate.topSuggestedTarget.displayName ||
-      candidate.topSuggestedTarget.ownerKey,
+      getOwnerDisplayName(candidate.topSuggestedTarget.displayName),
     reason: candidate.potentialImpactSummary || "Rebalance recommendation.",
     expectedImpact:
       candidate.potentialImpactSummary || "Reduces workload imbalance.",
     confidenceScore: 0.5,
     recommendationStrength: "Good fit",
     rationale: [
-      `${candidate.currentOwnerName || candidate.currentOwnerId} is overloaded with workload score ${candidate.currentOwnerWorkloadScore}.`,
+      `${getOwnerDisplayName(candidate.currentOwnerName)} is overloaded with workload score ${candidate.currentOwnerWorkloadScore}.`,
     ],
     impactPreview: [
       `Moves work toward ${
-        candidate.topSuggestedTarget.displayName ||
-        candidate.topSuggestedTarget.ownerKey
+        getOwnerDisplayName(candidate.topSuggestedTarget.displayName)
       } at ${candidate.topSuggestedTarget.pressureLevel} pressure.`,
     ],
     alternativeOwners: (candidate.alternativeTargets ?? []).map(
@@ -188,22 +192,46 @@ function buildDisplayedSuggestions(
 function resolveBlockedState(reason: string) {
   const normalized = reason.toLowerCase();
   if (normalized.includes("manual override")) {
-    return "Manual override";
+    return "Rule conflict";
   }
-  if (normalized.includes("stale")) {
-    return "Needs re-evaluation";
+  if (normalized.includes("owner no longer eligible")) {
+    return "Owner no longer eligible";
   }
-  return "Limited fit";
+  if (normalized.includes("rule conflict")) {
+    return "Rule conflict";
+  }
+  if (normalized.includes("missing required data")) {
+    return "Missing required data";
+  }
+  if (normalized.includes("previous owner") || normalized.includes("ping-pong")) {
+    return "Move blocked to prevent repeated reassignment (workload instability)";
+  }
+  if (normalized.includes("stale") || normalized.includes("changed")) {
+    return "Stale";
+  }
+  return "Blocked";
 }
 
 function resolveBlockedConstraintExplanation(blockedState: string): string {
-  if (blockedState === "Manual override") {
-    return "A manual ownership override is present. Applying this recommendation requires explicit confirmation.";
+  if (blockedState === "Rule conflict") {
+    return "Blocked: Rule conflict. Current ownership controls this ticket, so Cortex will not apply a different move silently.";
   }
-  if (blockedState === "Needs re-evaluation") {
-    return "This recommendation has become stale. Refresh the rebalance view to generate an updated recommendation.";
+  if (blockedState === "Owner no longer eligible") {
+    return "Blocked: Owner no longer eligible. Refresh rebalance to review a new recommendation.";
   }
-  return "No sufficiently lower-pressure owner was identified for this ticket at this time.";
+  if (blockedState === "Missing required data") {
+    return "Blocked: Missing required data. Review the ticket before applying a rebalance move.";
+  }
+  if (
+    blockedState ===
+    "Move blocked to prevent repeated reassignment (workload instability)"
+  ) {
+    return "Blocked: Recent rebalance would move this ticket back to its previous owner.";
+  }
+  if (blockedState === "Stale") {
+    return "Stale: Ticket changed since suggestion was generated. Cortex will not choose a different owner silently.";
+  }
+  return "Blocked: Cortex could not safely apply this recommendation.";
 }
 
 export default function RebalanceOverviewPanel({
@@ -325,7 +353,7 @@ export default function RebalanceOverviewPanel({
       if (result.totalApplied === 0 && result.skipped.length > 0) {
         setExecutionSummary("No executable actions were available.");
       }
-      await onRebalanceApplied?.();
+      await onRebalanceApplied?.(result);
       await load();
     } catch (caughtError) {
       setError(
@@ -359,7 +387,7 @@ export default function RebalanceOverviewPanel({
       setExecutionEvaluatedCount(result.totalEvaluated ?? 0);
       setExecutionSkipSummary(getSkipReasonSummary(result.skipped ?? []));
       setOverrideTarget(null);
-      await onRebalanceApplied?.();
+      await onRebalanceApplied?.(result);
       await load();
     } catch (caughtError) {
       setError(
@@ -509,11 +537,11 @@ export default function RebalanceOverviewPanel({
                 <p className="mt-1">
                   Move from{" "}
                   <span className="font-medium">
-                    {overrideTarget.fromDisplayName || overrideTarget.fromUserId}
+                    {getOwnerDisplayName(overrideTarget.fromDisplayName)}
                   </span>{" "}
                   to{" "}
                   <span className="font-medium">
-                    {overrideTarget.toDisplayName || overrideTarget.toUserId}
+                    {getOwnerDisplayName(overrideTarget.toDisplayName)}
                   </span>
                 </p>
               </div>
@@ -569,7 +597,7 @@ function SuggestionDetail({
       </div>
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
-          Expected impact
+          Expected Impact
         </p>
         <ul className="mt-1 space-y-0.5">
           {impact.map((item, i) => (
@@ -611,7 +639,7 @@ function AlternativesSection({
             <span>
               {alt.displayName}
               <span className="ml-1 text-gray-400 dark:text-slate-500">
-                — workload {alt.workloadScore} ({alt.pressureLevel} pressure)
+                - workload {alt.workloadScore} ({alt.pressureLevel} pressure)
               </span>
             </span>
           </li>
@@ -670,10 +698,7 @@ function OverloadedOwnersSection({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-                    {owner.ownerName || owner.ownerId}
-                  </p>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
-                    Owner key: {owner.ownerId}
+                    {getOwnerDisplayName(owner.ownerName)}
                   </p>
                 </div>
                 <span
@@ -808,11 +833,11 @@ function RebalanceCandidatesSection({
         <div className="mt-5 space-y-6">
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-              Rebalance Plan ({actionableSuggestions.length} actionable)
+              Actionable Suggestions ({actionableSuggestions.length})
             </h4>
             {actionableSuggestions.length === 0 ? (
               <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
-                No executable rebalance actions are currently available.
+                No safe improvements available at this time.
               </p>
             ) : (
               <ul className="mt-3 space-y-3">
@@ -848,15 +873,20 @@ function RebalanceCandidatesSection({
                             </button>{" "}
                             from{" "}
                             <span className="font-medium">
-                              {suggestion.fromDisplayName || suggestion.fromUserId}
+                              {getOwnerDisplayName(suggestion.fromDisplayName)}
                             </span>{" "}
                             to{" "}
                             <span className="font-medium">
-                              {suggestion.toDisplayName || suggestion.toUserId}
+                              {getOwnerDisplayName(suggestion.toDisplayName)}
                             </span>
                           </p>
+                          {ticketMeta ? (
+                            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                              {ticketMeta}
+                            </p>
+                          ) : null}
                           <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                            {ticketMeta}
+                            Confidence: {Math.round((suggestion.confidenceScore ?? 0) * 100)}%
                           </p>
                         </div>
                         <span
@@ -870,7 +900,7 @@ function RebalanceCandidatesSection({
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                         {suggestion.aiHighRisk ? (
                           <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                            Ready to apply — elevated delivery risk
+                            Ready to apply - elevated delivery risk
                           </span>
                         ) : (
                           <span className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 dark:bg-slate-800 dark:text-slate-300">
@@ -895,7 +925,7 @@ function RebalanceCandidatesSection({
 
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-              Blocked / Requires Review ({blockedSuggestions.length})
+              Blocked / Stale Suggestions ({blockedSuggestions.length})
             </h4>
             {blockedSuggestions.length === 0 ? (
               <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
@@ -939,15 +969,20 @@ function RebalanceCandidatesSection({
                           </button>{" "}
                           from{" "}
                           <span className="font-medium">
-                            {suggestion.fromDisplayName || suggestion.fromUserId}
+                            {getOwnerDisplayName(suggestion.fromDisplayName)}
                           </span>{" "}
                           to{" "}
                           <span className="font-medium">
-                            {suggestion.toDisplayName || suggestion.toUserId}
+                            {getOwnerDisplayName(suggestion.toDisplayName)}
                           </span>
                         </p>
+                        {ticketMeta ? (
+                          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                            {ticketMeta}
+                          </p>
+                        ) : null}
                         <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                          {ticketMeta}
+                          Confidence: {Math.round((suggestion.confidenceScore ?? 0) * 100)}%
                         </p>
                       </div>
                       <SuggestionDetail rationale={rationaleItems} impact={impactItems} />
@@ -963,7 +998,7 @@ function RebalanceCandidatesSection({
                         </div>
                       </div>
                       <div className="mt-3 flex gap-2">
-                        {blockedState === "Manual override" ? (
+                        {blockedState === "Rule conflict" ? (
                           <button
                             type="button"
                             onClick={() => onOverrideAndApply(suggestion)}
@@ -1020,12 +1055,11 @@ function RebalanceCandidatesSection({
                         disabled={isOpening}
                         className="font-semibold text-cortex-blue hover:underline disabled:opacity-60 dark:text-sky-300"
                       >
-                        #{candidate.ticketId}
+                        {candidate.title || "Review ticket"}
                       </button>{" "}
-                      {candidate.title}
                     </p>
                     <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                      Current owner: {candidate.currentOwnerName || candidate.currentOwnerId}
+                      Current owner: {getOwnerDisplayName(candidate.currentOwnerName)}
                     </p>
                   </div>
                   <span

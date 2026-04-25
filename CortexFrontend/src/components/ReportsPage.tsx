@@ -17,6 +17,7 @@ import {
 import {
   formatDisplayDateTime,
   formatDisplayValue,
+  formatTicketIdentifier,
   humanizeEnumLabel,
 } from "../utils/presentation";
 import {
@@ -65,6 +66,13 @@ function formatWorkflowCount(value: number): string {
   return String(Math.round(value));
 }
 
+function formatWorkflowPercent(part: number, total: number): string {
+  if (!Number.isFinite(part) || !Number.isFinite(total) || total <= 0) {
+    return "—";
+  }
+  return `${Math.round((part / total) * 100)}%`;
+}
+
 /** When follow-up averages are comparable and Ready &lt; Needs detail, surface a subtle insight. */
 function getWorkflowFollowUpInsight(m: WorkflowMetricsSnapshot): string | null {
   const readyAvg = m.avgCommentCountBySignal.ready;
@@ -78,21 +86,50 @@ function getWorkflowFollowUpInsight(m: WorkflowMetricsSnapshot): string | null {
   return "So far, tickets labeled Ready for review show lower average follow-up comments than those labeled Needs detail first.";
 }
 
+function getFollowUpFrictionInsight(
+  readyAvg: number,
+  gapsAvg: number,
+  needsAvg: number,
+) {
+  const highest = Math.max(
+    Number.isFinite(readyAvg) ? readyAvg : 0,
+    Number.isFinite(gapsAvg) ? gapsAvg : 0,
+    Number.isFinite(needsAvg) ? needsAvg : 0,
+  );
+  if (highest >= 5) {
+    return "High Follow-Up Friction: unclear intake is likely creating repeated clarification work.";
+  }
+  if (highest >= 2) {
+    return "Moderate Follow-Up Friction: reviewers still need extra clarification on some requests.";
+  }
+  return "Low Follow-Up Friction: ticket detail is generally clear enough to keep decisions moving.";
+}
+
 function TelemetrySummaryChip({
   label,
   value,
   hint,
+  valueTone = "neutral",
 }: {
   label: string;
   value: string;
   hint?: string;
+  valueTone?: "neutral" | "positive" | "warning" | "critical";
 }) {
+  const valueClass =
+    valueTone === "positive"
+      ? "text-emerald-700 dark:text-emerald-300"
+      : valueTone === "warning"
+        ? "text-amber-800 dark:text-amber-300"
+        : valueTone === "critical"
+          ? "text-red-700 dark:text-red-300"
+          : "text-gray-900 dark:text-slate-50";
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
       <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
         {label}
       </p>
-      <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-gray-900 dark:text-slate-50">
+      <p className={`mt-1 text-xl font-semibold tabular-nums tracking-tight ${valueClass}`}>
         {value}
       </p>
       {hint ? (
@@ -293,8 +330,8 @@ function TelemetryEmptyState() {
         No telemetry yet
       </p>
       <p className="mt-1 max-w-sm text-xs leading-relaxed text-gray-500 dark:text-slate-400">
-        Reviewer readiness, intake assist, and screenshot insight activity will
-        appear here as users interact with AI-assisted tickets.
+        Review readiness, follow-up friction, and Cortex Assist impact will
+        appear here as users work through tickets.
       </p>
     </div>
   );
@@ -321,10 +358,7 @@ function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
     return <TelemetryEmptyState />;
   }
 
-  const readyRateLabel =
-    reviewerTotal > 0
-      ? `${Math.round((readyCount / reviewerTotal) * 100)}%`
-      : "—";
+  const readyRateLabel = `${formatWorkflowPercent(readyCount, reviewerTotal)} ready for review`;
 
   const readyAvg = data.avgCommentCountBySignal.ready;
   const gapsAvg = data.avgCommentCountBySignal.gaps;
@@ -336,6 +370,16 @@ function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
     Number.isFinite(needsAvg) ? needsAvg : 0,
   );
   const followUpAllZero = followUpMax <= 0;
+  const missingDetailLabel = `${formatWorkflowAvg(data.avgMissingDetailCount)} gaps`;
+  const assistSavedCount = Math.max(0, Math.round(data.intakeAssistSavedCount));
+  const assistImpactLabel =
+    intakeUsed > 0
+      ? `Cortex Assist impact: ${formatWorkflowPercent(assistSavedCount, intakeUsed)} time saved`
+      : "Cortex Assist impact not measured yet";
+  const needsDetailFollowUpLabel =
+    Number.isFinite(needsAvg)
+      ? `Average follow-up: ${formatWorkflowAvg(needsAvg)} comments`
+      : "Average follow-up: 0.0 comments";
 
   const readinessSlices: TelemetryDonutSlice[] = [
     {
@@ -375,35 +419,41 @@ function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
     <div className="space-y-5">
       <section
         className="grid grid-cols-2 gap-3 md:grid-cols-4"
-        aria-label="Telemetry summary metrics"
+        aria-label="Workflow insight metrics"
       >
         <TelemetrySummaryChip
-          label="Total Events"
-          value={formatWorkflowCount(totalEvents)}
-          hint="All-time telemetry signals"
+          label="Intake Quality"
+          value={missingDetailLabel}
+          hint="Average missing details per ticket; lower means reviewers can decide sooner."
+          valueTone={data.avgMissingDetailCount >= 3 ? "warning" : "neutral"}
         />
         <TelemetrySummaryChip
-          label="Ready Rate"
+          label="Review Readiness"
           value={readyRateLabel}
           hint={
             reviewerTotal > 0
-              ? `${formatWorkflowCount(readyCount)} of ${formatWorkflowCount(reviewerTotal)} reviewer signals`
+              ? `${formatWorkflowCount(readyCount)} of ${formatWorkflowCount(reviewerTotal)} tickets were ready without additional follow-up.`
               : "Awaiting reviewer activity"
           }
+          valueTone={readyCount / Math.max(reviewerTotal, 1) >= 0.6 ? "positive" : "warning"}
         />
         <TelemetrySummaryChip
-          label="Intake Assist"
-          value={formatWorkflowCount(intakeUsed)}
+          label="Follow-Up Friction"
+          value={needsDetailFollowUpLabel}
+          hint={
+            "Needs-detail tickets require this many comments on average, showing clarification effort."
+          }
+          valueTone={needsAvg >= 5 ? "critical" : needsAvg >= 2 ? "warning" : "positive"}
+        />
+        <TelemetrySummaryChip
+          label="Cortex Assist Impact"
+          value={assistImpactLabel}
           hint={
             intakeUsed > 0
-              ? `${formatWorkflowCount(data.intakeAssistSavedCount)} saved after assist`
-              : "Not yet used"
+              ? `${formatWorkflowCount(intakeUsed)} assisted intake sessions; ${formatWorkflowCount(screenshotUsed)} visual evidence checks.`
+              : "No assisted intake sessions have been recorded yet."
           }
-        />
-        <TelemetrySummaryChip
-          label="Screenshot Insight"
-          value={formatWorkflowCount(screenshotUsed)}
-          hint={screenshotUsed > 0 ? "Analyses run" : "Not yet used"}
+          valueTone={intakeUsed > 0 ? "positive" : "neutral"}
         />
       </section>
 
@@ -417,14 +467,14 @@ function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
               id="telemetry-chart-heading"
               className="text-sm font-semibold text-gray-900 dark:text-slate-100"
             >
-              Reviewer readiness distribution
+              Review Readiness
             </h4>
             <p className="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-slate-400">
-              Share of reviewer signals by readiness state.
+              Shows whether new submissions can move forward without clarification.
             </p>
           </div>
           <p className="shrink-0 text-[11px] tabular-nums text-gray-500 dark:text-slate-500">
-            {formatWorkflowCount(reviewerTotal)} signals
+            {formatWorkflowCount(reviewerTotal)} reviewed tickets
           </p>
         </div>
 
@@ -447,14 +497,14 @@ function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
       {!followUpAllZero && (
         <section
           className="rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/30"
-          aria-label="Average follow-up comments by reviewer signal"
+          aria-label="Follow-up friction by readiness signal"
         >
           <div className="mb-2 flex items-baseline justify-between gap-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-slate-300">
-              Avg follow-ups by signal
+              Follow-Up Friction
             </p>
             <p className="text-[11px] text-gray-500 dark:text-slate-500">
-              Comments per ticket
+              Average comments per ticket
             </p>
           </div>
           <div className="space-y-1.5">
@@ -481,7 +531,7 @@ function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
       )}
 
       <p className="text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
-        {insight}
+        {getFollowUpFrictionInsight(readyAvg, gapsAvg, needsAvg)} {insight}
       </p>
     </div>
   );
@@ -553,6 +603,35 @@ function getOwnerLabel(ticket: Ticket) {
   }
 
   return formatDisplayValue(readOnlyBusinessOwnerLabel(ticket));
+}
+
+function buildWorkloadBalanceInsight(openTickets: Ticket[]) {
+  const ownerCounts = new Map<string, number>();
+  for (const ticket of openTickets) {
+    const owner = getOwnerLabel(ticket);
+    if (owner === "—") {
+      continue;
+    }
+    ownerCounts.set(owner, (ownerCounts.get(owner) ?? 0) + 1);
+  }
+
+  if (ownerCounts.size === 0) {
+    return {
+      value: "—",
+      hint: "No assigned open tickets to compare yet.",
+      tone: "neutral" as const,
+    };
+  }
+
+  const [owner, count] = Array.from(ownerCounts.entries()).sort(
+    (left, right) => right[1] - left[1],
+  )[0];
+  const tone = count >= 8 ? "warning" : "neutral";
+  return {
+    value: `${count}`,
+    hint: `${owner} has the highest visible open workload.`,
+    tone,
+  };
 }
 
 function buildSlaExecutiveSummary(openTickets: Ticket[]) {
@@ -1090,7 +1169,7 @@ function buildRootCauseTaskDraft(
   if (review && !review.unavailable) {
     const summaryText = review.summary?.trim();
     if (summaryText) {
-      descriptionLines.push("", `AI review summary: ${summaryText}`);
+      descriptionLines.push("", `Cortex Assist summary: ${summaryText}`);
     }
 
     if (review.suggestedNextSteps.length > 0) {
@@ -1307,10 +1386,10 @@ function RepeatIssueAiReviewPanel({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h5 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-            AI review
+            Cortex Assist Review
           </h5>
           <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
-            Advisory summary of the recurring pattern. Does not take action.
+            Advisory summary of the recurring pattern. No action is taken.
           </p>
         </div>
         <button
@@ -1323,7 +1402,7 @@ function RepeatIssueAiReviewPanel({
             ? "Generating…"
             : review
               ? "Regenerate"
-              : "Generate AI review"}
+              : "Generate review"}
         </button>
       </div>
 
@@ -1333,14 +1412,15 @@ function RepeatIssueAiReviewPanel({
 
       {!loading && !error && !review ? (
         <p className="mt-3 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
-          Generate an AI review to summarize this recurring pattern, describe
-          its operational impact, and propose next-step categories.
+          Generate a Cortex Assist review to summarize this recurring pattern,
+          describe its operational impact, and propose next-step categories.
         </p>
       ) : null}
 
       {review?.unavailable ? (
         <p className="mt-3 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
-          {review.unavailableReason ?? "AI review is not available right now."}
+          {review.unavailableReason ??
+            "Cortex Assist review is not ready right now."}
         </p>
       ) : null}
 
@@ -1578,7 +1658,7 @@ function RepeatIssueGroupDetailPanel({
                     {ticket.title}
                   </p>
                   <p className="text-[10px] text-gray-500 dark:text-slate-500">
-                    {ticket.ticketId}
+                    {formatTicketIdentifier(ticket.ticketId)}
                     {ticket.isArchived ? " · archived" : ""}
                   </p>
                 </td>
@@ -1736,7 +1816,7 @@ function RepeatIssueIntelligenceSection({
     } catch {
       setReview(null);
       setReviewError(
-        "Unable to generate AI review right now. Try again shortly.",
+        "Unable to generate Cortex Assist review right now. Try again shortly.",
       );
     } finally {
       setReviewLoading(false);
@@ -1759,7 +1839,7 @@ function RepeatIssueIntelligenceSection({
           </h3>
           <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
             Spot repeating operational pain across tickets and surface advisory
-            AI reviews.
+            Cortex Assist reviews.
           </p>
         </div>
         <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-gray-600 dark:bg-slate-800 dark:text-slate-400">
@@ -1839,8 +1919,8 @@ function RepeatIssueIntelligenceSection({
               />
             ) : (
               <p className="text-[11px] text-gray-500 dark:text-slate-500">
-                Select a row to see contributing tickets and request an AI
-                review.
+                Select a row to see contributing tickets and request a Cortex
+                Assist review.
               </p>
             )}
           </>
@@ -2019,6 +2099,14 @@ export default function ReportsPage({
 
   const openTickets = tickets.filter(isOpenTicket);
   const executiveSummary = buildSlaExecutiveSummary(openTickets);
+  const assignedOpenCount = openTickets.filter(
+    (ticket) => getOwnerLabel(ticket) !== "—",
+  ).length;
+  const ownershipClarityLabel = formatWorkflowPercent(
+    assignedOpenCount,
+    openTickets.length,
+  );
+  const workloadBalanceInsight = buildWorkloadBalanceInsight(openTickets);
 
   return (
     <ScrollableViewport
@@ -2132,7 +2220,7 @@ export default function ReportsPage({
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
               }`}
             >
-              Telemetry
+              Workflow Insights
             </button>
 
             <button
@@ -2198,7 +2286,8 @@ export default function ReportsPage({
             </div>
           ) : totalTickets === 0 ? (
             <section className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center text-gray-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-              No ticket data is available for reporting yet.
+              No workflow insights yet. Create or approve tickets to show intake,
+              ownership, and SLA health.
             </section>
           ) : (
             <div className="space-y-6">
@@ -2220,49 +2309,73 @@ export default function ReportsPage({
               <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                   <p className="text-sm font-medium text-gray-500 dark:text-slate-400">
-                    Total Tickets
+                    Ownership Clarity
                   </p>
                   <p className="mt-3 text-3xl font-semibold text-gray-900 dark:text-slate-100">
-                    {totalTickets}
+                    {ownershipClarityLabel}
                   </p>
                   <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
-                    Visible to your current role.
+                    Open tickets with a named owner; clear ownership reduces follow-up.
                   </p>
                 </div>
 
                 <div className="rounded-lg border border-green-200 bg-green-50 p-5 dark:border-green-900/40 dark:bg-green-950/20">
                   <p className="text-sm font-medium text-green-700 dark:text-green-300">
-                    In SLA
+                    SLA Health
                   </p>
                   <p className="mt-3 text-3xl font-semibold text-green-900 dark:text-green-100">
                     {inSlaCount}
                   </p>
                   <p className="mt-2 text-sm text-green-700/80 dark:text-green-300/80">
-                    On track or resolved within SLA.
+                    Tickets on track or resolved within SLA.
                   </p>
                 </div>
 
                 <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-5 dark:border-yellow-900/40 dark:bg-yellow-950/20">
                   <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">
-                    At Risk
+                    SLA Risk
                   </p>
                   <p className="mt-3 text-3xl font-semibold text-yellow-900 dark:text-yellow-100">
-                    {atRiskCount}
+                    {atRiskCount + outsideSlaCount}
                   </p>
                   <p className="mt-2 text-sm text-yellow-800/80 dark:text-yellow-300/80">
-                    Tickets inside the warning window.
+                    {atRiskCount} at risk and {outsideSlaCount} outside SLA; act before delayed work compounds.
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-red-200 bg-red-50 p-5 dark:border-red-900/40 dark:bg-red-950/20">
-                  <p className="text-sm font-medium text-red-700 dark:text-red-300">
-                    Outside SLA
+                <div
+                  className={
+                    workloadBalanceInsight.tone === "warning"
+                      ? "rounded-lg border border-amber-200 bg-amber-50 p-5 dark:border-amber-900/40 dark:bg-amber-950/20"
+                      : "rounded-lg border border-gray-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
+                  }
+                >
+                  <p
+                    className={
+                      workloadBalanceInsight.tone === "warning"
+                        ? "text-sm font-medium text-amber-800 dark:text-amber-300"
+                        : "text-sm font-medium text-gray-500 dark:text-slate-400"
+                    }
+                  >
+                    Workload Balance
                   </p>
-                  <p className="mt-3 text-3xl font-semibold text-red-900 dark:text-red-100">
-                    {outsideSlaCount}
+                  <p
+                    className={
+                      workloadBalanceInsight.tone === "warning"
+                        ? "mt-3 text-3xl font-semibold text-amber-900 dark:text-amber-100"
+                        : "mt-3 text-3xl font-semibold text-gray-900 dark:text-slate-100"
+                    }
+                  >
+                    {workloadBalanceInsight.value}
                   </p>
-                  <p className="mt-2 text-sm text-red-700/80 dark:text-red-300/80">
-                    Overdue open tickets or resolved after the SLA deadline.
+                  <p
+                    className={
+                      workloadBalanceInsight.tone === "warning"
+                        ? "mt-2 text-sm text-amber-800/80 dark:text-amber-300/80"
+                        : "mt-2 text-sm text-gray-500 dark:text-slate-400"
+                    }
+                  >
+                    {workloadBalanceInsight.hint}
                   </p>
                 </div>
               </section>
@@ -2345,11 +2458,11 @@ export default function ReportsPage({
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-gray-100 px-6 py-3.5 dark:border-slate-800">
             <div className="min-w-0">
               <h3 className="text-base font-semibold tracking-tight text-gray-900 dark:text-slate-100">
-                Telemetry Overview
+                Workflow Metrics
               </h3>
               <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
-                Track operational activity and report health trends across
-                AI-assisted workflows.
+                See whether Cortex is reducing follow-up, improving readiness,
+                and lowering operational risk.
               </p>
             </div>
             <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-gray-600 dark:bg-slate-800 dark:text-slate-400">

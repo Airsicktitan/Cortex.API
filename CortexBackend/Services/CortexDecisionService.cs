@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Cortex.API.Database;
 using Cortex.API.Data;
 using Cortex.API.DTO;
@@ -20,6 +21,8 @@ public sealed class CortexDecisionService(
     ILogger<CortexDecisionService> logger) : ICortexDecisionService
 {
     private const int MeaningfulImprovementThreshold = 10;
+    private const string RebalanceAppliedEventType = "rebalance_applied";
+    private static readonly TimeSpan RebalanceCooldownWindow = TimeSpan.FromHours(24);
 
     public async Task<CortexDecisionResult> EvaluateAssignmentAsync(
         Ticket ticket,
@@ -78,6 +81,7 @@ public sealed class CortexDecisionService(
         var activeTicketIds = activeTickets
             .Select(ticket => ticket.Id)
             .ToList();
+        var recentRebalanceMoves = await LoadRecentRebalanceMovesAsync(activeTicketIds, cancellationToken);
         var relevantOverrides = await dbContext.TicketRoutingOverrides
             .AsNoTracking()
             .Where(overrideEntry => activeTicketIds.Contains(overrideEntry.TicketId))
@@ -100,6 +104,11 @@ public sealed class CortexDecisionService(
         {
             var currentOwnerKey = OwnerFieldResolution.CanonicalizeOwnerField(ticket.SynitiOwner, ownerAliases);
             if (string.IsNullOrWhiteSpace(currentOwnerKey) || !overloadSet.Contains(currentOwnerKey))
+            {
+                continue;
+            }
+
+            if (recentRebalanceMoves.ContainsKey(ticket.Id))
             {
                 continue;
             }
@@ -218,6 +227,9 @@ public sealed class CortexDecisionService(
                 .Select(group => group.First())
                 .ToList()
             : await GetRebalanceSuggestionsAsync(cancellationToken);
+        var recentRebalanceMoves = await LoadRecentRebalanceMovesAsync(
+            suggestions.Select(suggestion => suggestion.TicketId),
+            cancellationToken);
         var beforeSnapshots = await workloadSnapshotService.GetSnapshotsAsync(cancellationToken);
         var response = new ExecuteRebalanceResponse
         {
@@ -253,56 +265,89 @@ public sealed class CortexDecisionService(
                     response.Skipped.Add(new SkippedRebalance
                     {
                         TicketId = suggestion.TicketId,
-                        Reason = "Manual override exists; skipped."
+                        Reason = "Blocked: Rule conflict."
                     });
                     continue;
                 }
 
                 var fromOwner = ticket.SynitiOwner ?? string.Empty;
+                if (!IsSameOwner(fromOwner, suggestion.FromUserId, suggestion.FromDisplayName))
+                {
+                    response.Skipped.Add(new SkippedRebalance
+                    {
+                        TicketId = suggestion.TicketId,
+                        Reason = "Stale: Ticket changed since suggestion was generated."
+                    });
+                    continue;
+                }
+
+                if (recentRebalanceMoves.TryGetValue(ticket.Id, out var recentMove))
+                {
+                    response.Skipped.Add(new SkippedRebalance
+                    {
+                        TicketId = suggestion.TicketId,
+                        Reason = IsSameOwner(suggestion.ToUserId, recentMove.FromOwner, null)
+                            ? "Blocked: Recent rebalance would move this ticket back to its previous owner."
+                            : "Blocked: Move would create workload ping-pong."
+                    });
+                    continue;
+                }
+
+                var decision = await EvaluateRebalanceDeterministicAsync(ticket, cancellationToken);
+
+                if (decision.Candidates.Count == 0)
+                {
+                    response.Skipped.Add(new SkippedRebalance
+                    {
+                        TicketId = suggestion.TicketId,
+                        Reason = "Blocked: Missing required data."
+                    });
+                    continue;
+                }
+
+                // Validate that the submitted target is still in the eligible candidate
+                // pool. Rank drift does not make an explicit recommendation stale; only
+                // reject when the displayed target can no longer be applied safely.
+                var targetIsInPool = decision.Candidates.Any(c =>
+                    IsSameOwner(suggestion.ToUserId, c.UserId, c.DisplayName));
+
+                if (!targetIsInPool)
+                {
+                    response.Skipped.Add(new SkippedRebalance
+                    {
+                        TicketId = suggestion.TicketId,
+                        Reason = "Blocked: Owner no longer eligible."
+                    });
+                    continue;
+                }
+
+                if (IsSameOwner(fromOwner, suggestion.ToUserId, suggestion.ToDisplayName))
+                {
+                    response.Skipped.Add(new SkippedRebalance
+                    {
+                        TicketId = suggestion.TicketId,
+                        Reason = "Stale: Ticket already moved to the recommended owner."
+                    });
+                    continue;
+                }
+
                 if (!dryRun)
                 {
-                    var decision = await EvaluateRebalanceDeterministicAsync(ticket, cancellationToken);
-
-                    if (decision.Candidates.Count == 0)
-                    {
-                        response.Skipped.Add(new SkippedRebalance
-                        {
-                            TicketId = suggestion.TicketId,
-                            Reason = "No recommended owner is currently available."
-                        });
-                        continue;
-                    }
-
-                    // Validate that the submitted target is still in the eligible candidate
-                    // pool. Rank drift — a different candidate winning due to minor workload
-                    // score changes between requests — does not make an explicit override
-                    // stale. Only reject when the requested target has become ineligible.
-                    var targetIsInPool = decision.Candidates.Any(c =>
-                        string.Equals(c.UserId, suggestion.ToUserId, StringComparison.OrdinalIgnoreCase));
-
-                    if (!targetIsInPool)
-                    {
-                        response.Skipped.Add(new SkippedRebalance
-                        {
-                            TicketId = suggestion.TicketId,
-                            Reason = "Suggestion became stale after re-evaluation."
-                        });
-                        continue;
-                    }
-
-                    if (string.Equals(ticket.SynitiOwner, suggestion.ToUserId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        response.Skipped.Add(new SkippedRebalance
-                        {
-                            TicketId = suggestion.TicketId,
-                            Reason = "Ticket is already assigned to the recommended owner."
-                        });
-                        continue;
-                    }
-
                     ticket.SynitiOwner = suggestion.ToUserId;
                     ticket.LastModifiedDate = DateTime.UtcNow;
                     await ticketRepository.UpdateTicketAsync(ticket);
+                    dbContext.WorkflowMetricEvents.Add(new WorkflowMetricEvent
+                    {
+                        EventType = RebalanceAppliedEventType,
+                        OccurredUtc = DateTime.UtcNow,
+                        TicketId = ticket.Id,
+                        ActorUserId = null,
+                        PayloadJson = JsonSerializer.Serialize(new RebalanceMovePayload
+                        {
+                            FromOwner = fromOwner,
+                            ToOwner = suggestion.ToUserId
+                        })
+                    });
                     await ticketRepository.SaveChangesAsync();
 
                     response.Applied.Add(new AppliedRebalance
@@ -853,6 +898,61 @@ public sealed class CortexDecisionService(
             : "Reduces workload imbalance.";
     }
 
+    private async Task<Dictionary<string, RebalanceMovePayload>> LoadRecentRebalanceMovesAsync(
+        IEnumerable<string> ticketIds,
+        CancellationToken cancellationToken)
+    {
+        var ticketIdSet = ticketIds
+            .Where(ticketId => !string.IsNullOrWhiteSpace(ticketId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (ticketIdSet.Count == 0)
+        {
+            return new Dictionary<string, RebalanceMovePayload>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var cutoffUtc = DateTime.UtcNow.Subtract(RebalanceCooldownWindow);
+        var events = await dbContext.WorkflowMetricEvents
+            .AsNoTracking()
+            .Where(metric => metric.EventType == RebalanceAppliedEventType)
+            .Where(metric => metric.OccurredUtc >= cutoffUtc)
+            .Where(metric => metric.TicketId != null && ticketIdSet.Contains(metric.TicketId))
+            .OrderByDescending(metric => metric.OccurredUtc)
+            .ToListAsync(cancellationToken);
+
+        var recentMoves = new Dictionary<string, RebalanceMovePayload>(StringComparer.OrdinalIgnoreCase);
+        foreach (var metric in events)
+        {
+            if (string.IsNullOrWhiteSpace(metric.TicketId) || recentMoves.ContainsKey(metric.TicketId))
+            {
+                continue;
+            }
+
+            var payload = TryReadRebalanceMovePayload(metric.PayloadJson);
+            if (payload is null
+                || string.IsNullOrWhiteSpace(payload.FromOwner)
+                || string.IsNullOrWhiteSpace(payload.ToOwner))
+            {
+                continue;
+            }
+
+            recentMoves[metric.TicketId] = payload;
+        }
+
+        return recentMoves;
+    }
+
+    private static RebalanceMovePayload? TryReadRebalanceMovePayload(string payloadJson)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<RebalanceMovePayload>(payloadJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private static string BuildExecuteSummary(ExecuteRebalanceResponse response)
     {
         return response.TotalApplied == 0
@@ -890,5 +990,11 @@ public sealed class CortexDecisionService(
         }
 
         return details;
+    }
+
+    private sealed class RebalanceMovePayload
+    {
+        public string FromOwner { get; set; } = string.Empty;
+        public string ToOwner { get; set; } = string.Empty;
     }
 }

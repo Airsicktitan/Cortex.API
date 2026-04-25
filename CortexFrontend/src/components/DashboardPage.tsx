@@ -138,7 +138,8 @@ function DistributionCard({
       <div className="space-y-4 px-6 py-5">
         {items.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-slate-400">
-            No data available yet.
+            No operational signal yet. Create or approve tickets to see queue
+            health.
           </p>
         ) : (
           items.map((item) => (
@@ -344,7 +345,8 @@ export default function DashboardPage({
           </div>
         ) : tickets.length === 0 ? (
           <div className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center text-gray-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-            No ticket data is available for the dashboard yet.
+            No dashboard signal yet. Create or approve a ticket to start showing
+            risk, ownership, and SLA health.
           </div>
         ) : activeTab === "overview" ? (
           <div className="lg:h-full lg:min-h-0 lg:overflow-hidden">

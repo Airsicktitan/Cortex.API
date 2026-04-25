@@ -516,12 +516,13 @@ export default function ExecutiveAttentionPanel({
         </div>
       ) : !hasAnySignal && tickets.length > 0 ? (
         <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-100">
-          No active risk signals in this board state. Counts update as SLA, ownership,
-          and waiting-on signals change.
+          No active risk signals right now. Cortex will surface SLA risk, unclear
+          ownership, and waiting queues as work changes.
         </div>
       ) : tickets.length === 0 ? (
         <div className="mt-3 rounded-md border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-400">
-          No tickets are available for this board state yet.
+          No tickets are available yet. Create or approve tickets to populate
+          executive attention.
         </div>
       ) : null}
 

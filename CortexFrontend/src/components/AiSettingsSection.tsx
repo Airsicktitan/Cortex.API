@@ -83,21 +83,21 @@ const VISION_MODEL_OPTIONS = [
 const CONTROL_MODE_OPTIONS: readonly ControlModeOption[] = [
   {
     id: "fully-automated",
-    title: "Fully Automated",
+    title: "Automation Ready",
     description:
-      "AI recommendations can flow through configured automations, but core routing decisions remain deterministic.",
+      "Cortex recommendations can flow through configured automations, while routing decisions remain rule-based.",
     helper:
       "Individual capability toggles below still apply as the outer limit.",
   },
   {
     id: "assisted",
     title: "Assisted",
-    description: "AI produces recommendations and humans decide what to apply.",
+    description: "Cortex suggests next steps and humans decide what to apply.",
   },
   {
     id: "advisory-only",
     title: "Advisory Only",
-    description: "AI surfaces intake context only and does not drive workflow changes.",
+    description: "Cortex surfaces intake context only and does not drive workflow changes.",
   },
 ] as const;
 
@@ -442,17 +442,17 @@ export default function AiSettingsSection({
   const summaryBullets = configuration
     ? [
         configuration.isIntakeAssistEnabled || configuration.isTriageEnabled
-          ? "Generate fused AI Intake recommendations (summary, priority, risk, missing information, category)"
+          ? "Generate intake recommendations: summary, priority, risk, missing information, and category"
           : null,
         configuration.isScreenshotInsightEnabled
-          ? "Include screenshot insight as evidence in AI assessment"
+          ? "Include screenshot insight as supporting evidence"
           : null,
         configuration.advisoryOnlyMode
-          ? "Keep AI advisory with deterministic decision logic"
+          ? "Keep recommendations advisory with rule-based decision logic"
           : configuration.isSuggestedUpdatesEnabled ||
               configuration.allowPriorityRecommendation ||
               configuration.allowStatusRecommendation
-            ? "Feed AI signals into decision fusion as soft signals only"
+            ? "Use recommendation signals as supporting inputs only"
             : null,
         configuration.suggestionOnlyMode || configuration.advisoryOnlyMode
           ? "Require human confirmation before any workflow change"
@@ -467,8 +467,8 @@ export default function AiSettingsSection({
   return (
     <ConfigPageShell>
       <ConfigPageHeader
-        title="AI Settings"
-        description="Admin-only controls for fused AI intake, vision evidence, decision fusion, and safety constraints."
+        title="Cortex Assist Settings"
+        description="Admin-only controls for intake guidance, visual evidence, recommendation signals, and safety guardrails."
         meta={
           <p className="text-xs text-gray-500 dark:text-slate-400">
             {lastChangedMeta}
@@ -483,7 +483,7 @@ export default function AiSettingsSection({
               onClick={onSave}
               disabled={!configuration || loading || saving}
             >
-              {saving ? "Saving…" : "Save AI Settings"}
+              {saving ? "Saving…" : "Save Cortex Assist Settings"}
             </ConfigPrimaryButton>
           </>
         }
@@ -494,13 +494,13 @@ export default function AiSettingsSection({
       <ConfigPageBody>
         {loading || !configuration ? (
           <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-6 py-12 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-800/30 dark:text-slate-400">
-            Loading AI settings…
+            Loading Cortex Assist settings…
           </div>
         ) : (
           <div className="space-y-6">
             <ConfigDetailCard
-              title="AI Control Mode"
-              subtitle="Choose how much freedom Cortex AI has in production."
+              title="Recommendation Control"
+              subtitle="Choose how Cortex recommendations appear in production."
             >
               <div className="space-y-2.5">
                 {CONTROL_MODE_OPTIONS.map((mode) => {
@@ -544,7 +544,7 @@ export default function AiSettingsSection({
 
             <ConfigDetailCard
               title="Safety / Constraints"
-              subtitle="Constraint and safety posture for fused AI assessments."
+              subtitle="Safety posture for Cortex recommendations."
             >
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-600 dark:bg-slate-900">
@@ -556,7 +556,7 @@ export default function AiSettingsSection({
                       ? "Advisory Only"
                       : controlMode === "assisted"
                         ? "Assisted"
-                        : "Fully Automated"}
+                        : "Automation Ready"}
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-600 dark:bg-slate-900">
@@ -570,7 +570,7 @@ export default function AiSettingsSection({
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-600 dark:bg-slate-900">
                   <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
-                    Decision Fusion
+                    Decision Signals
                   </p>
                   <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
                     {decisionInfluence}
@@ -589,7 +589,7 @@ export default function AiSettingsSection({
               {summaryBullets.length > 0 ? (
                 <div className="mt-4 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-600 dark:bg-slate-900">
                   <p className="text-xs font-semibold text-gray-700 dark:text-slate-300">
-                    Fused AI behavior:
+                    Recommendation behavior:
                   </p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-gray-600 dark:text-slate-400">
                     {summaryBullets.map((item) => (
@@ -602,29 +602,29 @@ export default function AiSettingsSection({
 
             {controlMode === "advisory-only" ? (
               <div className="rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 text-sm text-sky-900 dark:border-sky-800/60 dark:bg-sky-950/30 dark:text-sky-200">
-                <p className="font-semibold">AI is in Advisory Mode</p>
+                <p className="font-semibold">Cortex is in Advisory Mode</p>
                 <p className="mt-0.5 text-xs">
-                  Cortex AI provides recommendations and evidence only. Decision and assignment logic remains deterministic.
+                  Cortex provides recommendations and evidence only. Decision and assignment logic remains rule-based.
                 </p>
               </div>
             ) : null}
 
             <ConfigDetailCard
-              title="AI Intake + Vision Evidence"
+              title="Intake Guidance + Visual Evidence"
               subtitle="Intake recommendation scope and how vision contributes evidence."
             >
               <div className="grid gap-3 lg:grid-cols-2">
                 <ToggleField
                   htmlFor="ai-intake-assist"
-                  label="AI Intake Assist enabled"
+                  label="Intake Assist enabled"
                   tooltip="On — Cortex suggests structured ticket fields as users type. Off — intake is fully manual."
                   checked={configuration.isIntakeAssistEnabled}
                   onChange={(value) => onChange("isIntakeAssistEnabled", value)}
                 />
                 <ToggleField
                   htmlFor="ai-triage"
-                  label="AI Intake Assessment enabled"
-                  tooltip="On — Cortex generates fused intake recommendations (summary, priority, risk, missing information, category)."
+                  label="Intake Assessment enabled"
+                  tooltip="On — Cortex generates intake recommendations: summary, priority, risk, missing information, and category."
                   checked={configuration.isTriageEnabled}
                   onChange={(value) => onChange("isTriageEnabled", value)}
                 />
@@ -639,7 +639,7 @@ export default function AiSettingsSection({
                 />
                 <ToggleField
                   htmlFor="ai-suggested-updates"
-                  label="AI Suggested Updates enabled"
+                  label="Suggested Updates enabled"
                   tooltip="Cortex proposes edits to ticket description and fields for the owner to accept or reject."
                   checked={configuration.isSuggestedUpdatesEnabled}
                   onChange={(value) =>
@@ -648,7 +648,7 @@ export default function AiSettingsSection({
                 />
                 <ToggleField
                   htmlFor="ai-priority-recommendation"
-                  label="AI Priority Recommendation enabled"
+                  label="Suggested Priority enabled"
                   tooltip="Cortex recommends a priority level based on ticket content and impact signals."
                   checked={configuration.isPriorityRecommendationEnabled}
                   onChange={(value) =>
@@ -657,7 +657,7 @@ export default function AiSettingsSection({
                 />
                 <ToggleField
                   htmlFor="ai-status-recommendation"
-                  label="AI Status Recommendation enabled"
+                  label="Suggested Status enabled"
                   tooltip="Cortex recommends the next status transition based on ticket activity and state."
                   checked={configuration.isStatusRecommendationEnabled}
                   onChange={(value) =>
@@ -668,14 +668,14 @@ export default function AiSettingsSection({
             </ConfigDetailCard>
 
             <ConfigDetailCard
-              title="Decision Fusion"
-              subtitle="How AI recommendations can be surfaced into deterministic decisioning."
+              title="Decision Signals"
+              subtitle="How recommendation signals can support rule-based decisions."
             >
               <div className="grid gap-3 lg:grid-cols-2">
                 <ToggleField
                   htmlFor="ai-allow-status-recommendation"
                   label="Allow Status Recommendation"
-                  tooltip="On — AI status recommendations can be surfaced as advisory decision signals."
+                  tooltip="On — suggested status can appear as an advisory decision signal."
                   checked={configuration.allowStatusRecommendation}
                   onChange={(value) =>
                     onChange("allowStatusRecommendation", value)
@@ -684,7 +684,7 @@ export default function AiSettingsSection({
                 <ToggleField
                   htmlFor="ai-allow-priority-recommendation"
                   label="Allow Priority Recommendation"
-                  tooltip="On — AI priority recommendations can be surfaced as advisory decision signals."
+                  tooltip="On — suggested priority can appear as an advisory decision signal."
                   checked={configuration.allowPriorityRecommendation}
                   onChange={(value) =>
                     onChange("allowPriorityRecommendation", value)
@@ -693,13 +693,13 @@ export default function AiSettingsSection({
                 <ToggleField
                   htmlFor="ai-suggestion-only-mode"
                   label="Suggestion-only Mode"
-                  tooltip="On — AI remains recommendation-only and requires human confirmation before any workflow change."
+                  tooltip="On — recommendations require human confirmation before any workflow change."
                   checked={configuration.suggestionOnlyMode}
                   onChange={(value) => onChange("suggestionOnlyMode", value)}
                 />
                 <InputField
                   htmlFor="ai-max-screenshot-attachment-count"
-                  label="Max Screenshot Attachment Count"
+                  label="Screenshot Limit"
                   tooltip="Cap on images sent per screenshot insight request. Lower values reduce cost and latency."
                   type="number"
                   min={1}
@@ -715,7 +715,7 @@ export default function AiSettingsSection({
                 <ConfidenceThresholdField
                   htmlFor="ai-confidence-threshold"
                   label="Confidence Threshold"
-                  tooltip="Low-confidence AI output is de-emphasized; outputs are normalized before they can be used."
+                  tooltip="Low-confidence recommendations are de-emphasized before they can be used."
                   value={configuration.confidenceThreshold}
                   onChange={(value) => onChange("confidenceThreshold", value)}
                 />
@@ -724,13 +724,13 @@ export default function AiSettingsSection({
 
             <div className="border-t border-gray-200/80 pt-5 dark:border-slate-700/70">
               <ConfigDetailCard
-                title="Execution Behavior"
-                subtitle="Which models run Cortex AI and how requests are executed."
+                title="Service Settings"
+                subtitle="Operational limits for Cortex Assist requests."
               >
                 <div className="grid gap-4 lg:grid-cols-2">
                 <SelectField
                   htmlFor="ai-default-text-model"
-                  label="Default Text Model"
+                  label="Text Analysis Model"
                   tooltip="Model used for unified intake assessment and text recommendations."
                   value={configuration.defaultTextModel}
                   options={textModelOptions}
@@ -738,7 +738,7 @@ export default function AiSettingsSection({
                 />
                 <SelectField
                   htmlFor="ai-default-vision-model"
-                  label="Default Vision Model"
+                  label="Visual Evidence Model"
                   tooltip="Model used for screenshot insight evidence extraction."
                   value={configuration.defaultVisionModel}
                   options={visionModelOptions}
@@ -746,8 +746,8 @@ export default function AiSettingsSection({
                 />
                 <InputField
                   htmlFor="ai-temperature"
-                  label="Temperature"
-                  tooltip="Randomness of AI output. 0 = deterministic. Higher values produce more varied responses."
+                  label="Response Variety"
+                  tooltip="Controls how varied generated recommendations can be. Lower values are more consistent."
                   type="number"
                   min={0}
                   max={2}
@@ -757,8 +757,8 @@ export default function AiSettingsSection({
                 />
                 <InputField
                   htmlFor="ai-max-tokens"
-                  label="Max Tokens"
-                  tooltip="Cap on tokens the model can generate per response. Tokens ≈ 0.75 words each."
+                  label="Response Length Limit"
+                  tooltip="Caps the length of each generated recommendation."
                   type="number"
                   min={1}
                   max={4000}
@@ -768,8 +768,8 @@ export default function AiSettingsSection({
                 />
                 <InputField
                   htmlFor="ai-timeout-seconds"
-                  label="Timeout Seconds"
-                  tooltip="Cancel an AI request if it doesn't complete within this many seconds."
+                  label="Response Time Limit"
+                  tooltip="Cancel a request if it does not complete within this many seconds."
                   type="number"
                   min={5}
                   max={300}
@@ -781,8 +781,8 @@ export default function AiSettingsSection({
                 />
                 <InputField
                   htmlFor="ai-retry-count"
-                  label="Retry Count"
-                  tooltip="Number of times Cortex retries a failed AI request before giving up."
+                  label="Retry Limit"
+                  tooltip="Number of times Cortex retries a failed request before giving up."
                   type="number"
                   min={0}
                   max={3}
@@ -808,7 +808,7 @@ export default function AiSettingsSection({
               disabled={loading || saving}
               className="min-w-[10rem]"
             >
-              {saving ? "Saving…" : "Save AI Settings"}
+              {saving ? "Saving…" : "Save Cortex Assist Settings"}
             </ConfigPrimaryButton>
           </div>
         </div>

@@ -8,6 +8,7 @@ import {
   type NotificationPriority,
 } from "../utils/notificationPriority";
 import { USER_ID_TOKEN_PREFIX } from "../utils/ownerIdentity";
+import { formatTicketIdentifier } from "../utils/presentation";
 
 interface NotificationPanelProps {
   notifications: UserNotification[];
@@ -201,7 +202,7 @@ export default function NotificationPanel({
                           </span>
                           {notification.ticketId && (
                             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-slate-800 dark:text-slate-300">
-                              Ticket {notification.ticketId}
+                              {formatTicketIdentifier(notification.ticketId)}
                             </span>
                           )}
                           {!notification.isRead && (

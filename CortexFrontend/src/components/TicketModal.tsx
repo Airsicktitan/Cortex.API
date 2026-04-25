@@ -241,21 +241,22 @@ function ScreenshotInsightEvidenceCard({
           </p>
           {compactForReviewerRail ? (
             <p className="mt-1 text-[11px] leading-snug text-gray-500 dark:text-slate-500">
-              Supporting evidence only. Use the AI reviewer analysis for the
-              decision guidance.
+              Supporting evidence only. Use reviewer readiness for decision
+              guidance.
             </p>
           ) : null}
         </div>
         {compactForReviewerRail ? (
           <span className="shrink-0 rounded-full bg-cortex-blue-soft px-2 py-0.5 text-[11px] font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
-            AI Vision ran
+            Visual evidence checked
           </span>
         ) : null}
       </div>
 
       {result.unavailable ? (
         <p className="text-sm text-amber-900 dark:text-amber-100" role="status">
-          {result.unavailableReason?.trim() || "Unable to analyze screenshots."}
+          {result.unavailableReason?.trim() ||
+            "Screenshot evidence is not ready yet."}
         </p>
       ) : compactForReviewerRail ? (
         <div className="space-y-3">
@@ -614,7 +615,7 @@ export default function TicketModal({
   const commentThreadScrollRef = useRef<HTMLDivElement | null>(null);
   /**
    * The main ticket-editing column owns vertical scrolling for the modal body
-   * (Cortex Decision, Attachments, AI Analysis, AI Vision, review actions,
+   * (Cortex Decision, Attachments, Cortex analysis, visual evidence, review actions,
    * etc.). A single jump-to-bottom control lives on this container so users
    * can quickly reach the save/review actions after long content — the old
    * per-section nested scroll in Cortex Decision has been removed.
@@ -2880,7 +2881,7 @@ export default function TicketModal({
                   {!ticket.id && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                        Recommendation Department
+                        Suggested Department
                       </label>
                       <input
                         type="text"
@@ -3860,7 +3861,7 @@ function IntakeAssistResultPanel({
         <div className="flex items-start justify-between gap-3">
           <p>
             {result.unavailableReason?.trim() ||
-              "Improve for review is temporarily unavailable. Your draft hasn't been changed."}
+              "Improve for review is not ready right now. Your draft remains unchanged."}
           </p>
           <button
             type="button"
@@ -3901,15 +3902,9 @@ function IntakeAssistResultPanel({
             </span>
             <span className="block min-w-0 text-xs leading-snug text-gray-600 dark:text-slate-400">
               {panelExpanded ? (
-                <>
-                  <span className="font-medium text-gray-700 dark:text-slate-300">
-                    Full result
-                  </span>
-                  <span className="text-gray-500 dark:text-slate-500">
-                    {" "}
-                    · tap to collapse
-                  </span>
-                </>
+                <span className="font-medium text-gray-700 dark:text-slate-300">
+                  View structured recommendation
+                </span>
               ) : (
                 <>
                   {collapsedSummaryLine}
@@ -3941,13 +3936,13 @@ function IntakeAssistResultPanel({
         id="ticket-intake-assist-panel-body"
         className="mt-3 space-y-3.5 border-t border-slate-200/60 pt-3.5 dark:border-slate-600/45"
         role="region"
-        aria-label="Intake assist full result"
+        aria-label="Structured intake recommendation"
         hidden={!panelExpanded}
       >
         {panelExpanded ? (
           <>
           <p className="text-xs text-gray-500 dark:text-slate-400">
-            Coaching only — does not change priority or status
+            Advisory only — your ticket remains unchanged
           </p>
 
           {result.guidanceMessage && (
@@ -4063,7 +4058,7 @@ function IntakeAssistResultPanel({
           {hasMissingDetails && (
             <div className="rounded-md border border-gray-200 bg-white p-3.5 dark:border-slate-700 dark:bg-slate-900">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                Add these before submitting
+                Required for Review
               </p>
               <ul className="list-outside list-disc space-y-2.5 pl-5 text-sm leading-relaxed text-gray-800 dark:text-slate-100">
                 {result.missingDetails.map((detail, index) => (

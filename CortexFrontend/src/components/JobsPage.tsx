@@ -237,7 +237,7 @@ export default function JobsPage({
                       </p>
                       {canViewSensitiveDetails && (
                         <p className="mt-3 text-xs text-red-800/80 dark:text-red-200/80">
-                          Raw error: {formatDisplayValue(job.lastRunMessage)}
+                          Last failure detail: {formatDisplayValue(job.lastRunMessage)}
                         </p>
                       )}
                     </div>

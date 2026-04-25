@@ -76,7 +76,7 @@ export default function AdminUserCreateModal({
             <div className="min-w-0">
               <h2 className="text-xl font-semibold sm:text-2xl">Add User</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Create the Auth0 account and the local CORTEX user record in one step.
+                Create access and Cortex profile details in one step.
               </p>
             </div>
             <button

@@ -353,7 +353,7 @@ function ScreenshotInsightTriagePanel({
           Attachment insight
         </p>
         <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
-          AI · attachments
+          Attachment insight
         </span>
       </div>
       <p className={`mt-2 ${mutedClass}`}>

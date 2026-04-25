@@ -317,13 +317,13 @@ function assignmentSummaryLine(
       !hasBusinessRec ||
       ownersMatch(ticket.businessOwner, decision.chosenBusinessOwner);
     if (synitiOk && businessOk) {
-      return "Final assignment aligns with the Cortex recommendation based on decision factors and workload context.";
+      return "Final assignment aligns with the Cortex recommendation based on routing signals and workload context.";
     }
     return "Final assignment was chosen manually.";
   }
 
   if (decision.outcomeType === "RuleMatch") {
-    return "Cortex applied configured decision factors for this ticket.";
+    return "Cortex applied configured routing signals for this ticket.";
   }
 
   return "Final assignment reflects manual selection.";
@@ -363,7 +363,7 @@ function toHumanConfidenceLabel(
     return "Multiple viable candidates";
   }
   if (slotClassifications.includes("Limited routing signals")) {
-    return "Limited decision factors";
+    return "Limited routing signals";
   }
   if (slotClassifications.includes("Strong match, low pressure")) {
     return "Strong match, low pressure";
@@ -380,7 +380,7 @@ function toHumanConfidenceLabel(
   if (confidenceLevel === "Medium") {
     return "Moderate match";
   }
-  return "Limited decision factors";
+  return "Limited routing signals";
 }
 
 function humanizeCriterion(criterion: string): string {
@@ -555,7 +555,7 @@ function RecommendationWorkloadPill({
   if (!summary) {
     return (
       <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-        Workload unavailable
+        Workload data not available for comparison
       </span>
     );
   }
@@ -846,7 +846,7 @@ export default function TicketRoutingInsight({
     if (!hasMatchedCriteria) {
       return {
         kind: "soft" as const,
-        text: "Limited decision factors available",
+        text: "Low — insufficient routing signals",
       };
     }
     return { kind: "standard" as const, text: "Low confidence" };
@@ -966,7 +966,9 @@ export default function TicketRoutingInsight({
       }
     }
     if (!slotReasoning.some((slot) => slot.candidates.length > 1)) {
-      lines.push("No lower-pressure eligible alternative was identified");
+      lines.push(
+        "No better eligible alternative was identified based on current workload and routing signals",
+      );
     }
     return lines.slice(0, 3);
   }, [matchedFactorLines, explanation?.matchedCriteria, slotReasoning]);
@@ -1040,7 +1042,7 @@ export default function TicketRoutingInsight({
           (slot.skippedReasons?.length ?? 0) > 0),
     );
     return hasSynitiRuleEvidence
-      ? "No Syniti owner assigned"
+      ? "No clear owner identified"
       : "No Syniti owner rule applied";
   }, [
     decision?.chosenSynitiOwner,
@@ -1067,7 +1069,7 @@ export default function TicketRoutingInsight({
           (slot.skippedReasons?.length ?? 0) > 0),
     );
     return hasBusinessRuleEvidence
-      ? "No business owner assigned"
+      ? "No clear business owner identified"
       : "No business owner rule applied";
   }, [
     decision?.chosenBusinessOwner,
@@ -1111,8 +1113,6 @@ export default function TicketRoutingInsight({
       .filter((value) => value.length > 0);
     return toHumanConfidenceLabel(confidenceLevel, classifications);
   }, [confidenceLevel, explanation?.confidenceClassification, slotReasoning]);
-  const influenceScore = explanation?.weight ?? decision?.precedenceScore ?? null;
-
   const workloadKeys = useMemo(
     () => (decision ? collectWorkloadOwnerKeys(decision, ticket, explanation) : []),
     [decision, ticket, explanation],
@@ -1193,8 +1193,8 @@ export default function TicketRoutingInsight({
     decision.outcomeType === "Fallback";
 
   const routingReasoningEmptyCopy = isLightweightNoRec
-    ? "No decision factors matched this ticket; the final assignment reflects manual selection."
-    : "No decision factors were applied for this recommendation.";
+    ? "No clear owner could be confidently determined for this ticket."
+    : "No routing signals were applied for this recommendation.";
   const decisionImpact = ticket.decisionImpact?.hasImpact
     ? ticket.decisionImpact
     : null;
@@ -1212,6 +1212,12 @@ export default function TicketRoutingInsight({
     currentOwnerWorkloadScore != null && recommendedOwnerWorkloadScore != null
       ? recommendedOwnerWorkloadScore - currentOwnerWorkloadScore
       : null;
+  const workloadComparisonLabel =
+    workloadDifference == null
+      ? "Workload data not available for comparison"
+      : workloadDifference <= 0
+        ? "Recommended owner has equal or lower workload"
+        : "Recommended owner has higher workload; routing signals still ranked this owner first";
   const recommendationStrength = cortexDecision
     ? cortexDecision.confidenceScore >= 0.8
       ? "High"
@@ -1219,8 +1225,12 @@ export default function TicketRoutingInsight({
         ? "Medium"
         : "Low"
     : "—";
+  const expectedImpactSummary = decisionImpact?.summary ??
+    (workloadDifference != null && workloadDifference <= 0
+      ? "Clearer ownership with lower workload pressure."
+      : "Clearer ownership based on matched routing signals.");
   const actionState = hasManualOverride
-    ? "Manually overridden"
+    ? "Manual override detected"
     : recommendationStrength === "Low" || isLightweightNoRec
       ? "Review required"
       : "Ready to apply";
@@ -1242,7 +1252,7 @@ export default function TicketRoutingInsight({
             Cortex Recommendation
           </h3>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Recommended owners, decision factors, override status, and workload context
+            Recommended owners, routing signals, override status, and workload context
             {isLiveRoutingPreview && previewLoading && decision ? (
               <span className="ml-1.5 font-medium text-slate-400 dark:text-slate-500">
                 · Updating…
@@ -1311,6 +1321,69 @@ export default function TicketRoutingInsight({
                 : ""
             }`}
           >
+            <div className="rounded-xl border border-cortex-blue/20 bg-sky-50/70 px-4 py-3.5 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/20">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-cortex-blue dark:text-sky-300">
+                    Cortex Recommendation
+                  </p>
+                  <div className="mt-2 grid gap-2 text-sm text-slate-800 dark:text-slate-100 sm:grid-cols-2">
+                    <p>
+                      Syniti owner:{" "}
+                      <span className="font-semibold text-slate-950 dark:text-white">
+                        {synitiOwnerDisplay}
+                      </span>
+                    </p>
+                    <p>
+                      Business owner:{" "}
+                      <span className="font-semibold text-slate-950 dark:text-white">
+                        {businessOwnerDisplay}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {confidencePresentation ? (
+                    <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm dark:bg-slate-900 dark:text-slate-100">
+                      Confidence: {confidenceLabel ?? confidencePresentation.text}
+                    </span>
+                  ) : null}
+                  {hasManualOverride ? (
+                    <span className="rounded-md bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-950 dark:bg-amber-950/50 dark:text-amber-50">
+                      Manual override detected
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Selected because
+                  </p>
+                  {selectedBecauseLines.length > 0 ? (
+                    <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
+                      {selectedBecauseLines.slice(0, 2).map((line, index) => (
+                        <li key={`summary-${index}-${line}`}>{line}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                      No better eligible alternative was identified based on current workload and routing signals.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Expected Impact
+                  </p>
+                  <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                    {expectedImpactSummary}
+                  </p>
+                </div>
+              </div>
+            </div>
+
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/50">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -1397,7 +1470,7 @@ export default function TicketRoutingInsight({
                 </CortexTooltip>
               ) : (
                 <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                  —
+                  Workload data not available for comparison
                 </span>
               )}
             </div>
@@ -1480,20 +1553,15 @@ export default function TicketRoutingInsight({
                   Current owner workload:{" "}
                   {currentOwnerWorkloadScore != null
                     ? Math.max(0, currentOwnerWorkloadScore)
-                    : "—"}
+                    : "Workload data not available for comparison"}
                 </p>
                 <p>
                   Recommended owner workload:{" "}
                   {recommendedOwnerWorkloadScore != null
                     ? Math.max(0, recommendedOwnerWorkloadScore)
-                    : "—"}
+                    : "Workload data not available for comparison"}
                 </p>
-                <p>
-                  Workload difference:{" "}
-                  {workloadDifference != null
-                    ? `${workloadDifference >= 0 ? "+" : ""}${workloadDifference.toFixed(1)}`
-                    : "—"}
-                </p>
+                <p>Workload comparison: {workloadComparisonLabel}</p>
                 <p>Action state: {actionState}</p>
               </div>
             </div>
@@ -1508,7 +1576,7 @@ export default function TicketRoutingInsight({
                   content={
                     <div className="space-y-1">
                       <p>
-                        AI recommended: Syniti {synitiOwnerDisplay}; Business{" "}
+                        Cortex recommended: Syniti {synitiOwnerDisplay}; Business{" "}
                         {businessOwnerDisplay}
                       </p>
                       <p>
@@ -1520,7 +1588,7 @@ export default function TicketRoutingInsight({
                   side="left"
                 >
                   <span className="cursor-help rounded-md bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-950 dark:bg-amber-950/50 dark:text-amber-50">
-                    Manually Overridden
+                    Manual override detected
                   </span>
                 </CortexTooltip>
               ) : null}
@@ -1559,7 +1627,7 @@ export default function TicketRoutingInsight({
               </div>
             ) : (
               <p className="text-sm text-slate-700 dark:text-slate-200">
-                No decision factors selected owners for this ticket.
+                No clear owner could be confidently determined for this ticket.
               </p>
             )}
 
@@ -1587,7 +1655,7 @@ export default function TicketRoutingInsight({
           {/* C. Decision reasoning */}
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Decision Factors
+              Routing signals used
             </p>
             {displayedFactorLines.length > 0 ? (
               <>
@@ -1627,7 +1695,7 @@ export default function TicketRoutingInsight({
               </ul>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                No lower-pressure eligible alternative was identified.
+                No better eligible alternative was identified based on current workload and routing signals.
               </p>
             )}
           </div>
@@ -1643,14 +1711,14 @@ export default function TicketRoutingInsight({
                     <span className="font-medium">{entry.ownerLabel}</span>
                     <span className="text-slate-500 dark:text-slate-400">
                       {" "}
-                      ({entry.slotLabel}) - {entry.reason}
+                      ({entry.slotLabel}) - Not selected because {entry.reason}
                     </span>
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                No lower-pressure eligible alternatives were identified.
+                No better eligible alternatives were identified based on current workload and routing signals.
               </p>
             )}
           </div>
@@ -1672,11 +1740,6 @@ export default function TicketRoutingInsight({
                       " — ",
                     )}
                   </span>
-                  {influenceScore != null ? (
-                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      Influence {influenceScore}
-                    </span>
-                  ) : null}
                 </div>
               )}
             </div>
@@ -1686,7 +1749,7 @@ export default function TicketRoutingInsight({
           {override ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/60">
               <p className="font-semibold text-slate-800 dark:text-slate-100">
-                Manual override accountability
+                Manual override detected
               </p>
               <p className="mt-1 text-slate-600 dark:text-slate-300">
                 {humanizeOverrideReason(override.overrideReasonType)}
@@ -1711,7 +1774,7 @@ export default function TicketRoutingInsight({
               aria-controls="cortex-decision-technical-details"
               className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline dark:text-slate-400 dark:hover:text-slate-200"
             >
-              {techExpanded ? "Hide technical details" : "Technical details"}
+              {techExpanded ? "Hide routing details" : "Show routing details"}
             </button>
             <div
               id="cortex-decision-technical-details"
@@ -1720,29 +1783,29 @@ export default function TicketRoutingInsight({
             >
               {techExpanded ? (
                 <>
-                {decision.explanationText ? (
-                  <p className="mb-2 text-slate-600 dark:text-slate-300">
-                    {decision.explanationText}
+                  {decision.explanationText ? (
+                    <p className="mb-2 text-slate-600 dark:text-slate-300">
+                      {decision.explanationText}
+                    </p>
+                  ) : null}
+                  {decision.matchedRuleId != null ? (
+                    <p className="mb-1">
+                      Matched decision rule for Board{" "}
+                      {formatDisplayValue(ticket.boardName)}
+                    </p>
+                  ) : null}
+                  {explanation?.candidateCount != null ? (
+                    <p className="mb-1">
+                      Candidate decision rules evaluated: {explanation.candidateCount}
+                    </p>
+                  ) : null}
+                  <p>
+                    Recommendation recorded{" "}
+                    {new Date(decision.createdDateUtc).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
                   </p>
-                ) : null}
-                {decision.matchedRuleId != null ? (
-                  <p className="mb-1">
-                    Decision rule #{decision.matchedRuleId} · Board{" "}
-                    {formatDisplayValue(ticket.boardName)}
-                  </p>
-                ) : null}
-                {explanation?.candidateCount != null ? (
-                  <p className="mb-1">
-                    Candidate decision rules evaluated: {explanation.candidateCount}
-                  </p>
-                ) : null}
-                <p>
-                  Engine {decision.engineVersion} ·{" "}
-                  {new Date(decision.createdDateUtc).toLocaleString(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
-                </p>
                 </>
               ) : null}
             </div>

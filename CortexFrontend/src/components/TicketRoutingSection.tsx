@@ -95,7 +95,7 @@ function describeRule(
     finalAssignments.push(`Business: ${label}`);
   }
 
-  return `Priority ${rule.rulePriority} / Influence ${rule.weight}: ${criteria.join(" + ") || "No decision factors"} -> ${finalAssignments.join(" | ") || "No final assignment"}`;
+  return `${criteria.join(" + ") || "All matching tickets"} routes to ${finalAssignments.join(" | ") || "no assigned owner"}`;
 }
 
 export default function TicketRoutingSection({
@@ -242,7 +242,7 @@ export default function TicketRoutingSection({
     <ConfigPageShell>
       <ConfigPageHeader
         title="Cortex recommendation rules"
-        description="Define decision factors for recommended Syniti and business owners. Higher decision priority runs first; ties use influence."
+        description="Define routing signals for recommended Syniti and business owners. Higher decision priority runs first; ties use the tie breaker."
         actions={
           <>
             <ConfigPrimaryButton onClick={onNew} disabled={isBusy}>
@@ -294,7 +294,7 @@ export default function TicketRoutingSection({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-medium text-gray-900 dark:text-slate-100">
-                          Rule #{rule.id} (Priority {rule.rulePriority}, Influence {rule.weight})
+                          Routing rule
                         </p>
                         <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
                           {describeRule(rule, boardNameById, ownerDirectory)}
@@ -323,8 +323,8 @@ export default function TicketRoutingSection({
             {selectedRule ? (
               <>
                 <ConfigDetailCard
-                  title={isNewRule ? "New rule" : `Rule #${selectedRule.id}`}
-                  subtitle="Decision factors"
+                  title={isNewRule ? "New routing rule" : "Routing rule"}
+                  subtitle="Signals used"
                 >
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
@@ -431,7 +431,7 @@ export default function TicketRoutingSection({
                       className="flex w-full items-center justify-between rounded-t-xl px-4 py-3 text-left"
                     >
                       <h5 className="text-sm font-semibold text-gray-800 dark:text-slate-200">
-                        Advanced: priority &amp; influence
+                        Advanced: priority &amp; tie breaker
                       </h5>
                       <span className="text-xs text-gray-500 dark:text-slate-400">
                         {isAdvancedOpen ? "Hide" : "Show"}
@@ -442,8 +442,8 @@ export default function TicketRoutingSection({
                         <div className="grid gap-4 md:grid-cols-2">
                           <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-slate-400">
-                              Decision Priority (higher runs first)
-                              <CortexTooltip content="Highest decision priority runs first when multiple decision rules match a ticket.">
+                              Decision priority
+                              <CortexTooltip content="Higher priority rules are considered first when multiple routing rules match a ticket.">
                                 <span
                                   className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
                                   aria-label="About Decision Priority"
@@ -464,11 +464,11 @@ export default function TicketRoutingSection({
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-slate-400">
-                              Influence
-                              <CortexTooltip content="Influence breaks ties when two decision rules share the same priority. Higher influence wins.">
+                              Tie breaker
+                              <CortexTooltip content="Breaks ties when two routing rules share the same decision priority. Higher values win.">
                                 <span
                                   className="ml-2 cursor-help text-xs text-gray-400 dark:text-slate-500"
-                                  aria-label="About Influence"
+                                  aria-label="About tie breaker"
                                   tabIndex={0}
                                 >
                                   ?

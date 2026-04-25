@@ -687,7 +687,295 @@ public class CortexDecisionServiceTests
         Assert.Equal(0, result.TotalApplied);
         Assert.Single(result.Skipped);
         Assert.Equal("T-1", result.Skipped[0].TicketId);
-        Assert.Equal("Suggestion became stale after re-evaluation.", result.Skipped[0].Reason);
+        Assert.Equal("Blocked: Owner no longer eligible.", result.Skipped[0].Reason);
+    }
+
+    [Fact]
+    public async Task ExecuteRebalanceAsync_BlocksStaleSuggestion_WhenTicketOwnerChanged()
+    {
+        await using var context = CreateContext();
+        context.Tickets.Add(CreateTicket("T-1", "owner-a"));
+        await context.SaveChangesAsync();
+
+        var candidateService = new Mock<ICortexCandidateResolutionService>(MockBehavior.Strict);
+        candidateService
+            .Setup(service => service.GetEligibleCandidatesAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Candidate("owner-a", score: 12, high: 2, sla: 2, rule: false, overload: true),
+                Candidate("owner-b", score: 1, high: 0, sla: 0, rule: true, overload: false),
+            ]);
+
+        var workloadService = new Mock<IWorkloadSnapshotService>(MockBehavior.Strict);
+        workloadService
+            .Setup(service => service.GetSnapshotsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new WorkloadSnapshot
+            {
+                UserId = "owner-a",
+                DisplayName = "owner-a",
+                Status = "Overloaded"
+            }]);
+
+        var routingRuleService = new Mock<ITicketRoutingRuleService>(MockBehavior.Strict);
+        routingRuleService
+            .Setup(service => service.GetLatestOverrideAsync("T-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TicketRoutingOverride?)null);
+
+        var ticketRepository = new Mock<ITicketRepository>(MockBehavior.Strict);
+        ticketRepository
+            .Setup(repository => repository.GetTicketByIdAsync("T-1"))
+            .ReturnsAsync(context.Tickets.FirstOrDefault(ticket => ticket.Id == "T-1"));
+
+        var service = CreateService(
+            context,
+            candidateService.Object,
+            workloadService.Object,
+            ticketRepository: ticketRepository.Object,
+            routingRuleService: routingRuleService.Object);
+
+        var suggestions = await service.GetRebalanceSuggestionsAsync();
+        Assert.Single(suggestions);
+
+        var ticket = await context.Tickets.SingleAsync(ticket => ticket.Id == "T-1");
+        ticket.SynitiOwner = "owner-c";
+        await context.SaveChangesAsync();
+
+        var result = await service.ExecuteRebalanceAsync(suggestions);
+
+        Assert.Equal(1, result.TotalEvaluated);
+        Assert.Equal(0, result.TotalApplied);
+        Assert.Single(result.Skipped);
+        Assert.Equal("T-1", result.Skipped[0].TicketId);
+        Assert.Equal("Stale: Ticket changed since suggestion was generated.", result.Skipped[0].Reason);
+    }
+
+    [Fact]
+    public async Task ExecuteRebalanceAsync_DryRun_UsesExecutionValidation()
+    {
+        await using var context = CreateContext();
+        context.Tickets.Add(CreateTicket("T-1", "owner-a"));
+        await context.SaveChangesAsync();
+
+        var candidateService = new Mock<ICortexCandidateResolutionService>(MockBehavior.Strict);
+        candidateService
+            .SetupSequence(service => service.GetEligibleCandidatesAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Candidate("owner-a", score: 12, high: 2, sla: 2, rule: false, overload: true),
+                Candidate("owner-b", score: 1, high: 0, sla: 0, rule: true, overload: false),
+            ])
+            .ReturnsAsync(
+            [
+                Candidate("owner-a", score: 12, high: 2, sla: 2, rule: false, overload: true),
+                Candidate("owner-c", score: 0, high: 0, sla: 0, rule: true, overload: false),
+            ]);
+
+        var workloadService = new Mock<IWorkloadSnapshotService>(MockBehavior.Strict);
+        workloadService
+            .Setup(service => service.GetSnapshotsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new WorkloadSnapshot
+            {
+                UserId = "owner-a",
+                DisplayName = "owner-a",
+                Status = "Overloaded"
+            }]);
+
+        var routingRuleService = new Mock<ITicketRoutingRuleService>(MockBehavior.Strict);
+        routingRuleService
+            .Setup(service => service.GetLatestOverrideAsync("T-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TicketRoutingOverride?)null);
+
+        var ticketRepository = new Mock<ITicketRepository>(MockBehavior.Strict);
+        ticketRepository
+            .Setup(repository => repository.GetTicketByIdAsync("T-1"))
+            .ReturnsAsync(context.Tickets.FirstOrDefault(ticket => ticket.Id == "T-1"));
+
+        var service = CreateService(
+            context,
+            candidateService.Object,
+            workloadService.Object,
+            ticketRepository: ticketRepository.Object,
+            routingRuleService: routingRuleService.Object);
+
+        var suggestions = await service.GetRebalanceSuggestionsAsync();
+        var result = await service.ExecuteRebalanceAsync(suggestions, dryRun: true);
+
+        Assert.Equal(1, result.TotalEvaluated);
+        Assert.Equal(0, result.TotalApplied);
+        Assert.Single(result.Skipped);
+        Assert.Equal("Blocked: Owner no longer eligible.", result.Skipped[0].Reason);
+    }
+
+    [Fact]
+    public async Task GetRebalanceSuggestionsAsync_AfterApply_DoesNotSuggestImmediateMoveBack()
+    {
+        await using var context = CreateContext();
+        context.Tickets.Add(CreateTicket("T-1", "owner-a"));
+        await context.SaveChangesAsync();
+
+        var candidateService = new Mock<ICortexCandidateResolutionService>(MockBehavior.Strict);
+        candidateService
+            .SetupSequence(service => service.GetEligibleCandidatesAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            // Initial suggestion: move owner-a -> owner-b.
+            .ReturnsAsync(
+            [
+                Candidate("owner-a", score: 12, high: 2, sla: 2, rule: false, overload: true),
+                Candidate("owner-b", score: 1, high: 0, sla: 0, rule: true, overload: false),
+            ])
+            // Execution validation for the displayed suggestion.
+            .ReturnsAsync(
+            [
+                Candidate("owner-a", score: 12, high: 2, sla: 2, rule: false, overload: true),
+                Candidate("owner-b", score: 1, high: 0, sla: 0, rule: true, overload: false),
+            ]);
+
+        var workloadService = new Mock<IWorkloadSnapshotService>(MockBehavior.Strict);
+        workloadService
+            .SetupSequence(service => service.GetSnapshotsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new WorkloadSnapshot { UserId = "owner-a", DisplayName = "Mike", Status = "Overloaded" }])
+            .ReturnsAsync([new WorkloadSnapshot { UserId = "owner-a", DisplayName = "Mike", Status = "Overloaded" }])
+            .ReturnsAsync([new WorkloadSnapshot { UserId = "owner-b", DisplayName = "John", Status = "Overloaded" }])
+            // Next suggestion cycle would otherwise consider moving owner-b -> owner-a.
+            .ReturnsAsync([new WorkloadSnapshot { UserId = "owner-b", DisplayName = "John", Status = "Overloaded" }]);
+
+        var realtimeService = new Mock<IRealtimeEventService>(MockBehavior.Strict);
+        realtimeService
+            .Setup(service => service.PublishAsync(It.IsAny<RealtimeEventMessage>(), It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
+        var audienceResolver = new Mock<IRealtimeAudienceResolver>(MockBehavior.Strict);
+        audienceResolver
+            .Setup(service => service.GetAudienceUserIdsAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([1]);
+
+        var routingRuleService = new Mock<ITicketRoutingRuleService>(MockBehavior.Strict);
+        routingRuleService
+            .Setup(service => service.GetLatestOverrideAsync("T-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TicketRoutingOverride?)null);
+
+        var ticketRepository = new Mock<ITicketRepository>(MockBehavior.Strict);
+        ticketRepository
+            .Setup(repository => repository.GetTicketByIdAsync("T-1"))
+            .ReturnsAsync(context.Tickets.FirstOrDefault(ticket => ticket.Id == "T-1"));
+        ticketRepository
+            .Setup(repository => repository.UpdateTicketAsync(It.IsAny<Ticket>()))
+            .ReturnsAsync((Ticket ticket) => ticket);
+        ticketRepository
+            .Setup(repository => repository.SaveChangesAsync())
+            .Returns(() => context.SaveChangesAsync());
+
+        var service = CreateService(
+            context,
+            candidateService.Object,
+            workloadService.Object,
+            ticketRepository: ticketRepository.Object,
+            realtimeService: realtimeService.Object,
+            audienceResolver: audienceResolver.Object,
+            routingRuleService: routingRuleService.Object);
+
+        var suggestions = await service.GetRebalanceSuggestionsAsync();
+        var applied = await service.ExecuteRebalanceAsync(suggestions);
+        var nextSuggestions = await service.GetRebalanceSuggestionsAsync();
+
+        Assert.Equal(1, applied.TotalApplied);
+        Assert.Equal("owner-b", context.Tickets.Single(ticket => ticket.Id == "T-1").SynitiOwner);
+        Assert.Empty(nextSuggestions);
+    }
+
+    [Fact]
+    public async Task GetRebalanceSuggestionsAsync_SkipsRecentRebalanceButStillSuggestsOtherTickets()
+    {
+        await using var context = CreateContext();
+        context.Tickets.AddRange(
+            CreateTicket("T-1", "owner-b"),
+            CreateTicket("T-2", "owner-b"));
+        context.WorkflowMetricEvents.Add(RecentRebalanceMove("T-1", "owner-a", "owner-b"));
+        await context.SaveChangesAsync();
+
+        var candidateService = new Mock<ICortexCandidateResolutionService>(MockBehavior.Strict);
+        candidateService
+            .Setup(service => service.GetEligibleCandidatesAsync(
+                It.Is<Ticket>(ticket => ticket.Id == "T-2"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Candidate("owner-b", score: 12, high: 2, sla: 2, rule: false, overload: true),
+                Candidate("owner-c", score: 1, high: 0, sla: 0, rule: true, overload: false),
+            ]);
+
+        var workloadService = new Mock<IWorkloadSnapshotService>(MockBehavior.Strict);
+        workloadService
+            .Setup(service => service.GetSnapshotsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new WorkloadSnapshot
+            {
+                UserId = "owner-b",
+                DisplayName = "John",
+                Status = "Overloaded"
+            }]);
+
+        var service = CreateService(context, candidateService.Object, workloadService.Object);
+
+        var suggestions = await service.GetRebalanceSuggestionsAsync();
+
+        var suggestion = Assert.Single(suggestions);
+        Assert.Equal("T-2", suggestion.TicketId);
+        Assert.Equal("owner-c", suggestion.ToUserId);
+    }
+
+    [Fact]
+    public async Task ExecuteRebalanceAsync_RecentMoveGuard_BlocksDryRunAndRealExecution()
+    {
+        await using var context = CreateContext();
+        context.Tickets.Add(CreateTicket("T-1", "owner-b"));
+        context.WorkflowMetricEvents.Add(RecentRebalanceMove("T-1", "owner-a", "owner-b"));
+        await context.SaveChangesAsync();
+
+        var suggestion = new RebalanceSuggestion
+        {
+            TicketId = "T-1",
+            TicketKey = "T-1",
+            TicketTitle = "Risk ticket",
+            FromUserId = "owner-b",
+            FromDisplayName = "John",
+            ToUserId = "owner-a",
+            ToDisplayName = "Mike",
+            Reason = "Balances workload",
+            ExpectedImpact = "Reduces SLA risk"
+        };
+
+        var candidateService = new Mock<ICortexCandidateResolutionService>(MockBehavior.Strict);
+        var workloadService = new Mock<IWorkloadSnapshotService>(MockBehavior.Strict);
+        workloadService
+            .Setup(service => service.GetSnapshotsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var routingRuleService = new Mock<ITicketRoutingRuleService>(MockBehavior.Strict);
+        routingRuleService
+            .Setup(service => service.GetLatestOverrideAsync("T-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TicketRoutingOverride?)null);
+
+        var ticketRepository = new Mock<ITicketRepository>(MockBehavior.Strict);
+        ticketRepository
+            .Setup(repository => repository.GetTicketByIdAsync("T-1"))
+            .ReturnsAsync(context.Tickets.FirstOrDefault(ticket => ticket.Id == "T-1"));
+
+        var service = CreateService(
+            context,
+            candidateService.Object,
+            workloadService.Object,
+            ticketRepository: ticketRepository.Object,
+            routingRuleService: routingRuleService.Object);
+
+        var dryRun = await service.ExecuteRebalanceAsync([suggestion], dryRun: true);
+        var realRun = await service.ExecuteRebalanceAsync([suggestion]);
+
+        Assert.Equal(0, dryRun.TotalApplied);
+        Assert.Equal(0, realRun.TotalApplied);
+        Assert.Equal(
+            "Blocked: Recent rebalance would move this ticket back to its previous owner.",
+            dryRun.Skipped.Single().Reason);
+        Assert.Equal(dryRun.Skipped.Single().Reason, realRun.Skipped.Single().Reason);
+        Assert.Equal("owner-b", context.Tickets.Single(ticket => ticket.Id == "T-1").SynitiOwner);
     }
 
     private static CortexDecisionService CreateService(
@@ -759,6 +1047,20 @@ public class CortexDecisionServiceTests
             RuleMatched = rule,
             PreferredByBoard = rule,
             CurrentlyOverloaded = overload
+        };
+    }
+
+    private static WorkflowMetricEvent RecentRebalanceMove(
+        string ticketId,
+        string fromOwner,
+        string toOwner)
+    {
+        return new WorkflowMetricEvent
+        {
+            EventType = "rebalance_applied",
+            OccurredUtc = DateTime.UtcNow,
+            TicketId = ticketId,
+            PayloadJson = $$"""{"FromOwner":"{{fromOwner}}","ToOwner":"{{toOwner}}"}"""
         };
     }
 

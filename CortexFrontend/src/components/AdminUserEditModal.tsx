@@ -102,8 +102,8 @@ export default function AdminUserEditModal({
             <div className="min-w-0">
               <h2 className="text-xl font-semibold sm:text-2xl">Edit User</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Update local CORTEX user settings. Display name and email still
-                sync from Auth0 when available. Auth0 roles are managed below.
+                Update Cortex user settings. Display name, email, and access roles
+                stay aligned with the identity provider.
               </p>
             </div>
             <button
@@ -300,16 +300,16 @@ export default function AdminUserEditModal({
           {canManageAccess && (
             <section className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-950/40">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">
-                Auth0 roles
+                Access roles
               </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                Source of truth is Auth0 RBAC. Changes apply immediately in Auth0;
-                users may need to refresh tokens to see authorization updates.
+                Changes apply immediately in the identity provider; users may need
+                to refresh their session to see access updates.
               </p>
 
               {noAuth0 ? (
                 <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">
-                  This user has no Auth0 account linked. Role management is unavailable.
+                  This user has no linked identity account. Role management is unavailable.
                 </p>
               ) : rolesLoading ? (
                 <p className="mt-3 text-sm text-gray-500 dark:text-slate-400">

@@ -2928,8 +2928,17 @@ function App() {
                   onOpenTicket={async (ticketId) => {
                     await openTicketById(ticketId);
                   }}
-                  onRebalanceApplied={async () => {
-                    await loadAllTickets();
+                  onRebalanceApplied={async (result) => {
+                    const affectedTicketIds = Array.from(
+                      new Set((result.applied ?? []).map((item) => item.ticketId)),
+                    );
+                    await Promise.all(
+                      affectedTicketIds.map((ticketId) =>
+                        reconcileTicketByIdSilently(ticketId, undefined, {
+                          syncSelectedTicket: true,
+                        }),
+                      ),
+                    );
                   }}
                 />
               ) : activeView === "jobs" && canViewJobActivityNav ? (

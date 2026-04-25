@@ -437,7 +437,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
       {
         id: "roles",
         label: "User Roles",
-        description: "How Auth0 roles behave in Cortex. Assign people to roles in Users.",
+        description: "How access roles behave in Cortex. Assign people to roles in Users.",
       },
       {
         id: "routing",
@@ -459,8 +459,8 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     if (canManageAiSettings) {
       items.push({
         id: "ai",
-        label: "AI Settings",
-        description: "Govern AI capabilities, model execution defaults, and guardrails.",
+        label: "Cortex Assist",
+        description: "Govern recommendation capabilities, service defaults, and guardrails.",
       });
     }
 
