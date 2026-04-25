@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { AdminUpdateUserInput, Auth0RoleOption, UserRecord } from "../types/user";
-import { AUTH0_ROLES } from "../utils/role";
+import { AUTH0_ROLES, isAdmin as hasAdminRole } from "../utils/role";
 import PhoneNumberInput from "./PhoneNumberInput";
 import { ScrollableViewport } from "./ui/ScrollableViewport";
 
@@ -13,6 +13,7 @@ interface AdminUserEditModalProps {
   onClose: () => void;
   onSave: () => void;
   canManageAccess: boolean;
+  currentUserRoles: string[];
   /** Roles currently assigned in Auth0 (from Management API). */
   auth0AssignedRoles: Auth0RoleOption[];
   /** All roles defined in Auth0 (for add dropdown). */
@@ -51,6 +52,10 @@ function normalizeRoleKey(name: string) {
   return name.trim().toLowerCase();
 }
 
+function isAdminRoleName(name: string) {
+  return normalizeRoleKey(name) === normalizeRoleKey(AUTH0_ROLES.Admin);
+}
+
 export default function AdminUserEditModal({
   isOpen,
   user,
@@ -60,6 +65,7 @@ export default function AdminUserEditModal({
   onClose,
   onSave,
   canManageAccess,
+  currentUserRoles,
   auth0AssignedRoles,
   availableAuth0Roles,
   rolesLoading,
@@ -70,6 +76,7 @@ export default function AdminUserEditModal({
   onRemoveRole,
 }: AdminUserEditModalProps) {
   const [addSelection, setAddSelection] = useState("");
+  const actorIsAdmin = hasAdminRole(currentUserRoles);
 
   const assignedNameSet = useMemo(() => {
     return new Set(auth0AssignedRoles.map((r) => normalizeRoleKey(r.name)));
@@ -84,6 +91,25 @@ export default function AdminUserEditModal({
   if (!isOpen || !user) return null;
 
   const noAuth0 = !user.auth0Id;
+  const getRoleMutationBlockReason = (
+    roleName: string,
+    action: "add" | "remove",
+  ) => {
+    if (!actorIsAdmin && isAdminRoleName(roleName)) {
+      return action === "add"
+        ? "Only admins can assign the Admin role."
+        : "Only admins can remove the Admin role.";
+    }
+
+    return null;
+  };
+  const selectedAddBlockReason = addSelection
+    ? getRoleMutationBlockReason(addSelection, "add")
+    : null;
+  const showAdminRolePolicyNote =
+    !actorIsAdmin &&
+    (auth0AssignedRoles.some((role) => isAdminRoleName(role.name)) ||
+      rolesAvailableToAdd.some((role) => isAdminRoleName(role.name)));
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -323,23 +349,36 @@ export default function AdminUserEditModal({
                         No roles assigned
                       </span>
                     ) : (
-                      auth0AssignedRoles.map((role) => (
-                        <span
-                          key={role.id}
-                          className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1 text-sm text-gray-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                        >
-                          {role.name}
-                          <button
-                            type="button"
-                            disabled={roleMutationLoading}
-                            onClick={() => onRemoveRole(role.name)}
-                            className="ml-1 rounded-full px-1 text-lg leading-none text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                            aria-label={`Remove ${role.name} role`}
+                      auth0AssignedRoles.map((role) => {
+                        const removeBlockReason = getRoleMutationBlockReason(
+                          role.name,
+                          "remove",
+                        );
+                        const removeDisabled =
+                          roleMutationLoading || Boolean(removeBlockReason);
+
+                        return (
+                          <span
+                            key={role.id}
+                            className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1 text-sm text-gray-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                           >
-                            ×
-                          </button>
-                        </span>
-                      ))
+                            {role.name}
+                            <button
+                              type="button"
+                              disabled={removeDisabled}
+                              title={removeBlockReason ?? `Remove ${role.name} role`}
+                              onClick={() => {
+                                if (removeBlockReason) return;
+                                onRemoveRole(role.name);
+                              }}
+                              className="ml-1 rounded-full px-1 text-lg leading-none text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                              aria-label={`Remove ${role.name} role`}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })
                     )}
                   </div>
 
@@ -360,21 +399,33 @@ export default function AdminUserEditModal({
                             : "Select a role…"}
                         </option>
                         {rolesAvailableToAdd.map((r) => (
-                          <option key={r.id} value={r.name}>
-                            {r.name}
+                          <option
+                            key={r.id}
+                            value={r.name}
+                            disabled={Boolean(getRoleMutationBlockReason(r.name, "add"))}
+                          >
+                            {getRoleMutationBlockReason(r.name, "add")
+                              ? `${r.name} - ${getRoleMutationBlockReason(r.name, "add")}`
+                              : r.name}
                           </option>
                         ))}
                       </select>
+                      {showAdminRolePolicyNote ? (
+                        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                          Only admins can assign or remove the Admin role.
+                        </p>
+                      ) : null}
                     </div>
                     <button
                       type="button"
                       disabled={
                         roleMutationLoading ||
                         !addSelection ||
+                        Boolean(selectedAddBlockReason) ||
                         rolesAvailableToAdd.length === 0
                       }
                       onClick={() => {
-                        if (!addSelection) return;
+                        if (!addSelection || selectedAddBlockReason) return;
                         onAddRole(addSelection);
                         setAddSelection("");
                       }}

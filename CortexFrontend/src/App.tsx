@@ -3238,6 +3238,7 @@ function App() {
         saving={adminUserSaving}
         onChange={handleAdminUserDraftChange}
         canManageAccess={canEditUsers}
+        currentUserRoles={effectiveAuthRoles}
         auth0AssignedRoles={adminAuth0Roles}
         availableAuth0Roles={availableAuth0Roles}
         rolesLoading={adminRolesLoading}

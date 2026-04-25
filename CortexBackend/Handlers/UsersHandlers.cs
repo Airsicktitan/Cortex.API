@@ -21,6 +21,23 @@ public static class UserHandlers
     private static bool TryParseRole(string? rawRole, out string role) =>
         Auth0Roles.TryNormalize(rawRole, out role);
 
+    private static IResult ForbidWithMessage(string message) =>
+        Results.Json(new { message }, statusCode: StatusCodes.Status403Forbidden);
+
+    private static async Task<bool> WouldRemoveLastActiveAdminAsync(
+        IUserRepository repo,
+        User targetUser)
+    {
+        var users = await repo.GetAllUsersAsync();
+        return !users.Any(user =>
+            user.Id != targetUser.Id &&
+            user.IsActive &&
+            string.Equals(user.Role, Auth0Roles.Admin, StringComparison.Ordinal));
+    }
+
+    private static bool IsAuthorityRole(string roleName) =>
+        roleName.Trim().Equals(Auth0Roles.Admin, StringComparison.OrdinalIgnoreCase);
+
     private static NotificationChannelMode? ParseNotificationChannelOrNull(
         string? rawValue,
         string fieldName)
@@ -186,11 +203,12 @@ public static class UserHandlers
             });
         }
 
-        if (!Auth0Roles.TryNormalize(request.RoleName, out var canonicalName))
+        var requestedRoleName = request.RoleName?.Trim();
+        if (string.IsNullOrWhiteSpace(requestedRoleName))
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["roleName"] = ["Unknown role. Use Admin, Developer, Business Manager, User, or Guest."]
+                ["roleName"] = ["Role name is required."]
             });
         }
 
@@ -200,35 +218,24 @@ public static class UserHandlers
             return Results.NotFound($"User {id} was not found.");
         }
 
-        var caller = await userContext.GetCurrentUserAsync();
         var isAdminCaller = httpContextAccessor.HttpContext?.User.IsInRole(Auth0Roles.Admin) == true;
-        var isSelfTarget = caller.Id == user.Id;
         var callerAuth0Id = httpContextAccessor.HttpContext?.User.FindFirst("sub")?.Value;
+        var isAuthorityRoleMutation = IsAuthorityRole(requestedRoleName);
 
-        // Self-target role changes are never allowed — even for Admins — so a single
-        // compromised session cannot escalate or lock itself out in one call. Admins can
-        // still adjust their own role through a second Admin account.
-        if (isSelfTarget)
-        {
-            accessControlLogger.LogWarning(
-                "Blocked self-target role mutation. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}, Action={Action}, RoleName={RoleName}",
-                callerAuth0Id,
-                user.Id,
-                action,
-                canonicalName);
-            return Results.Forbid();
-        }
-
-        // Admin-only gate: only callers who currently hold Admin may add or remove the
-        // Admin role on any user. This closes the Developer → Admin escalation path.
-        if (canonicalName.Equals(Auth0Roles.Admin, StringComparison.Ordinal) && !isAdminCaller)
+        // Admin-only gate: only callers who currently hold Admin may add or remove
+        // authority roles. Capability roles, including future Auth0 roles Cortex
+        // does not hardcode yet, are governed by Auth0 catalog membership below.
+        if (isAuthorityRoleMutation && !isAdminCaller)
         {
             accessControlLogger.LogWarning(
                 "Blocked non-admin attempt to {Action} the Admin role. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}",
                 action,
                 callerAuth0Id,
                 user.Id);
-            return Results.Forbid();
+            return ForbidWithMessage(
+                action == "add"
+                    ? "Only admins can assign the Admin role."
+                    : "Only admins can remove the Admin role.");
         }
 
         if (string.IsNullOrWhiteSpace(user.Auth0Id))
@@ -240,12 +247,12 @@ public static class UserHandlers
         {
             var allRoles = await auth0Management.GetAllRolesAsync(cancellationToken);
             var match = allRoles.FirstOrDefault(r =>
-                r.Name.Equals(canonicalName, StringComparison.OrdinalIgnoreCase));
+                r.Name.Equals(requestedRoleName, StringComparison.OrdinalIgnoreCase));
             if (match is null)
             {
                 return Results.NotFound(new
                 {
-                    message = $"Role \"{canonicalName}\" is not defined in Auth0. Create it in Auth0 Dashboard → User Management → Roles."
+                    message = $"Role \"{requestedRoleName}\" is not defined in Auth0. Create it in Auth0 Dashboard → User Management → Roles."
                 });
             }
 
@@ -266,6 +273,11 @@ public static class UserHandlers
                 if (!hasRole)
                 {
                     return Results.Conflict(new { message = "The user does not have this role." });
+                }
+
+                if (isAuthorityRoleMutation && await WouldRemoveLastActiveAdminAsync(repo, user))
+                {
+                    return Results.BadRequest(new { message = "You cannot remove the last Admin." });
                 }
 
                 await auth0Management.RemoveRolesFromUserAsync(user.Auth0Id!, [match.Id], cancellationToken);
@@ -461,16 +473,6 @@ public static class UserHandlers
         var activeChanged = user.IsActive != request.IsActive;
         var expiryChanged = user.ExpiryDate != request.ExpiryDate;
 
-        if (isSelfTarget && roleExplicitlyChanged)
-        {
-            accessControlLogger.LogWarning(
-                "Blocked self-target role change via UpdateUser. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}, NewRole={NewRole}",
-                callerAuth0Id,
-                user.Id,
-                role);
-            return Results.Forbid();
-        }
-
         if (isSelfTarget && (activeChanged || expiryChanged))
         {
             accessControlLogger.LogWarning(
@@ -482,13 +484,13 @@ public static class UserHandlers
             return Results.Forbid();
         }
 
-        if (!isAdminCaller && proposedAdmin)
+        if (!isAdminCaller && roleExplicitlyChanged && proposedAdmin)
         {
             accessControlLogger.LogWarning(
                 "Blocked non-admin attempt to assign Admin via UpdateUser. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}",
                 callerAuth0Id,
                 user.Id);
-            return Results.Forbid();
+            return ForbidWithMessage("Only admins can assign the Admin role.");
         }
 
         // Non-admin callers must not touch users who already hold Admin. This blocks
@@ -499,7 +501,15 @@ public static class UserHandlers
                 "Blocked non-admin attempt to modify an Admin user via UpdateUser. CallerAuth0Id={CallerAuth0Id}, TargetUserId={TargetUserId}",
                 callerAuth0Id,
                 user.Id);
-            return Results.Forbid();
+            return ForbidWithMessage("You do not have permission to modify an Admin user.");
+        }
+
+        if (roleExplicitlyChanged &&
+            targetWasAdmin &&
+            !proposedAdmin &&
+            await WouldRemoveLastActiveAdminAsync(repo, user))
+        {
+            return Results.BadRequest(new { message = "You cannot remove the last Admin." });
         }
 
         try
@@ -588,7 +598,7 @@ public static class UserHandlers
 
         if (!isAdminCaller && role.Equals(Auth0Roles.Admin, StringComparison.Ordinal))
         {
-            return Results.Forbid();
+            return ForbidWithMessage("Only admins can assign the Admin role.");
         }
 
         string? createdAuth0UserId = null;
