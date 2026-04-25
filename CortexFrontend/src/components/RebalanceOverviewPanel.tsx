@@ -39,6 +39,11 @@ const PRESSURE_LABEL: Record<PressureLevel, string> = {
   critical: "Critical pressure",
 };
 
+const MANUAL_OVERRIDE_BLOCKED_COPY =
+  "Manual override blocks move — Cortex defers to human judgment";
+const RECENT_MOVE_BLOCKED_COPY =
+  "Blocked to prevent churn — this ticket moved recently";
+
 function resolveSuggestionStrength(suggestion: RebalanceSuggestion) {
   const explicitStrength = suggestion.recommendationStrength?.trim();
   if (explicitStrength) {
@@ -166,7 +171,9 @@ function mapCandidateToDisplaySuggestion(
       getOwnerDisplayName(candidate.topSuggestedTarget.displayName),
     selectedOwnerName: getOwnerDisplayName(candidate.topSuggestedTarget.displayName),
     previousOwnerName: getOwnerDisplayName(candidate.currentOwnerName),
-    reason: candidate.potentialImpactSummary || "Rebalance recommendation.",
+    reason:
+      candidate.potentialImpactSummary ||
+      "Workload optimization recommendation.",
     expectedImpact:
       candidate.potentialImpactSummary || "Reduces workload imbalance.",
     selectionReason:
@@ -232,19 +239,19 @@ function buildDisplayedSuggestions(
 function resolveBlockedState(reason: string) {
   const normalized = reason.toLowerCase();
   if (normalized.includes("manual override")) {
-    return "Rule conflict";
+    return MANUAL_OVERRIDE_BLOCKED_COPY;
   }
   if (normalized.includes("owner no longer eligible")) {
     return "Owner no longer eligible";
   }
   if (normalized.includes("rule conflict")) {
-    return "Rule conflict";
+    return MANUAL_OVERRIDE_BLOCKED_COPY;
   }
   if (normalized.includes("missing required data")) {
     return "Missing required data";
   }
   if (normalized.includes("previous owner") || normalized.includes("ping-pong")) {
-    return "Move blocked to prevent repeated reassignment (workload instability)";
+    return RECENT_MOVE_BLOCKED_COPY;
   }
   if (normalized.includes("stale") || normalized.includes("changed")) {
     return "Stale";
@@ -253,20 +260,17 @@ function resolveBlockedState(reason: string) {
 }
 
 function resolveBlockedConstraintExplanation(blockedState: string): string {
-  if (blockedState === "Rule conflict") {
-    return "Blocked: Rule conflict. Current ownership controls this ticket, so Cortex will not apply a different move silently.";
+  if (blockedState === MANUAL_OVERRIDE_BLOCKED_COPY) {
+    return "Current ownership controls this ticket, so Cortex will not apply a different move silently.";
   }
   if (blockedState === "Owner no longer eligible") {
-    return "Blocked: Owner no longer eligible. Refresh rebalance to review a new recommendation.";
+    return "Blocked: Owner no longer eligible. Refresh workload optimization to review a new recommendation.";
   }
   if (blockedState === "Missing required data") {
-    return "Blocked: Missing required data. Review the ticket before applying a rebalance move.";
+    return "Blocked: Missing required data. Review the ticket before applying a workload optimization move.";
   }
-  if (
-    blockedState ===
-    "Move blocked to prevent repeated reassignment (workload instability)"
-  ) {
-    return "Blocked: Recent rebalance would move this ticket back to its previous owner.";
+  if (blockedState === RECENT_MOVE_BLOCKED_COPY) {
+    return "Cortex will not move this ticket back to its previous owner.";
   }
   if (blockedState === "Stale") {
     return "Stale: Ticket changed since suggestion was generated. Cortex will not choose a different owner silently.";
@@ -335,7 +339,7 @@ export default function RebalanceOverviewPanel({
       setError(
         getUserFacingErrorMessage(
           caughtError,
-          "Unable to load rebalance overview",
+          "Unable to load workload optimization overview",
         ),
       );
     } finally {
@@ -399,7 +403,7 @@ export default function RebalanceOverviewPanel({
       setError(
         getUserFacingErrorMessage(
           caughtError,
-          "Unable to execute rebalance actions",
+          "Unable to apply workload optimization actions",
         ),
       );
     } finally {
@@ -451,7 +455,7 @@ export default function RebalanceOverviewPanel({
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
-              Operational Rebalance
+              Workload Optimization
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
               Prioritized view of overloaded owners, recommended corrections,
@@ -477,7 +481,7 @@ export default function RebalanceOverviewPanel({
             >
               {executing
                 ? "Applying..."
-                : `Apply Rebalance (${readySuggestionCount} actions)`}
+                : `Apply Optimization (${readySuggestionCount} actions)`}
             </button>
           </div>
         </div>
@@ -493,7 +497,7 @@ export default function RebalanceOverviewPanel({
         {executionSummary && (
           <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
             <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
-              Rebalance Execution Result
+              Workload Optimization Result
             </p>
             <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
               Applied {executionAppliedCount} of {executionEvaluatedCount} ready
@@ -553,8 +557,8 @@ export default function RebalanceOverviewPanel({
         {!loading && !error && overview && !hasAnyData && (
           <section className="rounded-lg border border-gray-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900">
             <p className="text-sm text-gray-600 dark:text-slate-400">
-              No overloaded owners or rebalance opportunities right now. Check
-              back as the queue evolves.
+              No overloaded owners or workload optimization opportunities right
+              now. Check back as the queue evolves.
             </p>
           </section>
         )}
@@ -934,7 +938,7 @@ function RebalanceCandidatesSection({
     <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-          Rebalance Opportunities
+          Workload Optimization Opportunities
         </h3>
         <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
           {actionableSuggestions.length + blockedSuggestions.length > 0
@@ -950,19 +954,19 @@ function RebalanceCandidatesSection({
       </div>
       <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
         Tickets held by overloaded owners that are themselves risky and have
-        at least one lower-pressure alternative. Ranked by operational risk,
-        then SLA, then owner workload.
+          at least one lower-pressure recommendation. Ranked by operational
+          risk, then SLA, then owner workload.
       </p>
 
       {loading ? (
         <p className="mt-6 text-sm text-gray-500 dark:text-slate-400">
-          Loading candidates...
+          Loading recommendations...
         </p>
       ) : actionableSuggestions.length > 0 || blockedSuggestions.length > 0 ? (
         <div className="mt-5 space-y-6">
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-              Actionable Suggestions ({actionableSuggestions.length})
+              Ready Recommendations ({actionableSuggestions.length})
             </h4>
             {actionableSuggestions.length === 0 ? (
               <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
@@ -977,7 +981,8 @@ function RebalanceCandidatesSection({
                   const ticketMeta = getSuggestionTicketMeta(suggestion);
                   const whyTicketItems = getSuggestionCopyList(
                     suggestion.whyTicketBullets ?? suggestion.rationale,
-                    suggestion.reason || "Ticket flagged for rebalance based on workload and risk signals.",
+                    suggestion.reason ||
+                      "Ticket flagged for workload optimization based on workload and risk signals.",
                   );
                   const whyOwnerItems = getSuggestionCopyList(
                     suggestion.whyOwnerBullets,
@@ -1081,7 +1086,7 @@ function RebalanceCandidatesSection({
 
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-              Blocked / Stale Suggestions ({blockedSuggestions.length})
+              Blocked / Stale Recommendations ({blockedSuggestions.length})
             </h4>
             {blockedSuggestions.length === 0 ? (
               <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
@@ -1101,7 +1106,8 @@ function RebalanceCandidatesSection({
                   const ticketMeta = getSuggestionTicketMeta(suggestion);
                   const whyTicketItems = getSuggestionCopyList(
                     suggestion.whyTicketBullets ?? suggestion.rationale,
-                    suggestion.reason || "Ticket flagged for rebalance based on workload and risk signals.",
+                    suggestion.reason ||
+                      "Ticket flagged for workload optimization based on workload and risk signals.",
                   );
                   const whyOwnerItems = getSuggestionCopyList(
                     suggestion.whyOwnerBullets,
@@ -1182,7 +1188,7 @@ function RebalanceCandidatesSection({
                         </div>
                       </div>
                       <div className="mt-3 flex gap-2">
-                        {blockedState === "Rule conflict" ? (
+                        {blockedState === MANUAL_OVERRIDE_BLOCKED_COPY ? (
                           <button
                             type="button"
                             onClick={() => onOverrideAndApply(suggestion)}
@@ -1209,7 +1215,7 @@ function RebalanceCandidatesSection({
         </div>
       ) : candidates.length === 0 ? (
         <p className="mt-6 text-sm text-gray-500 dark:text-slate-400">
-          No actionable candidates right now.
+          No workload optimization recommendations right now.
         </p>
       ) : (
         <ul className="mt-5 space-y-3">
@@ -1247,7 +1253,7 @@ function RebalanceCandidatesSection({
                     </p>
                     <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
                       {hasValidTopAlternative && candidate.topSuggestedTarget
-                        ? `Best surfaced alternative: ${getOwnerDisplayName(candidate.topSuggestedTarget.displayName)}`
+                        ? `Best surfaced recommendation: ${getOwnerDisplayName(candidate.topSuggestedTarget.displayName)}`
                         : "No lower-pressure alternative surfaced."}
                     </p>
                   </div>

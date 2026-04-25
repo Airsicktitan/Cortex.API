@@ -158,13 +158,36 @@ public sealed class RebalanceAiAdvisoryService(
         }
         """;
 
-    private static string BuildUserPrompt(IReadOnlyList<RebalanceAiDecisionPacket> packets) =>
-        $$"""
+    private static string BuildUserPrompt(IReadOnlyList<RebalanceAiDecisionPacket> packets)
+    {
+        var safePackets = packets.Select(packet => new
+        {
+            packet.TicketId,
+            UserProvidedTicketContent = AiPromptUserText.WrapLines(
+                [
+                    $"Title: {packet.TicketTitle}",
+                    "Summary:",
+                    packet.TicketSummary
+                ]),
+            packet.Priority,
+            packet.Status,
+            packet.TicketSignals,
+            packet.CurrentOwner,
+            packet.SelectedOwner,
+            packet.RawTopCandidateName,
+            packet.FinalCandidateName,
+            packet.DiversificationApplied,
+            packet.DeterministicReasons,
+            packet.CandidateOptions
+        });
+
+        return $$"""
         Build advisory language for these deterministic rebalance decisions.
         Do not change finalCandidateName or selectedOwner.
 
-        {{JsonSerializer.Serialize(packets, JsonSerializerOptions)}}
+        {{JsonSerializer.Serialize(safePackets, JsonSerializerOptions)}}
         """;
+    }
 
     private static string? CleanOneLine(string? value)
     {

@@ -22,7 +22,7 @@ export const rebalanceService = {
       headers: authHeaders(token),
     });
 
-    await ensureSuccess(response, "Unable to load rebalance overview");
+    await ensureSuccess(response, "Unable to load workload optimization overview");
     return response.json() as Promise<RebalanceOverviewResponse>;
   },
 
@@ -45,7 +45,7 @@ export const rebalanceService = {
       }),
     });
 
-    await ensureSuccess(response, "Unable to execute rebalance");
+    await ensureSuccess(response, "Unable to execute workload optimization");
     return response.json() as Promise<ExecuteRebalanceResponse>;
   },
 };

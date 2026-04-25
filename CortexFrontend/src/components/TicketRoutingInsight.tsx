@@ -360,7 +360,7 @@ function toHumanConfidenceLabel(
   slotClassifications: string[],
 ): string {
   if (slotClassifications.includes("Multiple viable candidates")) {
-    return "Multiple viable candidates";
+    return "Multiple viable recommendations";
   }
   if (slotClassifications.includes("Limited routing signals")) {
     return "Limited routing signals";
@@ -614,6 +614,7 @@ export default function TicketRoutingInsight({
   );
   const [techExpanded, setTechExpanded] = useState(false);
   const [decisionPanelExpanded, setDecisionPanelExpanded] = useState(true);
+  const [fullReasoningExpanded, setFullReasoningExpanded] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const isLiveRoutingPreview = Boolean(livePreview && ticket.id);
@@ -631,6 +632,7 @@ export default function TicketRoutingInsight({
   useEffect(() => {
     setTechExpanded(false);
     setDecisionPanelExpanded(true);
+    setFullReasoningExpanded(false);
   }, [ticket.id]);
 
   useEffect(() => {
@@ -941,7 +943,7 @@ export default function TicketRoutingInsight({
         continue;
       }
       if (slot.candidates.length <= 1) {
-        lines.push("No competing eligible candidates met decision criteria");
+        lines.push("No competing eligible recommendations met decision criteria");
         continue;
       }
       const sorted = [...slot.candidates].sort(
@@ -960,7 +962,7 @@ export default function TicketRoutingInsight({
       }
 
       if (winner.workloadPenalty < nextBest.workloadPenalty) {
-        lines.push("Lower workload than other eligible candidates");
+        lines.push("Lower workload than other eligible recommendations");
       } else if (winner.matchScore > nextBest.matchScore) {
         lines.push("Stronger decision factor match than alternatives");
       }
@@ -1229,11 +1231,27 @@ export default function TicketRoutingInsight({
     (workloadDifference != null && workloadDifference <= 0
       ? "Clearer ownership with lower workload pressure."
       : "Clearer ownership based on matched routing signals.");
-  const actionState = hasManualOverride
-    ? "Manual override detected"
-    : recommendationStrength === "Low" || isLightweightNoRec
-      ? "Review required"
-      : "Ready to apply";
+  const actionState =
+    hasManualOverride || recommendationStrength === "Low" || isLightweightNoRec
+      ? "Needs review"
+      : synitiOwnerOverridden || businessOwnerOverridden
+        ? "Ready to apply"
+        : "Already aligned";
+  const compactDecisionState = actionState;
+  const compactDecisionStateClass =
+    compactDecisionState === "Ready to apply"
+      ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
+      : compactDecisionState === "Needs review"
+        ? "bg-amber-100 text-amber-950 dark:bg-amber-950/50 dark:text-amber-50"
+        : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
+  const compactOwnerLine = isLightweightNoRec
+    ? `Current: Syniti ${finalSynitiOwnerDisplay}; Business ${finalBusinessOwnerDisplay}`
+    : `Syniti ${synitiOwnerDisplay}; Business ${businessOwnerDisplay}`;
+  const compactWhyLine =
+    selectedBecauseLines[0] ??
+    cortexDecision?.summary ??
+    expectedImpactSummary ??
+    routingReasoningEmptyCopy;
 
   if (!ticket.id) {
     return null;
@@ -1249,10 +1267,10 @@ export default function TicketRoutingInsight({
       >
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-            Cortex Recommendation
+            Cortex Decision
           </h3>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Recommended owners, routing signals, override status, and workload context
+            Recommended ownership, action state, and concise reasoning
             {isLiveRoutingPreview && previewLoading && decision ? (
               <span className="ml-1.5 font-medium text-slate-400 dark:text-slate-500">
                 · Updating…
@@ -1323,74 +1341,62 @@ export default function TicketRoutingInsight({
           >
             <div className="rounded-xl border border-cortex-blue/20 bg-sky-50/70 px-4 py-3.5 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/20">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-cortex-blue dark:text-sky-300">
-                    Cortex Recommendation
-                  </p>
-                  <div className="mt-2 grid gap-2 text-sm text-slate-800 dark:text-slate-100 sm:grid-cols-2">
-                    <p>
-                      Syniti owner:{" "}
-                      <span className="font-semibold text-slate-950 dark:text-white">
-                        {synitiOwnerDisplay}
-                      </span>
-                    </p>
-                    <p>
-                      Business owner:{" "}
-                      <span className="font-semibold text-slate-950 dark:text-white">
-                        {businessOwnerDisplay}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {confidencePresentation ? (
-                    <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm dark:bg-slate-900 dark:text-slate-100">
-                      Confidence: {confidenceLabel ?? confidencePresentation.text}
-                    </span>
-                  ) : null}
-                  {hasManualOverride ? (
-                    <span className="rounded-md bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-950 dark:bg-amber-950/50 dark:text-amber-50">
-                      Manual override detected
-                    </span>
-                  ) : null}
-                </div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-cortex-blue dark:text-sky-300">
+                  Cortex Decision
+                </p>
+                <span
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold ${compactDecisionStateClass}`}
+                >
+                  {compactDecisionState}
+                </span>
               </div>
-
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Selected because
-                  </p>
-                  {selectedBecauseLines.length > 0 ? (
-                    <ul className="mt-1 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
-                      {selectedBecauseLines.slice(0, 2).map((line, index) => (
-                        <li key={`summary-${index}-${line}`}>{line}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                      No better eligible alternative was identified based on current workload and routing signals.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Expected Impact
-                  </p>
-                  <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                    {expectedImpactSummary}
-                  </p>
-                </div>
+              <div className="mt-3 space-y-2 text-sm text-slate-800 dark:text-slate-100">
+                <p>
+                  <span className="font-semibold text-slate-950 dark:text-white">
+                    Owner:
+                  </span>{" "}
+                  {compactOwnerLine}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-950 dark:text-white">
+                    Why:
+                  </span>{" "}
+                  {compactWhyLine}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-950 dark:text-white">
+                    State:
+                  </span>{" "}
+                  {compactDecisionState}
+                </p>
               </div>
+              {hasManualOverride ? (
+                <p className="mt-2 text-xs font-medium text-amber-800 dark:text-amber-200">
+                  Manual override detected; Cortex will show the reasoning without changing the assigned owner.
+                </p>
+              ) : null}
             </div>
 
+            <button
+              type="button"
+              onClick={() => setFullReasoningExpanded((open) => !open)}
+              aria-expanded={fullReasoningExpanded ? "true" : "false"}
+              aria-controls="cortex-decision-full-reasoning"
+              className="text-xs font-semibold text-cortex-blue underline-offset-2 hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan"
+            >
+              {fullReasoningExpanded ? "Hide full reasoning" : "Show full reasoning"}
+            </button>
+
+            <div id="cortex-decision-full-reasoning" hidden={!fullReasoningExpanded}>
+              {fullReasoningExpanded ? (
+                <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/50">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Recommendation Refresh
+                Decision Refresh
               </p>
               <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
-                Re-runs the recommendation view only; final assignment is unchanged.
+                Re-runs the decision view only; final assignment is unchanged.
               </p>
             </div>
             <button
@@ -1399,14 +1405,14 @@ export default function TicketRoutingInsight({
               disabled={loading || previewLoading || workloadLoading}
               className="rounded-md border border-cortex-blue/40 bg-white px-3 py-1.5 text-xs font-semibold text-cortex-blue transition hover:bg-cortex-blue/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cortex-blue/50 dark:bg-slate-950 dark:text-cortex-cyan dark:hover:bg-slate-900"
             >
-              {loading || previewLoading ? "Refreshing..." : "Re-run Recommendation"}
+              {loading || previewLoading ? "Refreshing..." : "Re-run Decision"}
             </button>
           </div>
 
           {cortexDecision ? (
             <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Recommendation Summary
+                Cortex Decision Context
               </p>
               <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
                 {cortexDecision.summary}
@@ -1419,7 +1425,7 @@ export default function TicketRoutingInsight({
                   Final owner: {finalSynitiOwnerDisplay}
                 </p>
                 <p>
-                  Recommendation strength: {recommendationStrength}
+                  Decision strength: {recommendationStrength}
                 </p>
                 <p>
                   Manual override status: {hasManualOverride ? "Yes" : "No"}
@@ -1544,7 +1550,7 @@ export default function TicketRoutingInsight({
           <div className="space-y-3">
             <div className="rounded-lg border border-slate-100 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Operational Context
+                Cortex Decision Context
               </p>
               <div className="mt-1 grid gap-1 text-sm text-slate-700 dark:text-slate-200 sm:grid-cols-2">
                 <p>Priority: {ticket.priority || "—"}</p>
@@ -1655,7 +1661,7 @@ export default function TicketRoutingInsight({
           {/* C. Decision reasoning */}
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Routing signals used
+              Decision Factors
             </p>
             {displayedFactorLines.length > 0 ? (
               <>
@@ -1774,7 +1780,7 @@ export default function TicketRoutingInsight({
               aria-controls="cortex-decision-technical-details"
               className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline dark:text-slate-400 dark:hover:text-slate-200"
             >
-              {techExpanded ? "Hide routing details" : "Show routing details"}
+              {techExpanded ? "Hide technical details" : "Show technical details"}
             </button>
             <div
               id="cortex-decision-technical-details"
@@ -1810,7 +1816,10 @@ export default function TicketRoutingInsight({
               ) : null}
             </div>
           </div>
-        </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
         )
         ) : null}
       </div>

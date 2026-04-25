@@ -742,7 +742,7 @@ export const decisionService = {
     const response = await fetch(`${API_BASE_URL}/rebalance/suggestions`, {
       headers: authHeaders(token),
     });
-    await ensureSuccess(response, "Unable to load rebalance suggestions");
+    await ensureSuccess(response, "Unable to load workload optimization suggestions");
     return response.json() as Promise<RebalanceSuggestion[]>;
   },
 };

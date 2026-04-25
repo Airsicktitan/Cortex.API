@@ -42,13 +42,11 @@ public sealed class ScreenshotInsightPromptBuilder : IScreenshotInsightPromptBui
     {
         var sb = new StringBuilder(512);
         sb.AppendLine("Ticket title (context only; screenshots may not match):");
-        sb.AppendLine(string.IsNullOrWhiteSpace(ticketTitle) ? "(none)" : ticketTitle.Trim());
+        sb.AppendLine(AiPromptUserText.Wrap(ticketTitle));
         sb.AppendLine();
         sb.AppendLine($"You are given {imageFileNames.Count} image attachment(s), in order:");
-        for (var i = 0; i < imageFileNames.Count; i++)
-        {
-            sb.AppendLine($"  {i + 1}. {imageFileNames[i]}");
-        }
+        sb.AppendLine(AiPromptUserText.WrapLines(
+            imageFileNames.Select((fileName, index) => $"{index + 1}. {fileName}")));
         sb.AppendLine();
         sb.AppendLine("Analyze the image(s) together and produce the JSON object now.");
         return sb.ToString();

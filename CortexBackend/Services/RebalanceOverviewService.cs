@@ -41,6 +41,7 @@ public sealed class RebalanceOverviewService(
         var rawTickets = await dbContext.Tickets
             .AsNoTracking()
             .Where(t => t.ApprovalStatus == ApprovalStatus.Approved)
+            .Where(t => t.Status != "Resolved" && t.Status != "Closed")
             .Where(t => !dbContext.ArchivedTickets.Any(a => a.Id == t.Id))
             .ToListAsync(cancellationToken);
 

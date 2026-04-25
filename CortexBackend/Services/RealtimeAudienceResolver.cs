@@ -5,7 +5,12 @@ namespace Cortex.API.Services;
 
 public sealed class RealtimeAudienceResolver(IUserRepository userRepository) : IRealtimeAudienceResolver
 {
+    private static readonly TimeSpan UserCacheTtl = TimeSpan.FromSeconds(10);
+
     private readonly IUserRepository _userRepository = userRepository;
+    private readonly object _cacheLock = new();
+    private List<User>? _cachedVisibleUsers;
+    private DateTime _cachedVisibleUsersUntilUtc;
 
     public Task<int[]> GetAudienceUserIdsAsync(
         Ticket ticket,
@@ -38,11 +43,7 @@ public sealed class RealtimeAudienceResolver(IUserRepository userRepository) : I
         cancellationToken.ThrowIfCancellationRequested();
 
         var utcNow = DateTime.UtcNow;
-        var users = (await _userRepository.GetAllUsersAsync())
-            .Where(user =>
-                user.IsActive &&
-                (user.ExpiryDate is null || user.ExpiryDate > utcNow))
-            .ToList();
+        var users = await GetVisibleUsersAsync(utcNow, cancellationToken);
 
         var aliases = OwnerFieldResolution.BuildAliasLookup(users);
 
@@ -60,6 +61,37 @@ public sealed class RealtimeAudienceResolver(IUserRepository userRepository) : I
         }
 
         return recipients.ToArray();
+    }
+
+    private async Task<List<User>> GetVisibleUsersAsync(
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        lock (_cacheLock)
+        {
+            if (_cachedVisibleUsers is not null && _cachedVisibleUsersUntilUtc > utcNow)
+            {
+                return [.. _cachedVisibleUsers];
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var users = (await _userRepository.GetAllUsersAsync())
+            .Where(user =>
+                user.IsActive &&
+                (user.ExpiryDate is null || user.ExpiryDate > utcNow))
+            .ToList();
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_cacheLock)
+        {
+            _cachedVisibleUsers = users;
+            _cachedVisibleUsersUntilUtc = utcNow.Add(UserCacheTtl);
+        }
+
+        return [.. users];
     }
 
     private static bool HasGlobalVisibility(User user)

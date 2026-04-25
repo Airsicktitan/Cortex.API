@@ -27,6 +27,7 @@ interface DashboardPageProps {
 
 const CLOSED_STATUSES = new Set(["resolved", "closed"]);
 const PRIORITY_ORDER = ["Critical", "High", "Medium", "Low"];
+const IMPACT_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function normalize(value: string | undefined) {
   return value?.trim().toLowerCase() ?? "";
@@ -111,6 +112,66 @@ function sortByMostRecent(tickets: Ticket[]) {
 
     return rightDate - leftDate;
   });
+}
+
+function isWithinImpactWindow(value?: string) {
+  if (!value) {
+    return false;
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) {
+    return false;
+  }
+
+  return Date.now() - timestamp <= IMPACT_LOOKBACK_MS;
+}
+
+function formatEstimatedHours(value: number) {
+  if (value <= 0) {
+    return "0h";
+  }
+
+  return `${Number.isInteger(value) ? value : value.toFixed(1)}h`;
+}
+
+function buildImpactMetrics(tickets: Ticket[]) {
+  const impactsThisWeek = tickets
+    .map((ticket) => ticket.decisionImpact)
+    .filter(
+      (impact) =>
+        impact?.hasImpact && isWithinImpactWindow(impact.appliedAtUtc),
+    );
+  const workloadOptimizations = impactsThisWeek.filter(
+    (impact) => impact?.workloadImproved || impact?.pressureImproved,
+  ).length;
+  const risksReduced = impactsThisWeek.filter(
+    (impact) => impact?.riskImproved,
+  ).length;
+  const intakePreviewTickets = tickets.filter((ticket) => ticket.approvalTriagePreview);
+  const intakeReady = intakePreviewTickets.filter(
+    (ticket) =>
+      (ticket.approvalTriagePreview?.missingDetailHints?.length ?? 0) === 0,
+  ).length;
+  const estimatedHours =
+    Math.round(
+      (workloadOptimizations * 0.75 + risksReduced * 1.5 + intakeReady * 0.25) *
+        10,
+    ) / 10;
+
+  return {
+    rebalanceActions: workloadOptimizations,
+    risksReduced,
+    estimatedHours,
+    intakeQuality:
+      intakePreviewTickets.length > 0
+        ? formatPercentage(intakeReady, intakePreviewTickets.length)
+        : "Building",
+    hasSignal:
+      impactsThisWeek.length > 0 ||
+      intakeReady > 0 ||
+      intakePreviewTickets.length > 0,
+  };
 }
 
 function DistributionCard({
@@ -256,6 +317,75 @@ function TicketTable({
   );
 }
 
+function CortexImpactCard({ tickets }: { tickets: Ticket[] }) {
+  const metrics = buildImpactMetrics(tickets);
+  const proofPoints = [
+    {
+      label: "Rebalance Actions",
+      value: metrics.rebalanceActions.toString(),
+      detail: "Workload optimization moves with improved pressure signals.",
+    },
+    {
+      label: "SLA Risks Reduced",
+      value: metrics.risksReduced.toString(),
+      detail: "Approved decisions that lowered risk this week.",
+    },
+    {
+      label: "Estimated Follow-up Hours Saved",
+      value: formatEstimatedHours(metrics.estimatedHours),
+      detail: "Based on avoided follow-up cycles and workload optimization signals.",
+    },
+    {
+      label: "Intake Quality",
+      value: metrics.intakeQuality,
+      detail: "Share of AI-reviewed intake with no missing detail hints.",
+    },
+  ];
+
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+            Cortex Impact This Week
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+            Operational proof points from approved, improved, and optimized work.
+          </p>
+        </div>
+        <span className="w-fit rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100">
+          Estimated impact
+        </span>
+      </div>
+
+      {metrics.hasSignal ? (
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {proofPoints.map((point) => (
+            <div
+              key={point.label}
+              className="rounded-md border border-gray-100 bg-gray-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40"
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                {point.label}
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-gray-950 dark:text-white">
+                {point.value}
+              </p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                {point.detail}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-5 rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm text-gray-600 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-300">
+          Cortex Impact will appear after tickets are approved, improved, or optimized.
+        </p>
+      )}
+    </section>
+  );
+}
+
 type DashboardTab = "overview" | "analytics" | "activity";
 
 const TABS: { id: DashboardTab; label: string }[] = [
@@ -349,14 +479,20 @@ export default function DashboardPage({
             risk, ownership, and SLA health.
           </div>
         ) : activeTab === "overview" ? (
-          <div className="lg:h-full lg:min-h-0 lg:overflow-hidden">
+          <ScrollableViewport
+            viewportRef={tabScrollRef}
+            outerClassName="lg:h-full"
+            viewportClassName="scroll-chain-auto space-y-6 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1"
+            affordanceAriaLabel="Scroll dashboard overview to bottom"
+          >
+            <CortexImpactCard tickets={tickets} />
             <ExecutiveAttentionPanel
               tickets={tickets}
               activeFilterValue={activeAttentionFilterValue}
               onDrillDown={onAttentionDrillDown}
               onOpenTicket={onOpenTicket}
             />
-          </div>
+          </ScrollableViewport>
         ) : activeTab === "analytics" ? (
           <ScrollableViewport
             viewportRef={tabScrollRef}

@@ -224,10 +224,12 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
         var sb = new StringBuilder(1024);
 
         sb.AppendLine("Requester draft:");
-        sb.Append("Title: ");
-        sb.AppendLine(string.IsNullOrWhiteSpace(input.Title) ? "(empty)" : input.Title.Trim());
-        sb.AppendLine("Description:");
-        sb.AppendLine(string.IsNullOrWhiteSpace(input.Description) ? "(empty)" : input.Description.Trim());
+        sb.AppendLine(AiPromptUserText.WrapLines(
+            [
+                $"Title: {input.Title}",
+                "Description:",
+                input.Description
+            ]));
 
         if (!string.IsNullOrWhiteSpace(input.BoardName))
         {

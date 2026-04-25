@@ -114,7 +114,7 @@ const APP_VIEW_LABELS: Record<AppView, string> = {
   approval: "Approval Queue",
   archived: "Archived Tickets",
   reports: "Reports",
-  rebalance: "Rebalance",
+  rebalance: "Workload Optimization",
   sla: "Configuration",
   jobs: "Jobs",
   users: "Users",
@@ -213,9 +213,9 @@ const NAVIGATION_ITEM_DEFINITIONS: ReadonlyArray<NavigationItem> = [
   {
     view: "rebalance",
     group: "workspace",
-    label: "Rebalance",
+    label: "Workload Optimization",
     description:
-      "Spot overloaded owners and candidate tickets to rebalance.",
+      "Spot overloaded owners and recommended workload moves.",
   },
   {
     view: "jobs",

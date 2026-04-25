@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import type { AiSettingsConfiguration } from "../types/aiSettings";
 import { formatDisplayDateTime, formatDisplayValue } from "../utils/presentation";
@@ -358,7 +358,7 @@ export default function AiSettingsSection({
   onRefresh,
   onSave,
 }: AiSettingsSectionProps) {
-  const baselineHashRef = useRef<string | null>(null);
+  const [baselineHash, setBaselineHash] = useState<string | null>(null);
   const wasLoadingRef = useRef(loading);
   const wasSavingRef = useRef(saving);
 
@@ -373,22 +373,24 @@ export default function AiSettingsSection({
 
     if (
       configuration &&
-      (baselineHashRef.current === null ||
+      (baselineHash === null ||
         justLoaded ||
         (saveFinished && !error))
     ) {
-      baselineHashRef.current = configurationHash(configuration);
+      // Baseline tracks the last loaded/saved server state for the sticky save bar.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setBaselineHash(configurationHash(configuration));
     }
 
     wasLoadingRef.current = loading;
     wasSavingRef.current = saving;
-  }, [configuration, loading, saving, error]);
+  }, [configuration, loading, saving, error, baselineHash]);
 
   const isDirty =
     !!configuration &&
     !!currentHash &&
-    !!baselineHashRef.current &&
-    currentHash !== baselineHashRef.current;
+    !!baselineHash &&
+    currentHash !== baselineHash;
 
   const controlMode = configuration ? deriveControlMode(configuration) : "assisted";
 

@@ -415,9 +415,12 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
         var sb = new StringBuilder(2048);
 
         sb.AppendLine("## Ticket");
-        sb.AppendLine($"Title: {input.Title}");
-        sb.AppendLine("Description:");
-        sb.AppendLine(input.Description);
+        sb.AppendLine(AiPromptUserText.WrapLines(
+            [
+                $"Title: {input.Title}",
+                "Description:",
+                input.Description
+            ]));
         sb.AppendLine($"Current priority (requester): {input.CurrentPriority}");
         sb.AppendLine($"Current status: {input.Status}");
         sb.AppendLine($"Department: {input.Department ?? "(none)"}");
@@ -466,7 +469,7 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
         {
             sb.AppendLine();
             sb.AppendLine("## Fused context (comments, vision evidence, and other signals)");
-            sb.AppendLine(input.SupplementalContext.Trim());
+            sb.AppendLine(AiPromptUserText.Wrap(input.SupplementalContext));
         }
 
         if (input.EligibleOwnerCandidates is { Count: > 0 })

@@ -17,7 +17,7 @@ public class Ticket
     public string? BusinessOwner { get; set; } // Nullable
 
     public int CreatedBy { get; set; } 
-    public DateTime CreatedDate { get; set; } = DateTime.Now; // Default to now
+    public DateTime CreatedDate { get; set; } = DateTime.UtcNow; // Default to UTC now
     public int LastModifiedBy { get; set; }
     public DateTime? LastModifiedDate { get; set; } // Nullable
 
