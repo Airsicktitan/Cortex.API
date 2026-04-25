@@ -49,7 +49,13 @@ export interface RebalanceSuggestionAlternative {
   userId: string;
   displayName: string;
   workloadScore: number;
+  projectedWorkloadScore?: number;
+  totalScore?: number;
   pressureLevel: string;
+  incomingRecommendationCount?: number;
+  rankBeforeDiversification?: number;
+  rankAfterDiversification?: number;
+  reasonNotSelected?: string;
 }
 
 export interface RebalanceSuggestion {
@@ -60,13 +66,30 @@ export interface RebalanceSuggestion {
   fromDisplayName: string;
   toUserId: string;
   toDisplayName: string;
+  selectedOwnerName?: string;
+  previousOwnerName?: string;
   reason: string;
   expectedImpact: string;
+  selectionReason?: string;
   confidenceScore: number;
   recommendationStrength: string;
   rationale: string[];
   impactPreview: string[];
+  whyTicketBullets?: string[];
+  whyOwnerBullets?: string[];
+  expectedImpactBullets?: string[];
+  tradeoffBullets?: string[];
+  safetyNotes?: string[];
   alternativeOwners?: RebalanceSuggestionAlternative[];
+  diversificationApplied?: boolean;
+  rawTopCandidateName?: string;
+  finalCandidateName?: string;
+  candidateRankBeforeDiversification?: number;
+  candidateRankAfterDiversification?: number;
+  aiAdvisorySummary?: string | null;
+  aiRiskSummary?: string | null;
+  aiTradeoffSummary?: string | null;
+  aiConfidenceWording?: string | null;
   aiHighRisk?: boolean;
   isBlockedByManualOverride?: boolean;
   blockedReason?: string | null;

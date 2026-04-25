@@ -10,6 +10,9 @@ public class OpenAiOptions
     /// <summary>Chat model id (e.g. gpt-4o-mini).</summary>
     public string? Model { get; set; }
 
+    /// <summary>Optional batch advisory language for deterministic rebalance suggestions.</summary>
+    public bool EnableRebalanceAdvisory { get; set; }
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ApiKey) &&
         !string.IsNullOrWhiteSpace(Model);

@@ -72,6 +72,21 @@ function getSuggestionCopyList(items: string[] | undefined, fallback: string) {
   return cleanItems.length > 0 ? cleanItems : [fallback];
 }
 
+function getOptionalSuggestionCopyList(
+  items: string[] | undefined,
+  fallback?: string,
+) {
+  const cleanItems = Array.isArray(items)
+    ? items.filter((item) => item.trim().length > 0)
+    : [];
+  if (cleanItems.length > 0) {
+    return cleanItems;
+  }
+
+  const cleanFallback = fallback?.trim();
+  return cleanFallback ? [cleanFallback] : [];
+}
+
 function getSuggestionTicketTitle(suggestion: RebalanceSuggestion) {
   const title = suggestion.ticketTitle?.trim();
   if (title) {
@@ -149,9 +164,13 @@ function mapCandidateToDisplaySuggestion(
     toUserId: candidate.topSuggestedTarget.ownerKey,
     toDisplayName:
       getOwnerDisplayName(candidate.topSuggestedTarget.displayName),
+    selectedOwnerName: getOwnerDisplayName(candidate.topSuggestedTarget.displayName),
+    previousOwnerName: getOwnerDisplayName(candidate.currentOwnerName),
     reason: candidate.potentialImpactSummary || "Rebalance recommendation.",
     expectedImpact:
       candidate.potentialImpactSummary || "Reduces workload imbalance.",
+    selectionReason:
+      candidate.potentialImpactSummary || "Lower-pressure owner surfaced.",
     confidenceScore: 0.5,
     recommendationStrength: "Good fit",
     rationale: [
@@ -162,14 +181,35 @@ function mapCandidateToDisplaySuggestion(
         getOwnerDisplayName(candidate.topSuggestedTarget.displayName)
       } at ${candidate.topSuggestedTarget.pressureLevel} pressure.`,
     ],
+    whyTicketBullets: [
+      `${getOwnerDisplayName(candidate.currentOwnerName)} is overloaded with workload score ${candidate.currentOwnerWorkloadScore}.`,
+    ],
+    whyOwnerBullets: [
+      `${getOwnerDisplayName(candidate.topSuggestedTarget.displayName)} is at ${candidate.topSuggestedTarget.pressureLevel} pressure.`,
+    ],
+    expectedImpactBullets: [
+      `Moves work toward ${
+        getOwnerDisplayName(candidate.topSuggestedTarget.displayName)
+      } at ${candidate.topSuggestedTarget.pressureLevel} pressure.`,
+    ],
+    tradeoffBullets: [],
+    safetyNotes: [
+      "Execution applies this displayed owner only after current ownership and eligibility checks pass.",
+    ],
     alternativeOwners: (candidate.alternativeTargets ?? []).map(
       (target): RebalanceSuggestionAlternative => ({
         userId: target.ownerKey,
         displayName: target.displayName,
         workloadScore: target.workloadScore,
+        projectedWorkloadScore: target.workloadScore,
         pressureLevel: target.pressureLevel,
       }),
     ),
+    diversificationApplied: false,
+    rawTopCandidateName: getOwnerDisplayName(candidate.topSuggestedTarget.displayName),
+    finalCandidateName: getOwnerDisplayName(candidate.topSuggestedTarget.displayName),
+    candidateRankBeforeDiversification: 1,
+    candidateRankAfterDiversification: 1,
     aiHighRisk: candidate.operationalRiskLevel === "critical",
     isBlockedByManualOverride: false,
     blockedReason: null,
@@ -571,20 +611,44 @@ export default function RebalanceOverviewPanel({
 }
 
 function SuggestionDetail({
-  rationale,
+  whyTicket,
+  whyOwner,
   impact,
+  tradeoffs,
+  safetyNotes,
+  advisory,
 }: {
-  rationale: string[];
+  whyTicket: string[];
+  whyOwner: string[];
   impact: string[];
+  tradeoffs: string[];
+  safetyNotes: string[];
+  advisory: string[];
 }) {
   return (
     <div className="mt-3 space-y-2 border-t border-gray-200 pt-3 dark:border-slate-700/60">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
-          Why this move
+          Why this ticket
         </p>
         <ul className="mt-1 space-y-0.5">
-          {rationale.map((item, i) => (
+          {whyTicket.map((item, i) => (
+            <li
+              key={i}
+              className="flex gap-1.5 text-xs text-gray-700 dark:text-slate-300"
+            >
+              <span className="mt-0.5 shrink-0 select-none text-gray-400 dark:text-slate-500">·</span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+          Why this owner
+        </p>
+        <ul className="mt-1 space-y-0.5">
+          {whyOwner.map((item, i) => (
             <li
               key={i}
               className="flex gap-1.5 text-xs text-gray-700 dark:text-slate-300"
@@ -611,6 +675,60 @@ function SuggestionDetail({
           ))}
         </ul>
       </div>
+      {tradeoffs.length > 0 ? (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+            Tradeoffs
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {tradeoffs.map((item, i) => (
+              <li
+                key={i}
+                className="flex gap-1.5 text-xs text-gray-700 dark:text-slate-300"
+              >
+                <span className="mt-0.5 shrink-0 select-none text-gray-400 dark:text-slate-500">·</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {safetyNotes.length > 0 ? (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+            Safety notes
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {safetyNotes.map((item, i) => (
+              <li
+                key={i}
+                className="flex gap-1.5 text-xs text-gray-700 dark:text-slate-300"
+              >
+                <span className="mt-0.5 shrink-0 select-none text-gray-400 dark:text-slate-500">·</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {advisory.length > 0 ? (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+            Cortex advisory
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {advisory.map((item, i) => (
+              <li
+                key={i}
+                className="flex gap-1.5 text-xs text-gray-700 dark:text-slate-300"
+              >
+                <span className="mt-0.5 shrink-0 select-none text-gray-400 dark:text-slate-500">·</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -618,7 +736,13 @@ function SuggestionDetail({
 function AlternativesSection({
   alternatives,
 }: {
-  alternatives: Array<{ displayName: string; workloadScore: number; pressureLevel: string }>;
+  alternatives: Array<{
+    displayName: string;
+    workloadScore: number;
+    projectedWorkloadScore?: number;
+    pressureLevel: string;
+    reasonNotSelected?: string;
+  }>;
 }) {
   const items = alternatives.filter((a) => a.displayName?.trim());
   if (items.length === 0) {
@@ -639,8 +763,13 @@ function AlternativesSection({
             <span>
               {alt.displayName}
               <span className="ml-1 text-gray-400 dark:text-slate-500">
-                - workload {alt.workloadScore} ({alt.pressureLevel} pressure)
+                - workload {alt.projectedWorkloadScore ?? alt.workloadScore} ({alt.pressureLevel} pressure)
               </span>
+              {alt.reasonNotSelected ? (
+                <span className="ml-1 text-gray-500 dark:text-slate-400">
+                  {alt.reasonNotSelected}
+                </span>
+              ) : null}
             </span>
           </li>
         ))}
@@ -846,14 +975,34 @@ function RebalanceCandidatesSection({
                   const strength = resolveSuggestionStrength(suggestion);
                   const ticketTitle = getSuggestionTicketTitle(suggestion);
                   const ticketMeta = getSuggestionTicketMeta(suggestion);
-                  const rationaleItems = getSuggestionCopyList(
-                    suggestion.rationale,
+                  const whyTicketItems = getSuggestionCopyList(
+                    suggestion.whyTicketBullets ?? suggestion.rationale,
                     suggestion.reason || "Ticket flagged for rebalance based on workload and risk signals.",
                   );
+                  const whyOwnerItems = getSuggestionCopyList(
+                    suggestion.whyOwnerBullets,
+                    suggestion.selectionReason ||
+                      `Cortex selected ${getOwnerDisplayName(suggestion.toDisplayName)} after comparing eligible owners.`,
+                  );
                   const impactItems = getSuggestionCopyList(
-                    suggestion.impactPreview,
+                    suggestion.expectedImpactBullets ?? suggestion.impactPreview,
                     suggestion.expectedImpact || "Reduces workload pressure on the current owner.",
                   );
+                  const tradeoffItems = getOptionalSuggestionCopyList(
+                    suggestion.tradeoffBullets,
+                    suggestion.diversificationApplied
+                      ? `Diversified from ${getOwnerDisplayName(suggestion.rawTopCandidateName)} to avoid concentrating new recommendations.`
+                      : undefined,
+                  );
+                  const safetyItems = getOptionalSuggestionCopyList(
+                    suggestion.safetyNotes,
+                  );
+                  const advisoryItems = getOptionalSuggestionCopyList([
+                    suggestion.aiAdvisorySummary ?? "",
+                    suggestion.aiRiskSummary ?? "",
+                    suggestion.aiTradeoffSummary ?? "",
+                    suggestion.aiConfidenceWording ?? "",
+                  ]);
                   return (
                     <li
                       key={`${suggestion.ticketId}-${suggestion.toUserId}`}
@@ -895,7 +1044,14 @@ function RebalanceCandidatesSection({
                           {strength}
                         </span>
                       </div>
-                      <SuggestionDetail rationale={rationaleItems} impact={impactItems} />
+                      <SuggestionDetail
+                        whyTicket={whyTicketItems}
+                        whyOwner={whyOwnerItems}
+                        impact={impactItems}
+                        tradeoffs={tradeoffItems}
+                        safetyNotes={safetyItems}
+                        advisory={advisoryItems}
+                      />
                       <AlternativesSection alternatives={suggestion.alternativeOwners ?? []} />
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                         {suggestion.aiHighRisk ? (
@@ -943,14 +1099,35 @@ function RebalanceCandidatesSection({
                   const constraintExplanation = resolveBlockedConstraintExplanation(blockedState);
                   const ticketTitle = getSuggestionTicketTitle(suggestion);
                   const ticketMeta = getSuggestionTicketMeta(suggestion);
-                  const rationaleItems = getSuggestionCopyList(
-                    suggestion.rationale,
+                  const whyTicketItems = getSuggestionCopyList(
+                    suggestion.whyTicketBullets ?? suggestion.rationale,
                     suggestion.reason || "Ticket flagged for rebalance based on workload and risk signals.",
                   );
+                  const whyOwnerItems = getSuggestionCopyList(
+                    suggestion.whyOwnerBullets,
+                    suggestion.selectionReason ||
+                      `Cortex selected ${getOwnerDisplayName(suggestion.toDisplayName)} after comparing eligible owners.`,
+                  );
                   const impactItems = getSuggestionCopyList(
-                    suggestion.impactPreview,
+                    suggestion.expectedImpactBullets ?? suggestion.impactPreview,
                     suggestion.expectedImpact || "Reduces workload pressure on the current owner.",
                   );
+                  const tradeoffItems = getOptionalSuggestionCopyList(
+                    suggestion.tradeoffBullets,
+                    suggestion.diversificationApplied
+                      ? `Diversified from ${getOwnerDisplayName(suggestion.rawTopCandidateName)} to avoid concentrating new recommendations.`
+                      : undefined,
+                  );
+                  const safetyItems = getOptionalSuggestionCopyList(
+                    suggestion.safetyNotes,
+                    constraintExplanation,
+                  );
+                  const advisoryItems = getOptionalSuggestionCopyList([
+                    suggestion.aiAdvisorySummary ?? "",
+                    suggestion.aiRiskSummary ?? "",
+                    suggestion.aiTradeoffSummary ?? "",
+                    suggestion.aiConfidenceWording ?? "",
+                  ]);
                   return (
                     <li
                       key={`${suggestion.ticketId}-${suggestion.toUserId}-blocked`}
@@ -985,7 +1162,14 @@ function RebalanceCandidatesSection({
                           Confidence: {Math.round((suggestion.confidenceScore ?? 0) * 100)}%
                         </p>
                       </div>
-                      <SuggestionDetail rationale={rationaleItems} impact={impactItems} />
+                      <SuggestionDetail
+                        whyTicket={whyTicketItems}
+                        whyOwner={whyOwnerItems}
+                        impact={impactItems}
+                        tradeoffs={tradeoffItems}
+                        safetyNotes={safetyItems}
+                        advisory={advisoryItems}
+                      />
                       <AlternativesSection alternatives={suggestion.alternativeOwners ?? []} />
                       <div className="mt-3 rounded border border-rose-200 bg-rose-50/50 px-3 py-2 dark:border-rose-900/30 dark:bg-rose-950/10">
                         <div className="flex flex-wrap items-center gap-2">
@@ -1060,6 +1244,11 @@ function RebalanceCandidatesSection({
                     </p>
                     <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
                       Current owner: {getOwnerDisplayName(candidate.currentOwnerName)}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                      {hasValidTopAlternative && candidate.topSuggestedTarget
+                        ? `Best surfaced alternative: ${getOwnerDisplayName(candidate.topSuggestedTarget.displayName)}`
+                        : "No lower-pressure alternative surfaced."}
                     </p>
                   </div>
                   <span

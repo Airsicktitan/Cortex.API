@@ -13,6 +13,8 @@ public sealed class CortexDecisionService(
     CortexDbContext dbContext,
     ICortexCandidateResolutionService candidateResolutionService,
     IWorkloadSnapshotService workloadSnapshotService,
+    ISlaConfigurationService slaConfigurationService,
+    IRebalanceAiAdvisoryService rebalanceAiAdvisoryService,
     ICortexAiAssessmentService cortexAiAssessmentService,
     ITicketRepository ticketRepository,
     ITicketRoutingRuleService ticketRoutingRuleService,
@@ -21,6 +23,10 @@ public sealed class CortexDecisionService(
     ILogger<CortexDecisionService> logger) : ICortexDecisionService
 {
     private const int MeaningfulImprovementThreshold = 10;
+    private const decimal RebalanceIncomingPenalty = 18m;
+    private const decimal RebalanceProgressiveIncomingPenalty = 6m;
+    private const decimal RebalanceProjectedWorkloadPenaltyMultiplier = 5m;
+    private const decimal RebalanceProjectedOverloadPenalty = 16m;
     private const string RebalanceAppliedEventType = "rebalance_applied";
     private static readonly TimeSpan RebalanceCooldownWindow = TimeSpan.FromHours(24);
 
@@ -69,6 +75,9 @@ public sealed class CortexDecisionService(
         var snapshotLoadStarted = Stopwatch.GetTimestamp();
         var snapshots = await workloadSnapshotService.GetSnapshotsAsync(cancellationToken);
         var snapshotLoadMs = ElapsedMilliseconds(snapshotLoadStarted);
+        var priorityMap = await slaConfigurationService.GetPriorityMapAsync();
+        var nowUtc = DateTime.UtcNow;
+        var projectedLoads = BuildProjectedOwnerLoads(snapshots);
         var overloadSet = snapshots
             .Where(snapshot => snapshot.Status == "Overloaded")
             .Select(snapshot => snapshot.UserId)
@@ -97,6 +106,7 @@ public sealed class CortexDecisionService(
                 StringComparer.OrdinalIgnoreCase);
 
         var suggestions = new List<RebalanceSuggestion>();
+        var advisoryPackets = new List<RebalanceAiDecisionPacket>();
         var overloadedTicketCount = 0;
         var evaluatedTicketCount = 0;
         var evaluationStarted = Stopwatch.GetTimestamp();
@@ -128,8 +138,28 @@ public sealed class CortexDecisionService(
                     continue;
                 }
 
+                var ticketSignals = WorkloadScoringPolicy.EvaluateTicket(ticket, priorityMap, nowUtc);
+                var selection = SelectDistributionAwareCandidate(
+                    ticket,
+                    decision.Candidates,
+                    projectedLoads,
+                    ticketSignals);
+                if (selection.Selected is null
+                    || IsSameOwner(
+                        currentOwnerKey,
+                        selection.Selected.Candidate.UserId,
+                        selection.Selected.Candidate.DisplayName))
+                {
+                    continue;
+                }
+
+                var selectedScore = selection.Selected!;
+                var selectedCandidate = selectedScore.Candidate;
+                decision.RecommendedOwnerUserId = selectedCandidate.UserId;
+                decision.RecommendedOwnerDisplayName = selectedCandidate.DisplayName;
+                decision.ConfidenceScore = selection.ConfidenceScore;
+
                 var currentOwnerSnapshot = ResolveSnapshot(currentOwnerKey, snapshots);
-                var recommendedCandidate = ResolveRecommendedCandidate(decision);
                 var expectedImpact = ResolveExpectedImpact(decision);
                 var sourceDisplayName = ResolveOwnerDisplayName(currentOwnerKey, ownerAliases);
                 var latestOverride = latestOverridesByTicketId.GetValueOrDefault(ticket.Id);
@@ -141,50 +171,70 @@ public sealed class CortexDecisionService(
                         ticket.SynitiOwner?.Trim(),
                         StringComparison.OrdinalIgnoreCase);
 
-                suggestions.Add(new RebalanceSuggestion
+                var whyTicketBullets = BuildWhyTicketBullets(
+                    ticket,
+                    sourceDisplayName,
+                    currentOwnerSnapshot,
+                    decision);
+                var whyOwnerBullets = BuildWhyOwnerBullets(selection);
+                var impactBullets = BuildImpactPreview(
+                    sourceDisplayName,
+                    currentOwnerSnapshot,
+                    decision,
+                    selectedCandidate,
+                    selection);
+                var tradeoffBullets = BuildTradeoffBullets(selection);
+                var safetyNotes = BuildSafetyNotes(isBlockedByManualOverride);
+
+                var suggestion = new RebalanceSuggestion
                 {
                     TicketId = ticket.Id,
                     TicketKey = ticket.Id,
                     TicketTitle = ResolveTicketTitle(ticket),
                     FromUserId = currentOwnerKey,
                     FromDisplayName = sourceDisplayName,
-                    ToUserId = decision.RecommendedOwnerUserId ?? string.Empty,
-                    ToDisplayName = decision.RecommendedOwnerDisplayName ?? decision.RecommendedOwnerUserId ?? string.Empty,
-                    Reason = decision.Summary,
-                    ConfidenceScore = decision.ConfidenceScore,
-                    RecommendationStrength = ResolveRecommendationStrength(decision.ConfidenceScore),
-                    Rationale = BuildRecommendationRationale(
-                        ticket,
-                        sourceDisplayName,
-                        currentOwnerSnapshot,
-                        decision,
-                        recommendedCandidate),
-                    ImpactPreview = BuildImpactPreview(
-                        sourceDisplayName,
-                        currentOwnerSnapshot,
-                        decision,
-                        recommendedCandidate),
-                    AlternativeOwners = decision.Candidates
-                        .Where(candidate => !string.Equals(
-                            candidate.UserId,
-                            decision.RecommendedOwnerUserId,
-                            StringComparison.OrdinalIgnoreCase))
-                        .Take(2)
-                        .Select(candidate => new RebalanceSuggestionAlternative
-                        {
-                            UserId = candidate.UserId,
-                            DisplayName = candidate.DisplayName,
-                            WorkloadScore = candidate.WorkloadScore,
-                            PressureLevel = WorkloadScoringPolicy.ToPressureLevel(candidate.WorkloadScore),
-                        })
-                        .ToList(),
+                    ToUserId = selectedCandidate.UserId,
+                    ToDisplayName = selectedCandidate.DisplayName,
+                    SelectedOwnerName = selectedCandidate.DisplayName,
+                    PreviousOwnerName = sourceDisplayName,
+                    Reason = selection.SelectionReason,
+                    SelectionReason = selection.SelectionReason,
+                    ConfidenceScore = selection.ConfidenceScore,
+                    RecommendationStrength = ResolveRecommendationStrength(selection.ConfidenceScore),
+                    Rationale = whyTicketBullets.Concat(whyOwnerBullets).Take(4).ToList(),
+                    ImpactPreview = impactBullets,
+                    WhyTicketBullets = whyTicketBullets,
+                    WhyOwnerBullets = whyOwnerBullets,
+                    ExpectedImpactBullets = impactBullets,
+                    TradeoffBullets = tradeoffBullets,
+                    SafetyNotes = safetyNotes,
+                    AlternativeOwners = BuildSuggestionAlternatives(selection),
+                    DiversificationApplied = selection.DiversificationApplied,
+                    RawTopCandidateName = selection.RawTop?.Candidate.DisplayName ?? selectedCandidate.DisplayName,
+                    FinalCandidateName = selectedCandidate.DisplayName,
+                    CandidateRankBeforeDiversification = selectedScore.RawRank,
+                    CandidateRankAfterDiversification = selectedScore.DistributionRank,
                     AiHighRisk = string.Equals(decision.AiRiskLevel, "High", StringComparison.OrdinalIgnoreCase),
-                    ExpectedImpact = expectedImpact,
+                    ExpectedImpact = impactBullets.FirstOrDefault() ?? expectedImpact,
                     IsBlockedByManualOverride = isBlockedByManualOverride,
                     BlockedReason = isBlockedByManualOverride
                         ? "Manual override exists and currently controls ticket ownership."
                         : null
-                });
+                };
+
+                suggestions.Add(suggestion);
+                advisoryPackets.Add(BuildAiDecisionPacket(
+                    ticket,
+                    suggestion,
+                    selection,
+                    currentOwnerSnapshot,
+                    ticketSignals));
+                ApplyProjectedRebalance(
+                    currentOwnerKey,
+                    sourceDisplayName,
+                    selectedCandidate,
+                    projectedLoads,
+                    ticketSignals);
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -193,6 +243,7 @@ public sealed class CortexDecisionService(
             }
         }
         var evaluationMs = ElapsedMilliseconds(evaluationStarted);
+        await ApplyAiAdvisoriesAsync(suggestions, advisoryPackets, cancellationToken);
 
         logger.LogInformation(
             "Rebalance suggestions generated in {TotalElapsedMs}ms (tickets {TicketLoadMs}ms, snapshots {SnapshotLoadMs}ms, owner aliases {OwnerAliasLoadMs}ms, evaluations {EvaluationMs}ms). ActiveTickets={ActiveTicketCount}, OverloadedTickets={OverloadedTicketCount}, EvaluatedTickets={EvaluatedTicketCount}, Suggestions={SuggestionCount}.",
@@ -664,20 +715,302 @@ public sealed class CortexDecisionService(
             IsSameOwner(ownerKey, snapshot.UserId, snapshot.DisplayName));
     }
 
-    private static CortexDecisionCandidate? ResolveRecommendedCandidate(
-        CortexDecisionResult decision)
+    private static Dictionary<string, ProjectedOwnerLoad> BuildProjectedOwnerLoads(
+        IReadOnlyList<WorkloadSnapshot> snapshots)
     {
-        if (decision.Candidates.Count == 0)
+        var loads = new Dictionary<string, ProjectedOwnerLoad>(StringComparer.OrdinalIgnoreCase);
+        foreach (var snapshot in snapshots)
         {
-            return null;
+            var load = new ProjectedOwnerLoad
+            {
+                UserId = snapshot.UserId,
+                DisplayName = snapshot.DisplayName,
+                ActiveTicketCount = snapshot.ActiveTicketCount,
+                HighPriorityCount = snapshot.HighPriorityCount,
+                OverdueTicketCount = snapshot.OverdueTicketCount,
+                SlaRiskCount = snapshot.SlaRiskCount,
+                StaleTicketCount = snapshot.StaleTicketCount,
+                WorkloadScore = snapshot.WorkloadScore,
+            };
+            AddProjectedLoadAlias(loads, snapshot.UserId, load);
+            AddProjectedLoadAlias(loads, snapshot.DisplayName, load);
         }
 
-        return decision.Candidates.FirstOrDefault(candidate =>
-                IsSameOwner(
-                    decision.RecommendedOwnerUserId,
-                    candidate.UserId,
-                    candidate.DisplayName))
-            ?? decision.Candidates[0];
+        return loads;
+    }
+
+    private static RebalanceCandidateSelection SelectDistributionAwareCandidate(
+        Ticket ticket,
+        IReadOnlyList<CortexDecisionCandidate> candidates,
+        IDictionary<string, ProjectedOwnerLoad> projectedLoads,
+        TicketWorkloadSignals ticketSignals)
+    {
+        var rawRankedCandidates = candidates
+            .Where(candidate => candidate.Eligible)
+            .OrderByDescending(candidate => candidate.TotalScore)
+            .ThenBy(candidate => candidate.WorkloadScore)
+            .ThenBy(candidate => candidate.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (rawRankedCandidates.Count == 0)
+        {
+            return new RebalanceCandidateSelection();
+        }
+
+        var scored = rawRankedCandidates
+            .Select((candidate, index) => ScoreDistributionCandidate(
+                candidate,
+                rawRank: index + 1,
+                projectedLoads,
+                ticketSignals))
+            .ToList();
+
+        var distributionRanked = scored
+            .OrderByDescending(candidate => candidate.DistributionScore)
+            .ThenBy(candidate => candidate.ProjectedWorkloadScore)
+            .ThenBy(candidate => candidate.Candidate.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        for (var i = 0; i < distributionRanked.Count; i++)
+        {
+            distributionRanked[i].DistributionRank = i + 1;
+        }
+
+        var selected = distributionRanked[0];
+        var rawTop = scored[0];
+        var diversificationApplied = !IsSameOwner(
+            rawTop.Candidate.UserId,
+            selected.Candidate.UserId,
+            selected.Candidate.DisplayName);
+
+        return new RebalanceCandidateSelection
+        {
+            Selected = selected,
+            RawTop = rawTop,
+            DistributionRanked = distributionRanked,
+            DiversificationApplied = diversificationApplied,
+            ConfidenceScore = ResolveDistributionConfidence(distributionRanked),
+            SelectionReason = BuildSelectionReason(ticket, selected, rawTop, distributionRanked, diversificationApplied),
+        };
+    }
+
+    private static DistributionCandidateScore ScoreDistributionCandidate(
+        CortexDecisionCandidate candidate,
+        int rawRank,
+        IDictionary<string, ProjectedOwnerLoad> projectedLoads,
+        TicketWorkloadSignals ticketSignals)
+    {
+        var projected = ResolveProjectedLoad(candidate, projectedLoads);
+        var projectedWorkloadScore = CalculateWorkloadScoreAfterAdding(projected, ticketSignals);
+        var workloadDelta = projectedWorkloadScore - candidate.WorkloadScore;
+        var incomingPenalty = CalculateIncomingPenalty(projected.IncomingRecommendationCount);
+        var projectedOverloadPenalty =
+            !candidate.CurrentlyOverloaded && WorkloadScoringPolicy.IsOverloaded(projectedWorkloadScore)
+                ? RebalanceProjectedOverloadPenalty
+                : 0m;
+        var addedTicketRiskPenalty = 0m;
+        if (ticketSignals.IsHighPriority)
+        {
+            addedTicketRiskPenalty += 4m;
+        }
+        if (ticketSignals.IsOverdue || ticketSignals.IsSlaRisk)
+        {
+            addedTicketRiskPenalty += 8m;
+        }
+
+        return new DistributionCandidateScore
+        {
+            Candidate = candidate,
+            RawRank = rawRank,
+            DistributionScore = candidate.TotalScore
+                - (workloadDelta * RebalanceProjectedWorkloadPenaltyMultiplier)
+                - incomingPenalty
+                - projectedOverloadPenalty
+                - addedTicketRiskPenalty,
+            ProjectedWorkloadScore = projectedWorkloadScore,
+            IncomingRecommendationCount = projected.IncomingRecommendationCount,
+            IncomingPenalty = incomingPenalty,
+            ProjectedOverload = WorkloadScoringPolicy.IsOverloaded(projectedWorkloadScore),
+        };
+    }
+
+    private static decimal CalculateIncomingPenalty(int incomingRecommendationCount)
+    {
+        if (incomingRecommendationCount <= 0)
+        {
+            return 0m;
+        }
+
+        return (incomingRecommendationCount * RebalanceIncomingPenalty)
+            + (incomingRecommendationCount * incomingRecommendationCount * RebalanceProgressiveIncomingPenalty);
+    }
+
+    private static decimal CalculateWorkloadScoreAfterAdding(
+        ProjectedOwnerLoad load,
+        TicketWorkloadSignals signals)
+    {
+        return WorkloadScoringPolicy.CalculateScore(
+            load.ActiveTicketCount + 1,
+            load.HighPriorityCount + (signals.IsHighPriority ? 1 : 0),
+            load.OverdueTicketCount + (signals.IsOverdue ? 1 : 0),
+            load.SlaRiskCount + (signals.IsSlaRisk ? 1 : 0),
+            load.StaleTicketCount + (signals.IsStale ? 1 : 0));
+    }
+
+    private static ProjectedOwnerLoad ResolveProjectedLoad(
+        CortexDecisionCandidate candidate,
+        IDictionary<string, ProjectedOwnerLoad> projectedLoads)
+    {
+        var load = ResolveProjectedLoad(
+            candidate.UserId,
+            candidate.DisplayName,
+            projectedLoads);
+        if (load.ActiveTicketCount == 0
+            && load.HighPriorityCount == 0
+            && load.OverdueTicketCount == 0
+            && load.SlaRiskCount == 0
+            && load.StaleTicketCount == 0
+            && candidate.WorkloadScore > 0)
+        {
+            load.ActiveTicketCount = candidate.ActiveTicketCount;
+            load.HighPriorityCount = candidate.HighPriorityCount;
+            load.OverdueTicketCount = candidate.OverdueTicketCount;
+            load.SlaRiskCount = candidate.SlaRiskCount;
+            load.StaleTicketCount = candidate.StaleTicketCount;
+            load.WorkloadScore = candidate.WorkloadScore;
+        }
+
+        return load;
+    }
+
+    private static ProjectedOwnerLoad ResolveProjectedLoad(
+        string ownerKey,
+        string displayName,
+        IDictionary<string, ProjectedOwnerLoad> projectedLoads)
+    {
+        if (!string.IsNullOrWhiteSpace(ownerKey)
+            && projectedLoads.TryGetValue(ownerKey, out var byUserId))
+        {
+            return byUserId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(displayName)
+            && projectedLoads.TryGetValue(displayName, out var byDisplayName))
+        {
+            return byDisplayName;
+        }
+
+        var load = new ProjectedOwnerLoad
+        {
+            UserId = ownerKey,
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? ownerKey : displayName,
+        };
+        AddProjectedLoadAlias(projectedLoads, ownerKey, load);
+        AddProjectedLoadAlias(projectedLoads, displayName, load);
+        return load;
+    }
+
+    private static void AddProjectedLoadAlias(
+        IDictionary<string, ProjectedOwnerLoad> projectedLoads,
+        string? alias,
+        ProjectedOwnerLoad load)
+    {
+        if (string.IsNullOrWhiteSpace(alias))
+        {
+            return;
+        }
+
+        var key = alias.Trim();
+        if (!projectedLoads.ContainsKey(key))
+        {
+            projectedLoads.Add(key, load);
+        }
+    }
+
+    private static void ApplyProjectedRebalance(
+        string sourceOwnerKey,
+        string sourceDisplayName,
+        CortexDecisionCandidate selectedCandidate,
+        IDictionary<string, ProjectedOwnerLoad> projectedLoads,
+        TicketWorkloadSignals ticketSignals)
+    {
+        var source = ResolveProjectedLoad(sourceOwnerKey, sourceDisplayName, projectedLoads);
+        ApplyProjectedTicketDelta(source, ticketSignals, direction: -1);
+
+        var target = ResolveProjectedLoad(selectedCandidate, projectedLoads);
+        ApplyProjectedTicketDelta(target, ticketSignals, direction: 1);
+        target.IncomingRecommendationCount++;
+    }
+
+    private static void ApplyProjectedTicketDelta(
+        ProjectedOwnerLoad load,
+        TicketWorkloadSignals signals,
+        int direction)
+    {
+        load.ActiveTicketCount = Math.Max(0, load.ActiveTicketCount + direction);
+        if (signals.IsHighPriority)
+        {
+            load.HighPriorityCount = Math.Max(0, load.HighPriorityCount + direction);
+        }
+        if (signals.IsOverdue)
+        {
+            load.OverdueTicketCount = Math.Max(0, load.OverdueTicketCount + direction);
+        }
+        if (signals.IsSlaRisk)
+        {
+            load.SlaRiskCount = Math.Max(0, load.SlaRiskCount + direction);
+        }
+        if (signals.IsStale)
+        {
+            load.StaleTicketCount = Math.Max(0, load.StaleTicketCount + direction);
+        }
+
+        load.WorkloadScore = WorkloadScoringPolicy.CalculateScore(
+            load.ActiveTicketCount,
+            load.HighPriorityCount,
+            load.OverdueTicketCount,
+            load.SlaRiskCount,
+            load.StaleTicketCount);
+    }
+
+    private static decimal ResolveDistributionConfidence(
+        IReadOnlyList<DistributionCandidateScore> distributionRanked)
+    {
+        if (distributionRanked.Count == 0)
+        {
+            return 0m;
+        }
+
+        if (distributionRanked.Count == 1)
+        {
+            return 0.9m;
+        }
+
+        var gap = Math.Max(0m, distributionRanked[0].DistributionScore - distributionRanked[1].DistributionScore);
+        return Math.Round(Math.Min(1m, gap / 40m), 2, MidpointRounding.AwayFromZero);
+    }
+
+    private static string BuildSelectionReason(
+        Ticket ticket,
+        DistributionCandidateScore selected,
+        DistributionCandidateScore rawTop,
+        IReadOnlyList<DistributionCandidateScore> distributionRanked,
+        bool diversificationApplied)
+    {
+        if (diversificationApplied)
+        {
+            return $"Selected {selected.Candidate.DisplayName} after projected workload review; {rawTop.Candidate.DisplayName} was the isolated top scorer but already had {rawTop.IncomingRecommendationCount} incoming recommendation{Pluralize(rawTop.IncomingRecommendationCount)} in this run.";
+        }
+
+        if (distributionRanked.Count == 1)
+        {
+            return $"{selected.Candidate.DisplayName} is the only eligible lower-pressure candidate for {ResolveTicketTitle(ticket)}.";
+        }
+
+        if (selected.IncomingRecommendationCount > 0)
+        {
+            return $"{selected.Candidate.DisplayName} remains the strongest fit after projected workload penalties; alternatives are higher pressure or lower fit.";
+        }
+
+        return $"{selected.Candidate.DisplayName} has the best deterministic fit after workload, SLA, priority, routing, and projected batch pressure are considered.";
     }
 
     private static string ResolveRecommendationStrength(decimal confidenceScore)
@@ -695,29 +1028,109 @@ public sealed class CortexDecisionService(
         return "Limited fit";
     }
 
-    private static List<string> BuildRecommendationRationale(
+    private static List<string> BuildWhyTicketBullets(
         Ticket ticket,
         string sourceDisplayName,
         WorkloadSnapshot? sourceSnapshot,
-        CortexDecisionResult decision,
-        CortexDecisionCandidate? recommendedCandidate)
+        CortexDecisionResult decision)
     {
-        var rationale = new List<string>
+        var bullets = new List<string>
         {
             BuildSourcePressureRationale(sourceDisplayName, sourceSnapshot),
             BuildTicketCandidateRationale(ticket, decision),
         };
 
-        if (recommendedCandidate is not null)
+        if (!string.IsNullOrWhiteSpace(ticket.AiTriagePotentialSlaRisk))
         {
-            rationale.Add(BuildTargetFitRationale(recommendedCandidate));
-        }
-        else if (!string.IsNullOrWhiteSpace(decision.RecommendedOwnerDisplayName))
-        {
-            rationale.Add($"{decision.RecommendedOwnerDisplayName} is the best available owner from the current routing evaluation.");
+            bullets.Add($"AI advisory risk signal: {ticket.AiTriagePotentialSlaRisk.Trim()}.");
         }
 
-        return rationale.Take(4).ToList();
+        return bullets.Distinct(StringComparer.Ordinal).Take(4).ToList();
+    }
+
+    private static List<string> BuildWhyOwnerBullets(RebalanceCandidateSelection selection)
+    {
+        if (selection.Selected is null)
+        {
+            return [];
+        }
+
+        var selected = selection.Selected;
+        var bullets = new List<string>
+        {
+            BuildTargetFitRationale(selected.Candidate),
+            $"Projected workload after this recommendation is {selected.ProjectedWorkloadScore} with {selected.IncomingRecommendationCount} earlier incoming recommendation{Pluralize(selected.IncomingRecommendationCount)} in this run.",
+        };
+
+        if (selection.DiversificationApplied && selection.RawTop is not null)
+        {
+            bullets.Add($"Diversified from raw top candidate {selection.RawTop.Candidate.DisplayName} to avoid concentrating new work on one owner.");
+        }
+        else if (selection.DistributionRanked.Count == 1)
+        {
+            bullets.Add("Only eligible candidate surfaced for this ticket.");
+        }
+        else if (selected.IncomingRecommendationCount > 0)
+        {
+            bullets.Add("Repeated recommendation remains justified after projected workload and alternatives were compared.");
+        }
+
+        return bullets.Distinct(StringComparer.Ordinal).Take(4).ToList();
+    }
+
+    private static List<string> BuildTradeoffBullets(RebalanceCandidateSelection selection)
+    {
+        if (selection.Selected is null)
+        {
+            return [];
+        }
+
+        var selected = selection.Selected;
+        var bullets = new List<string>();
+        var bestAlternative = selection.DistributionRanked
+            .FirstOrDefault(candidate => !IsSameOwner(
+                selected.Candidate.UserId,
+                candidate.Candidate.UserId,
+                candidate.Candidate.DisplayName));
+
+        if (bestAlternative is null)
+        {
+            bullets.Add("Only eligible candidate surfaced, so Cortex cannot diversify this ticket further.");
+        }
+        else if (selection.DiversificationApplied && selection.RawTop is not null)
+        {
+            bullets.Add($"{selection.RawTop.Candidate.DisplayName} had the strongest isolated score; {selected.Candidate.DisplayName} keeps the batch better distributed after projected workload.");
+        }
+        else if (selected.IncomingRecommendationCount > 0)
+        {
+            bullets.Add($"{selected.Candidate.DisplayName} already has {selected.IncomingRecommendationCount} incoming recommendation{Pluralize(selected.IncomingRecommendationCount)}, but the next viable option has weaker workload or routing fit.");
+        }
+        else
+        {
+            bullets.Add($"{bestAlternative.Candidate.DisplayName} was considered but ranked lower after projected workload and routing fit.");
+        }
+
+        if (selected.ProjectedOverload)
+        {
+            bullets.Add("Target owner could reach high pressure after this move, so execution remains scoped to this ticket.");
+        }
+
+        return bullets.Distinct(StringComparer.Ordinal).Take(3).ToList();
+    }
+
+    private static List<string> BuildSafetyNotes(bool isBlockedByManualOverride)
+    {
+        var notes = new List<string>
+        {
+            "Execution applies this displayed owner only after current ownership and eligibility checks pass.",
+        };
+
+        if (isBlockedByManualOverride)
+        {
+            notes.Add("Manual override currently controls this ticket; applying requires explicit override confirmation.");
+        }
+
+        return notes;
     }
 
     private static string BuildSourcePressureRationale(
@@ -798,7 +1211,8 @@ public sealed class CortexDecisionService(
         string sourceDisplayName,
         WorkloadSnapshot? sourceSnapshot,
         CortexDecisionResult decision,
-        CortexDecisionCandidate? recommendedCandidate)
+        CortexDecisionCandidate? recommendedCandidate,
+        RebalanceCandidateSelection? selection = null)
     {
         var preview = new List<string>();
 
@@ -824,9 +1238,229 @@ public sealed class CortexDecisionService(
             preview.Add("Moves work to a lower-pressure owner.");
         }
 
+        if (selection?.DiversificationApplied == true && selection.RawTop is not null)
+        {
+            preview.Add($"Avoids creating a new bottleneck by not adding this recommendation to {selection.RawTop.Candidate.DisplayName}.");
+        }
+
         preview.Add("Keeps the correction scoped to a specific ticket.");
 
         return preview.Distinct(StringComparer.Ordinal).Take(4).ToList();
+    }
+
+    private static List<RebalanceSuggestionAlternative> BuildSuggestionAlternatives(
+        RebalanceCandidateSelection selection)
+    {
+        if (selection.Selected is null)
+        {
+            return [];
+        }
+
+        return selection.DistributionRanked
+            .Where(candidate => !IsSameOwner(
+                selection.Selected.Candidate.UserId,
+                candidate.Candidate.UserId,
+                candidate.Candidate.DisplayName))
+            .Take(3)
+            .Select(candidate => new RebalanceSuggestionAlternative
+            {
+                UserId = candidate.Candidate.UserId,
+                DisplayName = candidate.Candidate.DisplayName,
+                WorkloadScore = candidate.Candidate.WorkloadScore,
+                ProjectedWorkloadScore = candidate.ProjectedWorkloadScore,
+                TotalScore = candidate.DistributionScore,
+                PressureLevel = WorkloadScoringPolicy.ToPressureLevel(candidate.ProjectedWorkloadScore),
+                IncomingRecommendationCount = candidate.IncomingRecommendationCount,
+                RankBeforeDiversification = candidate.RawRank,
+                RankAfterDiversification = candidate.DistributionRank,
+                ReasonNotSelected = BuildAlternativeReason(selection, candidate),
+            })
+            .ToList();
+    }
+
+    private static string BuildAlternativeReason(
+        RebalanceCandidateSelection selection,
+        DistributionCandidateScore alternative)
+    {
+        if (selection.Selected is null)
+        {
+            return "Not selected because no final candidate was available.";
+        }
+
+        if (selection.DiversificationApplied
+            && selection.RawTop is not null
+            && IsSameOwner(
+                selection.RawTop.Candidate.UserId,
+                alternative.Candidate.UserId,
+                alternative.Candidate.DisplayName))
+        {
+            return "Raw top scorer, but projected batch pressure favored spreading this recommendation.";
+        }
+
+        if (alternative.Candidate.CurrentlyOverloaded || alternative.ProjectedOverload)
+        {
+            return "Higher projected workload pressure after this move.";
+        }
+
+        if (alternative.IncomingRecommendationCount > selection.Selected.IncomingRecommendationCount)
+        {
+            return "Already has more incoming recommendations in this rebalance run.";
+        }
+
+        if (alternative.Candidate.SlaRiskCount > selection.Selected.Candidate.SlaRiskCount)
+        {
+            return "Carries more current SLA-risk work than the selected owner.";
+        }
+
+        return "Lower deterministic fit after workload, routing, and projected distribution were compared.";
+    }
+
+    private static RebalanceAiDecisionPacket BuildAiDecisionPacket(
+        Ticket ticket,
+        RebalanceSuggestion suggestion,
+        RebalanceCandidateSelection selection,
+        WorkloadSnapshot? currentOwnerSnapshot,
+        TicketWorkloadSignals ticketSignals)
+    {
+        var selected = selection.Selected;
+        return new RebalanceAiDecisionPacket
+        {
+            TicketId = suggestion.TicketId,
+            TicketTitle = suggestion.TicketTitle,
+            TicketSummary = TruncateForAdvisory(ticket.Description, 500),
+            Priority = ticket.Priority,
+            Status = ticket.Status,
+            TicketSignals = BuildTicketSignalLabels(ticketSignals),
+            CurrentOwner = new RebalanceAiOwnerSnapshot
+            {
+                UserId = suggestion.FromUserId,
+                DisplayName = suggestion.FromDisplayName,
+                ActiveTicketCount = currentOwnerSnapshot?.ActiveTicketCount ?? 0,
+                SlaRiskCount = currentOwnerSnapshot?.SlaRiskCount ?? 0,
+                HighPriorityCount = currentOwnerSnapshot?.HighPriorityCount ?? 0,
+                StaleTicketCount = currentOwnerSnapshot?.StaleTicketCount ?? 0,
+                WorkloadScore = currentOwnerSnapshot?.WorkloadScore ?? 0m,
+                ProjectedWorkloadScore = currentOwnerSnapshot?.WorkloadScore ?? 0m,
+            },
+            SelectedOwner = selected is null
+                ? new RebalanceAiOwnerSnapshot
+                {
+                    UserId = suggestion.ToUserId,
+                    DisplayName = suggestion.ToDisplayName,
+                }
+                : new RebalanceAiOwnerSnapshot
+                {
+                    UserId = selected.Candidate.UserId,
+                    DisplayName = selected.Candidate.DisplayName,
+                    ActiveTicketCount = selected.Candidate.ActiveTicketCount,
+                    SlaRiskCount = selected.Candidate.SlaRiskCount,
+                    HighPriorityCount = selected.Candidate.HighPriorityCount,
+                    StaleTicketCount = selected.Candidate.StaleTicketCount,
+                    WorkloadScore = selected.Candidate.WorkloadScore,
+                    ProjectedWorkloadScore = selected.ProjectedWorkloadScore,
+                    IncomingRecommendationCount = selected.IncomingRecommendationCount,
+                },
+            RawTopCandidateName = suggestion.RawTopCandidateName,
+            FinalCandidateName = suggestion.FinalCandidateName,
+            DiversificationApplied = suggestion.DiversificationApplied,
+            DeterministicReasons = suggestion.WhyTicketBullets
+                .Concat(suggestion.WhyOwnerBullets)
+                .Concat(suggestion.TradeoffBullets)
+                .Take(8)
+                .ToList(),
+            CandidateOptions = selection.DistributionRanked
+                .Take(5)
+                .Select(candidate => new RebalanceAiCandidateOption
+                {
+                    UserId = candidate.Candidate.UserId,
+                    DisplayName = candidate.Candidate.DisplayName,
+                    WorkloadScore = candidate.Candidate.WorkloadScore,
+                    ProjectedWorkloadScore = candidate.ProjectedWorkloadScore,
+                    PressureLevel = WorkloadScoringPolicy.ToPressureLevel(candidate.ProjectedWorkloadScore),
+                    RankBeforeDiversification = candidate.RawRank,
+                    RankAfterDiversification = candidate.DistributionRank,
+                    Outcome = selected is not null && IsSameOwner(
+                        selected.Candidate.UserId,
+                        candidate.Candidate.UserId,
+                        candidate.Candidate.DisplayName)
+                        ? "selected"
+                        : BuildAlternativeReason(selection, candidate),
+                })
+                .ToList(),
+        };
+    }
+
+    private async Task ApplyAiAdvisoriesAsync(
+        IReadOnlyList<RebalanceSuggestion> suggestions,
+        IReadOnlyList<RebalanceAiDecisionPacket> advisoryPackets,
+        CancellationToken cancellationToken)
+    {
+        if (suggestions.Count == 0 || advisoryPackets.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var advisories = await rebalanceAiAdvisoryService.GenerateAdvisoriesAsync(
+                advisoryPackets,
+                cancellationToken);
+            if (advisories.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var suggestion in suggestions)
+            {
+                if (!advisories.TryGetValue(suggestion.TicketId, out var advisory))
+                {
+                    continue;
+                }
+
+                suggestion.AiAdvisorySummary = advisory.Rationale;
+                suggestion.AiRiskSummary = advisory.RiskSummary;
+                suggestion.AiTradeoffSummary = advisory.TradeoffSummary;
+                suggestion.AiConfidenceWording = advisory.ConfidenceWording;
+            }
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Rebalance AI advisory failed; deterministic suggestions were returned.");
+        }
+    }
+
+    private static List<string> BuildTicketSignalLabels(TicketWorkloadSignals signals)
+    {
+        var labels = new List<string>();
+        if (signals.IsHighPriority)
+        {
+            labels.Add("high-priority");
+        }
+        if (signals.IsOverdue)
+        {
+            labels.Add("sla-breached");
+        }
+        if (signals.IsSlaRisk)
+        {
+            labels.Add("sla-at-risk");
+        }
+        if (signals.IsStale)
+        {
+            labels.Add("stale");
+        }
+
+        return labels.Count == 0 ? ["standard-active-work"] : labels;
+    }
+
+    private static string TruncateForAdvisory(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var clean = value.Trim().ReplaceLineEndings(" ");
+        return clean.Length <= maxLength ? clean : clean[..maxLength].TrimEnd();
     }
 
     private static string Pluralize(int count) => count == 1 ? string.Empty : "s";
@@ -990,6 +1624,41 @@ public sealed class CortexDecisionService(
         }
 
         return details;
+    }
+
+    private sealed class ProjectedOwnerLoad
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public int ActiveTicketCount { get; set; }
+        public int HighPriorityCount { get; set; }
+        public int OverdueTicketCount { get; set; }
+        public int SlaRiskCount { get; set; }
+        public int StaleTicketCount { get; set; }
+        public decimal WorkloadScore { get; set; }
+        public int IncomingRecommendationCount { get; set; }
+    }
+
+    private sealed class DistributionCandidateScore
+    {
+        public CortexDecisionCandidate Candidate { get; set; } = new();
+        public int RawRank { get; set; }
+        public int DistributionRank { get; set; }
+        public decimal DistributionScore { get; set; }
+        public decimal ProjectedWorkloadScore { get; set; }
+        public int IncomingRecommendationCount { get; set; }
+        public decimal IncomingPenalty { get; set; }
+        public bool ProjectedOverload { get; set; }
+    }
+
+    private sealed class RebalanceCandidateSelection
+    {
+        public DistributionCandidateScore? Selected { get; set; }
+        public DistributionCandidateScore? RawTop { get; set; }
+        public List<DistributionCandidateScore> DistributionRanked { get; set; } = [];
+        public bool DiversificationApplied { get; set; }
+        public decimal ConfidenceScore { get; set; }
+        public string SelectionReason { get; set; } = string.Empty;
     }
 
     private sealed class RebalanceMovePayload

@@ -150,6 +150,7 @@ Located in: ./references/
 - decision-engine.md
 - routing-rules.md
 - rebalance.md
+- rebalance-analysis.md
 - metrics.md
 - demo-mode.md
 - enterprise-hardening.md

@@ -153,6 +153,10 @@ builder.Services.AddHttpClient<ITicketTriageAiService, TicketTriageAiService>(cl
 {
     client.Timeout = TimeSpan.FromSeconds(300);
 });
+builder.Services.AddHttpClient<IRebalanceAiAdvisoryService, RebalanceAiAdvisoryService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(120);
+});
 builder.Services.AddScoped<ITicketTriageVocabularyProvider, TicketTriageVocabularyProvider>();
 builder.Services.AddScoped<ITicketIntakeAssistPromptBuilder, TicketIntakeAssistPromptBuilder>();
 builder.Services.AddHttpClient<ITicketIntakeAssistAiService, TicketIntakeAssistAiService>(client =>

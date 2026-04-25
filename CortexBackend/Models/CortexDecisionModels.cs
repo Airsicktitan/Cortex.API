@@ -55,7 +55,13 @@ public sealed class RebalanceSuggestionAlternative
     public string UserId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public decimal WorkloadScore { get; set; }
+    public decimal ProjectedWorkloadScore { get; set; }
+    public decimal TotalScore { get; set; }
     public string PressureLevel { get; set; } = "low";
+    public int IncomingRecommendationCount { get; set; }
+    public int RankBeforeDiversification { get; set; }
+    public int RankAfterDiversification { get; set; }
+    public string ReasonNotSelected { get; set; } = string.Empty;
 }
 
 public sealed class RebalanceSuggestion
@@ -67,16 +73,42 @@ public sealed class RebalanceSuggestion
     public string FromDisplayName { get; set; } = string.Empty;
     public string ToUserId { get; set; } = string.Empty;
     public string ToDisplayName { get; set; } = string.Empty;
+    public string SelectedOwnerName { get; set; } = string.Empty;
+    public string PreviousOwnerName { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
     public string ExpectedImpact { get; set; } = string.Empty;
+    public string SelectionReason { get; set; } = string.Empty;
     public decimal ConfidenceScore { get; set; }
     public string RecommendationStrength { get; set; } = string.Empty;
     public List<string> Rationale { get; set; } = [];
     public List<string> ImpactPreview { get; set; } = [];
+    public List<string> WhyTicketBullets { get; set; } = [];
+    public List<string> WhyOwnerBullets { get; set; } = [];
+    public List<string> ExpectedImpactBullets { get; set; } = [];
+    public List<string> TradeoffBullets { get; set; } = [];
+    public List<string> SafetyNotes { get; set; } = [];
     public List<RebalanceSuggestionAlternative> AlternativeOwners { get; set; } = [];
+    public bool DiversificationApplied { get; set; }
+    public string RawTopCandidateName { get; set; } = string.Empty;
+    public string FinalCandidateName { get; set; } = string.Empty;
+    public int CandidateRankBeforeDiversification { get; set; }
+    public int CandidateRankAfterDiversification { get; set; }
+    public string? AiAdvisorySummary { get; set; }
+    public string? AiRiskSummary { get; set; }
+    public string? AiTradeoffSummary { get; set; }
+    public string? AiConfidenceWording { get; set; }
     public bool AiHighRisk { get; set; }
     public bool IsBlockedByManualOverride { get; set; }
     public string? BlockedReason { get; set; }
+}
+
+public sealed class RebalanceAiAdvisory
+{
+    public string TicketId { get; set; } = string.Empty;
+    public string? Rationale { get; set; }
+    public string? RiskSummary { get; set; }
+    public string? TradeoffSummary { get; set; }
+    public string? ConfidenceWording { get; set; }
 }
 
 public sealed class ExecuteRebalanceRequest

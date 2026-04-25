@@ -121,6 +121,190 @@ public class CortexDecisionServiceTests
     }
 
     [Fact]
+    public async Task GetRebalanceSuggestionsAsync_DiversifiesAcrossViableOwners()
+    {
+        await using var context = CreateContext();
+        context.Tickets.AddRange(
+            CreateTicket("T-1", "owner-a"),
+            CreateTicket("T-2", "owner-a"),
+            CreateTicket("T-3", "owner-a"));
+        await context.SaveChangesAsync();
+
+        var candidateService = new Mock<ICortexCandidateResolutionService>(MockBehavior.Strict);
+        candidateService
+            .Setup(service => service.GetEligibleCandidatesAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Candidate("owner-a", score: 32, high: 4, sla: 3, rule: false, overload: true),
+                Candidate("owner-b", score: 1, high: 0, sla: 0, rule: true, overload: false),
+                Candidate("owner-c", score: 2, high: 0, sla: 0, rule: true, overload: false),
+            ]);
+
+        var workloadService = new Mock<IWorkloadSnapshotService>(MockBehavior.Strict);
+        workloadService
+            .Setup(service => service.GetSnapshotsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new WorkloadSnapshot
+                {
+                    UserId = "owner-a",
+                    DisplayName = "owner-a",
+                    ActiveTicketCount = 7,
+                    HighPriorityCount = 4,
+                    SlaRiskCount = 3,
+                    WorkloadScore = 32,
+                    Status = "Overloaded"
+                },
+                new WorkloadSnapshot
+                {
+                    UserId = "owner-b",
+                    DisplayName = "owner-b",
+                    ActiveTicketCount = 1,
+                    WorkloadScore = 1,
+                    Status = "Available"
+                },
+                new WorkloadSnapshot
+                {
+                    UserId = "owner-c",
+                    DisplayName = "owner-c",
+                    ActiveTicketCount = 2,
+                    WorkloadScore = 2,
+                    Status = "Available"
+                },
+            ]);
+
+        var service = CreateService(context, candidateService.Object, workloadService.Object);
+        var suggestions = await service.GetRebalanceSuggestionsAsync();
+
+        Assert.Equal(3, suggestions.Count);
+        Assert.Equal("owner-b", suggestions[0].ToUserId);
+        Assert.Equal("owner-c", suggestions[1].ToUserId);
+        Assert.True(suggestions.Select(suggestion => suggestion.ToUserId).Distinct().Count() > 1);
+        Assert.Contains(suggestions, suggestion =>
+            suggestion.DiversificationApplied
+            && suggestion.RawTopCandidateName == "owner-b"
+            && suggestion.FinalCandidateName == "owner-c");
+
+        var diversified = suggestions.Single(suggestion => suggestion.DiversificationApplied);
+        Assert.Equal(2, diversified.CandidateRankBeforeDiversification);
+        Assert.Equal(1, diversified.CandidateRankAfterDiversification);
+        Assert.Contains(
+            diversified.AlternativeOwners,
+            alternative => alternative.DisplayName == "owner-b"
+                && alternative.ReasonNotSelected.Length > 0);
+        Assert.Contains(
+            diversified.TradeoffBullets,
+            bullet => bullet.Contains("strongest isolated score", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetRebalanceSuggestionsAsync_OnlyEligibleOwnerCanReceiveMultipleSuggestions()
+    {
+        await using var context = CreateContext();
+        context.Tickets.AddRange(
+            CreateTicket("T-1", "owner-a"),
+            CreateTicket("T-2", "owner-a"),
+            CreateTicket("T-3", "owner-a"));
+        await context.SaveChangesAsync();
+
+        var candidateService = new Mock<ICortexCandidateResolutionService>(MockBehavior.Strict);
+        candidateService
+            .Setup(service => service.GetEligibleCandidatesAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Candidate("owner-a", score: 32, high: 4, sla: 3, rule: false, overload: true),
+                Candidate("owner-b", score: 1, high: 0, sla: 0, rule: true, overload: false),
+            ]);
+
+        var workloadService = new Mock<IWorkloadSnapshotService>(MockBehavior.Strict);
+        workloadService
+            .Setup(service => service.GetSnapshotsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new WorkloadSnapshot
+                {
+                    UserId = "owner-a",
+                    DisplayName = "owner-a",
+                    ActiveTicketCount = 7,
+                    WorkloadScore = 32,
+                    Status = "Overloaded"
+                },
+                new WorkloadSnapshot
+                {
+                    UserId = "owner-b",
+                    DisplayName = "owner-b",
+                    ActiveTicketCount = 1,
+                    WorkloadScore = 1,
+                    Status = "Available"
+                },
+            ]);
+
+        var service = CreateService(context, candidateService.Object, workloadService.Object);
+        var suggestions = await service.GetRebalanceSuggestionsAsync();
+
+        Assert.Equal(3, suggestions.Count);
+        Assert.All(suggestions, suggestion => Assert.Equal("owner-b", suggestion.ToUserId));
+        Assert.Contains(
+            suggestions.SelectMany(suggestion => suggestion.TradeoffBullets),
+            bullet => bullet.Contains("Only eligible candidate surfaced", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetRebalanceSuggestionsAsync_AiAdvisoryFailure_ReturnsDeterministicSuggestions()
+    {
+        await using var context = CreateContext();
+        context.Tickets.Add(CreateTicket("T-1", "owner-a"));
+        await context.SaveChangesAsync();
+
+        var candidateService = new Mock<ICortexCandidateResolutionService>(MockBehavior.Strict);
+        candidateService
+            .Setup(service => service.GetEligibleCandidatesAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Candidate("owner-a", score: 32, high: 4, sla: 3, rule: false, overload: true),
+                Candidate("owner-b", score: 1, high: 0, sla: 0, rule: true, overload: false),
+            ]);
+
+        var workloadService = new Mock<IWorkloadSnapshotService>(MockBehavior.Strict);
+        workloadService
+            .Setup(service => service.GetSnapshotsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new WorkloadSnapshot
+                {
+                    UserId = "owner-a",
+                    DisplayName = "owner-a",
+                    ActiveTicketCount = 7,
+                    WorkloadScore = 32,
+                    Status = "Overloaded"
+                },
+            ]);
+
+        var rebalanceAi = new Mock<IRebalanceAiAdvisoryService>(MockBehavior.Strict);
+        rebalanceAi
+            .Setup(service => service.GenerateAdvisoriesAsync(
+                It.IsAny<IReadOnlyList<RebalanceAiDecisionPacket>>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("AI failed"));
+
+        var service = CreateService(
+            context,
+            candidateService.Object,
+            workloadService.Object,
+            rebalanceAiAdvisoryService: rebalanceAi.Object);
+        var suggestion = Assert.Single(await service.GetRebalanceSuggestionsAsync());
+
+        Assert.Equal("owner-b", suggestion.ToUserId);
+        Assert.Null(suggestion.AiAdvisorySummary);
+        Assert.NotEmpty(suggestion.WhyOwnerBullets);
+        rebalanceAi.Verify(
+            service => service.GenerateAdvisoriesAsync(
+                It.IsAny<IReadOnlyList<RebalanceAiDecisionPacket>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task GetRebalanceSuggestionsAsync_FallsBackToTicketId_WhenTitleMissing()
     {
         await using var context = CreateContext();
@@ -982,12 +1166,16 @@ public class CortexDecisionServiceTests
         CortexDbContext context,
         ICortexCandidateResolutionService candidateService,
         IWorkloadSnapshotService workloadService,
+        ISlaConfigurationService? slaConfigurationService = null,
+        IRebalanceAiAdvisoryService? rebalanceAiAdvisoryService = null,
         ICortexAiAssessmentService? aiAssessmentService = null,
         ITicketRepository? ticketRepository = null,
         ITicketRoutingRuleService? routingRuleService = null,
         IRealtimeEventService? realtimeService = null,
         IRealtimeAudienceResolver? audienceResolver = null)
     {
+        var sla = slaConfigurationService ?? CreateSlaConfigurationService();
+        var rebalanceAi = rebalanceAiAdvisoryService ?? CreateRebalanceAiAdvisoryService();
         var assessment = aiAssessmentService ?? new Mock<ICortexAiAssessmentService>(MockBehavior.Loose).Object;
         var repository = ticketRepository ?? new Mock<ITicketRepository>(MockBehavior.Loose).Object;
         var routing = routingRuleService ?? new Mock<ITicketRoutingRuleService>(MockBehavior.Loose).Object;
@@ -998,12 +1186,33 @@ public class CortexDecisionServiceTests
             context,
             candidateService,
             workloadService,
+            sla,
+            rebalanceAi,
             assessment,
             repository,
             routing,
             realtime,
             audience,
             Mock.Of<ILogger<CortexDecisionService>>());
+    }
+
+    private static ISlaConfigurationService CreateSlaConfigurationService()
+    {
+        var sla = new Mock<ISlaConfigurationService>(MockBehavior.Loose);
+        sla.Setup(service => service.GetPriorityMapAsync())
+            .ReturnsAsync(new Dictionary<string, SlaConfiguration>(StringComparer.OrdinalIgnoreCase));
+        return sla.Object;
+    }
+
+    private static IRebalanceAiAdvisoryService CreateRebalanceAiAdvisoryService()
+    {
+        var advisory = new Mock<IRebalanceAiAdvisoryService>(MockBehavior.Loose);
+        advisory
+            .Setup(service => service.GenerateAdvisoriesAsync(
+                It.IsAny<IReadOnlyList<RebalanceAiDecisionPacket>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, RebalanceAiAdvisory>(StringComparer.OrdinalIgnoreCase));
+        return advisory.Object;
     }
 
     private static Ticket CreateTicket(
