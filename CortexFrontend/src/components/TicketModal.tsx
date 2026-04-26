@@ -4058,7 +4058,9 @@ function IntakeAssistResultPanel({
           {hasMissingDetails && (
             <div className="rounded-md border border-gray-200 bg-white p-3.5 dark:border-slate-700 dark:bg-slate-900">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-                Required for Review
+                {clarityState === "ready_for_execution"
+                  ? "What could help (optional)"
+                  : "What's missing"}
               </p>
               <ul className="list-outside list-disc space-y-2.5 pl-5 text-sm leading-relaxed text-gray-800 dark:text-slate-100">
                 {result.missingDetails.map((detail, index) => (

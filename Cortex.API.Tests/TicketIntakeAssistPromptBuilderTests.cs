@@ -122,4 +122,35 @@ public class TicketIntakeAssistPromptBuilderTests
         Assert.Contains("requires_clarification", prompt);
         Assert.Contains("would_have_required_follow_up", prompt);
     }
+
+    [Fact]
+    public void BuildSystemPrompt_IncludesMinimalInterventionRule()
+    {
+        var prompt = _builder.BuildSystemPrompt();
+
+        Assert.Contains("Minimal intervention rule", prompt);
+        Assert.Contains("Do not remove specific details", prompt);
+        Assert.Contains("Prefer preserving the requester's original wording", prompt);
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_IncludesSpecificityGuardrail()
+    {
+        var prompt = _builder.BuildSystemPrompt();
+
+        Assert.Contains("Specificity guardrail", prompt);
+        Assert.Contains("blank vendor IDs", prompt);
+        Assert.Contains("data processing issues", prompt);
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_IncludesNoNarrationRule()
+    {
+        var prompt = _builder.BuildSystemPrompt();
+
+        Assert.Contains("No narration rule", prompt);
+        Assert.Contains("The requester reported", prompt);
+        Assert.Contains("The user said", prompt);
+        Assert.Contains("direct operational language", prompt);
+    }
 }

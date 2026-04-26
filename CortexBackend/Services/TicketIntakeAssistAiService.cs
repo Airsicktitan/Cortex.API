@@ -164,7 +164,8 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
                     return Unavailable("Improve Request returned no content.");
                 }
 
-                return Sanitize(parsed, input);
+                var quality = TicketQualityClassifier.Classify(input.Title, input.Description);
+                return Sanitize(parsed, input, quality);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -248,16 +249,21 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
     /// and enforces the empty-missingDetails invariant for ready_for_execution. Output of this method
     /// is always safe to return to the client unchanged.
     /// </summary>
-    private static IntakeAssistResponse Sanitize(IntakeAssistAiResponse raw, IntakeAssistInput input)
+    private static IntakeAssistResponse Sanitize(
+        IntakeAssistAiResponse raw,
+        IntakeAssistInput input,
+        TicketQuality quality)
     {
         var suggestedSummary = Truncate(raw.SuggestedSummary?.Trim(), MaxSummaryLength);
         var improvedDescription = Truncate(raw.ImprovedDescription?.Trim(), MaxImprovedDescriptionLength);
 
+        // Good tickets get a tighter cap on missing details — only minor optional items.
+        var maxMissing = quality == TicketQuality.Good ? 2 : MaxMissingDetails;
         var missingDetails = (raw.MissingDetails ?? [])
             .Select(value => value?.Trim())
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => Truncate(value, MaxMissingDetailLength)!)
-            .Take(MaxMissingDetails)
+            .Take(maxMissing)
             .ToList();
 
         var clarityState = NormalizeClarityState(raw.ClarityState, missingDetails.Count);
@@ -271,7 +277,12 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
             Truncate(raw.GuidanceMessage?.Trim(), MaxGuidanceLength)
             ?? DefaultGuidance(clarityState);
 
-        if (string.IsNullOrWhiteSpace(suggestedSummary))
+        // Good input: always preserve the original title — the AI must not downgrade specificity.
+        if (quality == TicketQuality.Good && !string.IsNullOrWhiteSpace(input.Title))
+        {
+            suggestedSummary = Truncate(input.Title.Trim(), MaxSummaryLength);
+        }
+        else if (string.IsNullOrWhiteSpace(suggestedSummary))
         {
             suggestedSummary = Truncate(input.Title?.Trim(), MaxSummaryLength);
         }

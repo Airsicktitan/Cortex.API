@@ -33,7 +33,7 @@ export interface IntakeAssistResult {
 
 /** User-friendly label for each clarity state (kept with the type so the modal and any future surface stay in sync). */
 export const CLARITY_STATE_LABEL: Record<ClarityState, string> = {
-  ready_for_execution: "Ready for review",
+  ready_for_execution: "Already review-ready — minor refinements available",
   requires_clarification: "Cortex improvement available",
   would_have_required_follow_up: "Small gaps remain",
 };

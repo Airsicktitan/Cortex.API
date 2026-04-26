@@ -37,6 +37,21 @@ public sealed class TicketIntakeAssistPromptBuilder : ITicketIntakeAssistPromptB
         sb.AppendLine("- Do not editorialize about tone or effort. Avoid filler like \"unfortunately\", \"it appears\", or \"it seems\".");
         sb.AppendLine("- Plain text only for improvedDescription. No markdown. Use labeled sections and line breaks.");
         sb.AppendLine();
+        sb.AppendLine("Minimal intervention rule (apply when input is already clear, specific, and actionable):");
+        sb.AppendLine("- Do not rewrite the title unless the rewrite is strictly more specific.");
+        sb.AppendLine("- Do not remove specific details the requester provided.");
+        sb.AppendLine("- Do not add sentences that are implicit or obvious from what was already written.");
+        sb.AppendLine("- Prefer preserving the requester's original wording over substituting generic equivalents.");
+        sb.AppendLine();
+        sb.AppendLine("Specificity guardrail:");
+        sb.AppendLine("- Never replace specific details with generic phrases.");
+        sb.AppendLine("- Example: do not replace 'blank vendor IDs' with 'data processing issues' or 'upload problem'.");
+        sb.AppendLine("- If the requester named a specific system, field, or condition, keep it in the output.");
+        sb.AppendLine();
+        sb.AppendLine("No narration rule:");
+        sb.AppendLine("- Do not use phrases like 'The requester reported', 'The user said', 'According to the requester', or 'The ticket states'.");
+        sb.AppendLine("- Write in direct operational language: state what is happening, not who said it.");
+        sb.AppendLine();
 
         sb.AppendLine("Strict JSON contract:");
         sb.AppendLine("{");
