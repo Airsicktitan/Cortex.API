@@ -34,6 +34,7 @@ import type {
   RebalanceSuggestion,
   WorkloadSnapshot,
 } from "../types/cortexDecision";
+import type { CortexInsight } from "../types/cortexInsight";
 import type { CortexAiAssessment } from "../types/cortexAiAssessment";
 import type {
   AdminUpdateUserInput,
@@ -388,6 +389,22 @@ export const ticketService = {
     });
     await ensureSuccess(response, "Unable to load Cortex decision");
     return response.json() as Promise<CortexDecisionResult>;
+  },
+
+  async getInsight(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<CortexInsight> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/insight`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    await ensureSuccess(response, "Unable to load Cortex Insight");
+    return response.json() as Promise<CortexInsight>;
   },
 
   async postWorkloadPreview(

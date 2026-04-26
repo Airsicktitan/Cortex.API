@@ -58,6 +58,7 @@ builder.Services.Configure<Auth0ManagementOptions>(builder.Configuration.GetSect
 
 // Add services
 builder.Services.AddEndpointsApiExplorer(); // for minimal APIs, needed for Swagger
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<IAuth0ManagementService, Auth0ManagementService>(
     (serviceProvider, client) =>
     {
@@ -134,6 +135,10 @@ builder.Services.AddScoped<IWorkloadSnapshotService, WorkloadSnapshotService>();
 builder.Services.AddScoped<ICortexCandidateResolutionService, CortexCandidateResolutionService>();
 builder.Services.AddScoped<ICortexDecisionService, CortexDecisionService>();
 builder.Services.AddScoped<ICortexAiAssessmentService, CortexAiAssessmentService>();
+builder.Services.AddHttpClient<ICortexInsightService, CortexInsightService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(300);
+});
 builder.Services.AddScoped<IOwnerWorkloadPreviewService, OwnerWorkloadPreviewService>();
 builder.Services.AddScoped<IOperationalRiskService, OperationalRiskService>();
 builder.Services.AddScoped<IReassignmentRecommendationService, ReassignmentRecommendationService>();

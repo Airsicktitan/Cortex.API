@@ -46,6 +46,7 @@ import AddComment from "./AddComment";
 import TicketHistoryModal from "./TicketHistoryModal";
 import UserCombobox from "./UserCombobox";
 import TicketRoutingInsight from "./TicketRoutingInsight";
+import CortexInsightPanel from "./CortexInsightPanel";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
@@ -472,6 +473,7 @@ interface TicketModalProps {
     returnForDetail: (reason: string) => Promise<void>;
     reject: (reason: string) => Promise<void>;
   };
+  onOpenSourceTicket?: (ticketId: string) => void | Promise<void>;
 }
 
 type CreateFormField = "title" | "description" | "priority" | "storyPoints";
@@ -507,6 +509,7 @@ export default function TicketModal({
   onTriagePersisted,
   onTriageApplySuccess,
   intakeApprovalHandlers,
+  onOpenSourceTicket,
 }: TicketModalProps) {
   const defaultBoard =
     ticketBoards.find((board) => board.id === ticket.boardId) ??
@@ -3061,6 +3064,14 @@ export default function TicketModal({
                         applyServerTicketToForm(updatedTicket);
                         onTriageApplySuccess?.(updatedTicket);
                       }}
+                    />
+                  ) : null}
+
+                  {ticket.id ? (
+                    <CortexInsightPanel
+                      ticketId={ticket.id}
+                      isOpen={isOpen}
+                      onOpenSourceTicket={onOpenSourceTicket}
                     />
                   ) : null}
 

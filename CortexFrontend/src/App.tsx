@@ -3192,6 +3192,10 @@ function App() {
           onTriageApplySuccess={(updatedTicket) =>
             upsertActiveTicketLocally(updatedTicket, { syncSelectedTicket: true })
           }
+          onOpenSourceTicket={async (sourceTicketId) => {
+            setActiveView("tickets");
+            await openTicketById(sourceTicketId);
+          }}
           intakeApprovalHandlers={
             canEditTicketsCap &&
             selectedTicket.id &&

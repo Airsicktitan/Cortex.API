@@ -441,6 +441,32 @@ public static class TicketHandlers
         return Results.Ok(decision);
     }
 
+    public static async Task<IResult> GetTicketInsight(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ICortexInsightService cortexInsightService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var insight = await cortexInsightService.GetInsightAsync(
+            ticket,
+            visibilityContext,
+            cancellationToken);
+        return Results.Ok(insight);
+    }
+
     public static async Task<IResult> PostOwnerWorkloadPreview(
         OwnerWorkloadPreviewRequest? request,
         IOwnerWorkloadPreviewService workloadPreviewService)

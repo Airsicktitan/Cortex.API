@@ -93,6 +93,13 @@ public static class TicketEndpoints
             .Produces<CortexDecisionResult>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        tickets.MapGet("/{id}/insight", TicketHandlers.GetTicketInsight)
+            .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
+            .WithName("GetTicketInsight")
+            .Produces<CortexInsightDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status429TooManyRequests);
+
         tickets.MapPost("/routing/workload-preview", TicketHandlers.PostOwnerWorkloadPreview)
             .WithName("PostOwnerWorkloadPreview")
             .Produces<OwnerWorkloadPreviewResponse>(StatusCodes.Status200OK);
