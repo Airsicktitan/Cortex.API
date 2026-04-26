@@ -43,8 +43,8 @@ export function getReviewerIntakeQualityCopy(kind: ReviewerIntakeQualityKind): {
   switch (kind) {
     case "needs_detail":
       return {
-        title: "Needs detail first",
-        body: "Key details may be missing. Follow-up likely required.",
+        title: "Cortex improvement available",
+        body: "This request has gaps that would require reviewer follow-up. Fill in the missing details to submit review-ready.",
       };
     case "gaps":
       return {

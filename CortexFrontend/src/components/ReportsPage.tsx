@@ -83,7 +83,7 @@ function getWorkflowFollowUpInsight(m: WorkflowMetricsSnapshot): string | null {
   if (needsAvg <= 0 || readyAvg >= needsAvg) {
     return null;
   }
-  return "So far, tickets labeled Ready for review show lower average follow-up comments than those labeled Needs detail first.";
+  return "So far, tickets labeled Ready for review show lower average follow-up comments than those with a Cortex improvement available.";
 }
 
 function getFollowUpFrictionInsight(
@@ -397,7 +397,7 @@ function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
         "stroke-amber-500 bg-amber-500 dark:stroke-amber-400 dark:bg-amber-400",
     },
     {
-      label: "Needs detail first",
+      label: "Cortex improvement available",
       count: needsCount,
       total: reviewerTotal,
       colorClass:
@@ -521,7 +521,7 @@ function TelemetryOverviewContent({ data }: { data: WorkflowMetricsSnapshot }) {
               maxInSection={followUpMax}
             />
             <TelemetryFollowUpRow
-              label="Needs detail first"
+              label="Cortex improvement available"
               value={formatWorkflowAvg(needsAvg)}
               valueNum={needsAvg}
               maxInSection={followUpMax}

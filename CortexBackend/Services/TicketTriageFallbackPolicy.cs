@@ -10,10 +10,10 @@ public interface ITicketTriageFallbackPolicy
 public sealed class TicketTriageFallbackPolicy : ITicketTriageFallbackPolicy
 {
     private const string DefaultSummary = "Clarify the requested outcome and approval needs.";
-    private const string DefaultPriorityReason = "Default configured priority applied pending reviewer confirmation.";
+    private const string DefaultPriorityReason = "Default priority applied — reviewer assessment required.";
     private const string DefaultSlaRisk = "Medium";
     private const string DefaultSlaRiskReason =
-        "Clarification is still needed before delivery pressure can be assessed more precisely.";
+        "Clarification needed to assess delivery pressure.";
 
     private static readonly string[] DefaultMissingDetails =
     [

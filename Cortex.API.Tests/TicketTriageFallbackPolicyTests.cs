@@ -49,10 +49,10 @@ public class TicketTriageFallbackPolicyTests
             result.MissingDetails);
         Assert.Equal("Medium", result.PotentialSlaRisk);
         Assert.Equal(
-            "Default configured priority applied pending reviewer confirmation.",
+            "Default priority applied — reviewer assessment required.",
             result.PriorityReason);
         Assert.Equal(
-            "Clarification is still needed before delivery pressure can be assessed more precisely.",
+            "Clarification needed to assess delivery pressure.",
             result.SlaRiskReason);
         Assert.NotEmpty(result.ValidationErrors);
     }

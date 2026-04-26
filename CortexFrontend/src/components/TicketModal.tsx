@@ -3942,7 +3942,7 @@ function IntakeAssistResultPanel({
         {panelExpanded ? (
           <>
           <p className="text-xs text-gray-500 dark:text-slate-400">
-            Advisory only — your ticket remains unchanged
+            Cortex suggestion — apply when you're ready.
           </p>
 
           {result.guidanceMessage && (
