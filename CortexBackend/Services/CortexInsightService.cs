@@ -28,6 +28,9 @@ public sealed class CortexInsightService : ICortexInsightService
     private const int FeatureMaxTokens = 700;
     private const int PromptTextLimit = 700;
     private const int SourceQuoteLimit = 200;
+    private const int SemanticCandidatePoolSize = 60;
+    private const double SemanticHighConfidenceThreshold = 0.75;
+    private const double SemanticMediumConfidenceThreshold = 0.50;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(7);
 
     private static readonly HashSet<string> TerminalStatuses = new(StringComparer.OrdinalIgnoreCase)
@@ -67,6 +70,7 @@ public sealed class CortexInsightService : ICortexInsightService
     private readonly IAiSettingsService _aiSettingsService;
     private readonly IMemoryCache _cache;
     private readonly ILogger<CortexInsightService> _logger;
+    private readonly ICortexMemoryFeedbackService _feedbackService;
 
     public CortexInsightService(
         CortexDbContext db,
@@ -74,7 +78,8 @@ public sealed class CortexInsightService : ICortexInsightService
         IOptions<OpenAiOptions> options,
         IAiSettingsService aiSettingsService,
         IMemoryCache cache,
-        ILogger<CortexInsightService> logger)
+        ILogger<CortexInsightService> logger,
+        ICortexMemoryFeedbackService feedbackService)
     {
         _db = db;
         _httpClient = httpClient;
@@ -82,6 +87,7 @@ public sealed class CortexInsightService : ICortexInsightService
         _aiSettingsService = aiSettingsService;
         _cache = cache;
         _logger = logger;
+        _feedbackService = feedbackService;
     }
 
     public async Task<CortexInsightDto> GetInsightAsync(
@@ -99,7 +105,9 @@ public sealed class CortexInsightService : ICortexInsightService
             .Take(MaxKeywords)
             .ToList();
 
-        if (keywords.Count == 0)
+        var semanticSimilarities = await TryGetSemanticSimilaritiesAsync(currentTicket.Id, cancellationToken);
+
+        if (keywords.Count == 0 && semanticSimilarities.Count == 0)
         {
             var empty = Empty(currentTicket.Id);
             _cache.Set(cacheKey, empty, CacheDuration);
@@ -107,14 +115,41 @@ public sealed class CortexInsightService : ICortexInsightService
         }
 
         var currentTitleTokens = Tokenize(currentTicket.Title);
-        var candidates = await _db.Tickets
-            .AsNoTracking()
-            .Include(ticket => ticket.Comments)
-            .Where(ticket => ticket.Id != currentTicket.Id)
-            .Where(BuildKeywordPredicate(keywords))
-            .OrderByDescending(ticket => ticket.LastModifiedDate ?? ticket.CreatedDate)
-            .Take(CandidatePoolSize)
-            .ToListAsync(cancellationToken);
+
+        var keywordCandidates = keywords.Count > 0
+            ? await _db.Tickets
+                .AsNoTracking()
+                .Include(ticket => ticket.Comments)
+                .Where(ticket => ticket.Id != currentTicket.Id)
+                .Where(BuildKeywordPredicate(keywords))
+                .OrderByDescending(ticket => ticket.LastModifiedDate ?? ticket.CreatedDate)
+                .Take(CandidatePoolSize)
+                .ToListAsync(cancellationToken)
+            : [];
+
+        List<Ticket> semanticOnlyCandidates = [];
+        if (semanticSimilarities.Count > 0)
+        {
+            var keywordIds = keywordCandidates.Select(ticket => ticket.Id).ToHashSet();
+            var semanticOnlyIds = semanticSimilarities
+                .Where(pair => pair.Value >= SemanticMediumConfidenceThreshold)
+                .OrderByDescending(pair => pair.Value)
+                .Take(SemanticCandidatePoolSize)
+                .Select(pair => pair.Key)
+                .Where(id => !keywordIds.Contains(id))
+                .ToList();
+
+            if (semanticOnlyIds.Count > 0)
+            {
+                semanticOnlyCandidates = await _db.Tickets
+                    .AsNoTracking()
+                    .Include(ticket => ticket.Comments)
+                    .Where(ticket => semanticOnlyIds.Contains(ticket.Id))
+                    .ToListAsync(cancellationToken);
+            }
+        }
+
+        var candidates = keywordCandidates.Concat(semanticOnlyCandidates).ToList();
 
         var requesterIds = candidates
             .Select(ticket => ticket.CreatedBy)
@@ -134,7 +169,8 @@ public sealed class CortexInsightService : ICortexInsightService
             .Select(ticket =>
             {
                 departmentsByUserId.TryGetValue(ticket.CreatedBy, out var candidateDepartment);
-                return ToMatch(ticket, currentTitleTokens, keywords, currentDepartment, candidateDepartment);
+                semanticSimilarities.TryGetValue(ticket.Id, out var semanticSim);
+                return ToMatch(ticket, currentTitleTokens, keywords, currentDepartment, candidateDepartment, semanticSim);
             })
             .Where(ticket => ticket.ConfidenceScore >= MinimumSimilarityScore)
             .OrderByDescending(ticket => ticket.ConfidenceScore)
@@ -147,6 +183,19 @@ public sealed class CortexInsightService : ICortexInsightService
             var empty = Empty(currentTicket.Id);
             _cache.Set(cacheKey, empty, CacheDuration);
             return empty;
+        }
+
+        foreach (var match in matches)
+        {
+            await _feedbackService.RecordAsync(
+                ticketId: currentTicket.Id,
+                eventType: CortexMemoryEventType.RelatedTicketShown,
+                source: "CortexInsight",
+                relatedTicketId: match.Id,
+                createdByUserId: visibilityContext.UserId,
+                createdByDisplayName: visibilityContext.DisplayName,
+                metadataJson: $"{{\"confidenceScore\":{match.ConfidenceScore}}}",
+                cancellationToken: cancellationToken);
         }
 
         var insight = await GenerateInsightAsync(currentTicket, matches, cancellationToken);
@@ -382,7 +431,8 @@ public sealed class CortexInsightService : ICortexInsightService
         IReadOnlyList<string> currentTitleTokens,
         IReadOnlyList<string> keywords,
         string? currentDepartment,
-        string? candidateDepartment)
+        string? candidateDepartment,
+        double semanticSimilarity = 0.0)
     {
         var sourceQuote = ticket.Comments
             .Where(comment => !string.IsNullOrWhiteSpace(comment.Body))
@@ -391,12 +441,28 @@ public sealed class CortexInsightService : ICortexInsightService
             .Select(comment => Snippet(comment.Body, SourceQuoteLimit))
             .FirstOrDefault();
 
-        var (score, reasons) = Score(
+        var (keywordScore, reasons) = Score(
             ticket,
             currentTitleTokens,
             keywords,
             currentDepartment,
             candidateDepartment);
+
+        int finalScore;
+        if (semanticSimilarity > 0)
+        {
+            var semanticPts = (int)Math.Round(semanticSimilarity * 100.0);
+            finalScore = Math.Clamp((int)Math.Round(semanticPts * 0.65 + keywordScore * 0.35), 0, 100);
+
+            if (semanticSimilarity >= SemanticHighConfidenceThreshold)
+                reasons.Insert(0, "Semantically similar to this ticket's request");
+            else if (semanticSimilarity >= SemanticMediumConfidenceThreshold)
+                reasons.Insert(0, "Shares historical pattern with prior ticket");
+        }
+        else
+        {
+            finalScore = keywordScore;
+        }
 
         return new CortexInsightSimilarTicketDto
         {
@@ -410,8 +476,8 @@ public sealed class CortexInsightService : ICortexInsightService
             SourceQuote = sourceQuote,
             CreatedDate = ticket.CreatedDate,
             LastModifiedDate = ticket.LastModifiedDate,
-            SimilarityScore = score,
-            ConfidenceScore = score,
+            SimilarityScore = finalScore,
+            ConfidenceScore = finalScore,
             MatchReasons = reasons,
         };
     }
@@ -663,6 +729,88 @@ public sealed class CortexInsightService : ICortexInsightService
         }
 
         return value.Trim();
+    }
+
+    private static float[]? TryParseVector(string? vectorJson)
+    {
+        if (string.IsNullOrWhiteSpace(vectorJson))
+            return null;
+        var trimmed = vectorJson.Trim();
+        if (string.Equals(trimmed, "[]", StringComparison.Ordinal))
+            return null;
+        try
+        {
+            var result = JsonSerializer.Deserialize<float[]>(trimmed);
+            return result is { Length: > 0 } ? result : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static double CosineSimilarity(float[] a, float[] b)
+    {
+        if (a.Length != b.Length)
+            return 0.0;
+        double dot = 0, magA = 0, magB = 0;
+        for (var i = 0; i < a.Length; i++)
+        {
+            dot += (double)a[i] * b[i];
+            magA += (double)a[i] * a[i];
+            magB += (double)b[i] * b[i];
+        }
+        if (magA <= 0 || magB <= 0)
+            return 0.0;
+        return dot / (Math.Sqrt(magA) * Math.Sqrt(magB));
+    }
+
+    private async Task<Dictionary<string, double>> TryGetSemanticSimilaritiesAsync(
+        string currentTicketId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var currentEmbedding = await _db.TicketEmbeddings
+                .AsNoTracking()
+                .Where(e => e.TicketId == currentTicketId)
+                .OrderByDescending(e => e.UpdatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (currentEmbedding is null)
+                return [];
+
+            var currentVector = TryParseVector(currentEmbedding.VectorJson);
+            if (currentVector is null)
+                return [];
+
+            var otherEmbeddings = await _db.TicketEmbeddings
+                .AsNoTracking()
+                .Where(e => e.TicketId != currentTicketId)
+                .ToListAsync(cancellationToken);
+
+            var similarities = new Dictionary<string, double>(otherEmbeddings.Count);
+            foreach (var embedding in otherEmbeddings)
+            {
+                var vector = TryParseVector(embedding.VectorJson);
+                if (vector is null)
+                    continue;
+
+                var sim = CosineSimilarity(currentVector, vector);
+                if (!similarities.TryGetValue(embedding.TicketId, out var existing) || sim > existing)
+                    similarities[embedding.TicketId] = sim;
+            }
+
+            return similarities;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Cortex Memory semantic similarity failed for ticket {TicketId}. Falling back to keyword matching.",
+                currentTicketId);
+            return [];
+        }
     }
 
     private sealed class CortexInsightAiModel

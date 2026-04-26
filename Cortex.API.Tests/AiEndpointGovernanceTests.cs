@@ -178,7 +178,7 @@ public class AiEndpointGovernanceTests
         foreach (var entry in rateLimitedEndpoints)
         {
             Assert.Contains(
-                entry.PolicyName,
+                entry.PolicyName!,
                 RegisteredPolicyNames);
         }
     }
@@ -232,6 +232,8 @@ public class AiEndpointGovernanceTests
         AddMockSingleton<ICortexDecisionService>(services);
         AddMockSingleton<ICortexAiAssessmentService>(services);
         AddMockSingleton<ICortexCandidateResolutionService>(services);
+        AddMockSingleton<ICortexEmbeddingService>(services);
+        AddMockSingleton<ICortexMemoryFeedbackService>(services);
     }
 
     private static RequestDelegate BuildRateLimitedPipeline(

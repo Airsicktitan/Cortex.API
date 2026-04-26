@@ -213,6 +213,201 @@ public class CortexInsightServiceTests
             afterCommentChange.Matches[0].SourceQuote);
     }
 
+    [Fact]
+    public async Task GetInsightAsync_SemanticMatch_RanksAboveWeakKeywordMatch()
+    {
+        await using var db = CreateDbContext();
+
+        // Current ticket about network firewall drift
+        var current = NewTicket(
+            id: "T-SEM-1",
+            title: "network firewall configuration drift",
+            description: "firewall rules drifted after the patch window.");
+
+        // Ticket A: different domain but identical embedding vector (cosine = 1.0)
+        var semanticMatch = NewTicket(
+            id: "T-SEM-2",
+            title: "infrastructure audit completed",
+            description: "quarterly infrastructure audit passed.",
+            status: "Resolved");
+
+        // Ticket B: shares "configuration" keyword, no embedding — falls back to keyword score
+        var keywordMatch = NewTicket(
+            id: "T-SEM-3",
+            title: "database configuration drift",
+            description: "config drifted on database cluster.");
+
+        db.Tickets.AddRange(current, semanticMatch, keywordMatch);
+        db.TicketEmbeddings.AddRange(
+            new TicketEmbedding { TicketId = "T-SEM-1", EmbeddingModel = "m", ContentHash = "h1", VectorJson = "[1.0, 0.0, 0.0]" },
+            new TicketEmbedding { TicketId = "T-SEM-2", EmbeddingModel = "m", ContentHash = "h2", VectorJson = "[1.0, 0.0, 0.0]" });
+        await db.SaveChangesAsync();
+
+        var service = CreateServiceWithAiDisabled(db);
+        var result = await service.GetInsightAsync(current, AllVisible(), CancellationToken.None);
+
+        Assert.True(result.Matches.Count >= 2, "Expected both candidates to score above threshold.");
+        Assert.Equal("T-SEM-2", result.Matches[0].Id);
+    }
+
+    [Fact]
+    public async Task GetInsightAsync_MissingEmbeddings_FallsBackToKeywordBehavior()
+    {
+        await using var db = CreateDbContext();
+        var current = NewTicket(
+            id: "T-KB-1",
+            title: "invoice export timeout",
+            description: "Invoice export validation fails with a timeout.");
+        var match = NewTicket(
+            id: "T-KB-2",
+            title: "invoice export validation timeout",
+            description: "Timeout during invoice validation step.",
+            status: "Resolved");
+
+        db.Tickets.AddRange(current, match);
+        // No embeddings added — pure keyword fallback
+        await db.SaveChangesAsync();
+
+        var service = CreateServiceWithAiDisabled(db);
+        var result = await service.GetInsightAsync(current, AllVisible(), CancellationToken.None);
+
+        Assert.Single(result.Matches);
+        Assert.Equal("T-KB-2", result.Matches[0].Id);
+        // Keyword reasons should be present; no semantic reason
+        Assert.DoesNotContain(
+            result.Matches[0].MatchReasons,
+            r => r.Contains("Semantically", StringComparison.Ordinal)
+              || r.Contains("historical pattern", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetInsightAsync_LowSimilaritySemanticOnly_IsExcludedFromCandidates()
+    {
+        await using var db = CreateDbContext();
+
+        // Current ticket has no keyword overlap with the candidate, and low cosine similarity.
+        // cosine([1,0,0], [0.3, 0.954, 0]) ≈ 0.3 — below SemanticMediumConfidenceThreshold (0.50)
+        var current = NewTicket(
+            id: "T-LS-1",
+            title: "authentication token expired",
+            description: "user session token expired after idle timeout.");
+        var lowSim = NewTicket(
+            id: "T-LS-2",
+            title: "quarterly infrastructure review",
+            description: "infrastructure review notes from last quarter.");
+
+        db.Tickets.AddRange(current, lowSim);
+        db.TicketEmbeddings.AddRange(
+            new TicketEmbedding { TicketId = "T-LS-1", EmbeddingModel = "m", ContentHash = "h1", VectorJson = "[1.0, 0.0, 0.0]" },
+            new TicketEmbedding { TicketId = "T-LS-2", EmbeddingModel = "m", ContentHash = "h2", VectorJson = "[0.3, 0.954, 0.0]" });
+        await db.SaveChangesAsync();
+
+        var service = CreateServiceWithAiDisabled(db);
+        var result = await service.GetInsightAsync(current, AllVisible(), CancellationToken.None);
+
+        Assert.Empty(result.Matches);
+    }
+
+    [Fact]
+    public async Task GetInsightAsync_MalformedVector_DoesNotThrow()
+    {
+        await using var db = CreateDbContext();
+        var current = NewTicket(
+            id: "T-MV-1",
+            title: "payroll export timeout",
+            description: "payroll batch fails during export.");
+        var other = NewTicket(
+            id: "T-MV-2",
+            title: "payroll export timeout",
+            description: "payroll batch timed out.",
+            status: "Resolved");
+
+        db.Tickets.AddRange(current, other);
+        db.TicketEmbeddings.AddRange(
+            new TicketEmbedding { TicketId = "T-MV-1", EmbeddingModel = "m", ContentHash = "h1", VectorJson = "not-valid-json" },
+            new TicketEmbedding { TicketId = "T-MV-2", EmbeddingModel = "m", ContentHash = "h2", VectorJson = "[invalid,data]" });
+        await db.SaveChangesAsync();
+
+        var service = CreateServiceWithAiDisabled(db);
+
+        // Should not throw; malformed vectors fall back to keyword scoring
+        var result = await service.GetInsightAsync(current, AllVisible(), CancellationToken.None);
+
+        Assert.Single(result.Matches);
+        Assert.Equal("T-MV-2", result.Matches[0].Id);
+    }
+
+    [Fact]
+    public async Task GetInsightAsync_CurrentTicketIsExcluded_FromSemanticCandidates()
+    {
+        await using var db = CreateDbContext();
+        var current = NewTicket(
+            id: "T-EX-1",
+            title: "network timeout on vpn",
+            description: "vpn connection drops after timeout.");
+        var other = NewTicket(
+            id: "T-EX-2",
+            title: "network timeout on vpn",
+            description: "vpn timeout recurring issue.",
+            status: "Resolved");
+
+        db.Tickets.AddRange(current, other);
+        db.TicketEmbeddings.AddRange(
+            new TicketEmbedding { TicketId = "T-EX-1", EmbeddingModel = "m", ContentHash = "h1", VectorJson = "[1.0, 0.0]" },
+            new TicketEmbedding { TicketId = "T-EX-2", EmbeddingModel = "m", ContentHash = "h2", VectorJson = "[1.0, 0.0]" });
+        await db.SaveChangesAsync();
+
+        var service = CreateServiceWithAiDisabled(db);
+        var result = await service.GetInsightAsync(current, AllVisible(), CancellationToken.None);
+
+        Assert.DoesNotContain(result.Matches, m => m.Id == "T-EX-1");
+    }
+
+    [Fact]
+    public async Task GetInsightAsync_SemanticReason_AppearsWhenSemanticScoreContributes()
+    {
+        await using var db = CreateDbContext();
+        var current = NewTicket(
+            id: "T-SR-1",
+            title: "storage quota exceeded",
+            description: "user storage quota exceeded on file server.");
+        var highSim = NewTicket(
+            id: "T-SR-2",
+            title: "quota exceeded notification",
+            description: "storage quota alert triggered.",
+            status: "Resolved");
+        var medSim = NewTicket(
+            id: "T-SR-3",
+            title: "disk space low warning",
+            description: "disk space low on backup server.",
+            status: "Resolved");
+
+        db.Tickets.AddRange(current, highSim, medSim);
+        db.TicketEmbeddings.AddRange(
+            new TicketEmbedding { TicketId = "T-SR-1", EmbeddingModel = "m", ContentHash = "h1", VectorJson = "[1.0, 0.0, 0.0]" },
+            // cosine = 1.0 → high confidence (≥ 0.75)
+            new TicketEmbedding { TicketId = "T-SR-2", EmbeddingModel = "m", ContentHash = "h2", VectorJson = "[1.0, 0.0, 0.0]" },
+            // cosine ≈ 0.6 → medium confidence (0.50-0.75): [0.6, 0.8] dot [1,0] / (1 * 1) = 0.6
+            new TicketEmbedding { TicketId = "T-SR-3", EmbeddingModel = "m", ContentHash = "h3", VectorJson = "[0.6, 0.8, 0.0]" });
+        await db.SaveChangesAsync();
+
+        var service = CreateServiceWithAiDisabled(db);
+        var result = await service.GetInsightAsync(current, AllVisible(), CancellationToken.None);
+
+        var highMatch = result.Matches.FirstOrDefault(m => m.Id == "T-SR-2");
+        var medMatch = result.Matches.FirstOrDefault(m => m.Id == "T-SR-3");
+
+        Assert.NotNull(highMatch);
+        Assert.Contains(
+            highMatch.MatchReasons,
+            r => r.Contains("Semantically similar to this ticket's request", StringComparison.Ordinal));
+
+        Assert.NotNull(medMatch);
+        Assert.Contains(
+            medMatch.MatchReasons,
+            r => r.Contains("Shares historical pattern with prior ticket", StringComparison.Ordinal));
+    }
+
     private static CortexDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<CortexDbContext>()
@@ -221,9 +416,56 @@ public class CortexInsightServiceTests
         return new CortexDbContext(options);
     }
 
+    [Fact]
+    public async Task GetInsightAsync_RecordsFeedback_ForEachMatch()
+    {
+        await using var db = CreateDbContext();
+        var current = NewTicket(
+            id: "T-FB-1",
+            title: "invoice export timeout",
+            description: "Invoice export validation fails with a timeout.");
+        var match = NewTicket(
+            id: "T-FB-2",
+            title: "invoice export timeout",
+            description: "Invoice export validation failed.",
+            status: "Resolved");
+        db.Tickets.AddRange(current, match);
+        await db.SaveChangesAsync();
+
+        var captured = new CapturingFeedbackService();
+        var service = CreateServiceWithAiDisabled(db, feedbackService: captured);
+
+        await service.GetInsightAsync(current, AllVisible(), CancellationToken.None);
+
+        Assert.Single(captured.Calls);
+        Assert.Equal("T-FB-1", captured.Calls[0].TicketId);
+        Assert.Equal(CortexMemoryEventType.RelatedTicketShown, captured.Calls[0].EventType);
+        Assert.Equal("T-FB-2", captured.Calls[0].RelatedTicketId);
+    }
+
+    [Fact]
+    public async Task GetInsightAsync_DoesNotRecordFeedback_WhenNoMatches()
+    {
+        await using var db = CreateDbContext();
+        var current = NewTicket(
+            id: "T-FB-3",
+            title: "xzqyplm gibberish",
+            description: "xzqyplm gibberish.");
+        db.Tickets.Add(current);
+        await db.SaveChangesAsync();
+
+        var captured = new CapturingFeedbackService();
+        var service = CreateServiceWithAiDisabled(db, feedbackService: captured);
+
+        await service.GetInsightAsync(current, AllVisible(), CancellationToken.None);
+
+        Assert.Empty(captured.Calls);
+    }
+
     private static CortexInsightService CreateService(
         CortexDbContext db,
-        StubHttpMessageHandler handler)
+        StubHttpMessageHandler handler,
+        ICortexMemoryFeedbackService? feedbackService = null)
     {
         var aiSettingsService = new Mock<IAiSettingsService>(MockBehavior.Strict);
         aiSettingsService
@@ -244,7 +486,28 @@ public class CortexInsightServiceTests
             Options.Create(new OpenAiOptions { ApiKey = "test-key" }),
             aiSettingsService.Object,
             new MemoryCache(new MemoryCacheOptions()),
-            NullLogger<CortexInsightService>.Instance);
+            NullLogger<CortexInsightService>.Instance,
+            feedbackService ?? Mock.Of<ICortexMemoryFeedbackService>());
+    }
+
+    private static CortexInsightService CreateServiceWithAiDisabled(
+        CortexDbContext db,
+        ICortexMemoryFeedbackService? feedbackService = null)
+    {
+        var aiSettingsService = new Mock<IAiSettingsService>(MockBehavior.Strict);
+        aiSettingsService
+            .Setup(service => service.GetAsync())
+            .ReturnsAsync(new AiSettingsConfiguration { IsTriageEnabled = false });
+
+        return new CortexInsightService(
+            db,
+            new HttpClient(new StubHttpMessageHandler((_, _) =>
+                throw new InvalidOperationException("AI should not be called when IsTriageEnabled = false."))),
+            Options.Create(new OpenAiOptions { ApiKey = "test-key" }),
+            aiSettingsService.Object,
+            new MemoryCache(new MemoryCacheOptions()),
+            NullLogger<CortexInsightService>.Instance,
+            feedbackService ?? Mock.Of<ICortexMemoryFeedbackService>());
     }
 
     private static HttpResponseMessage OpenAiResponse(object content)
@@ -296,6 +559,25 @@ public class CortexInsightServiceTests
             CreatedDate = createdDate ?? new DateTime(2026, 4, 21, 12, 0, 0, DateTimeKind.Utc),
             LastModifiedDate = createdDate?.AddHours(2),
         };
+
+    private sealed class CapturingFeedbackService : ICortexMemoryFeedbackService
+    {
+        public List<(string TicketId, string EventType, string? RelatedTicketId)> Calls { get; } = [];
+
+        public Task RecordAsync(
+            string ticketId,
+            string eventType,
+            string source,
+            string? relatedTicketId = null,
+            int? createdByUserId = null,
+            string? createdByDisplayName = null,
+            string? metadataJson = null,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add((ticketId, eventType, relatedTicketId));
+            return Task.CompletedTask;
+        }
+    }
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler
     {

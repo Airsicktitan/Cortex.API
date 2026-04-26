@@ -135,6 +135,11 @@ builder.Services.AddScoped<IWorkloadSnapshotService, WorkloadSnapshotService>();
 builder.Services.AddScoped<ICortexCandidateResolutionService, CortexCandidateResolutionService>();
 builder.Services.AddScoped<ICortexDecisionService, CortexDecisionService>();
 builder.Services.AddScoped<ICortexAiAssessmentService, CortexAiAssessmentService>();
+builder.Services.AddHttpClient<ICortexEmbeddingService, CortexEmbeddingService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddScoped<ICortexMemoryFeedbackService, CortexMemoryFeedbackService>();
 builder.Services.AddHttpClient<ICortexInsightService, CortexInsightService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(300);

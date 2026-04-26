@@ -140,6 +140,12 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status409Conflict);
 
+        tickets.MapPost("/{id}/memory-feedback", TicketHandlers.PostMemoryFeedback)
+            .WithName("PostMemoryFeedback")
+            .Accepts<CortexMemoryFeedbackRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest);
+
         tickets.MapPost("/routing/preview", TicketHandlers.PostRoutingPreview)
             .WithName("PostTicketRoutingPreview")
             .Produces<RoutingPreviewResponse>(StatusCodes.Status200OK)

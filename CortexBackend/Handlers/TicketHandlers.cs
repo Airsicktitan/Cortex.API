@@ -1371,7 +1371,8 @@ public static class TicketHandlers
         IResponseMappingContextFactory mappingContextFactory,
         IWorkflowMetricsService workflowMetrics,
         ICortexDecisionService? cortexDecisionService,
-        ILogger<TicketHandlersLogCategory> logger)
+        ILogger<TicketHandlersLogCategory> logger,
+        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null)
     {
         try
         {
@@ -1464,6 +1465,12 @@ public static class TicketHandlers
             if (createdTicket is null)
                 return Results.Problem("Ticket was created but could not be retrieved.");
 
+            await TryEnsureEmbeddingAsync(
+                cortexEmbeddingService,
+                createdTicket.Id,
+                logger,
+                CancellationToken.None);
+
             var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
             var mappingContext = await mappingContextFactory.CreateAsync(
                 [createdTicket.CreatedBy],
@@ -1539,7 +1546,9 @@ public static class TicketHandlers
         IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory,
         IWorkflowMetricsService workflowMetrics,
-        ILogger<TicketHandlersLogCategory> logger)
+        ILogger<TicketHandlersLogCategory> logger,
+        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
+        [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null)
     {
         try
         {
@@ -1673,23 +1682,31 @@ public static class TicketHandlers
                 resolvedBusinessOwner = existing.BusinessOwner;
             }
 
-            if (routingDecision is not null
+            var ownerOverrideDetected = routingDecision is not null
                 && HasOwnerOverride(
                     routingDecision.RecommendedSynitiOwner,
                     routingDecision.RecommendedBusinessOwner,
                     resolvedSynitiOwner,
-                    resolvedBusinessOwner))
+                    resolvedBusinessOwner);
+            if (ownerOverrideDetected)
             {
                 await ticketRoutingRuleService.RecordOverrideAsync(
                     ticketId: existing.Id,
                     overriddenByUserId: currentUser.Id,
-                    previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
-                    previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
+                    previousSynitiOwner: routingDecision!.RecommendedSynitiOwner,
+                    previousBusinessOwner: routingDecision!.RecommendedBusinessOwner,
                     newSynitiOwner: resolvedSynitiOwner,
                     newBusinessOwner: resolvedBusinessOwner,
                     reasonType: ParseOverrideReasonType(request.ChangeReason),
                     reasonText: request.ChangeReason);
             }
+
+            var priorityOverrideDetected = request.Priority is not null
+                && !string.IsNullOrWhiteSpace(originalTicket.AiTriageSuggestedPriority)
+                && !string.Equals(resolvedPriority, originalTicket.AiTriageSuggestedPriority, StringComparison.OrdinalIgnoreCase);
+            var statusOverrideDetected = request.Status is not null
+                && !string.IsNullOrWhiteSpace(originalTicket.AiTriageSuggestedStatus)
+                && !string.Equals(resolvedStatus, originalTicket.AiTriageSuggestedStatus, StringComparison.OrdinalIgnoreCase);
 
             var normalizedOwners = await TicketOwnerAssignmentValidation.NormalizeAndValidateAsync(
                 userRepository,
@@ -1726,6 +1743,13 @@ public static class TicketHandlers
                 });
             }
 
+            if (ownerOverrideDetected)
+                await TryRecordFeedbackAsync(cortexMemoryFeedbackService, currentUser, existing.Id, CortexMemoryEventType.OwnerOverridden, "TicketUpdate", null, CancellationToken.None);
+            if (priorityOverrideDetected)
+                await TryRecordFeedbackAsync(cortexMemoryFeedbackService, currentUser, existing.Id, CortexMemoryEventType.PriorityOverridden, "TicketUpdate", null, CancellationToken.None);
+            if (statusOverrideDetected)
+                await TryRecordFeedbackAsync(cortexMemoryFeedbackService, currentUser, existing.Id, CortexMemoryEventType.StatusOverridden, "TicketUpdate", null, CancellationToken.None);
+
             var updatedTicket = await repo.GetTicketByIdAsync(id);
 
             if (updatedTicket is null)
@@ -1747,6 +1771,12 @@ public static class TicketHandlers
                 if (updatedTicket is null)
                     return Results.Problem("Ticket was updated but could not be retrieved.");
             }
+
+            await TryEnsureEmbeddingAsync(
+                cortexEmbeddingService,
+                updatedTicket.Id,
+                logger,
+                CancellationToken.None);
 
             var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
             var mappingContext = await mappingContextFactory.CreateAsync(
@@ -2402,7 +2432,9 @@ public static class TicketHandlers
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
         ILogger<TicketHandlersLogCategory> logger,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
+        [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
         if (ticket is null)
@@ -2496,8 +2528,23 @@ public static class TicketHandlers
             {
                 message =
                     "This ticket was updated elsewhere. Refresh the page to load the latest version before trying again.",
-            });
+                });
         }
+
+        await TryEnsureEmbeddingAsync(
+            cortexEmbeddingService,
+            ticket.Id,
+            logger,
+            CancellationToken.None);
+
+        await TryRecordFeedbackAsync(
+            cortexMemoryFeedbackService,
+            currentUser,
+            ticket.Id,
+            CortexMemoryEventType.AiSuggestionAccepted,
+            "TicketTriage",
+            BuildAppliedTriageMetadata(priorityToApply, statusToApply),
+            cancellationToken);
 
         await ticketAuditService.RecordTicketUpdatedAsync(
             originalSnapshot,
@@ -2536,6 +2583,65 @@ public static class TicketHandlers
         return Results.Ok(response);
     }
 
+    public static async Task<IResult> PostMemoryFeedback(
+        string ticketId,
+        CortexMemoryFeedbackRequest request,
+        IUserContextService userContext,
+        ICortexMemoryFeedbackService feedbackService,
+        CancellationToken cancellationToken = default)
+    {
+        if (!CortexMemoryEventType.IsValid(request.EventType))
+        {
+            return Results.BadRequest((object)new
+            {
+                message = $"Unsupported event type '{request.EventType}'. " +
+                          "Use one of: RelatedTicketShown, RelatedTicketClicked, AiSuggestionAccepted, " +
+                          "OwnerOverridden, PriorityOverridden, StatusOverridden.",
+            });
+        }
+
+        var currentUser = await userContext.GetCurrentUserAsync();
+        await feedbackService.RecordAsync(
+            ticketId: ticketId.Trim(),
+            eventType: request.EventType.Trim(),
+            source: string.IsNullOrWhiteSpace(request.Source) ? "Frontend" : request.Source.Trim(),
+            relatedTicketId: request.RelatedTicketId,
+            createdByUserId: currentUser.Id,
+            createdByDisplayName: currentUser.DisplayName,
+            metadataJson: request.Metadata,
+            cancellationToken: cancellationToken);
+
+        return Results.NoContent();
+    }
+
+    private static async Task TryRecordFeedbackAsync(
+        ICortexMemoryFeedbackService? feedbackService,
+        User currentUser,
+        string ticketId,
+        string eventType,
+        string source,
+        string? metadataJson,
+        CancellationToken cancellationToken = default)
+    {
+        if (feedbackService is null)
+            return;
+        await feedbackService.RecordAsync(
+            ticketId: ticketId,
+            eventType: eventType,
+            source: source,
+            createdByUserId: currentUser.Id,
+            createdByDisplayName: currentUser.DisplayName,
+            metadataJson: metadataJson,
+            cancellationToken: cancellationToken);
+    }
+
+    private static string BuildAppliedTriageMetadata(string? priority, string? status)
+    {
+        var p = priority is not null ? $"\"{priority}\"" : "null";
+        var s = status is not null ? $"\"{status}\"" : "null";
+        return $"{{\"appliedPriority\":{p},\"appliedStatus\":{s}}}";
+    }
+
     private static string? MatchVocabularyOption(string? candidate, IEnumerable<string> allowed)
     {
         if (string.IsNullOrWhiteSpace(candidate))
@@ -2566,7 +2672,8 @@ public static class TicketHandlers
         ITicketTriageAiService triageAi,
         ITicketTriageVocabularyProvider triageVocabulary,
         ILogger<TicketHandlersLogCategory> logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
         if (ticket is null)
@@ -2617,6 +2724,12 @@ public static class TicketHandlers
                 logger);
             await repo.UpdateTicketAsync(ticket);
             await repo.SaveChangesAsync();
+
+            await TryEnsureEmbeddingAsync(
+                cortexEmbeddingService,
+                ticket.Id,
+                logger,
+                CancellationToken.None);
         }
 
         return Results.Ok(result);
@@ -2641,6 +2754,34 @@ public static class TicketHandlers
             Status = null,
             ChangeReason = source.ChangeReason,
         };
+
+    private static async Task TryEnsureEmbeddingAsync(
+        ICortexEmbeddingService? cortexEmbeddingService,
+        string ticketId,
+        ILogger<TicketHandlersLogCategory> logger,
+        CancellationToken cancellationToken)
+    {
+        if (cortexEmbeddingService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await cortexEmbeddingService.EnsureEmbeddingAsync(ticketId, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Cortex Memory embedding refresh failed for ticket {TicketId}. Continuing without blocking the ticket workflow.",
+                ticketId);
+        }
+    }
 }
 
 /// <summary>

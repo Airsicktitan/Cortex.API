@@ -12,7 +12,8 @@
       "Bash(xargs grep *)",
       "Bash(grep -v \"^[0-9]*:\\\\s*//\")",
       "Bash(npm run *)",
-      "Bash(dotnet build *)"
+      "Bash(dotnet build *)",
+      "Bash(dotnet ef *)"
     ]
   }
 }

@@ -37,6 +37,8 @@ public class CortexDbContext : DbContext
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<HttpRequestLogEntry> HttpRequestLogEntries => Set<HttpRequestLogEntry>();
     public DbSet<WorkflowMetricEvent> WorkflowMetricEvents => Set<WorkflowMetricEvent>();
+    public DbSet<TicketEmbedding> TicketEmbeddings => Set<TicketEmbedding>();
+    public DbSet<CortexMemoryFeedbackEvent> CortexMemoryFeedbackEvents => Set<CortexMemoryFeedbackEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -805,6 +807,69 @@ public class CortexDbContext : DbContext
             entity.HasIndex(e => e.OccurredUtc);
             entity.HasIndex(e => e.EventType);
             entity.HasIndex(e => e.TicketId);
+        });
+
+        modelBuilder.Entity<TicketEmbedding>(entity =>
+        {
+            entity.HasKey(embedding => new { embedding.TicketId, embedding.EmbeddingModel });
+
+            entity.Property(embedding => embedding.TicketId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(embedding => embedding.EmbeddingModel)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(embedding => embedding.ContentHash)
+                .IsRequired()
+                .HasMaxLength(64);
+
+            entity.Property(embedding => embedding.VectorJson)
+                .IsRequired();
+
+            entity.Property(embedding => embedding.CreatedAtUtc)
+                .IsRequired();
+
+            entity.Property(embedding => embedding.UpdatedAtUtc)
+                .IsRequired();
+
+            entity.HasIndex(embedding => embedding.ContentHash);
+            entity.HasIndex(embedding => embedding.UpdatedAtUtc);
+
+            entity.HasOne<Ticket>()
+                .WithMany()
+                .HasForeignKey(embedding => embedding.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Future Cortex Memory v2 vector similarity search plugs in here:
+            // replace/augment keyword candidate retrieval with nearest-neighbor lookup over VectorJson.
+        });
+
+        modelBuilder.Entity<CortexMemoryFeedbackEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.TicketId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(e => e.RelatedTicketId)
+                .HasMaxLength(450);
+
+            entity.Property(e => e.EventType)
+                .IsRequired()
+                .HasMaxLength(64);
+
+            entity.Property(e => e.Source)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(e => e.CreatedByDisplayName)
+                .HasMaxLength(200);
+
+            entity.HasIndex(e => new { e.TicketId, e.EventType });
+            entity.HasIndex(e => e.CreatedAtUtc);
         });
     }
 }
