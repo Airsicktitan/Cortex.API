@@ -1,3 +1,5 @@
+using Cortex.API.DTO;
+
 namespace Cortex.API.Models;
 
 public sealed class WorkloadSnapshot
@@ -48,6 +50,18 @@ public sealed class CortexDecisionResult
     public decimal? AiConfidence { get; set; }
     public string? AiRecommendedPriority { get; set; }
     public string? AiRecommendedOwner { get; set; }
+
+    /// <summary>
+    /// Tier 6 advisory adjustments produced from historical outcomes.
+    /// Bounded ±10 each; visible to the user as explanation.
+    /// </summary>
+    public List<CortexLearningScoreAdjustment> LearningAdjustments { get; set; } = [];
+
+    /// <summary>Confidence value before any learning adjustment was applied.</summary>
+    public decimal? BaseConfidenceScore { get; set; }
+
+    /// <summary>Net learning adjustment (decimal 0..1 scale) applied to confidence.</summary>
+    public decimal? LearningConfidenceDelta { get; set; }
 }
 
 public sealed class RebalanceSuggestionAlternative

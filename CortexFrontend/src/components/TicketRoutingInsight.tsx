@@ -302,7 +302,7 @@ function assignmentSummaryLine(
   ticket: Ticket,
 ): string {
   if (override) {
-    return "Final assignment was chosen manually.";
+    return "Final assignment was manually selected.";
   }
 
   const hasSynitiRec = Boolean(decision.chosenSynitiOwner?.trim());
@@ -319,7 +319,7 @@ function assignmentSummaryLine(
     if (synitiOk && businessOk) {
       return "Final assignment aligns with the Cortex recommendation based on routing signals and workload context.";
     }
-    return "Final assignment was chosen manually.";
+    return "Final assignment was manually selected.";
   }
 
   if (decision.outcomeType === "RuleMatch") {
@@ -492,6 +492,41 @@ function workloadSignalClassName(signal: WorkloadSignalLabel): string {
     return "bg-amber-100 text-amber-950 dark:bg-amber-950/50 dark:text-amber-50";
   }
   return "bg-emerald-100 text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100";
+}
+
+function formatConfidencePercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "—";
+  }
+  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+}
+
+function formatConfidenceDeltaPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "—";
+  }
+  const rounded = Math.round(value * 100);
+  if (rounded > 0) {
+    return `+${rounded}%`;
+  }
+  return `${rounded}%`;
+}
+
+function getLearningImpactReason(adjustment: {
+  targetType: string;
+  reason: string;
+  supportingFacts?: string[];
+}): string {
+  if (adjustment.targetType?.toLowerCase() === "rule") {
+    const facts = adjustment.supportingFacts ?? [];
+    const overrideFact = facts.find((fact) => /%\s*override rate/i.test(fact));
+    const percentMatch = overrideFact?.match(/(\d{1,3})\s*%/);
+    if (percentMatch) {
+      return `Confidence reduced due to historical override rate (${percentMatch[1]}%).`;
+    }
+    return "Confidence reduced due to historical override rate.";
+  }
+  return adjustment.reason;
 }
 
 function aggregateWorkload(
@@ -1244,14 +1279,20 @@ export default function TicketRoutingInsight({
       : compactDecisionState === "Needs review"
         ? "bg-amber-100 text-amber-950 dark:bg-amber-950/50 dark:text-amber-50"
         : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
-  const compactOwnerLine = isLightweightNoRec
-    ? `Current: Syniti ${finalSynitiOwnerDisplay}; Business ${finalBusinessOwnerDisplay}`
-    : `Syniti ${synitiOwnerDisplay}; Business ${businessOwnerDisplay}`;
   const compactWhyLine =
     selectedBecauseLines[0] ??
     cortexDecision?.summary ??
     expectedImpactSummary ??
     routingReasoningEmptyCopy;
+  const learningAdjustments = cortexDecision?.learningAdjustments ?? [];
+  const hasLearningAdjustments = learningAdjustments.length > 0;
+  const hasLearningDelta = typeof cortexDecision?.learningConfidenceDelta === "number";
+  const showLearningConfidenceBreakdown =
+    hasLearningDelta && typeof cortexDecision?.baseConfidenceScore === "number";
+  const learningDeltaClassName =
+    (cortexDecision?.learningConfidenceDelta ?? 0) < 0
+      ? "text-red-700 dark:text-red-300"
+      : "text-emerald-700 dark:text-emerald-300";
 
   if (!ticket.id) {
     return null;
@@ -1341,8 +1382,8 @@ export default function TicketRoutingInsight({
           >
             <div className="rounded-xl border border-cortex-blue/20 bg-sky-50/70 px-4 py-3.5 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/20">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-cortex-blue dark:text-sky-300">
-                  Cortex Decision
+                <p className="text-sm font-semibold tracking-wide text-cortex-blue dark:text-sky-300">
+                  Cortex Recommendation
                 </p>
                 <span
                   className={`rounded-md px-2.5 py-1 text-xs font-semibold ${compactDecisionStateClass}`}
@@ -1352,28 +1393,48 @@ export default function TicketRoutingInsight({
               </div>
               <div className="mt-3 space-y-2 text-sm text-slate-800 dark:text-slate-100">
                 <p>
-                  <span className="font-semibold text-slate-950 dark:text-white">
-                    Owner:
-                  </span>{" "}
-                  {compactOwnerLine}
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                    Recommended Ownership
+                  </span>
+                  <span className="block mt-0.5 text-slate-500 dark:text-slate-400">
+                    Syniti Owner:{" "}
+                    <span className="text-slate-900 dark:text-slate-100">
+                      {synitiOwnerDisplay}
+                    </span>
+                  </span>
+                  <span className="block text-slate-500 dark:text-slate-400">
+                    Business Owner:{" "}
+                    <span className="text-slate-900 dark:text-slate-100">
+                      {businessOwnerDisplay}
+                    </span>
+                  </span>
                 </p>
                 <p>
-                  <span className="font-semibold text-slate-950 dark:text-white">
-                    Why:
-                  </span>{" "}
-                  {compactWhyLine}
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                    Decision Rationale
+                  </span>
+                  <span className="block mt-0.5 text-slate-900 dark:text-slate-100">
+                    {compactWhyLine}
+                  </span>
                 </p>
                 <p>
-                  <span className="font-semibold text-slate-950 dark:text-white">
-                    State:
-                  </span>{" "}
-                  {compactDecisionState}
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                    Suggested Action State
+                  </span>
+                  <span className="block mt-0.5 text-slate-900 dark:text-slate-100">
+                    {compactDecisionState}
+                  </span>
                 </p>
               </div>
               {hasManualOverride ? (
-                <p className="mt-2 text-xs font-medium text-amber-800 dark:text-amber-200">
-                  Manual override detected; Cortex will show the reasoning without changing the assigned owner.
-                </p>
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 dark:border-amber-800/60 dark:bg-amber-950/30">
+                  <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                    ⚠️ Manual Override Detected
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
+                    Cortex recommendation was not applied. Current assignment reflects user-selected values.
+                  </p>
+                </div>
               ) : null}
             </div>
 
@@ -1417,6 +1478,39 @@ export default function TicketRoutingInsight({
               <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
                 {cortexDecision.summary}
               </p>
+              <div className="mt-2 rounded-md border border-slate-200/80 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950/40">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Confidence Analysis
+                </p>
+                {showLearningConfidenceBreakdown ? (
+                  <div className="mt-1.5 space-y-1 text-sm">
+                    <p className="text-slate-600 dark:text-slate-300">
+                      Base Confidence:{" "}
+                      <span className="font-medium">
+                        {formatConfidencePercent(cortexDecision.baseConfidenceScore)}
+                      </span>
+                    </p>
+                    <p className={learningDeltaClassName}>
+                      Learning Adjustment:{" "}
+                      <span className="font-semibold">
+                        {formatConfidenceDeltaPercent(cortexDecision.learningConfidenceDelta)}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400 font-normal">
+                        {" "}
+                        (historical override pattern)
+                      </span>
+                    </p>
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">
+                      Final Confidence:{" "}
+                      {formatConfidencePercent(cortexDecision.confidenceScore)}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Final Confidence: {formatConfidencePercent(cortexDecision.confidenceScore)}
+                  </p>
+                )}
+              </div>
               <div className="mt-2 grid gap-1 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2">
                 <p>
                   Recommended owner: {synitiOwnerDisplay}
@@ -1430,6 +1524,56 @@ export default function TicketRoutingInsight({
                 <p>
                   Manual override status: {hasManualOverride ? "Yes" : "No"}
                 </p>
+              </div>
+            </div>
+          ) : null}
+          {hasLearningAdjustments ? (
+            <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Learning Impact
+              </p>
+              <div className="mt-2 space-y-2">
+                {learningAdjustments.map((adjustment, index) => {
+                  const adjustmentIsNegative = adjustment.scoreDelta < 0;
+                  return (
+                    <div
+                      key={`${adjustment.targetType}-${adjustment.reason.slice(0, 30)}-${index}`}
+                      className="rounded-md border border-slate-200/80 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950/40"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {adjustmentIsNegative ? "⚠️ " : null}
+                          {adjustment.targetType} impact
+                        </p>
+                        <p
+                          className={`text-sm font-semibold ${
+                            adjustmentIsNegative
+                              ? "text-red-700 dark:text-red-300"
+                              : "text-emerald-700 dark:text-emerald-300"
+                          }`}
+                        >
+                          {adjustment.scoreDelta > 0 ? "+" : ""}
+                          {adjustment.scoreDelta}% confidence
+                        </p>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                        {getLearningImpactReason(adjustment)}
+                      </p>
+                      {adjustment.supportingFacts.length > 0 ? (
+                        <details className="mt-1.5 rounded-md border border-slate-100 bg-slate-50/70 px-2.5 py-1.5 dark:border-slate-800 dark:bg-slate-950/30">
+                          <summary className="cursor-pointer text-xs font-semibold text-cortex-blue-dark hover:text-cortex-blue dark:text-cortex-cyan">
+                            Supporting facts
+                          </summary>
+                          <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-xs text-slate-600 dark:text-slate-300">
+                            {adjustment.supportingFacts.map((fact, factIndex) => (
+                              <li key={`${factIndex}-${fact.slice(0, 24)}`}>{fact}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : null}
@@ -1594,7 +1738,7 @@ export default function TicketRoutingInsight({
                   side="left"
                 >
                   <span className="cursor-help rounded-md bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-950 dark:bg-amber-950/50 dark:text-amber-50">
-                    Manual override detected
+                    ⚠️ Manual Override Detected
                   </span>
                 </CortexTooltip>
               ) : null}
@@ -1638,20 +1782,20 @@ export default function TicketRoutingInsight({
             )}
 
             <div className="rounded-lg border border-slate-100 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Final Assignment
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Current Assignment
               </p>
               <div className="mt-1 grid gap-1 text-sm text-slate-700 dark:text-slate-200 sm:grid-cols-2">
                 <p>
-                  Syniti:{" "}
+                  Syniti Owner:{" "}
                   <span className="font-medium text-slate-900 dark:text-slate-50">
-                    {finalSynitiOwnerDisplay}
+                    {finalSynitiOwnerDisplay === "—" ? "Unassigned" : finalSynitiOwnerDisplay}
                   </span>
                 </p>
                 <p>
-                  Business:{" "}
+                  Business Owner:{" "}
                   <span className="font-medium text-slate-900 dark:text-slate-50">
-                    {finalBusinessOwnerDisplay}
+                    {finalBusinessOwnerDisplay === "—" ? "Unassigned" : finalBusinessOwnerDisplay}
                   </span>
                 </p>
               </div>
@@ -1755,7 +1899,7 @@ export default function TicketRoutingInsight({
           {override ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/60">
               <p className="font-semibold text-slate-800 dark:text-slate-100">
-                Manual override detected
+                ⚠️ Manual Override Detected
               </p>
               <p className="mt-1 text-slate-600 dark:text-slate-300">
                 {humanizeOverrideReason(override.overrideReasonType)}

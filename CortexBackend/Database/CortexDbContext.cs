@@ -39,6 +39,8 @@ public class CortexDbContext : DbContext
     public DbSet<WorkflowMetricEvent> WorkflowMetricEvents => Set<WorkflowMetricEvent>();
     public DbSet<TicketEmbedding> TicketEmbeddings => Set<TicketEmbedding>();
     public DbSet<CortexMemoryFeedbackEvent> CortexMemoryFeedbackEvents => Set<CortexMemoryFeedbackEvent>();
+    public DbSet<TicketOutcome> TicketOutcomes => Set<TicketOutcome>();
+    public DbSet<CortexSystemRecommendationState> CortexSystemRecommendationStates => Set<CortexSystemRecommendationState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -870,6 +872,48 @@ public class CortexDbContext : DbContext
 
             entity.HasIndex(e => new { e.TicketId, e.EventType });
             entity.HasIndex(e => e.CreatedAtUtc);
+        });
+
+        modelBuilder.Entity<TicketOutcome>(entity =>
+        {
+            entity.HasKey(o => o.Id);
+
+            entity.Property(o => o.TicketId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(o => o.AssignedSynitiOwner).HasMaxLength(200);
+            entity.Property(o => o.AssignedBusinessOwner).HasMaxLength(200);
+            entity.Property(o => o.FinalSynitiOwner).HasMaxLength(200);
+            entity.Property(o => o.FinalBusinessOwner).HasMaxLength(200);
+
+            entity.HasIndex(o => o.TicketId).IsUnique();
+            entity.HasIndex(o => o.BoardId);
+            entity.HasIndex(o => o.MatchedRuleId);
+            entity.HasIndex(o => o.ReachedTerminalStatus);
+            entity.HasIndex(o => o.FinalSynitiOwner);
+            entity.HasIndex(o => o.FinalBusinessOwner);
+        });
+
+        modelBuilder.Entity<CortexSystemRecommendationState>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+
+            entity.Property(s => s.RecommendationId)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(s => s.Status)
+                .IsRequired()
+                .HasMaxLength(20);
+            entity.Property(s => s.DismissedReason)
+                .HasMaxLength(1000);
+            entity.Property(s => s.CreatedAtUtc)
+                .IsRequired();
+
+            entity.HasIndex(s => s.RecommendationId)
+                .IsUnique();
+            entity.HasIndex(s => s.Status);
+            entity.HasIndex(s => s.ReviewedAtUtc);
         });
     }
 }

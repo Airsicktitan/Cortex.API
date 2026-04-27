@@ -777,7 +777,6 @@ C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.deps.js
 C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.runtimeconfig.json
 C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.dll
 C:\Users\adamc\Documents\Cortex.API\_test_out\dotnet-test-bin\Cortex.API.pdb
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.exe
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-api\appsettings.Development.json
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-api\appsettings.json
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-api\Cortex.API.staticwebassets.endpoints.json
@@ -810,3 +809,4 @@ c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.deps.js
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.runtimeconfig.json
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.dll
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.pdb
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.exe

@@ -1,7 +1,10 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ticketService } from "../services/api";
-import type { CortexInsight } from "../types/cortexInsight";
+import type {
+  CortexInsight,
+  CortexLearningSignal,
+} from "../types/cortexInsight";
 import { formatDisplayDateTime } from "../utils/presentation";
 
 const API_AUDIENCE = "https://cortex-api";
@@ -27,6 +30,161 @@ function InsightField({
       <p className="mt-1 text-sm leading-relaxed text-slate-800 dark:text-slate-100">
         {value?.trim() || "-"}
       </p>
+    </div>
+  );
+}
+
+function confidenceBadgeClasses(confidence: string): string {
+  switch (confidence?.trim().toLowerCase()) {
+    case "high":
+      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
+    case "medium":
+      return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
+    case "low":
+    default:
+      return "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+  }
+}
+
+/**
+ * Picks a headline metric from learning signal facts (e.g. "88% override rate",
+ * "82% resolved within SLA"). Returns null if nothing clear enough to show.
+ */
+function extractKeyMetricFromSupportingFacts(
+  supportingFacts: string[],
+): string | null {
+  for (const fact of supportingFacts) {
+    const m = fact.match(
+      /(\d{1,3}(?:\.\d+)?%[^.;]*)/i,
+    );
+    if (!m) continue;
+    let candidate = m[0].replace(/\s+/g, " ").replace(/[,:;]$/g, "").trim();
+    if (candidate.includes(",")) {
+      const beforeComma = candidate.split(",")[0].trim();
+      if (beforeComma.length >= 4 && /\d{1,3}(?:\.\d+)?%/.test(beforeComma)) {
+        candidate = beforeComma;
+      }
+    }
+    if (candidate.length < 4) continue;
+    const lower = candidate.toLowerCase();
+    const hasMetricContext =
+      lower.includes("rate") ||
+      lower.includes("success") ||
+      lower.includes("sla") ||
+      lower.includes("override") ||
+      lower.includes("resolved") ||
+      lower.includes("breach") ||
+      lower.includes("within") ||
+      /%\s*of\s/.test(lower) ||
+      /%\s+of\s/.test(lower);
+    if (hasMetricContext) {
+      return candidate;
+    }
+  }
+  for (const fact of supportingFacts) {
+    const m2 = fact.match(
+      /(\d{1,3}(?:\.\d+)?%\s+[\w'/-]+(?:\s+[\w'/-]+){1,12})/i,
+    );
+    if (m2) {
+      let c = m2[0].replace(/\s+/g, " ").replace(/[,:;]$/g, "").trim();
+      if (c.includes(",")) {
+        const before = c.split(",")[0].trim();
+        if (before.length >= 4 && /\d{1,3}(?:\.\d+)?%/.test(before)) {
+          c = before;
+        }
+      }
+      return c;
+    }
+  }
+  return null;
+}
+
+function LearningSignalCard({ signal }: { signal: CortexLearningSignal }) {
+  const confidenceLabel = signal.confidence?.trim() || "Low";
+  const supportingFacts = signal.supportingFacts ?? [];
+  const keyMetric = extractKeyMetricFromSupportingFacts(supportingFacts);
+  const useTwoLineHeader =
+    Boolean(keyMetric) &&
+    keyMetric != null &&
+    signal.title.length + keyMetric.length > 60;
+  const showImpactGlyph =
+    keyMetric && confidenceLabel.toLowerCase() !== "high";
+  return (
+    <div className="rounded-md border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${confidenceBadgeClasses(
+            confidenceLabel,
+          )}`}
+        >
+          {confidenceLabel}
+        </span>
+        {signal.signalType ? (
+          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            {signal.signalType}
+          </span>
+        ) : null}
+        </div>
+        {keyMetric && !useTwoLineHeader ? (
+          <p className="text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">
+            {showImpactGlyph ? (
+              <span
+                className="mr-1 inline text-amber-600 dark:text-amber-400"
+                aria-hidden
+              >
+                ⚠️
+              </span>
+            ) : null}
+            {signal.title}
+            <span className="font-bold text-slate-950 dark:text-slate-100">
+              {" "}
+              ({keyMetric})
+            </span>
+          </p>
+        ) : keyMetric && useTwoLineHeader ? (
+          <div>
+            <p className="text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">
+              {showImpactGlyph ? (
+                <span
+                  className="mr-1 inline text-amber-600 dark:text-amber-400"
+                  aria-hidden
+                >
+                  ⚠️
+                </span>
+              ) : null}
+              {signal.title}
+            </p>
+            <p className="mt-0.5 text-sm font-bold leading-snug text-slate-950 dark:text-slate-100">
+              <span className="mr-0.5 font-normal text-slate-500 dark:text-slate-400" aria-hidden>
+                →
+              </span>
+              {keyMetric}
+            </p>
+          </div>
+        ) : (
+        <p className="text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">
+          {signal.title}
+        </p>
+        )}
+      </div>
+      {signal.description ? (
+        <p className="mt-1.5 text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+          {signal.description}
+        </p>
+      ) : null}
+      {supportingFacts.length > 0 ? (
+        <details className="mt-2 rounded-md border border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/30">
+          <summary className="cursor-pointer text-xs font-semibold text-cortex-blue-dark hover:text-cortex-blue dark:text-cortex-cyan">
+            Details
+          </summary>
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
+            {supportingFacts.map((fact, index) => (
+              <li key={`${index}-${fact.slice(0, 24)}`}>{fact}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -125,6 +283,7 @@ export default function CortexInsightPanel({
 
   const matches = insight?.matches ?? [];
   const firstSimilar = matches[0] ?? null;
+  const learningSignals = insight?.learningSignals ?? [];
   const hasGeneratedFields = insight
     ? [
         insight.summary,
@@ -182,9 +341,26 @@ export default function CortexInsightPanel({
           ) : error ? (
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
           ) : insight && matches.length === 0 ? (
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              No similar tickets found.
-            </p>
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                No similar tickets found.
+              </p>
+              {learningSignals.length > 0 ? (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Cortex Learning Insights
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {learningSignals.map((signal, index) => (
+                      <LearningSignalCard
+                        key={`${signal.signalType}-${index}-${signal.title.slice(0, 24)}`}
+                        signal={signal}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           ) : insight ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -315,6 +491,22 @@ export default function CortexInsightPanel({
                       </li>
                     ))}
                   </ul>
+                </div>
+              ) : null}
+
+              {learningSignals.length > 0 ? (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Cortex Learning Insights
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {learningSignals.map((signal, index) => (
+                      <LearningSignalCard
+                        key={`${signal.signalType}-${index}-${signal.title.slice(0, 24)}`}
+                        signal={signal}
+                      />
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>

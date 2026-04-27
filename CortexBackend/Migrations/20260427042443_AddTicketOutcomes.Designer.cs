@@ -4,6 +4,7 @@ using Cortex.API.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Cortex.API.Migrations
 {
     [DbContext(typeof(CortexDbContext))]
-    partial class CortexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260427042443_AddTicketOutcomes")]
+    partial class AddTicketOutcomes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -392,52 +395,6 @@ namespace Cortex.API.Migrations
                     b.HasIndex("TicketId", "EventType");
 
                     b.ToTable("CortexMemoryFeedbackEvents");
-                });
-
-            modelBuilder.Entity("Cortex.API.Models.CortexSystemRecommendationState", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("DismissedReason")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTime?>("LastUpdatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("RecommendationId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime?>("ReviewedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("ReviewedBy")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RecommendationId")
-                        .IsUnique();
-
-                    b.HasIndex("ReviewedAtUtc");
-
-                    b.HasIndex("Status");
-
-                    b.ToTable("CortexSystemRecommendationStates");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.HttpRequestLogEntry", b =>

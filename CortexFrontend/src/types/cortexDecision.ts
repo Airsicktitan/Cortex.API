@@ -43,6 +43,18 @@ export interface CortexDecisionResult {
   aiConfidence?: number | null;
   aiRecommendedPriority?: string | null;
   aiRecommendedOwner?: string | null;
+  learningAdjustments?: CortexLearningScoreAdjustment[] | null;
+  baseConfidenceScore?: number | null;
+  learningConfidenceDelta?: number | null;
+}
+
+export interface CortexLearningScoreAdjustment {
+  targetType: "Owner" | "Rule" | "Decision" | "Risk" | string;
+  targetValue?: string | null;
+  scoreDelta: number;
+  confidence: "High" | "Medium" | "Low" | string;
+  reason: string;
+  supportingFacts: string[];
 }
 
 export interface RebalanceSuggestionAlternative {

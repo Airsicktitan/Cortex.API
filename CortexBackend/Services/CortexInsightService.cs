@@ -71,6 +71,7 @@ public sealed class CortexInsightService : ICortexInsightService
     private readonly IMemoryCache _cache;
     private readonly ILogger<CortexInsightService> _logger;
     private readonly ICortexMemoryFeedbackService _feedbackService;
+    private readonly ICortexLearningService? _learningService;
 
     public CortexInsightService(
         CortexDbContext db,
@@ -79,7 +80,8 @@ public sealed class CortexInsightService : ICortexInsightService
         IAiSettingsService aiSettingsService,
         IMemoryCache cache,
         ILogger<CortexInsightService> logger,
-        ICortexMemoryFeedbackService feedbackService)
+        ICortexMemoryFeedbackService feedbackService,
+        ICortexLearningService? learningService = null)
     {
         _db = db;
         _httpClient = httpClient;
@@ -88,6 +90,7 @@ public sealed class CortexInsightService : ICortexInsightService
         _cache = cache;
         _logger = logger;
         _feedbackService = feedbackService;
+        _learningService = learningService;
     }
 
     public async Task<CortexInsightDto> GetInsightAsync(
@@ -110,6 +113,10 @@ public sealed class CortexInsightService : ICortexInsightService
         if (keywords.Count == 0 && semanticSimilarities.Count == 0)
         {
             var empty = Empty(currentTicket.Id);
+            empty.LearningSignals = await GetLearningSignalsSafeAsync(
+                currentTicket.Id,
+                Array.Empty<string>(),
+                cancellationToken);
             _cache.Set(cacheKey, empty, CacheDuration);
             return empty;
         }
@@ -181,6 +188,10 @@ public sealed class CortexInsightService : ICortexInsightService
         if (matches.Count == 0)
         {
             var empty = Empty(currentTicket.Id);
+            empty.LearningSignals = await GetLearningSignalsSafeAsync(
+                currentTicket.Id,
+                Array.Empty<string>(),
+                cancellationToken);
             _cache.Set(cacheKey, empty, CacheDuration);
             return empty;
         }
@@ -199,8 +210,40 @@ public sealed class CortexInsightService : ICortexInsightService
         }
 
         var insight = await GenerateInsightAsync(currentTicket, matches, cancellationToken);
+        var displayedIds = matches.Select(m => m.Id).ToArray();
+        insight.LearningSignals = await GetLearningSignalsSafeAsync(
+            currentTicket.Id,
+            displayedIds,
+            cancellationToken);
         _cache.Set(cacheKey, insight, CacheDuration);
         return insight;
+    }
+
+    private async Task<List<CortexLearningSignalDto>> GetLearningSignalsSafeAsync(
+        string ticketId,
+        IReadOnlyCollection<string> displayedSimilarTicketIds,
+        CancellationToken cancellationToken)
+    {
+        if (_learningService is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            return await _learningService.GetLearningSignalsAsync(
+                ticketId,
+                displayedSimilarTicketIds,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Cortex learning signals unavailable for ticket {TicketId}.",
+                ticketId);
+            return [];
+        }
     }
 
     public async Task<CortexInsightDto> GenerateInsightAsync(

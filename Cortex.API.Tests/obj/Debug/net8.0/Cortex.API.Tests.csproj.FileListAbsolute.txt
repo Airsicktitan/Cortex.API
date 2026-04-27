@@ -182,7 +182,6 @@ C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Debug\net8.0\ExcelNumbe
 C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Debug\net8.0\RBush.dll
 C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Debug\net8.0\SixLabors.Fonts.dll
 C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Debug\net8.0\System.IO.Packaging.dll
-C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Debug\net8.0\Cortex.API.exe
 c:\Users\adamc\AppData\Local\Temp\cortex-build-out\Cortex.API.deps.json
 c:\Users\adamc\AppData\Local\Temp\cortex-build-out\Cortex.API.runtimeconfig.json
 c:\Users\adamc\AppData\Local\Temp\cortex-build-out\appsettings.Development.json

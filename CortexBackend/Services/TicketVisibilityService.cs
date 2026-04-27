@@ -20,17 +20,23 @@ public class TicketVisibilityService(
         }
 
         var jwtRoles = JwtRoleClaims.ResolveRoles(principal);
-        var scope = ResolveScope(jwtRoles);
+        var scope = ResolveScope(jwtRoles, user.Role);
 
         return new TicketVisibilityContext(user.Id, user.DisplayName, user.Email, scope);
     }
 
-    private static TicketVisibilityScope ResolveScope(IReadOnlyList<string> jwtRoles)
+    private static TicketVisibilityScope ResolveScope(IReadOnlyList<string> jwtRoles, string? persistedRole)
     {
         var set = new HashSet<string>(jwtRoles, StringComparer.OrdinalIgnoreCase);
 
+        // Early bypass: admin can always read all tickets, even if token role claims are stale/missing.
         if (set.Contains(Auth0Roles.Admin) ||
-            set.Contains(Auth0Roles.Developer) ||
+            string.Equals(persistedRole, Auth0Roles.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            return TicketVisibilityScope.All;
+        }
+
+        if (set.Contains(Auth0Roles.Developer) ||
             set.Contains(Auth0Roles.BusinessManager))
         {
             return TicketVisibilityScope.All;

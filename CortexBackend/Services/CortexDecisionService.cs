@@ -6,6 +6,7 @@ using Cortex.API.DTO;
 using Cortex.API.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
 
 namespace Cortex.API.Services;
 
@@ -20,9 +21,16 @@ public sealed class CortexDecisionService(
     ITicketRoutingRuleService ticketRoutingRuleService,
     IRealtimeEventService realtimeEventService,
     IRealtimeAudienceResolver realtimeAudienceResolver,
-    ILogger<CortexDecisionService> logger) : ICortexDecisionService
+    ILogger<CortexDecisionService> logger,
+    ICortexLearningService? learningService = null) : ICortexDecisionService
 {
     private const int MeaningfulImprovementThreshold = 10;
+    // Tier 6 toggle. Adjustments are observational and bounded; flipping false
+    // restores Tier 1–5 behavior identically.
+    private const bool EnableAdaptiveLearningScoring = true;
+    // Net non-owner learning adjustment applied to the final 0..1 confidence.
+    // Each individual delta is already clamped to ±10; this caps cumulative drift.
+    private const int MaxNetConfidenceLearningDelta = 10;
     private const decimal RebalanceIncomingPenalty = 18m;
     private const decimal RebalanceProgressiveIncomingPenalty = 6m;
     private const decimal RebalanceProjectedWorkloadPenaltyMultiplier = 5m;
@@ -560,6 +568,7 @@ public sealed class CortexDecisionService(
 
         var decisionType = ResolveDecisionType(ticket, winner, current, forRebalance);
         var confidence = ResolveConfidence(ranked);
+        var baseConfidence = confidence;
         var reasons = new List<string>
         {
             $"{winner.DisplayName} has workload score {winner.WorkloadScore}."
@@ -595,6 +604,98 @@ public sealed class CortexDecisionService(
             warnings.Add("No low-pressure alternative was available.");
         }
 
+        var learningAdjustments = new List<CortexLearningScoreAdjustment>();
+        decimal learningConfidenceDelta = 0m;
+        if (EnableAdaptiveLearningScoring && learningService is not null && !forRebalance)
+        {
+            var generatedAdjustments = await learningService.GetScoreAdjustmentsAsync(
+                ticket.Id,
+                Array.Empty<string>(),
+                cancellationToken);
+
+            if (generatedAdjustments.Count == 0)
+            {
+                logger.LogInformation(
+                    "Adaptive learning: no score adjustments for ticket {TicketId}. Confidence remains {Confidence:F2}.",
+                    ticket.Id,
+                    confidence);
+            }
+            else
+            {
+                var netDeltaPoints = 0;
+                var rejectedCount = 0;
+                var rejectionReasons = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var adjustment in generatedAdjustments)
+                {
+                    if (!TryShouldApplyAdjustment(
+                            adjustment,
+                            winner,
+                            out var rejectReason))
+                    {
+                        rejectedCount++;
+                        rejectionReasons[rejectReason] = rejectionReasons.GetValueOrDefault(rejectReason) + 1;
+                        continue;
+                    }
+
+                    learningAdjustments.Add(adjustment);
+                    netDeltaPoints += adjustment.ScoreDelta;
+                }
+
+                netDeltaPoints = Math.Max(
+                    -MaxNetConfidenceLearningDelta,
+                    Math.Min(MaxNetConfidenceLearningDelta, netDeltaPoints));
+                learningConfidenceDelta = ConvertLearningPointsToConfidenceDelta(netDeltaPoints);
+                confidence = ClampConfidence(confidence + learningConfidenceDelta);
+
+                if (learningAdjustments.Count > 0)
+                {
+                    var direction = learningConfidenceDelta >= 0 ? "increased" : "reduced";
+                    reasons.Add(
+                        $"Learning adjustment: {learningConfidenceDelta:+0.00;-0.00;0.00} confidence ({direction}) based on historical outcomes.");
+                    logger.LogInformation(
+                        "Adaptive learning applied for ticket {TicketId}. Generated={GeneratedCount}, Rejected={RejectedCount}, Applied={AppliedCount}, NetDeltaPoints={NetDeltaPoints}, Confidence {BaseConfidence:F2} -> {FinalConfidence:F2}.",
+                        ticket.Id,
+                        generatedAdjustments.Count,
+                        rejectedCount,
+                        learningAdjustments.Count,
+                        netDeltaPoints,
+                        baseConfidence,
+                        confidence);
+                    if (rejectionReasons.Count > 0)
+                    {
+                        logger.LogInformation(
+                            "Adaptive learning rejection reasons for ticket {TicketId}: {Reasons}.",
+                            ticket.Id,
+                            string.Join(
+                                ", ",
+                                rejectionReasons
+                                    .OrderByDescending(entry => entry.Value)
+                                    .Select(entry => $"{entry.Key}={entry.Value}")));
+                    }
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "Adaptive learning produced {GeneratedCount} adjustments for ticket {TicketId}, but none were applicable. Rejected={RejectedCount}. Confidence remains {Confidence:F2}.",
+                        generatedAdjustments.Count,
+                        rejectedCount,
+                        ticket.Id,
+                        confidence);
+                    if (rejectionReasons.Count > 0)
+                    {
+                        logger.LogInformation(
+                            "Adaptive learning rejection reasons for ticket {TicketId}: {Reasons}.",
+                            ticket.Id,
+                            string.Join(
+                                ", ",
+                                rejectionReasons
+                                    .OrderByDescending(entry => entry.Value)
+                                    .Select(entry => $"{entry.Key}={entry.Value}")));
+                    }
+                }
+            }
+        }
+
         return new CortexDecisionResult
         {
             DecisionType = decisionType,
@@ -615,6 +716,9 @@ public sealed class CortexDecisionService(
             AiConfidence = aiAssessment?.ConfidenceScore,
             AiRecommendedPriority = aiAssessment?.RecommendedPriority,
             AiRecommendedOwner = aiAssessment?.RecommendedOwnerUserId,
+            LearningAdjustments = learningAdjustments,
+            BaseConfidenceScore = learningAdjustments.Count > 0 ? baseConfidence : null,
+            LearningConfidenceDelta = learningAdjustments.Count > 0 ? learningConfidenceDelta : null,
             FactorBreakdown = BuildFactorBreakdown(
                 winner,
                 current,
@@ -1515,6 +1619,78 @@ public sealed class CortexDecisionService(
         var gap = Math.Max(0m, top - second);
         var normalized = Math.Min(1m, gap / 40m);
         return Math.Round(normalized, 2, MidpointRounding.AwayFromZero);
+    }
+
+    private static bool TryShouldApplyAdjustment(
+        CortexLearningScoreAdjustment adjustment,
+        CortexDecisionCandidate winner,
+        out string rejectReason)
+    {
+        var targetType = adjustment.TargetType?.Trim();
+        if (string.IsNullOrWhiteSpace(targetType))
+        {
+            rejectReason = "missing-target-type";
+            return false;
+        }
+
+        if (targetType.Equals("Owner", StringComparison.OrdinalIgnoreCase))
+        {
+            var target = adjustment.TargetValue?.Trim();
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                rejectReason = "owner-target-missing";
+                return false;
+            }
+
+            if (!IsSameOwner(target, winner.UserId, winner.DisplayName))
+            {
+                rejectReason = "owner-target-not-selected";
+                return false;
+            }
+
+            rejectReason = "none";
+            return true;
+        }
+
+        if (targetType.Equals("Rule", StringComparison.OrdinalIgnoreCase))
+        {
+            // Tier 6: Rule adjustments are generated by the learning layer only when
+            // relevant to the ticket's own historical matched-rule context. Apply to
+            // final confidence even if the current winning owner is not rule-matched.
+            rejectReason = "none";
+            return true;
+        }
+
+        if (targetType.Equals("Decision", StringComparison.OrdinalIgnoreCase) ||
+            targetType.Equals("Risk", StringComparison.OrdinalIgnoreCase))
+        {
+            // Decision/Risk adjustments remain applicable without an exact matched rule id.
+            rejectReason = "none";
+            return true;
+        }
+
+        rejectReason = $"unsupported-target-type:{targetType}";
+        return false;
+    }
+
+    private static decimal ConvertLearningPointsToConfidenceDelta(int points)
+    {
+        return Math.Round(points / 100m, 2, MidpointRounding.AwayFromZero);
+    }
+
+    private static decimal ClampConfidence(decimal value)
+    {
+        if (value < 0m)
+        {
+            return 0m;
+        }
+
+        if (value > 1m)
+        {
+            return 1m;
+        }
+
+        return Math.Round(value, 2, MidpointRounding.AwayFromZero);
     }
 
     private static double ElapsedMilliseconds(long startTimestamp) =>

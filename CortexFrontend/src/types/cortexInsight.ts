@@ -14,6 +14,14 @@ export interface CortexInsightSimilarTicket {
   matchReasons: string[];
 }
 
+export interface CortexLearningSignal {
+  signalType: string;
+  title: string;
+  description: string;
+  confidence: string;
+  supportingFacts: string[];
+}
+
 export interface CortexInsight {
   ticketId: string;
   matches: CortexInsightSimilarTicket[];
@@ -25,4 +33,5 @@ export interface CortexInsight {
   suggestedNextStep?: string | null;
   unavailable: boolean;
   unavailableReason?: string | null;
+  learningSignals?: CortexLearningSignal[];
 }

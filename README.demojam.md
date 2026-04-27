@@ -1,85 +1,97 @@
-# 🧠 CORTEX — DemoJam Edition
+# CORTEX — DemoJam Edition
 
 **Central Operations & Routing Technology EXpert**
 
-A demonstration of how enterprise support workflows can be transformed by making:
+This demo illustrates how enterprise support workflows can be improved by making:
 
-- ownership explicit
-- input structured
-- evidence understood
-- **decisions explainable**
-
----
-
-## 🎯 Demo Objective
-
-> **Bad tickets don’t just slow work — they create hidden operational cost.
-> CORTEX removes that cost before work even begins.**
+* ownership explicit
+* input structured
+* evidence understandable
+* decisions explainable
+* system behavior measurable and improvable
 
 ---
 
-## 🧩 Problem Demonstrated
+## Demo Objective
 
-Today’s ticket:
+> Bad tickets do not just slow work — they create hidden operational cost.
+> CORTEX removes that cost before work begins and improves how decisions are made over time.
 
-- “Not working”
-- unclear ownership
-- missing context
-- requires follow-up
+---
+
+## Problem Being Demonstrated
+
+Typical incoming ticket:
+
+* vague description (“not working”)
+* unclear ownership
+* missing context
+* requires follow-up before action
 
 ### Result
 
-- delays
-- repeated handoffs
-- overloaded teams
-- hidden SLA risk
+* delays
+* repeated handoffs
+* uneven workload
+* hidden SLA risk
 
 ---
 
-## 💡 What CORTEX Changes
+## What CORTEX Changes
 
 ### Before
 
-- vague ticket
-- reviewer guesses
-- uneven workload
-- multiple follow-ups
-
----
+* reviewer interprets incomplete information
+* ownership is guessed
+* follow-up is required
+* workload becomes unbalanced
 
 ### After
 
-- structured request
-- AI-extracted context
-- clear readiness signal
-- **optimized ownership**
+* request is structured at intake
+* missing information is surfaced early
+* ownership is recommended and explained
+* decisions are made with confidence
+* system-level issues become visible
 
 ---
 
-## ⚡ Demo Flow
+## Demo Flow
 
-### 1. Create weak ticket
+### 1. Create a weak ticket
+
+Example:
 
 > “SAP invoice posting failing — blocking finance close”
+
+This represents a typical low-quality request.
 
 ---
 
 ### 2. Improve Request (Cortex Assist)
 
-- structured description
-- missing details surfaced
+Show:
 
-> Cortex prevents bad tickets from entering the system
+* structured description
+* identified missing details
+
+Key point:
+
+> CORTEX prevents incomplete tickets from progressing without sufficient context.
 
 ---
 
-### 3. Screenshot Insight (🔥 moment)
+### 3. Screenshot Insight
 
-- analyzes screenshot
-- extracts real issue
-- suggests likely cause
+Show:
 
-> Evidence is understood, not ignored
+* screenshot analysis
+* extracted issue context
+* suggested cause
+
+Key point:
+
+> Evidence is interpreted and converted into structured signal.
 
 ---
 
@@ -87,79 +99,148 @@ Today’s ticket:
 
 Show:
 
-- Ready / Needs Detail signal
-- structured request
-- extracted insight
+* readiness signal (Ready / Needs Detail)
+* structured request
+* extracted insights
 
-> Reviewer doesn’t guess — they act
+Key point:
+
+> The reviewer evaluates a prepared request rather than interpreting raw input.
 
 ---
 
-### 5. Cortex Recommendation (💥 moment)
+### 5. Cortex Insight
 
 Show:
 
-- recommended owner
-- reasoning
-- alternatives considered
-- confidence
+* similar tickets
+* match reasoning
+* supporting evidence
 
-> Cortex doesn’t assign — it explains
+Then highlight:
+
+> Routing rule frequently overridden (88% override rate)
+
+Key point:
+
+> CORTEX uses historical outcomes to understand how work actually behaves.
 
 ---
 
-### 6. Rebalance (⚖️ system-level impact)
+### 6. Cortex Decision
 
 Show:
 
-- overloaded owner
-- safe reassignment
-- blocked instability (ping-pong prevention)
+* recommended owner
+* alternatives considered
+* reasoning
 
-> Cortex optimizes workload without creating churn
+Then highlight:
+
+> Confidence: 15%
+> Reduced due to historical override patterns
+
+Key point:
+
+> CORTEX evaluates not only the decision, but the reliability of that decision.
 
 ---
 
-### 7. Metrics (Proof)
+### 7. System Insight
+
+Navigate to system insights.
 
 Show:
 
-- readiness distribution
-- follow-up friction
-- workload balance
+* ineffective routing rule
+* supporting evidence
+* suggested change
 
-> “This is where time is being lost — and recovered”
+Example:
+
+> Routing rule ineffective (88% overridden)
+> Suggested change: route similar tickets to a different owner
+
+Key point:
+
+> CORTEX identifies when the system itself is underperforming.
 
 ---
 
-## 🤖 AI in This Demo
+### 8. Human Review Loop
+
+Show:
+
+* Accept
+* Dismiss
+* Defer
+
+Perform an action.
+
+Key point:
+
+> CORTEX recommends changes. Humans remain in control.
+> No automatic system mutation occurs.
+
+---
+
+### 9. Rebalance
+
+Show:
+
+* workload imbalance
+* safe reassignment recommendation
+* stability protections (no repeated reassignment loops)
+
+Key point:
+
+> CORTEX continuously optimizes workload without introducing instability.
+
+---
+
+### 10. Metrics
+
+Show:
+
+* readiness distribution
+* follow-up friction
+* workload balance
+
+Key point:
+
+> The system provides measurable evidence of operational improvement.
+
+---
+
+## AI Usage in This Demo
 
 ### Principle
 
-> AI operates within system rules — not outside them
+AI operates within system constraints.
 
 ### Behavior
 
-- uses only valid system values
-- never mutates core fields automatically
-- enhances decisions, not authority
+* uses defined system values
+* does not mutate core fields automatically
+* enhances interpretation, not authority
 
 ---
 
-## 🧠 Key Insight
+## Key Insight
 
-> CORTEX doesn’t process tickets — it improves them and decides what should happen next.
-
----
-
-## 🎤 Close
-
-> **Without Cortex: tickets bounce, teams guess, time is lost.**
-> **With Cortex: tickets are clear, ownership is correct, and decisions happen immediately.**
+> CORTEX does not process tickets.
+> It improves decision quality and identifies how those decisions should evolve.
 
 ---
 
-## 👨‍💻 Author
+## Closing
+
+> Without CORTEX: tickets require interpretation, ownership is unclear, and time is lost.
+> With CORTEX: tickets are actionable, decisions are explained, and the system improves over time.
+
+---
+
+## Author
 
 Adam Hooper
 Senior Consultant, Syniti
@@ -167,4 +248,4 @@ Senior Consultant, Syniti
 ---
 
 **Status:** Demo-ready
-**Audience:** Leadership & Engineering
+**Audience:** Internal leadership and engineering

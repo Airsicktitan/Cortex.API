@@ -19,6 +19,12 @@ public sealed class CortexInsightDto
     public bool Unavailable { get; set; }
     public string? UnavailableReason { get; set; }
 
+    /// <summary>
+    /// Advisory learning signals derived from prior ticket outcomes.
+    /// Empty list when there is insufficient outcome history.
+    /// </summary>
+    public List<CortexLearningSignalDto> LearningSignals { get; set; } = [];
+
     [JsonIgnore]
     public List<CortexInsightSimilarTicketDto> SimilarTickets
     {

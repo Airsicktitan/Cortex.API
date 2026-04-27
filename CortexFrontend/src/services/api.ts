@@ -35,6 +35,7 @@ import type {
   WorkloadSnapshot,
 } from "../types/cortexDecision";
 import type { CortexInsight } from "../types/cortexInsight";
+import type { CortexSystemRecommendation } from "../types/cortexSystemRecommendation";
 import type { CortexAiAssessment } from "../types/cortexAiAssessment";
 import type {
   AdminUpdateUserInput,
@@ -761,6 +762,44 @@ export const decisionService = {
     });
     await ensureSuccess(response, "Unable to load workload optimization suggestions");
     return response.json() as Promise<RebalanceSuggestion[]>;
+  },
+};
+
+export const systemService = {
+  async getRecommendations(token: string): Promise<CortexSystemRecommendation[]> {
+    const response = await fetch(`${API_BASE_URL}/system/recommendations`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load Cortex system insights");
+    return response.json() as Promise<CortexSystemRecommendation[]>;
+  },
+  async acceptRecommendation(id: string, token: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/system/recommendations/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({}),
+    });
+    await ensureSuccess(response, "Unable to accept recommendation");
+  },
+  async dismissRecommendation(
+    id: string,
+    reason: string,
+    token: string,
+  ): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/system/recommendations/${encodeURIComponent(id)}/dismiss`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({ reason }),
+    });
+    await ensureSuccess(response, "Unable to dismiss recommendation");
+  },
+  async deferRecommendation(id: string, token: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/system/recommendations/${encodeURIComponent(id)}/defer`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({}),
+    });
+    await ensureSuccess(response, "Unable to defer recommendation");
   },
 };
 

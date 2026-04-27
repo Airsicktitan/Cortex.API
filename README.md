@@ -1,9 +1,9 @@
-# 🧠 CORTEX
+# CORTEX
 
 **Central Operations & Routing Technology EXpert**
 
 An enterprise operations platform that transforms support workflows by making
-**ownership, readiness, and decisions explicit — with measurable impact.**
+**ownership, readiness, decisions, and system behavior explicit and explainable.**
 
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![.NET](https://img.shields.io/badge/.NET-8-purple)
@@ -12,7 +12,7 @@ An enterprise operations platform that transforms support workflows by making
 
 ---
 
-## 🚀 Why CORTEX Exists
+## Why CORTEX Exists
 
 Enterprise ticketing systems create hidden cost:
 
@@ -21,120 +21,115 @@ Enterprise ticketing systems create hidden cost:
 - constant follow-up
 - invisible SLA risk
 
-> **Teams don’t lose time solving problems — they lose time clarifying them.**
+> Teams do not lose time solving problems — they lose time clarifying them.
 
 CORTEX removes that friction by turning tickets into:
 
-👉 **actionable, explainable decisions**
+**actionable, explainable decisions**
 
 ---
 
-## 🎯 Core Value Proposition
+## Core Value Proposition
 
 CORTEX answers:
 
-> _Can I act on this immediately?_
-> _If not — what is the correct next decision?_
+> Can this be acted on immediately?
+> If not, what is the correct next decision?
+> Is the system itself helping or introducing friction?
 
 ---
 
-## 💡 Business Impact
+## What Makes CORTEX Different
 
-CORTEX reduces:
+### Decision Intelligence
 
-- follow-up cycles
-- incorrect routing
-- SLA breaches
-- workload imbalance
-
-> **Better tickets → fewer follow-ups → faster decisions → measurable time savings**
-
----
-
-## ⚡ What Makes CORTEX Different
-
-### 🧠 Decision Engine
-
-CORTEX does not just route tickets — it **optimizes ownership in real time**
+CORTEX does not simply route tickets — it evaluates, scores, and explains ownership decisions.
 
 - evaluates all eligible owners
-- scores workload + risk
-- recommends best assignment
-- explains every decision
-- surfaces alternatives
+- scores workload and SLA risk
+- recommends optimal assignment
+- explains reasoning and alternatives
+- adjusts confidence using historical outcomes
 
-> From “who owns this?” → **“who should own this now?”**
-
----
-
-### ⚖️ Rebalance (Operational Intelligence)
-
-- detects overload
-- recommends safe reassignment
-- prevents instability (no ping-pong)
-- explains impact
-
-> Continuous correction, not static routing
+> From “who owns this?” to “who should own this now, and how confident is that decision?”
 
 ---
 
-### 🤖 AI — Constrained and Useful
+### Learning System
+
+CORTEX learns from real outcomes:
+
+- overrides
+- SLA breaches
+- reassignment patterns
+- follow-up noise
+
+These are transformed into:
+
+- learning signals
+- confidence adjustments
+- system-level recommendations
+
+Example:
+
+> “This routing rule is overridden 88% of the time.”
+
+---
+
+### System Recommendations
+
+CORTEX identifies when the system itself is underperforming:
+
+- detects ineffective routing rules
+- surfaces improvement opportunities
+- provides supporting evidence
+- enables human review (Accept / Dismiss / Defer)
+
+> From optimizing individual tickets to improving the system itself.
+
+---
+
+### AI — Constrained and Useful
+
+AI is used to improve clarity, not to control the system.
 
 - improves ticket input
+
 - extracts meaning from screenshots
+
 - identifies missing details
+
 - suggests priorities
 
-✔ No hallucinations
-✔ No system overrides
-✔ Fully explainable
+- no hallucinated system changes
+
+- no automatic mutation of core fields
+
+- bounded and explainable outputs
 
 ---
 
-### 📊 Workflow Metrics (Proof Layer)
+### Rebalance Engine
+
+- detects workload imbalance
+- recommends safe reassignment
+- prevents instability (no repeated reassignment loops)
+- explains impact
+
+---
+
+### Workflow Metrics
 
 - readiness distribution
 - follow-up friction
 - workload balance
 - AI usage impact
 
-> Moves from “this helps” → **“this improves operations”**
+> Moves from “this helps” to “this improves operations”
 
 ---
 
-## 🧩 Core Capabilities
-
-### Intake Assist
-
-Improves ticket quality before submission
-
----
-
-### Reviewer Readiness
-
-Instantly answers: “Can I act on this?”
-
----
-
-### Screenshot Insight
-
-Turns visual evidence into structured signal
-
----
-
-### Decision Explanation
-
-Explains every recommendation clearly
-
----
-
-### Rebalance Engine
-
-Optimizes workload continuously
-
----
-
-## 🏗 Architecture
+## Architecture
 
 - .NET 8 Minimal APIs
 - React + TypeScript
@@ -145,18 +140,18 @@ Optimizes workload continuously
 
 ---
 
-## 🧠 Design Principles
+## Design Principles
 
 - model real workflows, not ideal ones
 - make responsibility explicit
 - constrain AI with system rules
-- persist insight, don’t regenerate it
-- **explain decisions, not just outcomes**
+- persist insight rather than regenerate it
+- explain decisions, not just outcomes
 - measure impact, not assumptions
 
 ---
 
-## 📊 Product Philosophy
+## Product Philosophy
 
 - clarity over complexity
 - signal over noise
@@ -166,15 +161,15 @@ Optimizes workload continuously
 
 ---
 
-## 📌 Status
+## Status
 
-- 🧪 Demo-ready
-- 🚧 Active development
-- 🎯 Pilot-ready
+- Demo-ready
+- Active development
+- Pilot-ready
 
 ---
 
-## 👨‍💻 Author
+## Author
 
 Adam Hooper
 Senior Consultant, Syniti

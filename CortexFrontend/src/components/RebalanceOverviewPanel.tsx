@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { rebalanceService } from "../services/rebalanceService";
 import { decisionService, getUserFacingErrorMessage } from "../services/api";
+import CortexSystemInsights from "./CortexSystemInsights";
 import type {
   OwnerWorkloadSummaryResponse,
   PressureLevel,
@@ -493,6 +494,8 @@ export default function RebalanceOverviewPanel({
           </p>
         ) : null}
         </section>
+
+        <CortexSystemInsights getApiToken={getApiToken} />
 
         {executionSummary && (
           <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">

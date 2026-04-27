@@ -140,6 +140,8 @@ builder.Services.AddHttpClient<ICortexEmbeddingService, CortexEmbeddingService>(
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 builder.Services.AddScoped<ICortexMemoryFeedbackService, CortexMemoryFeedbackService>();
+builder.Services.AddScoped<ITicketOutcomeService, TicketOutcomeService>();
+builder.Services.AddScoped<ICortexLearningService, CortexLearningService>();
 builder.Services.AddHttpClient<ICortexInsightService, CortexInsightService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(300);
@@ -465,6 +467,7 @@ app.MapTicketRoutingRuleEndpoints();
 app.MapTicketBoardEndpoints();
 app.MapScheduledJobEndpoints();
 app.MapNotificationEndpoints();
+app.MapSystemEndpoints();
 app.MapRealtimeEndpoints();
 app.MapHub<RealtimeHub>("/api/realtime/hub").RequireAuthorization();
 

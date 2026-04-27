@@ -988,7 +988,8 @@ public static class TicketHandlers
         IRealtimeEventService realtimeEventService,
         IRealtimeAudienceResolver realtimeAudienceResolver,
         IResponseMappingContextFactory mappingContextFactory,
-        ILogger<TicketHandlersLogCategory> logger)
+        ILogger<TicketHandlersLogCategory> logger,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
         if (ticket is null)
@@ -1063,11 +1064,12 @@ public static class TicketHandlers
         ticket.LastModifiedDate = DateTime.UtcNow;
 
         await ticketRoutingRuleService.RecordDecisionAsync(ticket.Id, routingDecision);
-        if (HasOwnerOverride(
+        var approvalOwnerOverridden = HasOwnerOverride(
                 routingDecision.RecommendedSynitiOwner,
                 routingDecision.RecommendedBusinessOwner,
                 resolvedSynitiOwner,
-                resolvedBusinessOwner))
+                resolvedBusinessOwner);
+        if (approvalOwnerOverridden)
         {
             await ticketRoutingRuleService.RecordOverrideAsync(
                 ticketId: ticket.Id,
@@ -1098,6 +1100,22 @@ public static class TicketHandlers
         if (updatedTicket is null)
         {
             return Results.Problem("Ticket was approved but could not be retrieved.");
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            await ticketOutcomeService.RecordInitialAssignmentAsync(
+                updatedTicket,
+                routingDecision.MatchedRuleId,
+                CancellationToken.None);
+            if (approvalOwnerOverridden)
+            {
+                await ticketOutcomeService.RecordOverrideAsync(
+                    updatedTicket.Id,
+                    resolvedSynitiOwner,
+                    resolvedBusinessOwner,
+                    CancellationToken.None);
+            }
         }
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
@@ -1372,7 +1390,8 @@ public static class TicketHandlers
         IWorkflowMetricsService workflowMetrics,
         ICortexDecisionService? cortexDecisionService,
         ILogger<TicketHandlersLogCategory> logger,
-        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null)
+        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         try
         {
@@ -1443,6 +1462,22 @@ public static class TicketHandlers
                     newBusinessOwner: resolvedBusinessOwner,
                     reasonType: RoutingOverrideReasonType.ManualAssignment,
                     reasonText: "Ticket created with manual owner selection.");
+            }
+
+            if (ticketOutcomeService is not null)
+            {
+                await ticketOutcomeService.RecordInitialAssignmentAsync(
+                    ticket,
+                    routingDecision.MatchedRuleId,
+                    CancellationToken.None);
+                if (manualSynitiOwner is not null || manualBusinessOwner is not null)
+                {
+                    await ticketOutcomeService.RecordOverrideAsync(
+                        ticket.Id,
+                        resolvedSynitiOwner,
+                        resolvedBusinessOwner,
+                        CancellationToken.None);
+                }
             }
 
             var createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
@@ -1548,7 +1583,8 @@ public static class TicketHandlers
         IWorkflowMetricsService workflowMetrics,
         ILogger<TicketHandlersLogCategory> logger,
         [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
-        [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null)
+        [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         try
         {
@@ -1754,6 +1790,33 @@ public static class TicketHandlers
 
             if (updatedTicket is null)
                 return Results.Problem("Ticket was updated but could not be retrieved.");
+
+            if (ticketOutcomeService is not null)
+            {
+                if (ownerOverrideDetected)
+                {
+                    await ticketOutcomeService.RecordOverrideAsync(
+                        updatedTicket.Id,
+                        updatedTicket.SynitiOwner,
+                        updatedTicket.BusinessOwner,
+                        CancellationToken.None);
+                }
+
+                var wasTerminalBefore = TicketOutcomeService.IsTerminalStatus(originalTicket.Status);
+                var isTerminalNow = TicketOutcomeService.IsTerminalStatus(updatedTicket.Status);
+                if (!wasTerminalBefore && isTerminalNow)
+                {
+                    await ticketOutcomeService.RecordTerminalAsync(
+                        updatedTicket,
+                        CancellationToken.None);
+                }
+                else if (wasTerminalBefore && !isTerminalNow)
+                {
+                    await ticketOutcomeService.RecordReopenAsync(
+                        updatedTicket.Id,
+                        CancellationToken.None);
+                }
+            }
 
             if (isRequesterNeedsMoreInfoRevision)
             {
