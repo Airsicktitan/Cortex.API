@@ -59,7 +59,7 @@ public sealed class OwnerAssignmentRoleIntegrityAuditHostedService(
             if (issues > 0)
             {
                 logger.LogWarning(
-                    "Owner role integrity audit: {IssueCount} owner slot(s) on approved tickets violate policy (Syniti=Developer only; Business=non-developer, non-guest). Samples: {Samples}",
+                    "Owner role integrity audit: {IssueCount} owner slot(s) on approved tickets violate policy (Syniti=active+Syniti department+eligibility; Business=non-developer, non-guest). Samples: {Samples}",
                     issues,
                     string.Join(" ", samples));
             }

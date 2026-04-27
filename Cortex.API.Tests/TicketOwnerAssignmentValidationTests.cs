@@ -15,6 +15,7 @@ public class TicketOwnerAssignmentValidationTests
             Id = 42,
             DisplayName = "Adam Hooper",
             Email = "adam@example.com",
+            Department = "Syniti",
             Role = Auth0Roles.Developer,
             IsActive = true,
             IsSynitiOwnerEligible = true,
@@ -50,6 +51,7 @@ public class TicketOwnerAssignmentValidationTests
                 Id = 42,
                 DisplayName = "Adam Hooper",
                 Email = "adam@example.com",
+                Department = "Syniti",
                 Role = Auth0Roles.Developer,
                 IsActive = true,
                 IsSynitiOwnerEligible = true,
@@ -74,6 +76,7 @@ public class TicketOwnerAssignmentValidationTests
                 Id = 42,
                 DisplayName = "Adam Hooper",
                 Email = "adam@example.com",
+                Department = "Syniti",
                 Role = Auth0Roles.Developer,
                 IsActive = true,
                 IsSynitiOwnerEligible = true,
@@ -98,6 +101,7 @@ public class TicketOwnerAssignmentValidationTests
                 Id = 2,
                 DisplayName = "Regular",
                 Email = "reg@example.com",
+                Department = "Finance",
                 Role = Auth0Roles.User,
                 IsActive = true,
                 IsSynitiOwnerEligible = true,
@@ -110,7 +114,7 @@ public class TicketOwnerAssignmentValidationTests
                 "user:2",
                 null));
 
-        Assert.Equal("Syniti Owner must be a Developer.", ex.Message);
+        Assert.Equal("Syniti owner must belong to department 'Syniti'.", ex.Message);
     }
 
     [Fact]
@@ -121,6 +125,7 @@ public class TicketOwnerAssignmentValidationTests
             Id = 2,
             DisplayName = "Dev",
             Email = "dev@example.com",
+            Department = "Syniti",
             Role = Auth0Roles.Developer,
             IsActive = true,
             IsSynitiOwnerEligible = true,

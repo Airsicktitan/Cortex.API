@@ -207,6 +207,7 @@ public class TicketRoutingRuleServiceWorkloadTests
             {
                 Email = "owner-ineligible@example.com",
                 DisplayName = "owner-ineligible",
+                Department = "Syniti",
                 IsActive = true,
                 IsSynitiOwnerEligible = false,
             },
@@ -214,6 +215,7 @@ public class TicketRoutingRuleServiceWorkloadTests
             {
                 Email = "owner-good@example.com",
                 DisplayName = "owner-good",
+                Department = "Syniti",
                 Role = Auth0Roles.Developer,
                 IsActive = true,
                 IsSynitiOwnerEligible = true,
@@ -244,7 +246,7 @@ public class TicketRoutingRuleServiceWorkloadTests
             .Single();
         Assert.Equal("InvalidSynitiOwnerRole", skipped.GetProperty("reason").GetString());
         Assert.Equal(
-            "Rule target must be an active Developer eligible as Syniti owner.",
+            "Rule target must be an active user in department 'Syniti' and eligible as Syniti owner.",
             skipped.GetProperty("message").GetString());
     }
 
@@ -257,6 +259,7 @@ public class TicketRoutingRuleServiceWorkloadTests
             Id = 42,
             DisplayName = "Adam Hooper",
             Email = "adamcwhooper@yahoo.com",
+            Department = "Syniti",
             Role = Auth0Roles.Developer,
             IsActive = true,
             IsSynitiOwnerEligible = true,
@@ -309,6 +312,7 @@ public class TicketRoutingRuleServiceWorkloadTests
             {
                 Email = $"{ownerKey}@example.com",
                 DisplayName = ownerKey,
+                Department = "Syniti",
                 Role = Auth0Roles.Developer,
                 IsActive = true,
                 IsSynitiOwnerEligible = true,

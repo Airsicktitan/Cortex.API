@@ -147,14 +147,14 @@ public class ReassignmentRecommendationServiceTests
     }
 
     [Fact]
-    public async Task EvaluateAsync_IncludesZeroTicketFinanceDeveloperTargets()
+    public async Task EvaluateAsync_IncludesZeroTicketSynitiEligibleTargets()
     {
         var users = new[]
         {
-            User(1, "owner-a", "Finance", Auth0Roles.Developer, eligible: true),
-            User(2, "owner-zero", "Finance", Auth0Roles.Developer, eligible: true),
+            User(1, "owner-a", "Syniti", Auth0Roles.Developer, eligible: true),
+            User(2, "owner-zero", "Syniti", Auth0Roles.Developer, eligible: true),
             User(3, "owner-hr", "HR", Auth0Roles.Developer, eligible: true),
-            User(4, "owner-user", "Finance", Auth0Roles.User, eligible: true),
+            User(4, "owner-user", "Syniti", Auth0Roles.User, eligible: true),
         };
 
         var service = CreateService(
@@ -175,17 +175,18 @@ public class ReassignmentRecommendationServiceTests
                 Id = 42,
                 DisplayName = "Requester",
                 Email = "requester@example.com",
-                Department = "Finance",
+                Department = "Syniti",
                 Role = Auth0Roles.User,
             });
 
         var recommendation = await service.EvaluateAsync(CreateTicket("T-FIN-1", "owner-a", null));
 
         Assert.True(recommendation.ShouldSuggestReassignment);
-        var target = Assert.Single(recommendation.SuggestedTargets);
-        Assert.Equal("user:2", target.OwnerKey);
-        Assert.Equal("owner-zero", target.DisplayName);
-        Assert.Equal(0, target.WorkloadScore);
+        Assert.Contains(
+            recommendation.SuggestedTargets,
+            target => target.OwnerKey == "user:2"
+                && target.DisplayName == "owner-zero"
+                && target.WorkloadScore == 0);
     }
 
     [Fact]
@@ -209,6 +210,7 @@ public class ReassignmentRecommendationServiceTests
                     Id = 1,
                     DisplayName = "owner-a",
                     Email = "owner-a@example.com",
+                    Department = "Syniti",
                     Role = Auth0Roles.Developer,
                     IsActive = true,
                     IsSynitiOwnerEligible = true,
@@ -218,6 +220,7 @@ public class ReassignmentRecommendationServiceTests
                     Id = 2,
                     DisplayName = "Sarah",
                     Email = "sarah@example.com",
+                    Department = "Syniti",
                     Role = Auth0Roles.Developer,
                     IsActive = true,
                     IsSynitiOwnerEligible = true,
@@ -227,6 +230,7 @@ public class ReassignmentRecommendationServiceTests
                     Id = 3,
                     DisplayName = "Adam",
                     Email = "adam@example.com",
+                    Department = "Syniti",
                     Role = Auth0Roles.Developer,
                     IsActive = true,
                     IsSynitiOwnerEligible = true,
@@ -334,6 +338,7 @@ public class ReassignmentRecommendationServiceTests
                 Id = i + 1,
                 DisplayName = ownerKeys[i],
                 Email = $"{ownerKeys[i]}@example.com",
+                Department = "Syniti",
                 Role = Auth0Roles.Developer,
                 IsActive = true,
                 IsSynitiOwnerEligible = true,

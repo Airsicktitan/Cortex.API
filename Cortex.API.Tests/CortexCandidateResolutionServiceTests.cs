@@ -10,16 +10,16 @@ namespace Cortex.API.Tests;
 public class CortexCandidateResolutionServiceTests
 {
     [Fact]
-    public async Task GetEligibleCandidatesAsync_IncludesZeroTicketFinanceDevelopers()
+    public async Task GetEligibleCandidatesAsync_IncludesZeroTicketSynitiEligibleUsers()
     {
         await using var context = CreateContext();
         context.Users.AddRange(
-            User(1, "Requester", "finance.requester@example.com", Auth0Roles.User, "Finance", eligible: false),
-            User(2, "Adam Hooper", "adam@example.com", Auth0Roles.Developer, "Finance", eligible: true),
-            User(3, "Jordan Finance", "jordan@example.com", Auth0Roles.Developer, "Finance", eligible: true),
+            User(1, "Requester", "finance.requester@example.com", Auth0Roles.User, "Syniti", eligible: false),
+            User(2, "Adam Hooper", "adam@example.com", Auth0Roles.Developer, "Syniti", eligible: true),
+            User(3, "Jordan Syniti", "jordan@example.com", Auth0Roles.Developer, "Syniti", eligible: true),
             User(4, "Taylor HR", "taylor@example.com", Auth0Roles.Developer, "HR", eligible: true),
             User(5, "Casey Finance", "casey@example.com", Auth0Roles.User, "Finance", eligible: true),
-            User(6, "Inactive Finance", "inactive@example.com", Auth0Roles.Developer, "Finance", eligible: true, active: false));
+            User(6, "Inactive Syniti", "inactive@example.com", Auth0Roles.Developer, "Syniti", eligible: true, active: false));
         await context.SaveChangesAsync();
 
         var userRepository = new Mock<IUserRepository>(MockBehavior.Strict);
@@ -87,7 +87,7 @@ public class CortexCandidateResolutionServiceTests
         });
 
         var zeroTicketCandidate = Assert.Single(candidates, candidate => candidate.UserId == "user:3");
-        Assert.Equal("Jordan Finance", zeroTicketCandidate.DisplayName);
+        Assert.Equal("Jordan Syniti", zeroTicketCandidate.DisplayName);
         Assert.True(zeroTicketCandidate.Eligible);
         Assert.Equal(0, zeroTicketCandidate.ActiveTicketCount);
         Assert.Equal(0, zeroTicketCandidate.WorkloadScore);

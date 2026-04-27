@@ -13,9 +13,11 @@ public sealed class WorkloadSnapshotService(
         var resolvedStatuses = TicketStatusFilters.ResolvedStatusesUpper;
         var users = await dbContext.Users
             .AsNoTracking()
-            .Where(user => user.IsActive
+            .Where(user =>
+                user.IsActive
                 && user.IsSynitiOwnerEligible
-                && user.Role == Auth0Roles.Developer)
+                && user.Department != null
+                && user.Department.Trim().ToLower() == UserDepartmentPolicy.DefaultDeveloperDepartment.ToLower())
             .ToListAsync(cancellationToken);
         var ownerAliases = OwnerFieldResolution.BuildAliasLookup(users);
         var priorityMap = await slaConfigurationService.GetPriorityMapAsync();

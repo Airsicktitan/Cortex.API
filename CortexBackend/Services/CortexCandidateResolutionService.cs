@@ -46,7 +46,7 @@ public sealed class CortexCandidateResolutionService(
             .Where(user => user.IsActive)
             .ToListAsync(cancellationToken);
         var userAliases = OwnerFieldResolution.BuildAliasLookup(users);
-        AddDepartmentDeveloperPool(ownerKeys, users, requester, routing);
+        AddSynitiEligiblePool(ownerKeys, users, routing);
         if (ownerKeys.Count == 0)
         {
             return [];
@@ -108,10 +108,9 @@ public sealed class CortexCandidateResolutionService(
         return candidates;
     }
 
-    private static void AddDepartmentDeveloperPool(
+    private static void AddSynitiEligiblePool(
         ISet<string> ownerKeys,
         IEnumerable<User> users,
-        User? requester,
         RoutingDecisionResult routing)
     {
         if (routing.OutcomeType != RoutingOutcomeType.RuleMatch
@@ -120,18 +119,9 @@ public sealed class CortexCandidateResolutionService(
             return;
         }
 
-        var department = NormalizeForMatch(requester?.Department);
-        if (department.Length == 0)
-        {
-            return;
-        }
-
         foreach (var user in users)
         {
-            if (!user.IsActive
-                || !user.IsSynitiOwnerEligible
-                || !string.Equals(user.Role, Auth0Roles.Developer, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(NormalizeForMatch(user.Department), department, StringComparison.Ordinal))
+            if (!OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(user))
             {
                 continue;
             }
@@ -142,9 +132,6 @@ public sealed class CortexCandidateResolutionService(
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    private static string NormalizeForMatch(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant();
 
     private static IReadOnlyDictionary<string, WorkloadSnapshot> BuildSnapshotLookup(
         IEnumerable<WorkloadSnapshot> snapshots)

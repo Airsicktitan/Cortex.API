@@ -3,15 +3,22 @@ using Cortex.API.Models;
 namespace Cortex.API.Services;
 
 /// <summary>
-/// Strict owner policies: Syniti owner must be an active Developer with directory eligibility;
+/// Strict owner policies: Syniti owner must be active, in the Syniti department, and directory-eligible;
 /// business owner must be active, directory-eligible, and not a Developer or Guest.
 /// </summary>
 public static class OwnerRoleAssignmentRules
 {
+    private static bool IsSynitiDepartment(string? department) =>
+        !string.IsNullOrWhiteSpace(department)
+        && string.Equals(
+            department.Trim(),
+            UserDepartmentPolicy.DefaultDeveloperDepartment,
+            StringComparison.OrdinalIgnoreCase);
+
     public static bool IsValidSynitiOwnerAssignment(User user) =>
         user.IsActive
         && user.IsSynitiOwnerEligible
-        && string.Equals(user.Role, Auth0Roles.Developer, StringComparison.OrdinalIgnoreCase);
+        && IsSynitiDepartment(user.Department);
 
     public static bool IsValidBusinessOwnerAssignment(User user) =>
         user.IsActive
@@ -33,9 +40,10 @@ public static class OwnerRoleAssignmentRules
                 "The selected user is not eligible to be assigned as Syniti owner.");
         }
 
-        if (!string.Equals(user.Role, Auth0Roles.Developer, StringComparison.OrdinalIgnoreCase))
+        if (!IsSynitiDepartment(user.Department))
         {
-            throw new ArgumentException("Syniti Owner must be a Developer.");
+            throw new ArgumentException(
+                $"Syniti owner must belong to department '{UserDepartmentPolicy.DefaultDeveloperDepartment}'.");
         }
     }
 

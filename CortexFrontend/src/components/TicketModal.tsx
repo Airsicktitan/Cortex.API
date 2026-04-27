@@ -493,6 +493,10 @@ function isDirectoryGuestRole(role: string | undefined): boolean {
   return (role ?? "").trim().toLowerCase() === "guest";
 }
 
+function isDirectorySynitiDepartment(department: string | undefined): boolean {
+  return (department ?? "").trim().toLowerCase() === "syniti";
+}
+
 export default function TicketModal({
   ticket,
   latestRealtimeEvent,
@@ -648,7 +652,7 @@ export default function TicketModal({
         (u) =>
           u.isActive &&
           u.isSynitiOwnerEligible &&
-          isDirectoryDeveloperRole(u.role) &&
+          isDirectorySynitiDepartment(u.department) &&
           !isDirectoryGuestRole(u.role),
       ),
     [ownerDirectory],

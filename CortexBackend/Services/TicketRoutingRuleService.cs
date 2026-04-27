@@ -588,7 +588,7 @@ public class TicketRoutingRuleService(
                     OwnerKey: ownerKey,
                     UserId: user.Id,
                     Reason: "InvalidSynitiOwnerRole",
-                    Message: "Rule target must be an active Developer eligible as Syniti owner."));
+                    Message: $"Rule target must be an active user in department '{UserDepartmentPolicy.DefaultDeveloperDepartment}' and eligible as Syniti owner."));
                 continue;
             }
 

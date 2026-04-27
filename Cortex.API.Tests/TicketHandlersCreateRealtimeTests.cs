@@ -20,6 +20,7 @@ public class TicketHandlersCreateRealtimeTests
             Id = 101,
             DisplayName = "Syniti Owner",
             Email = "syniti.owner@test.com",
+            Department = "Syniti",
             Role = Auth0Roles.Developer,
             IsActive = true,
             IsSynitiOwnerEligible = true,

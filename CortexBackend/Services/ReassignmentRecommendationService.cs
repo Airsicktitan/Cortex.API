@@ -114,10 +114,9 @@ public sealed class ReassignmentRecommendationService(
             .Select(ownerKey => CanonicalizeOwnerKey(ownerKey, userMatchLookup))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        AddDepartmentDeveloperPool(
+        AddSynitiEligiblePool(
             eligibleOwnerKeys,
             users,
-            requester,
             routingDecision,
             assignmentField);
 
@@ -331,10 +330,9 @@ public sealed class ReassignmentRecommendationService(
         return lookup;
     }
 
-    private static void AddDepartmentDeveloperPool(
+    private static void AddSynitiEligiblePool(
         IList<string> ownerKeys,
         IEnumerable<User> users,
-        User? requester,
         RoutingDecisionResult routingDecision,
         string assignmentField)
     {
@@ -345,18 +343,9 @@ public sealed class ReassignmentRecommendationService(
             return;
         }
 
-        var department = NormalizeForLookup(requester?.Department);
-        if (department.Length == 0)
-        {
-            return;
-        }
-
         foreach (var user in users)
         {
-            if (!user.IsActive
-                || !user.IsSynitiOwnerEligible
-                || !string.Equals(user.Role, Auth0Roles.Developer, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(NormalizeForLookup(user.Department), department, StringComparison.Ordinal))
+            if (!OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(user))
             {
                 continue;
             }

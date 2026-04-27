@@ -85,7 +85,7 @@ public sealed class ReassignmentExecutionService(
             return Failed(StatusCodes.Status400BadRequest, "Selected owner is not an active user.");
         }
 
-        if (assignmentField == "synitiOwner" && !selectedUser.IsSynitiOwnerEligible)
+        if (assignmentField == "synitiOwner" && !OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(selectedUser))
         {
             return Failed(
                 StatusCodes.Status400BadRequest,
