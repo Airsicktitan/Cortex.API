@@ -35,6 +35,7 @@ import type {
   WorkloadSnapshot,
 } from "../types/cortexDecision";
 import type { CortexInsight } from "../types/cortexInsight";
+import type { CortexAutonomyResult } from "../types/cortexAutonomy";
 import type { CortexSystemRecommendation } from "../types/cortexSystemRecommendation";
 import type { CortexAiAssessment } from "../types/cortexAiAssessment";
 import type {
@@ -390,6 +391,40 @@ export const ticketService = {
     });
     await ensureSuccess(response, "Unable to load Cortex decision");
     return response.json() as Promise<CortexDecisionResult>;
+  },
+
+  async getAutonomy(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<CortexAutonomyResult | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/autonomy`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 204 || response.status === 404) {
+      return null;
+    }
+    await ensureSuccess(response, "Unable to load Cortex autonomy state");
+    return response.json() as Promise<CortexAutonomyResult>;
+  },
+
+  async evaluateAutonomy(
+    id: string,
+    token: string,
+  ): Promise<CortexAutonomyResult> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/autonomy/evaluate`,
+      {
+        method: "POST",
+        headers: authHeaders(token),
+      },
+    );
+    await ensureSuccess(response, "Unable to evaluate Cortex autonomy");
+    return response.json() as Promise<CortexAutonomyResult>;
   },
 
   async getInsight(

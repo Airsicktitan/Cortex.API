@@ -345,6 +345,122 @@ namespace Cortex.API.Migrations
                     b.ToTable("Comments");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.CortexAutonomyConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("LastModifiedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("LastModifiedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<double>("MinAlternativeGap")
+                        .HasColumnType("float");
+
+                    b.Property<double>("MinConfidence")
+                        .HasColumnType("float");
+
+                    b.Property<int>("RecentOverrideWindowHours")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("RequireClearWinner")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("ShadowMode")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastModifiedBy");
+
+                    b.ToTable("CortexAutonomyConfigurations");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.CortexAutonomyDecision", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("AppliedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("BlockedReasonsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("Confidence")
+                        .HasPrecision(5, 4)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<DateTime>("CreatedDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DecisionVersion")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<bool>("IsEligible")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal?>("LearningAdjustment")
+                        .HasPrecision(5, 4)
+                        .HasColumnType("decimal(5,4)");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("PassedChecksJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PreviousOwnerId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("RecommendedOwnerId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("RecommendedOwnerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("TicketId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<bool>("WasAutoApplied")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WasAutoApplied");
+
+                    b.HasIndex("TicketId", "CreatedDateUtc");
+
+                    b.ToTable("CortexAutonomyDecisions");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.CortexMemoryFeedbackEvent", b =>
                 {
                     b.Property<int>("Id")
@@ -1714,6 +1830,25 @@ namespace Cortex.API.Migrations
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.CortexAutonomyConfiguration", b =>
+                {
+                    b.HasOne("Cortex.API.Models.User", "LastModifiedByUser")
+                        .WithMany()
+                        .HasForeignKey("LastModifiedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("LastModifiedByUser");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.CortexAutonomyDecision", b =>
+                {
+                    b.HasOne("Cortex.API.Models.Ticket", null)
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Cortex.API.Models.ScheduledJob", b =>

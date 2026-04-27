@@ -40,9 +40,9 @@ public static class ScheduledJobHandlers
                     : []);
             return Results.Created($"/api/jobs/{job.Id}", job.ToResponse(mappingContext));
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -68,9 +68,9 @@ public static class ScheduledJobHandlers
         {
             return Results.NotFound();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -93,13 +93,13 @@ public static class ScheduledJobHandlers
         {
             return Results.NotFound();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 

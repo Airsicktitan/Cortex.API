@@ -28,9 +28,9 @@ public static class TicketStatusHandlers
             var saved = await ticketStatusService.CreateAsync(definition);
             return Results.Created($"/api/ticket-statuses/{saved.Id}", saved.ToResponse());
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -55,9 +55,9 @@ public static class TicketStatusHandlers
         {
             return Results.NotFound();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -74,9 +74,9 @@ public static class TicketStatusHandlers
         {
             return Results.NotFound();
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 }

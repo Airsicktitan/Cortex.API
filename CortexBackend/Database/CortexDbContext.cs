@@ -41,6 +41,8 @@ public class CortexDbContext : DbContext
     public DbSet<CortexMemoryFeedbackEvent> CortexMemoryFeedbackEvents => Set<CortexMemoryFeedbackEvent>();
     public DbSet<TicketOutcome> TicketOutcomes => Set<TicketOutcome>();
     public DbSet<CortexSystemRecommendationState> CortexSystemRecommendationStates => Set<CortexSystemRecommendationState>();
+    public DbSet<CortexAutonomyDecision> CortexAutonomyDecisions => Set<CortexAutonomyDecision>();
+    public DbSet<CortexAutonomyConfiguration> CortexAutonomyConfigurations => Set<CortexAutonomyConfiguration>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -914,6 +916,66 @@ public class CortexDbContext : DbContext
                 .IsUnique();
             entity.HasIndex(s => s.Status);
             entity.HasIndex(s => s.ReviewedAtUtc);
+        });
+
+        modelBuilder.Entity<CortexAutonomyConfiguration>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Enabled).IsRequired();
+            entity.Property(c => c.ShadowMode).IsRequired();
+            entity.Property(c => c.MinConfidence).IsRequired();
+            entity.Property(c => c.RecentOverrideWindowHours).IsRequired();
+            entity.Property(c => c.RequireClearWinner).IsRequired();
+            entity.Property(c => c.MinAlternativeGap).IsRequired();
+            entity.HasOne(c => c.LastModifiedByUser)
+                .WithMany()
+                .HasForeignKey(c => c.LastModifiedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<CortexAutonomyDecision>(entity =>
+        {
+            entity.HasKey(d => d.Id);
+
+            entity.Property(d => d.TicketId)
+                .IsRequired()
+                .HasMaxLength(450);
+
+            entity.Property(d => d.RecommendedOwnerId).HasMaxLength(200);
+            entity.Property(d => d.RecommendedOwnerName).HasMaxLength(200);
+            entity.Property(d => d.PreviousOwnerId).HasMaxLength(200);
+
+            entity.Property(d => d.Confidence)
+                .HasPrecision(5, 4);
+            entity.Property(d => d.LearningAdjustment)
+                .HasPrecision(5, 4);
+
+            entity.Property(d => d.Mode)
+                .IsRequired()
+                .HasMaxLength(20);
+
+            entity.Property(d => d.PassedChecksJson)
+                .IsRequired();
+            entity.Property(d => d.BlockedReasonsJson)
+                .IsRequired();
+
+            entity.Property(d => d.Summary)
+                .IsRequired()
+                .HasMaxLength(2000);
+
+            entity.Property(d => d.DecisionVersion)
+                .IsRequired()
+                .HasMaxLength(40);
+
+            entity.Property(d => d.CreatedDateUtc).IsRequired();
+
+            entity.HasIndex(d => new { d.TicketId, d.CreatedDateUtc });
+            entity.HasIndex(d => d.WasAutoApplied);
+
+            entity.HasOne<Ticket>()
+                .WithMany()
+                .HasForeignKey(d => d.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

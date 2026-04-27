@@ -29,9 +29,9 @@ public static class SlaConfigurationHandlers
 
             return Results.Ok(savedConfigurations.Select(configuration => configuration.ToResponse()));
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 }

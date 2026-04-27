@@ -36,6 +36,7 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
     private readonly OpenAiOptions _options;
     private readonly IAiSettingsService _aiSettingsService;
     private readonly ITicketIntakeAssistPromptBuilder _promptBuilder;
+    private readonly IAiOutputSanitizer _sanitizer;
     private readonly ILogger<TicketIntakeAssistAiService> _logger;
 
     public TicketIntakeAssistAiService(
@@ -43,12 +44,14 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
         IOptions<OpenAiOptions> options,
         IAiSettingsService aiSettingsService,
         ITicketIntakeAssistPromptBuilder promptBuilder,
-        ILogger<TicketIntakeAssistAiService> logger)
+        ILogger<TicketIntakeAssistAiService> logger,
+        IAiOutputSanitizer? sanitizer = null)
     {
         _httpClient = httpClient;
         _options = options.Value;
         _aiSettingsService = aiSettingsService;
         _promptBuilder = promptBuilder;
+        _sanitizer = sanitizer ?? new AiOutputSanitizer();
         _logger = logger;
     }
 
@@ -116,11 +119,11 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogWarning(
-                        "OpenAI intake-assist error response. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} Body={ResponseBody}",
+                        "OpenAI intake-assist error response. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength}",
                         attempt + 1,
                         httpStatusCode,
                         reasonPhrase,
-                        responseBody);
+                        responseBody.Length);
 
                     if (attempt < aiSettings.RetryCount
                         && AiRequestExecution.ShouldRetry(response.StatusCode))
@@ -154,8 +157,8 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
                 {
                     _logger.LogWarning(
                         ex,
-                        "Improve Request returned non-JSON content. Content={Content}",
-                        content);
+                        "Improve Request returned non-JSON content. ContentLength={ContentLength}",
+                        content.Length);
                     return Unavailable("Improve Request returned an unexpected response.");
                 }
 
@@ -165,7 +168,7 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
                 }
 
                 var quality = TicketQualityClassifier.Classify(input.Title, input.Description);
-                return Sanitize(parsed, input, quality);
+                return Sanitize(parsed, input, quality, _sanitizer);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -195,12 +198,11 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
 
                 _logger.LogWarning(
                     ex,
-                    "OpenAI intake-assist request failed. Attempt={Attempt} ExceptionMessage={ExceptionMessage} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseBody={ResponseBody} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
+                    "OpenAI intake-assist request failed. Attempt={Attempt} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
                     attempt + 1,
-                    ex.Message,
                     httpStatusCode,
                     reasonPhrase,
-                    responseBody ?? "(not available)",
+                    responseBody?.Length ?? 0,
                     httpRequestStatus);
 
                 if (attempt < aiSettings.RetryCount
@@ -252,15 +254,16 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
     private static IntakeAssistResponse Sanitize(
         IntakeAssistAiResponse raw,
         IntakeAssistInput input,
-        TicketQuality quality)
+        TicketQuality quality,
+        IAiOutputSanitizer sanitizer)
     {
-        var suggestedSummary = Truncate(raw.SuggestedSummary?.Trim(), MaxSummaryLength);
-        var improvedDescription = Truncate(raw.ImprovedDescription?.Trim(), MaxImprovedDescriptionLength);
+        var suggestedSummary = Truncate(sanitizer.Sanitize(raw.SuggestedSummary?.Trim()), MaxSummaryLength);
+        var improvedDescription = Truncate(sanitizer.Sanitize(raw.ImprovedDescription?.Trim()), MaxImprovedDescriptionLength);
 
         // Good tickets get a tighter cap on missing details — only minor optional items.
         var maxMissing = quality == TicketQuality.Good ? 2 : MaxMissingDetails;
         var missingDetails = (raw.MissingDetails ?? [])
-            .Select(value => value?.Trim())
+            .Select(value => sanitizer.Sanitize(value?.Trim()))
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => Truncate(value, MaxMissingDetailLength)!)
             .Take(maxMissing)
@@ -274,7 +277,7 @@ public sealed class TicketIntakeAssistAiService : ITicketIntakeAssistAiService
         }
 
         var guidanceMessage =
-            Truncate(raw.GuidanceMessage?.Trim(), MaxGuidanceLength)
+            Truncate(sanitizer.Sanitize(raw.GuidanceMessage?.Trim()), MaxGuidanceLength)
             ?? DefaultGuidance(clarityState);
 
         // Good input: always preserve the original title — the AI must not downgrade specificity.

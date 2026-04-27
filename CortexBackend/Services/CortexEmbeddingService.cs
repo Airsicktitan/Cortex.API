@@ -226,11 +226,11 @@ public sealed class CortexEmbeddingService : ICortexEmbeddingService
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "OpenAI embedding request failed for ticket {TicketId}. StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} Body={ResponseBody}",
+                    "OpenAI embedding request failed for ticket {TicketId}. StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength}",
                     ticketId,
                     (int)response.StatusCode,
                     response.ReasonPhrase,
-                    responseBody);
+                    responseBody.Length);
                 return null;
             }
 

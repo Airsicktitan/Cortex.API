@@ -47,6 +47,7 @@ import TicketHistoryModal from "./TicketHistoryModal";
 import UserCombobox from "./UserCombobox";
 import TicketRoutingInsight from "./TicketRoutingInsight";
 import CortexInsightPanel from "./CortexInsightPanel";
+import CortexAutonomyPanel from "./CortexAutonomyPanel";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
@@ -2314,7 +2315,7 @@ export default function TicketModal({
     (typeof ticket.createdBy === "string"
       ? ticket.createdBy.trim()
       : typeof ticket.createdBy === "number" && ticket.createdBy > 0
-        ? `User #${ticket.createdBy}`
+        ? "Unknown user"
         : "") ||
     "Unknown User";
   const hasPersistedSla = Boolean(ticket.id);
@@ -3072,6 +3073,13 @@ export default function TicketModal({
                       ticketId={ticket.id}
                       isOpen={isOpen}
                       onOpenSourceTicket={onOpenSourceTicket}
+                    />
+                  ) : null}
+
+                  {ticket.id && !isRequesterContext ? (
+                    <CortexAutonomyPanel
+                      ticketId={ticket.id}
+                      isOpen={isOpen}
                     />
                   ) : null}
 

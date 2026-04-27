@@ -38,17 +38,20 @@ public sealed class RepeatIssueAiReviewService : IRepeatIssueAiReviewService
     private readonly HttpClient _httpClient;
     private readonly OpenAiOptions _options;
     private readonly IAiSettingsService _aiSettingsService;
+    private readonly IAiOutputSanitizer _sanitizer;
     private readonly ILogger<RepeatIssueAiReviewService> _logger;
 
     public RepeatIssueAiReviewService(
         HttpClient httpClient,
         IOptions<OpenAiOptions> options,
         IAiSettingsService aiSettingsService,
-        ILogger<RepeatIssueAiReviewService> logger)
+        ILogger<RepeatIssueAiReviewService> logger,
+        IAiOutputSanitizer? sanitizer = null)
     {
         _httpClient = httpClient;
         _options = options.Value;
         _aiSettingsService = aiSettingsService;
+        _sanitizer = sanitizer ?? new AiOutputSanitizer();
         _logger = logger;
     }
 
@@ -118,11 +121,11 @@ public sealed class RepeatIssueAiReviewService : IRepeatIssueAiReviewService
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogWarning(
-                        "OpenAI repeat-issue review error. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} Body={ResponseBody}",
+                        "OpenAI repeat-issue review error. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength}",
                         attempt + 1,
                         httpStatusCode,
                         reasonPhrase,
-                        responseBody);
+                        responseBody.Length);
 
                     if (attempt < aiSettings.RetryCount
                         && AiRequestExecution.ShouldRetry(response.StatusCode))
@@ -153,11 +156,11 @@ public sealed class RepeatIssueAiReviewService : IRepeatIssueAiReviewService
 
                 return new RepeatIssueAiReviewResponse
                 {
-                    Summary = NormalizeSingleSentence(model.Summary),
-                    Impact = NormalizeSingleSentence(model.Impact),
-                    TrendCommentary = NormalizeSingleSentence(model.TrendCommentary),
-                    CommonCharacteristics = NormalizeBullets(model.CommonCharacteristics, maxCount: 5),
-                    SuggestedNextSteps = NormalizeSteps(model.SuggestedNextSteps),
+                    Summary = SanitizeSingleSentence(model.Summary),
+                    Impact = SanitizeSingleSentence(model.Impact),
+                    TrendCommentary = SanitizeSingleSentence(model.TrendCommentary),
+                    CommonCharacteristics = SanitizeBullets(model.CommonCharacteristics, maxCount: 5),
+                    SuggestedNextSteps = SanitizeSteps(model.SuggestedNextSteps),
                     Unavailable = false,
                 };
             }
@@ -191,12 +194,11 @@ public sealed class RepeatIssueAiReviewService : IRepeatIssueAiReviewService
 
                 _logger.LogWarning(
                     ex,
-                    "OpenAI repeat-issue review failed. Attempt={Attempt} ExceptionMessage={ExceptionMessage} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseBody={ResponseBody} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
+                    "OpenAI repeat-issue review failed. Attempt={Attempt} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
                     attempt + 1,
-                    ex.Message,
                     httpStatusCode,
                     reasonPhrase,
-                    responseBody ?? "(not available)",
+                    responseBody?.Length ?? 0,
                     httpRequestStatus);
 
                 if (attempt < aiSettings.RetryCount && ex is HttpRequestException httpException)
@@ -332,16 +334,21 @@ public sealed class RepeatIssueAiReviewService : IRepeatIssueAiReviewService
         return idx > 0 ? trimmed[..(idx + 1)].Trim() : trimmed;
     }
 
-    private static List<string> NormalizeBullets(List<string>? items, int maxCount)
+    private string? SanitizeSingleSentence(string? value)
+    {
+        return NormalizeSingleSentence(_sanitizer.Sanitize(value));
+    }
+
+    private List<string> SanitizeBullets(List<string>? items, int maxCount)
     {
         return (items ?? [])
-            .Select(item => item?.Trim() ?? string.Empty)
+            .Select(item => _sanitizer.Sanitize(item?.Trim()) ?? string.Empty)
             .Where(item => item.Length > 0)
             .Take(maxCount)
             .ToList();
     }
 
-    private static List<RepeatIssueSuggestedStep> NormalizeSteps(List<ReviewStepModel>? steps)
+    private List<RepeatIssueSuggestedStep> SanitizeSteps(List<ReviewStepModel>? steps)
     {
         if (steps is null)
         {
@@ -362,7 +369,7 @@ public sealed class RepeatIssueAiReviewService : IRepeatIssueAiReviewService
                 continue;
             }
 
-            var rationale = step.Rationale?.Trim();
+            var rationale = _sanitizer.Sanitize(step.Rationale?.Trim());
             if (string.IsNullOrWhiteSpace(rationale))
             {
                 continue;

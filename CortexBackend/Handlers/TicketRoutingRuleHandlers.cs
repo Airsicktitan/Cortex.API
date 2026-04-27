@@ -37,9 +37,9 @@ public static class TicketRoutingRuleHandlers
             var savedRule = await service.CreateAsync(rule);
             return Results.Created($"/api/settings/ticket-routing/{savedRule.Id}", savedRule.ToResponse());
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -72,9 +72,9 @@ public static class TicketRoutingRuleHandlers
         {
             return Results.NotFound();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 

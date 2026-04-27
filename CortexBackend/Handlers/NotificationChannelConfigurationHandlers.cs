@@ -33,9 +33,9 @@ public static class NotificationChannelConfigurationHandlers
                 configuration);
             return Results.Ok(savedConfiguration.ToResponse());
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 

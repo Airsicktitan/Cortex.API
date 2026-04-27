@@ -36,9 +36,9 @@ public static class ArchiveConfigurationHandlers
             await archiveAutomationService.EnsurePolicySchedulerAsync(currentUser.Id);
             return Results.Created($"/api/settings/archive/{savedConfiguration.Id}", savedConfiguration.ToResponse());
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -66,9 +66,9 @@ public static class ArchiveConfigurationHandlers
         {
             return Results.NotFound();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 

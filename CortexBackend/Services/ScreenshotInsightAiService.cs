@@ -29,6 +29,7 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
     private readonly OpenAiOptions _options;
     private readonly IAiSettingsService _aiSettingsService;
     private readonly IScreenshotInsightPromptBuilder _promptBuilder;
+    private readonly IAiOutputSanitizer _sanitizer;
     private readonly ILogger<ScreenshotInsightAiService> _logger;
 
     public ScreenshotInsightAiService(
@@ -36,12 +37,14 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
         IOptions<OpenAiOptions> options,
         IAiSettingsService aiSettingsService,
         IScreenshotInsightPromptBuilder promptBuilder,
-        ILogger<ScreenshotInsightAiService> logger)
+        ILogger<ScreenshotInsightAiService> logger,
+        IAiOutputSanitizer? sanitizer = null)
     {
         _httpClient = httpClient;
         _options = options.Value;
         _aiSettingsService = aiSettingsService;
         _promptBuilder = promptBuilder;
+        _sanitizer = sanitizer ?? new AiOutputSanitizer();
         _logger = logger;
     }
 
@@ -131,10 +134,10 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogWarning(
-                        "OpenAI screenshot-insight error. Attempt={Attempt} StatusCode={StatusCode} Body={Body}",
+                        "OpenAI screenshot-insight error. Attempt={Attempt} StatusCode={StatusCode} ResponseLength={ResponseLength}",
                         attempt + 1,
                         (int)response.StatusCode,
-                        responseBody);
+                        responseBody.Length);
 
                     if (attempt < aiSettings.RetryCount
                         && AiRequestExecution.ShouldRetry(response.StatusCode))
@@ -166,7 +169,7 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
                 }
                 catch (JsonException ex)
                 {
-                    _logger.LogWarning(ex, "Screenshot insight returned non-JSON. Content={Content}", content);
+                    _logger.LogWarning(ex, "Screenshot insight returned non-JSON. ContentLength={ContentLength}", content.Length);
                     return Unavailable("Unable to analyze screenshots right now. Try again later.");
                 }
 
@@ -175,7 +178,7 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
                     return Unavailable("Unable to analyze screenshots right now. Try again later.");
                 }
 
-                return Sanitize(parsed);
+                return Sanitize(parsed, _sanitizer);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -253,9 +256,9 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
         };
     }
 
-    private static ScreenshotInsightResponse Sanitize(ScreenshotInsightAiRaw raw)
+    private static ScreenshotInsightResponse Sanitize(ScreenshotInsightAiRaw raw, IAiOutputSanitizer sanitizer)
     {
-        static List<string> CleanList(IReadOnlyList<string?>? list)
+        List<string> CleanList(IReadOnlyList<string?>? list)
         {
             if (list is null || list.Count == 0)
             {
@@ -263,14 +266,14 @@ public sealed class ScreenshotInsightAiService : IScreenshotInsightAiService
             }
 
             return list
-                .Select(value => value?.Trim())
+                .Select(value => sanitizer.Sanitize(value?.Trim()))
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => Truncate(value!, MaxBulletLength)!)
                 .Take(MaxListItems)
                 .ToList();
         }
 
-        var summary = Truncate(raw.Summary?.Trim(), MaxSummaryLength) ?? string.Empty;
+        var summary = Truncate(sanitizer.Sanitize(raw.Summary?.Trim()), MaxSummaryLength) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(summary))
         {
             summary = "No summary was returned for these image(s).";

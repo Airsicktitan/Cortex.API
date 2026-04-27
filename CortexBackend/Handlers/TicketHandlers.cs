@@ -441,6 +441,52 @@ public static class TicketHandlers
         return Results.Ok(decision);
     }
 
+    public static async Task<IResult> GetTicketAutonomy(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ICortexAutonomyService cortexAutonomyService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var latest = await cortexAutonomyService.GetLatestAsync(ticket.Id, cancellationToken);
+        return latest is null ? Results.NoContent() : Results.Ok(latest);
+    }
+
+    public static async Task<IResult> EvaluateTicketAutonomy(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ICortexAutonomyService cortexAutonomyService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var result = await cortexAutonomyService.EvaluateAndMaybeApplyDecisionAsync(ticket, cancellationToken);
+        return Results.Ok(result);
+    }
+
     public static async Task<IResult> GetTicketInsight(
         string id,
         [FromServices] ITicketRepository repo,
@@ -1391,7 +1437,8 @@ public static class TicketHandlers
         ICortexDecisionService? cortexDecisionService,
         ILogger<TicketHandlersLogCategory> logger,
         [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
-        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null,
+        [FromServices] ICortexAutonomyService? cortexAutonomyService = null)
     {
         try
         {
@@ -1545,6 +1592,8 @@ public static class TicketHandlers
                 createdTicket.Id,
                 CancellationToken.None);
 
+            await TryRunAutonomyEvaluationAsync(cortexAutonomyService, createdTicket, logger, CancellationToken.None);
+
             return Results.Created(
                 $"/api/tickets/{createdTicket.Id}",
                 createdTicketResponse);
@@ -1556,6 +1605,31 @@ public static class TicketHandlers
         catch (KeyNotFoundException exception)
         {
             return Results.BadRequest(new { message = exception.Message });
+        }
+    }
+
+    private static async Task TryRunAutonomyEvaluationAsync(
+        ICortexAutonomyService? cortexAutonomyService,
+        Ticket? ticket,
+        ILogger<TicketHandlersLogCategory> logger,
+        CancellationToken cancellationToken)
+    {
+        if (cortexAutonomyService is null || ticket is null || string.IsNullOrWhiteSpace(ticket.Id))
+        {
+            return;
+        }
+
+        try
+        {
+            await cortexAutonomyService.EvaluateAndMaybeApplyDecisionAsync(ticket, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Autonomy is advisory; do not surface failures to the caller.
+            logger.LogWarning(
+                ex,
+                "Cortex autonomy evaluation failed for ticket {TicketId}; continuing without auto-evaluation.",
+                ticket.Id);
         }
     }
 

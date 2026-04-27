@@ -526,6 +526,8 @@ function App() {
   const canViewRebalanceNav =
     sessionUnlocked && hasElevatedAccess(effectiveAuthRoles);
   const canViewOnlineUsersReport = canViewReportsNav;
+  const canManageAutonomyControls =
+    sessionUnlocked && hasElevatedAccess(effectiveAuthRoles);
   const canManageCustomReportDefinitions =
     sessionUnlocked && canManageReportDefinitions(effectiveAuthRoles);
   const canViewArchived = canViewTicketSections;
@@ -3099,6 +3101,7 @@ function App() {
                     canManageReportDefinitions={canManageCustomReportDefinitions}
                     onOpenJobs={() => setActiveView("jobs")}
                     onOpenUsers={() => setActiveView("users")}
+                    canManageAutonomyControls={canManageAutonomyControls}
                   />
                 )
               ) : activeView === "users" && canViewUsers ? (

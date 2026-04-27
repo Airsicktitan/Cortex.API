@@ -1,5 +1,6 @@
 using Cortex.API.Authorization;
 using Cortex.API.Handlers;
+using Cortex.API.Services;
 
 namespace Cortex.API.Extensions;
 
@@ -17,6 +18,11 @@ public static class StoredProcedureDefinitionEndpoints
 
         storedProcedures.MapGet("/database-procedures", StoredProcedureDefinitionHandlers.GetAvailableDatabaseStoredProcedures)
             .WithName("GetAvailableDatabaseStoredProcedures")
+            .Produces(StatusCodes.Status200OK);
+
+        storedProcedures.MapGet("/database-procedures/definitions", (IStoredProcedureDefinitionService service) =>
+                StoredProcedureDefinitionHandlers.GetAvailableDatabaseStoredProcedures(service, includeDefinition: true))
+            .WithName("GetAvailableDatabaseStoredProcedureDefinitions")
             .Produces(StatusCodes.Status200OK);
 
         storedProcedures.MapPost("/", StoredProcedureDefinitionHandlers.CreateStoredProcedureDefinition)

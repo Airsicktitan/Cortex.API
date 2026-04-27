@@ -22,7 +22,7 @@ export default function CommentList({ comments }: Props) {
         >
           <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
             <p className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-              {c.createdByDisplayName ?? c.createdBy}
+              {c.createdByDisplayName?.trim() || "Unknown user"}
             </p>
             <p className="shrink-0 text-xs text-gray-400 dark:text-slate-500">
               {new Date(c.createdDate).toLocaleString()}

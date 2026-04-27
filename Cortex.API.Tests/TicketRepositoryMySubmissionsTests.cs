@@ -67,7 +67,7 @@ public class TicketRepositoryMySubmissionsTests
     }
 
     [Fact]
-    public async Task TicketResponseMapping_IncludesCreatorIdentityMetadata()
+    public async Task TicketResponseMapping_IncludesCreatorEmailMetadata()
     {
         await using var context = CreateContext();
         SeedBoard(context);
@@ -91,7 +91,6 @@ public class TicketRepositoryMySubmissionsTests
         var response = ticket.ToResponse(new Dictionary<string, SlaConfiguration>(), mappingContext);
 
         Assert.Equal(creator.Email, response.CreatedByEmail);
-        Assert.Equal(creator.Auth0Id, response.CreatedByAuth0Id);
     }
 
     [Fact]

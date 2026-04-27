@@ -343,10 +343,10 @@ public class Auth0ManagementService(
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         var bodyPreview = body.Length > 2048 ? body[..2048] + "…" : body;
         _logger.LogWarning(
-            "Auth0 Management API call failed: {StatusCode} {ReasonPhrase}. Response body: {Body}",
+            "Auth0 Management API call failed: {StatusCode} {ReasonPhrase}. ResponseLength={ResponseLength}",
             (int)response.StatusCode,
             response.ReasonPhrase,
-            string.IsNullOrEmpty(bodyPreview) ? "(empty)" : bodyPreview);
+            bodyPreview.Length);
 
         var message = fallbackMessage;
         try

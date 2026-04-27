@@ -1,6 +1,7 @@
 namespace Cortex.API.Extensions;
 
 using Cortex.API.Authorization;
+using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Handlers;
 
@@ -14,12 +15,12 @@ public static class CommentEndpoints
 
         comments.MapGet("/", CommentHandlers.GetComment)
             .WithName("GetAllComments")
-            .Produces<List<Comment>>(StatusCodes.Status200OK);
+            .Produces<List<CommentResponse>>(StatusCodes.Status200OK);
 
         comments.MapPost("/", CommentHandlers.CreateComment)
             .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
             .WithName("CreateComment")
-            .Produces<Comment>(StatusCodes.Status201Created);
+            .Produces<CommentResponse>(StatusCodes.Status201Created);
 
         comments.MapPost("/typing", CommentHandlers.SignalTyping)
             .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
@@ -32,7 +33,7 @@ public static class CommentEndpoints
 
         archivedComments.MapGet("/", CommentHandlers.GetArchivedComment)
             .WithName("GetAllArchivedComments")
-            .Produces<List<Comment>>(StatusCodes.Status200OK);
+            .Produces<List<CommentResponse>>(StatusCodes.Status200OK);
     }
 
     public record CreateCommentRequest(string Body, string? CreatedBy);

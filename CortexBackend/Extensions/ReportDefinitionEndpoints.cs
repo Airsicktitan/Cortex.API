@@ -1,5 +1,6 @@
 using Cortex.API.Authorization;
 using Cortex.API.Handlers;
+using Cortex.API.Services;
 
 namespace Cortex.API.Extensions;
 
@@ -17,6 +18,11 @@ public static class ReportDefinitionEndpoints
 
         reportSettings.MapGet("/database-views", ReportDefinitionHandlers.GetAvailableDatabaseViews)
             .WithName("GetAvailableDatabaseViews")
+            .Produces(StatusCodes.Status200OK);
+
+        reportSettings.MapGet("/database-views/definitions", (IReportDefinitionService service) =>
+                ReportDefinitionHandlers.GetAvailableDatabaseViews(service, includeDefinition: true))
+            .WithName("GetAvailableDatabaseViewDefinitions")
             .Produces(StatusCodes.Status200OK);
 
         reportSettings.MapGet("/sources", ReportDefinitionHandlers.GetReportSources)

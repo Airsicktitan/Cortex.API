@@ -40,7 +40,7 @@ public static class TicketEndpoints
 
         tickets.MapGet("/{id}", TicketHandlers.GetTicketById)
             .WithName("GetTicketById")
-            .Produces<Ticket>(StatusCodes.Status200OK)
+            .Produces<TicketResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapPost("/{id}/triage", TicketHandlers.GenerateTicketTriage)
@@ -91,6 +91,19 @@ public static class TicketEndpoints
         tickets.MapGet("/{id}/decision", TicketHandlers.GetTicketDecision)
             .WithName("GetTicketDecision")
             .Produces<CortexDecisionResult>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
+        tickets.MapGet("/{id}/autonomy", TicketHandlers.GetTicketAutonomy)
+            .WithName("GetTicketAutonomy")
+            .Produces<CortexAutonomyResultDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status404NotFound);
+
+        tickets.MapPost("/{id}/autonomy/evaluate", TicketHandlers.EvaluateTicketAutonomy)
+            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
+            .WithName("EvaluateTicketAutonomy")
+            .Produces<CortexAutonomyResultDto>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapGet("/{id}/insight", TicketHandlers.GetTicketInsight)
@@ -154,36 +167,36 @@ public static class TicketEndpoints
 
         tickets.MapGet("/status/{status}", TicketHandlers.GetTicketsByStatus)
             .WithName("GetTicketsByStatus")
-            .Produces<List<Ticket>>(StatusCodes.Status200OK)
+            .Produces<List<TicketResponse>>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapGet("/priority/{priority}", TicketHandlers.GetTicketsByPriority)
             .WithName("GetTicketsByPriority")
-            .Produces<List<Ticket>>(StatusCodes.Status200OK)
+            .Produces<List<TicketResponse>>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapPost("/", TicketHandlers.CreateTicket)
             .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
             .WithName("CreateTicket")
-            .Produces<Ticket>(StatusCodes.Status201Created);
+            .Produces<TicketResponse>(StatusCodes.Status201Created);
 
         tickets.MapPut("/{id}", TicketHandlers.UpdateTicket)
             .RequireAuthorization(CortexAuthorizationExtensions.StandardWriteAccess)
             .WithName("UpdateTicket")
-            .Produces<Ticket>(StatusCodes.Status200OK)
+            .Produces<TicketResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapPost("/{id}/archive", TicketHandlers.ArchiveTicket)
             .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .WithName("ArchiveTicket")
             .Accepts<TicketActionReasonRequest>("application/json")
-            .Produces<ArchivedTicket>(StatusCodes.Status200OK)
+            .Produces<ArchivedTicketResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapPost("/archived/{id}/reactivate", TicketHandlers.ReactivateArchivedTicket)
             .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .WithName("ReactivateArchivedTicket")
-            .Produces<Ticket>(StatusCodes.Status200OK)
+            .Produces<TicketResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status409Conflict);
 
         tickets.MapDelete("/{id}", TicketHandlers.DeleteTicket)

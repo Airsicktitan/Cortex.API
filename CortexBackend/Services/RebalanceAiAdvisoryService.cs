@@ -11,7 +11,8 @@ namespace Cortex.API.Services;
 public sealed class RebalanceAiAdvisoryService(
     HttpClient httpClient,
     IOptions<OpenAiOptions> options,
-    ILogger<RebalanceAiAdvisoryService> logger) : IRebalanceAiAdvisoryService
+    ILogger<RebalanceAiAdvisoryService> logger,
+    IAiOutputSanitizer? sanitizer = null) : IRebalanceAiAdvisoryService
 {
     private const string OpenAiChatCompletionsUrl = "https://api.openai.com/v1/chat/completions";
 
@@ -23,6 +24,7 @@ public sealed class RebalanceAiAdvisoryService(
     };
 
     private readonly OpenAiOptions _options = options.Value;
+    private readonly IAiOutputSanitizer _sanitizer = sanitizer ?? new AiOutputSanitizer();
 
     public async Task<IReadOnlyDictionary<string, RebalanceAiAdvisory>> GenerateAdvisoriesAsync(
         IReadOnlyList<RebalanceAiDecisionPacket> packets,
@@ -79,10 +81,10 @@ public sealed class RebalanceAiAdvisoryService(
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogWarning(
-                    "OpenAI rebalance advisory error response. StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} Body={ResponseBody}",
+                    "OpenAI rebalance advisory error response. StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength}",
                     (int)response.StatusCode,
                     response.ReasonPhrase,
-                    responseBody);
+                    responseBody.Length);
                 return new Dictionary<string, RebalanceAiAdvisory>(StringComparer.OrdinalIgnoreCase);
             }
 
@@ -115,10 +117,10 @@ public sealed class RebalanceAiAdvisoryService(
                 result[item.TicketId] = new RebalanceAiAdvisory
                 {
                     TicketId = item.TicketId,
-                    Rationale = CleanOneLine(item.Rationale),
-                    RiskSummary = CleanOneLine(item.RiskSummary),
-                    TradeoffSummary = CleanOneLine(item.TradeoffSummary),
-                    ConfidenceWording = CleanOneLine(item.ConfidenceWording),
+                    Rationale = CleanOneLine(_sanitizer.Sanitize(item.Rationale)),
+                    RiskSummary = CleanOneLine(_sanitizer.Sanitize(item.RiskSummary)),
+                    TradeoffSummary = CleanOneLine(_sanitizer.Sanitize(item.TradeoffSummary)),
+                    ConfidenceWording = CleanOneLine(_sanitizer.Sanitize(item.ConfidenceWording)),
                 };
             }
 

@@ -14,10 +14,11 @@ public static class StoredProcedureDefinitionHandlers
     }
 
     public static async Task<IResult> GetAvailableDatabaseStoredProcedures(
-        IStoredProcedureDefinitionService service)
+        IStoredProcedureDefinitionService service,
+        bool includeDefinition = false)
     {
         var definitions = await service.GetAvailableStoredProceduresAsync();
-        return Results.Ok(definitions.Select(definition => definition.ToResponse()));
+        return Results.Ok(definitions.Select(definition => definition.ToResponse(includeDefinition)));
     }
 
     public static async Task<IResult> CreateStoredProcedureDefinition(
@@ -38,9 +39,9 @@ public static class StoredProcedureDefinitionHandlers
             var saved = await service.CreateAsync(definition);
             return Results.Created($"/api/settings/stored-procedures/{saved.Id}", saved.ToResponse());
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -67,9 +68,9 @@ public static class StoredProcedureDefinitionHandlers
         {
             return Results.NotFound();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -86,9 +87,9 @@ public static class StoredProcedureDefinitionHandlers
         {
             return Results.NotFound();
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 }

@@ -31,9 +31,9 @@ public static class TicketBoardHandlers
                 $"/api/boards/{savedDefinition.Id}",
                 savedDefinition.ToResponse());
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -59,9 +59,9 @@ public static class TicketBoardHandlers
         {
             return Results.NotFound();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -78,9 +78,9 @@ public static class TicketBoardHandlers
         {
             return Results.NotFound();
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 }

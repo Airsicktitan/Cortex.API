@@ -164,7 +164,6 @@ export interface Ticket {
   lastModifiedDate?: string;
   createdByDisplayName?: string;
   createdByEmail?: string;
-  createdByAuth0Id?: string;
   approvedAt?: string;
   approvedBy?: number;
   rejectedAt?: string;

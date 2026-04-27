@@ -17,21 +17,13 @@ public static class RoleDefinitionHandlers
             var result = await roleDefinitionService.SyncFromAuth0Async(cancellationToken);
             return Results.Ok(result);
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.Problem(
-                title: "Auth0 management is not configured",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
+            return SafeErrorResponses.ServerError("Auth0 management is not configured");
         }
         catch (Auth0ManagementException exception)
         {
-            return Results.Problem(
-                title: "Failed to sync roles from Auth0",
-                detail: exception.Message,
-                statusCode: exception.StatusCode is >= 400 and < 500
-                    ? exception.StatusCode
-                    : StatusCodes.Status502BadGateway);
+            return SafeErrorResponses.UpstreamError(exception.StatusCode, "Failed to sync roles from Auth0");
         }
     }
 
@@ -63,9 +55,9 @@ public static class RoleDefinitionHandlers
             var saved = await roleDefinitionService.CreateAsync(role);
             return Results.Created($"/api/settings/roles/{saved.Id}", saved.ToResponse());
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
         catch (DbUpdateException exception) when (IsRoleDefinitionUniqueConstraintViolation(exception))
         {
@@ -95,9 +87,9 @@ public static class RoleDefinitionHandlers
         {
             return Results.NotFound();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
         catch (DbUpdateException exception) when (IsRoleDefinitionUniqueConstraintViolation(exception))
         {
@@ -118,9 +110,9 @@ public static class RoleDefinitionHandlers
         {
             return Results.NotFound();
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 

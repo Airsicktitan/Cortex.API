@@ -135,7 +135,7 @@ export default function StoredProcedureRegistrySection({
     setDraft({
       name: definition.procedureName.split(".").pop() ?? definition.procedureName,
       procedureName: definition.procedureName,
-      definitionSql: definition.definitionSql,
+      definitionSql: definition.definitionSql ?? "",
       description: "",
       isEnabled: false,
     });

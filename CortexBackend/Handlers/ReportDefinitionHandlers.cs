@@ -17,10 +17,11 @@ public static class ReportDefinitionHandlers
     }
 
     public static async Task<IResult> GetAvailableDatabaseViews(
-        IReportDefinitionService service)
+        IReportDefinitionService service,
+        bool includeDefinition = false)
     {
         var definitions = await service.GetAvailableViewsAsync();
-        return Results.Ok(definitions.Select(definition => definition.ToResponse()));
+        return Results.Ok(definitions.Select(definition => definition.ToResponse(includeDefinition)));
     }
 
     public static IResult GetReportSources()
@@ -57,13 +58,13 @@ public static class ReportDefinitionHandlers
             var saved = await service.CreateAsync(definition);
             return Results.Created($"/api/settings/reports/{saved.Id}", saved.ToResponse());
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -92,13 +93,13 @@ public static class ReportDefinitionHandlers
         {
             return Results.NotFound();
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 
@@ -130,13 +131,13 @@ public static class ReportDefinitionHandlers
         {
             return Results.NotFound();
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 

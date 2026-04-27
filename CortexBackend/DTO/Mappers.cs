@@ -193,9 +193,6 @@ public static class TicketResponseExtensions
             CreatedByEmail = context.ResolveUserEmail(
                 ticket.CreatedBy,
                 ticket.CreatedByUser),
-            CreatedByAuth0Id = context.ResolveUserAuth0Id(
-                ticket.CreatedBy,
-                ticket.CreatedByUser),
             ApprovedAt = ticket.ApprovedAt,
             ApprovedBy = ticket.ApprovedBy,
             RejectedAt = ticket.RejectedAt,
@@ -676,24 +673,24 @@ public static class StoredProcedureDefinitionMappings
 
 public static class DatabaseViewDefinitionMappings
 {
-    public static DatabaseViewDefinitionResponse ToResponse(this DatabaseViewDefinition definition)
+    public static DatabaseViewDefinitionResponse ToResponse(this DatabaseViewDefinition definition, bool includeDefinition = false)
     {
         return new DatabaseViewDefinitionResponse
         {
             ViewName = definition.ViewName,
-            DefinitionSql = definition.DefinitionSql
+            DefinitionSql = includeDefinition ? definition.DefinitionSql : null
         };
     }
 }
 
 public static class DatabaseStoredProcedureDefinitionMappings
 {
-    public static DatabaseStoredProcedureDefinitionResponse ToResponse(this DatabaseStoredProcedureDefinition definition)
+    public static DatabaseStoredProcedureDefinitionResponse ToResponse(this DatabaseStoredProcedureDefinition definition, bool includeDefinition = false)
     {
         return new DatabaseStoredProcedureDefinitionResponse
         {
             ProcedureName = definition.ProcedureName,
-            DefinitionSql = definition.DefinitionSql
+            DefinitionSql = includeDefinition ? definition.DefinitionSql : null
         };
     }
 }

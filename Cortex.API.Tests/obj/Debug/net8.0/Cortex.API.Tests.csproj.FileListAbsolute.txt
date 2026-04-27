@@ -301,3 +301,4 @@ c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.Tests.d
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.Tests.runtimeconfig.json
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.Tests.dll
 c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.Tests.pdb
+C:\Users\adamc\Documents\Cortex.API\Cortex.API.Tests\bin\Debug\net8.0\Cortex.API.exe

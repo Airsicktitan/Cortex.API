@@ -23,7 +23,7 @@ export interface UpsertCustomReportDefinitionInput {
 
 export interface DatabaseViewDefinition {
   viewName: string;
-  definitionSql: string;
+  definitionSql?: string | null;
 }
 
 export interface ReportSourceColumn {

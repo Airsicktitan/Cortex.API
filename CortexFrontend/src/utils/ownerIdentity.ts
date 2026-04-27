@@ -73,7 +73,7 @@ export function ownerDisplayLabel(
       if (u) {
         return u.displayName;
       }
-      return `User #${id}`;
+      return "Unknown user";
     }
   }
 

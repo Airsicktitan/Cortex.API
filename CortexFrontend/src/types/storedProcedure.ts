@@ -19,5 +19,5 @@ export interface UpsertStoredProcedureDefinitionInput {
 
 export interface DatabaseStoredProcedureDefinition {
   procedureName: string;
-  definitionSql: string;
+  definitionSql?: string | null;
 }

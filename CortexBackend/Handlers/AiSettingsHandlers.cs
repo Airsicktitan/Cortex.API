@@ -43,9 +43,9 @@ public static class AiSettingsHandlers
             var savedConfiguration = await aiSettingsService.SaveAsync(configuration);
             return Results.Ok(savedConfiguration.ToResponse());
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            return Results.BadRequest(new { message = exception.Message });
+            return SafeErrorResponses.BadRequest();
         }
     }
 }

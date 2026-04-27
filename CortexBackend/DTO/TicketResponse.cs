@@ -25,7 +25,6 @@ public class TicketResponse
 
     public string CreatedByDisplayName { get; set; } = string.Empty;
     public string? CreatedByEmail { get; set; }
-    public string? CreatedByAuth0Id { get; set; }
     public DateTime CreatedDate { get; set; }
     public DateTime? ApprovedAt { get; set; }
     public int? ApprovedBy { get; set; }

@@ -37,6 +37,7 @@ import RoleDefinitionSection from "./RoleDefinitionSection";
 import TicketBoardRegistrySection from "./TicketBoardRegistrySection";
 import TicketRoutingSection from "./TicketRoutingSection";
 import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
+import CortexAutonomyControlSection from "./CortexAutonomyControlSection";
 
 interface ConfigurationPageProps {
   slaConfigurations: SlaConfiguration[];
@@ -218,6 +219,7 @@ interface ConfigurationPageProps {
   canManageReportDefinitions: boolean;
   onOpenJobs: () => void;
   onOpenUsers?: () => void;
+  canManageAutonomyControls: boolean;
 }
 
 type ConfigSection =
@@ -229,6 +231,7 @@ type ConfigSection =
   | "notifications"
   | "jobs"
   | "ai"
+  | "autonomy"
   | "reports"
   | "logs";
 
@@ -366,6 +369,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     canManageReportDefinitions,
     onOpenJobs,
     onOpenUsers,
+    canManageAutonomyControls,
   } = props;
 
   const [activeSection, setActiveSection] = useState<ConfigSection>("general");
@@ -464,6 +468,14 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
       });
     }
 
+    if (canManageAutonomyControls) {
+      items.push({
+        id: "autonomy",
+        label: "Safe Autonomy",
+        description: "Control low-risk assignment autonomy with trust-first guardrails.",
+      });
+    }
+
     items.push(
       {
         id: "reports",
@@ -478,7 +490,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     );
 
     return items;
-  }, [canManageAiSettings]);
+  }, [canManageAiSettings, canManageAutonomyControls]);
 
   const handleExportLogs = async (format: AdminLogExportFormat) => {
     setLogExportError(null);
@@ -750,6 +762,12 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                 onChange={onAiSettingsChange}
                 onRefresh={onRefreshAiSettings}
                 onSave={onSaveAiSettings}
+              />
+            )}
+
+            {activeSection === "autonomy" && canManageAutonomyControls && (
+              <CortexAutonomyControlSection
+                canEdit={canManageAutonomyControls}
               />
             )}
 

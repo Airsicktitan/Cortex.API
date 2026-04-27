@@ -69,6 +69,7 @@ public sealed class CortexInsightService : ICortexInsightService
     private readonly OpenAiOptions _options;
     private readonly IAiSettingsService _aiSettingsService;
     private readonly IMemoryCache _cache;
+    private readonly IAiOutputSanitizer _sanitizer;
     private readonly ILogger<CortexInsightService> _logger;
     private readonly ICortexMemoryFeedbackService _feedbackService;
     private readonly ICortexLearningService? _learningService;
@@ -81,13 +82,15 @@ public sealed class CortexInsightService : ICortexInsightService
         IMemoryCache cache,
         ILogger<CortexInsightService> logger,
         ICortexMemoryFeedbackService feedbackService,
-        ICortexLearningService? learningService = null)
+        ICortexLearningService? learningService = null,
+        IAiOutputSanitizer? sanitizer = null)
     {
         _db = db;
         _httpClient = httpClient;
         _options = options.Value;
         _aiSettingsService = aiSettingsService;
         _cache = cache;
+        _sanitizer = sanitizer ?? new AiOutputSanitizer();
         _logger = logger;
         _feedbackService = feedbackService;
         _learningService = learningService;
@@ -322,11 +325,11 @@ public sealed class CortexInsightService : ICortexInsightService
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogWarning(
-                        "OpenAI Cortex Insight error. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} Body={ResponseBody}",
+                        "OpenAI Cortex Insight error. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength}",
                         attempt + 1,
                         httpStatusCode,
                         reasonPhrase,
-                        responseBody);
+                        responseBody.Length);
 
                     if (attempt < aiSettings.RetryCount
                         && AiRequestExecution.ShouldRetry(response.StatusCode))
@@ -355,10 +358,10 @@ public sealed class CortexInsightService : ICortexInsightService
                     return Unavailable(baseResponse, "Could not parse Cortex Insight response.");
                 }
 
-                baseResponse.Summary = NormalizeText(model.Summary);
-                baseResponse.Resolution = NormalizeText(model.Resolution);
-                baseResponse.RootCause = NormalizeText(model.RootCause);
-                baseResponse.SuggestedNextStep = NormalizeText(model.SuggestedNextStep);
+                baseResponse.Summary = SanitizeText(model.Summary);
+                baseResponse.Resolution = SanitizeText(model.Resolution);
+                baseResponse.RootCause = SanitizeText(model.RootCause);
+                baseResponse.SuggestedNextStep = SanitizeText(model.SuggestedNextStep);
                 return baseResponse;
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -391,12 +394,11 @@ public sealed class CortexInsightService : ICortexInsightService
 
                 _logger.LogWarning(
                     ex,
-                    "OpenAI Cortex Insight failed. Attempt={Attempt} ExceptionMessage={ExceptionMessage} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseBody={ResponseBody} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
+                    "OpenAI Cortex Insight failed. Attempt={Attempt} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
                     attempt + 1,
-                    ex.Message,
                     httpStatusCode,
                     reasonPhrase,
-                    responseBody ?? "(not available)",
+                    responseBody?.Length ?? 0,
                     httpRequestStatus);
 
                 if (attempt < aiSettings.RetryCount && ex is HttpRequestException httpException)
@@ -772,6 +774,11 @@ public sealed class CortexInsightService : ICortexInsightService
         }
 
         return value.Trim();
+    }
+
+    private string? SanitizeText(string? value)
+    {
+        return NormalizeText(_sanitizer.Sanitize(value));
     }
 
     private static float[]? TryParseVector(string? vectorJson)

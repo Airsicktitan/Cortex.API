@@ -93,21 +93,13 @@ public static class UserHandlers
             var roles = await auth0Management.GetAllRolesAsync(cancellationToken);
             return Results.Ok(roles.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList());
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.Problem(
-                title: "Auth0 management is not configured",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
+            return SafeErrorResponses.ServerError("Auth0 management is not configured");
         }
         catch (Auth0ManagementException exception)
         {
-            return Results.Problem(
-                title: "Failed to list Auth0 roles",
-                detail: exception.Message,
-                statusCode: exception.StatusCode is >= 400 and < 500
-                    ? exception.StatusCode
-                    : StatusCodes.Status502BadGateway);
+            return SafeErrorResponses.UpstreamError(exception.StatusCode, "Failed to list Auth0 roles");
         }
     }
 
@@ -120,21 +112,13 @@ public static class UserHandlers
             var result = await syncService.SyncFromAuth0Async(cancellationToken);
             return Results.Ok(result);
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.Problem(
-                title: "Auth0 management is not configured",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
+            return SafeErrorResponses.ServerError("Auth0 management is not configured");
         }
         catch (Auth0ManagementException exception)
         {
-            return Results.Problem(
-                title: "Failed to sync users from Auth0",
-                detail: exception.Message,
-                statusCode: exception.StatusCode is >= 400 and < 500
-                    ? exception.StatusCode
-                    : StatusCodes.Status502BadGateway);
+            return SafeErrorResponses.UpstreamError(exception.StatusCode, "Failed to sync users from Auth0");
         }
     }
 
@@ -163,21 +147,13 @@ public static class UserHandlers
                 .ToList();
             return Results.Ok(new UserAuth0RolesResponse { Roles = dtos });
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.Problem(
-                title: "Auth0 management is not configured",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
+            return SafeErrorResponses.ServerError("Auth0 management is not configured");
         }
         catch (Auth0ManagementException exception)
         {
-            return Results.Problem(
-                title: "Failed to load Auth0 roles",
-                detail: exception.Message,
-                statusCode: exception.StatusCode is >= 400 and < 500
-                    ? exception.StatusCode
-                    : StatusCodes.Status502BadGateway);
+            return SafeErrorResponses.UpstreamError(exception.StatusCode, "Failed to load Auth0 roles");
         }
     }
 
@@ -297,19 +273,11 @@ public static class UserHandlers
         }
         catch (Auth0ManagementException exception)
         {
-            return Results.Problem(
-                title: "Auth0 role change failed",
-                detail: exception.Message,
-                statusCode: exception.StatusCode is >= 400 and < 600
-                    ? exception.StatusCode
-                    : StatusCodes.Status502BadGateway);
+            return SafeErrorResponses.UpstreamError(exception.StatusCode, "Auth0 role change failed");
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.Problem(
-                title: "Auth0 management is not configured",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
+            return SafeErrorResponses.ServerError("Auth0 management is not configured");
         }
     }
 
@@ -675,23 +643,11 @@ public static class UserHandlers
         }
         catch (Auth0ManagementException exception)
         {
-            return Results.Problem(
-                title: "Failed to provision user in Auth0",
-                detail: exception.Message,
-                statusCode: exception.StatusCode switch
-                {
-                    400 => StatusCodes.Status400BadRequest,
-                    401 or 403 => StatusCodes.Status502BadGateway,
-                    409 => StatusCodes.Status409Conflict,
-                    _ => StatusCodes.Status502BadGateway
-                });
+            return SafeErrorResponses.UpstreamError(exception.StatusCode, "Failed to provision user in Auth0");
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.Problem(
-                title: "Auth0 management is not configured",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
+            return SafeErrorResponses.ServerError("Auth0 management is not configured");
         }
         catch
         {
@@ -765,22 +721,11 @@ public static class UserHandlers
         }
         catch (Auth0ManagementException exception)
         {
-            return Results.Problem(
-                title: "Failed to delete user from Auth0",
-                detail: exception.Message,
-                statusCode: exception.StatusCode switch
-                {
-                    400 => StatusCodes.Status400BadRequest,
-                    401 or 403 => StatusCodes.Status502BadGateway,
-                    _ => StatusCodes.Status502BadGateway
-                });
+            return SafeErrorResponses.UpstreamError(exception.StatusCode, "Failed to delete user from Auth0");
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            return Results.Problem(
-                title: "Auth0 management is not configured",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
+            return SafeErrorResponses.ServerError("Auth0 management is not configured");
         }
     }
 

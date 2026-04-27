@@ -135,6 +135,7 @@ builder.Services.AddScoped<IWorkloadSnapshotService, WorkloadSnapshotService>();
 builder.Services.AddScoped<ICortexCandidateResolutionService, CortexCandidateResolutionService>();
 builder.Services.AddScoped<ICortexDecisionService, CortexDecisionService>();
 builder.Services.AddScoped<ICortexAiAssessmentService, CortexAiAssessmentService>();
+builder.Services.AddSingleton<IAiOutputSanitizer, AiOutputSanitizer>();
 builder.Services.AddHttpClient<ICortexEmbeddingService, CortexEmbeddingService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
@@ -151,6 +152,9 @@ builder.Services.AddScoped<IOperationalRiskService, OperationalRiskService>();
 builder.Services.AddScoped<IReassignmentRecommendationService, ReassignmentRecommendationService>();
 builder.Services.AddScoped<IReassignmentExecutionService, ReassignmentExecutionService>();
 builder.Services.AddScoped<IDecisionImpactService, DecisionImpactService>();
+builder.Services.Configure<CortexAutonomyOptions>(builder.Configuration.GetSection(CortexAutonomyOptions.SectionName));
+builder.Services.AddScoped<ICortexAutonomySettingsService, CortexAutonomySettingsService>();
+builder.Services.AddScoped<ICortexAutonomyService, CortexAutonomyService>();
 builder.Services.AddScoped<IRebalanceOverviewService, RebalanceOverviewService>();
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
 builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabilityService>();
@@ -468,6 +472,7 @@ app.MapTicketBoardEndpoints();
 app.MapScheduledJobEndpoints();
 app.MapNotificationEndpoints();
 app.MapSystemEndpoints();
+app.MapSystemAutonomyEndpoints();
 app.MapRealtimeEndpoints();
 app.MapHub<RealtimeHub>("/api/realtime/hub").RequireAuthorization();
 

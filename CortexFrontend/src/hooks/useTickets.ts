@@ -229,11 +229,6 @@ function ticketIsCreatedByCurrentUser(
     return true;
   }
 
-  const createdByAuth0Id = normalize(String(ticket.createdByAuth0Id ?? ""));
-  if (createdByAuth0Id && creatorCandidates.has(createdByAuth0Id)) {
-    return true;
-  }
-
   const createdByEmail = normalize(String(ticket.createdByEmail ?? ""));
   return createdByEmail !== "" && creatorCandidates.has(createdByEmail);
 }

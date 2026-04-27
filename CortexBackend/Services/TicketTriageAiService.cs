@@ -25,17 +25,20 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
     private readonly HttpClient _httpClient;
     private readonly OpenAiOptions _options;
     private readonly IAiSettingsService _aiSettingsService;
+    private readonly IAiOutputSanitizer _sanitizer;
     private readonly ILogger<TicketTriageAiService> _logger;
 
     public TicketTriageAiService(
         HttpClient httpClient,
         IOptions<OpenAiOptions> options,
         IAiSettingsService aiSettingsService,
-        ILogger<TicketTriageAiService> logger)
+        ILogger<TicketTriageAiService> logger,
+        IAiOutputSanitizer? sanitizer = null)
     {
         _httpClient = httpClient;
         _options = options.Value;
         _aiSettingsService = aiSettingsService;
+        _sanitizer = sanitizer ?? new AiOutputSanitizer();
         _logger = logger;
     }
 
@@ -118,11 +121,11 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogWarning(
-                        "OpenAI triage error response. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} Body={ResponseBody}",
+                        "OpenAI triage error response. Attempt={Attempt} StatusCode={StatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength}",
                         attempt + 1,
                         httpStatusCode,
                         reasonPhrase,
-                        responseBody);
+                        responseBody.Length);
 
                     if (attempt < aiSettings.RetryCount
                         && AiRequestExecution.ShouldRetry(response.StatusCode))
@@ -179,15 +182,15 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
 
                 return new TicketTriageGenerateResponse
                 {
-                    Summary = NormalizeSingleSentence(triage.Summary),
+                    Summary = SanitizeSingleSentence(triage.Summary),
                     SuggestedPriority = suggestedPriority,
                     PriorityReason = allowPriorityRecommendation
-                        ? NormalizeSingleSentence(triage.PriorityReason)
+                        ? SanitizeSingleSentence(triage.PriorityReason)
                         : null,
                     SuggestedStatus = suggestedStatus,
-                    MissingDetails = NormalizeMissing(triage.MissingDetails),
+                    MissingDetails = SanitizeMissing(triage.MissingDetails),
                     PotentialSlaRisk = NormalizeSlaRiskTier(triage.PotentialSlaRisk),
-                    SlaRiskReason = NormalizeSingleSentence(triage.SlaRiskReason),
+                    SlaRiskReason = SanitizeSingleSentence(triage.SlaRiskReason),
                     SuggestedCategory = suggestedCategory,
                     SuggestedOwnerUserId = suggestedOwner,
                     Unavailable = false,
@@ -223,12 +226,11 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
 
                 _logger.LogWarning(
                     ex,
-                    "OpenAI triage request failed. Attempt={Attempt} ExceptionMessage={ExceptionMessage} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseBody={ResponseBody} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
+                    "OpenAI triage request failed. Attempt={Attempt} HttpStatusCode={HttpStatusCode} ReasonPhrase={ReasonPhrase} ResponseLength={ResponseLength} HttpRequestExceptionStatusCode={HttpRequestExceptionStatusCode}",
                     attempt + 1,
-                    ex.Message,
                     httpStatusCode,
                     reasonPhrase,
-                    responseBody ?? "(not available)",
+                    responseBody?.Length ?? 0,
                     httpRequestStatus);
 
                 if (attempt < aiSettings.RetryCount && ex is HttpRequestException httpException)
@@ -520,6 +522,11 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
         return trimmed;
     }
 
+    private string? SanitizeSingleSentence(string? value)
+    {
+        return NormalizeSingleSentence(_sanitizer.Sanitize(value));
+    }
+
     private static string? NormalizeSlaRiskTier(string? raw)
     {
         var candidate = NormalizeWhitespace(raw);
@@ -539,10 +546,10 @@ public sealed class TicketTriageAiService : ITicketTriageAiService
         return null;
     }
 
-    private static List<string> NormalizeMissing(List<string>? items)
+    private List<string> SanitizeMissing(List<string>? items)
     {
         var list = (items ?? [])
-            .Select(item => item.Trim())
+            .Select(item => _sanitizer.Sanitize(item)?.Trim() ?? string.Empty)
             .Where(item => item.Length > 0)
             .Take(4)
             .ToList();
