@@ -522,9 +522,9 @@ function getLearningImpactReason(adjustment: {
     const overrideFact = facts.find((fact) => /%\s*override rate/i.test(fact));
     const percentMatch = overrideFact?.match(/(\d{1,3})\s*%/);
     if (percentMatch) {
-      return `Confidence reduced due to historical override rate (${percentMatch[1]}%).`;
+      return `Signal strength reduced due to historical override rate (${percentMatch[1]}%).`;
     }
-    return "Confidence reduced due to historical override rate.";
+    return "Signal strength reduced due to historical override rate.";
   }
   return adjustment.reason;
 }

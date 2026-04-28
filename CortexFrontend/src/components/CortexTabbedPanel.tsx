@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Ticket } from "../types/ticket";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { RoutingLivePreviewInput } from "./TicketRoutingInsight";
@@ -6,19 +6,17 @@ import type { CortexSlaRisk } from "../types/cortexRisk";
 import TicketRoutingInsight from "./TicketRoutingInsight";
 import CortexRiskPanel from "./CortexRiskPanel";
 import CortexInsightPanel from "./CortexInsightPanel";
-import CortexAutonomyPanel from "./CortexAutonomyPanel";
 
-type CortexTab = "decision" | "risk" | "insight" | "autonomy";
+type CortexTab = "review" | "decision" | "risk" | "insight";
 
 const TAB_LABELS: Record<CortexTab, string> = {
+  review: "Review",
   decision: "Decision",
   risk: "Risk",
   insight: "Insight",
-  autonomy: "Autonomy",
 };
 
-const ALL_TABS: CortexTab[] = ["decision", "risk", "insight", "autonomy"];
-const TABS_NO_AUTONOMY: CortexTab[] = ["decision", "risk", "insight"];
+const ALL_TABS: CortexTab[] = ["review", "decision", "risk", "insight"];
 
 export interface CortexTabbedPanelProps {
   ticket: Ticket;
@@ -30,8 +28,8 @@ export interface CortexTabbedPanelProps {
   onRiskReady?: (risk: CortexSlaRisk | null) => void;
   onOpenSourceTicket?: (ticketId: string) => void | Promise<void>;
   onReassignmentApplied?: (updatedTicket: Ticket) => void;
-  /** Hide Autonomy tab (e.g. in requester context). */
-  showAutonomy?: boolean;
+  /** Content to render inside the Review tab (e.g. ApprovalTriageModalColumn). */
+  reviewSlot?: ReactNode;
 }
 
 export function CortexTabbedPanel({
@@ -43,21 +41,19 @@ export function CortexTabbedPanel({
   onRiskReady,
   onOpenSourceTicket,
   onReassignmentApplied,
-  showAutonomy = true,
+  reviewSlot,
 }: CortexTabbedPanelProps) {
-  const [activeTab, setActiveTab] = useState<CortexTab>("decision");
+  const [activeTab, setActiveTab] = useState<CortexTab>("review");
   // Tracks which tabs have been visited at least once — panels only mount on first visit.
   const [visited, setVisited] = useState<ReadonlySet<CortexTab>>(
-    new Set(["decision"]),
+    new Set<CortexTab>(["review"]),
   );
 
   // Reset state when a different ticket is opened.
   useEffect(() => {
-    setActiveTab("decision");
-    setVisited(new Set(["decision"]));
+    setActiveTab("review");
+    setVisited(new Set<CortexTab>(["review"]));
   }, [ticket.id]);
-
-  const tabs = showAutonomy ? ALL_TABS : TABS_NO_AUTONOMY;
 
   function switchTab(tab: CortexTab) {
     setActiveTab(tab);
@@ -71,8 +67,8 @@ export function CortexTabbedPanel({
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Cortex
         </p>
-        <div className="flex -mb-px">
-          {tabs.map((tab) => (
+        <div className="-mb-px flex">
+          {ALL_TABS.map((tab) => (
             <button
               key={tab}
               type="button"
@@ -92,7 +88,16 @@ export function CortexTabbedPanel({
       {/* Tab panels — each mounts on first visit, then stays mounted (hidden when inactive).
           This prevents eager API calls for unvisited tabs while avoiding remount on every switch. */}
       <div>
-        {visited.has("decision") && (
+        {/* Review tab: always pre-mounted; renders reviewSlot content injected from parent. */}
+        <div className={activeTab === "review" ? undefined : "hidden"}>
+          {reviewSlot ?? (
+            <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
+              No review content available.
+            </p>
+          )}
+        </div>
+
+        {ticket.id && visited.has("decision") && (
           <div className={activeTab === "decision" ? undefined : "hidden"}>
             <TicketRoutingInsight
               ticket={ticket}
@@ -127,13 +132,7 @@ export function CortexTabbedPanel({
           </div>
         )}
 
-        {ticket.id && showAutonomy && visited.has("autonomy") && (
-          <div className={activeTab === "autonomy" ? undefined : "hidden"}>
-            <CortexAutonomyPanel ticketId={ticket.id} isOpen={isModalOpen} />
-          </div>
-        )}
-
-        {!ticket.id && activeTab !== "decision" && (
+        {!ticket.id && activeTab !== "review" && (
           <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
             Save the ticket to unlock Cortex insights.
           </p>
