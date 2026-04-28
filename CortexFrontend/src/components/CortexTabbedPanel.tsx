@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { Ticket } from "../types/ticket";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { RoutingLivePreviewInput } from "./TicketRoutingInsight";
@@ -6,6 +6,7 @@ import type { CortexSlaRisk } from "../types/cortexRisk";
 import TicketRoutingInsight from "./TicketRoutingInsight";
 import CortexRiskPanel from "./CortexRiskPanel";
 import CortexInsightPanel from "./CortexInsightPanel";
+import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 
 type CortexTab = "review" | "decision" | "risk" | "insight";
 
@@ -23,12 +24,10 @@ export interface CortexTabbedPanelProps {
   isModalOpen: boolean;
   ticketBoards?: TicketBoardDefinition[];
   livePreview?: RoutingLivePreviewInput | null;
-  /** Risk level forwarded from onRiskReady for the Decision panel's context signal. */
   riskLevel?: "Low" | "Medium" | "High" | null;
   onRiskReady?: (risk: CortexSlaRisk | null) => void;
   onOpenSourceTicket?: (ticketId: string) => void | Promise<void>;
   onReassignmentApplied?: (updatedTicket: Ticket) => void;
-  /** Content to render inside the Review tab (e.g. ApprovalTriageModalColumn). */
   reviewSlot?: ReactNode;
 }
 
@@ -44,16 +43,10 @@ export function CortexTabbedPanel({
   reviewSlot,
 }: CortexTabbedPanelProps) {
   const [activeTab, setActiveTab] = useState<CortexTab>("review");
-  // Tracks which tabs have been visited at least once — panels only mount on first visit.
   const [visited, setVisited] = useState<ReadonlySet<CortexTab>>(
     new Set<CortexTab>(["review"]),
   );
-
-  // Reset state when a different ticket is opened.
-  useEffect(() => {
-    setActiveTab("review");
-    setVisited(new Set<CortexTab>(["review"]));
-  }, [ticket.id]);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   function switchTab(tab: CortexTab) {
     setActiveTab(tab);
@@ -61,17 +54,18 @@ export function CortexTabbedPanel({
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900/50">
-      {/* Header + tab strip */}
-      <div className="border-b border-gray-200 px-4 pb-0 pt-3 dark:border-slate-800">
+    <section className="relative flex min-h-0 flex-col overflow-visible rounded-md border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900/50">
+      <div className="shrink-0 border-b border-gray-200 px-4 pb-0 pt-3 dark:border-slate-800">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Cortex
         </p>
-        <div className="-mb-px flex">
+        <div className="-mb-px flex" role="tablist" aria-label="Cortex tabs">
           {ALL_TABS.map((tab) => (
             <button
               key={tab}
               type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
               onClick={() => switchTab(tab)}
               className={`mr-1 border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none ${
                 activeTab === tab
@@ -85,10 +79,10 @@ export function CortexTabbedPanel({
         </div>
       </div>
 
-      {/* Tab panels — each mounts on first visit, then stays mounted (hidden when inactive).
-          This prevents eager API calls for unvisited tabs while avoiding remount on every switch. */}
-      <div>
-        {/* Review tab: always pre-mounted; renders reviewSlot content injected from parent. */}
+      <div
+        ref={scrollContainerRef}
+        className="scroll-surface min-h-0 flex-1 overflow-y-auto pb-12"
+      >
         <div className={activeTab === "review" ? undefined : "hidden"}>
           {reviewSlot ?? (
             <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
@@ -138,6 +132,13 @@ export function CortexTabbedPanel({
           </p>
         )}
       </div>
-    </div>
+
+      <ScrollToBottomButton
+        containerRef={scrollContainerRef}
+        aria-label="Scroll Cortex panel content to bottom"
+      />
+    </section>
   );
 }
+
+export default CortexTabbedPanel;

@@ -336,53 +336,6 @@ function hasOwnerRecommendation(decision: TicketRoutingDecisionDto): boolean {
   );
 }
 
-type ConfidenceLevel = "High" | "Medium" | "Low";
-
-function resolveConfidenceLevel(
-  decision: TicketRoutingDecisionDto,
-  matchedFactorCount: number,
-): ConfidenceLevel {
-  const raw = decision.confidenceLevel?.trim();
-  if (raw === "High" || raw === "Medium" || raw === "Low") {
-    return raw;
-  }
-  if (matchedFactorCount >= 3) {
-    return "High";
-  }
-  if (matchedFactorCount === 2) {
-    return "Medium";
-  }
-  return "Low";
-}
-
-function toHumanConfidenceLabel(
-  confidenceLevel: ConfidenceLevel,
-  slotClassifications: string[],
-): string {
-  if (slotClassifications.includes("Multiple viable candidates")) {
-    return "Multiple viable recommendations";
-  }
-  if (slotClassifications.includes("Limited routing signals")) {
-    return "Limited routing signals";
-  }
-  if (slotClassifications.includes("Strong match, low pressure")) {
-    return "Strong match, low pressure";
-  }
-  if (slotClassifications.includes("Strong match, moderate pressure")) {
-    return "Strong match, moderate pressure";
-  }
-  if (slotClassifications.includes("Moderate match")) {
-    return "Moderate match";
-  }
-  if (confidenceLevel === "High") {
-    return "Strong match, low pressure";
-  }
-  if (confidenceLevel === "Medium") {
-    return "Moderate match";
-  }
-  return "Limited routing signals";
-}
-
 function humanizeCriterion(criterion: string): string {
   switch (criterion) {
     case "BoardId":
@@ -492,41 +445,6 @@ function workloadSignalClassName(signal: WorkloadSignalLabel): string {
     return "bg-amber-100 text-amber-950 dark:bg-amber-950/50 dark:text-amber-50";
   }
   return "bg-emerald-100 text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100";
-}
-
-function formatConfidencePercent(value: number | null | undefined): string {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "—";
-  }
-  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
-}
-
-function formatConfidenceDeltaPercent(value: number | null | undefined): string {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "—";
-  }
-  const rounded = Math.round(value * 100);
-  if (rounded > 0) {
-    return `+${rounded}%`;
-  }
-  return `${rounded}%`;
-}
-
-function getLearningImpactReason(adjustment: {
-  targetType: string;
-  reason: string;
-  supportingFacts?: string[];
-}): string {
-  if (adjustment.targetType?.toLowerCase() === "rule") {
-    const facts = adjustment.supportingFacts ?? [];
-    const overrideFact = facts.find((fact) => /%\s*override rate/i.test(fact));
-    const percentMatch = overrideFact?.match(/(\d{1,3})\s*%/);
-    if (percentMatch) {
-      return `Signal strength reduced due to historical override rate (${percentMatch[1]}%).`;
-    }
-    return "Signal strength reduced due to historical override rate.";
-  }
-  return adjustment.reason;
 }
 
 function aggregateWorkload(
@@ -653,7 +571,6 @@ export default function TicketRoutingInsight({
   const [cortexDecision, setCortexDecision] = useState<CortexDecisionResult | null>(
     null,
   );
-  const [techExpanded, setTechExpanded] = useState(false);
   const [decisionPanelExpanded, setDecisionPanelExpanded] = useState(true);
   const [fullReasoningExpanded, setFullReasoningExpanded] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -671,7 +588,6 @@ export default function TicketRoutingInsight({
   const livePreviewPriority = livePreview?.priority;
 
   useEffect(() => {
-    setTechExpanded(false);
     setDecisionPanelExpanded(true);
     setFullReasoningExpanded(false);
   }, [ticket.id]);
@@ -867,33 +783,6 @@ export default function TicketRoutingInsight({
     }
     return assignmentSummaryLine(decision, override, ticket);
   }, [decision, override, ticket]);
-
-  const confidenceLevel = useMemo((): ConfidenceLevel | null => {
-    if (!decision) {
-      return null;
-    }
-    return resolveConfidenceLevel(decision, matchedFactorLines.length);
-  }, [decision, matchedFactorLines.length]);
-
-  const confidencePresentation = useMemo(() => {
-    if (confidenceLevel === null) {
-      return null;
-    }
-    const hasMatchedCriteria = matchedFactorLines.length > 0;
-    if (confidenceLevel === "High" || confidenceLevel === "Medium") {
-      return {
-        kind: "standard" as const,
-        text: `${confidenceLevel} confidence`,
-      };
-    }
-    if (!hasMatchedCriteria) {
-      return {
-        kind: "soft" as const,
-        text: "Low — insufficient routing signals",
-      };
-    }
-    return { kind: "standard" as const, text: "Low confidence" };
-  }, [confidenceLevel, matchedFactorLines.length]);
 
   const slotReasoning = useMemo(() => {
     const slots = explanation?.slots;
@@ -1144,18 +1033,6 @@ export default function TicketRoutingInsight({
   const hasManualOverride =
     Boolean(override) || synitiOwnerOverridden || businessOwnerOverridden;
 
-  const confidenceLabel = useMemo(() => {
-    if (!confidenceLevel) {
-      return null;
-    }
-    if (explanation?.confidenceClassification?.trim()) {
-      return explanation.confidenceClassification.trim();
-    }
-    const classifications = slotReasoning
-      .map((slot) => slot.classification)
-      .filter((value) => value.length > 0);
-    return toHumanConfidenceLabel(confidenceLevel, classifications);
-  }, [confidenceLevel, explanation?.confidenceClassification, slotReasoning]);
   const workloadKeys = useMemo(
     () => (decision ? collectWorkloadOwnerKeys(decision, ticket, explanation) : []),
     [decision, ticket, explanation],
@@ -1305,15 +1182,6 @@ export default function TicketRoutingInsight({
     cortexDecision?.summary ??
     expectedImpactSummary ??
     routingReasoningEmptyCopy;
-  const learningAdjustments = cortexDecision?.learningAdjustments ?? [];
-  const hasLearningAdjustments = learningAdjustments.length > 0;
-  const hasLearningDelta = typeof cortexDecision?.learningConfidenceDelta === "number";
-  const showLearningConfidenceBreakdown =
-    hasLearningDelta && typeof cortexDecision?.baseConfidenceScore === "number";
-  const learningDeltaClassName =
-    (cortexDecision?.learningConfidenceDelta ?? 0) < 0
-      ? "text-red-700 dark:text-red-300"
-      : "text-emerald-700 dark:text-emerald-300";
   const isHighRisk = riskLevel === "High";
 
   if (!ticket.id) {
@@ -1323,10 +1191,10 @@ export default function TicketRoutingInsight({
   return (
     <div
       id="cortex-decision-panel"
-      className={`mb-6 rounded-xl border p-4 shadow-sm transition-colors dark:shadow-none ${
+      className={`px-4 py-4 transition-colors ${
         highlightPanel
-          ? "border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/25"
-          : "border-slate-200/95 bg-white dark:border-slate-600/80 dark:bg-slate-950/40"
+          ? "rounded-md border border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/25"
+          : ""
       }`}
     >
       <button
@@ -1521,39 +1389,6 @@ export default function TicketRoutingInsight({
               <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
                 {cortexDecision.summary}
               </p>
-              <div className="mt-2 rounded-md border border-slate-200/80 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950/40">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Signal Strength
-                </p>
-                {showLearningConfidenceBreakdown ? (
-                  <div className="mt-1.5 space-y-1 text-sm">
-                    <p className="text-slate-600 dark:text-slate-300">
-                      Base signal:{" "}
-                      <span className="font-medium">
-                        {formatConfidencePercent(cortexDecision.baseConfidenceScore)}
-                      </span>
-                    </p>
-                    <p className={learningDeltaClassName}>
-                      Learning adjustment:{" "}
-                      <span className="font-semibold">
-                        {formatConfidenceDeltaPercent(cortexDecision.learningConfidenceDelta)}
-                      </span>
-                      <span className="text-slate-500 dark:text-slate-400 font-normal">
-                        {" "}
-                        (historical override pattern)
-                      </span>
-                    </p>
-                    <p className="font-semibold text-slate-900 dark:text-slate-100">
-                      Signal strength:{" "}
-                      {formatConfidencePercent(cortexDecision.confidenceScore)}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="mt-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    Signal strength: {formatConfidencePercent(cortexDecision.confidenceScore)}
-                  </p>
-                )}
-              </div>
               <div className="mt-2 grid gap-1 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2">
                 <p>
                   Recommended owner: {synitiOwnerDisplay}
@@ -1567,56 +1402,6 @@ export default function TicketRoutingInsight({
                 <p>
                   Manual override status: {hasManualOverride ? "Yes" : "No"}
                 </p>
-              </div>
-            </div>
-          ) : null}
-          {hasLearningAdjustments ? (
-            <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Learning Impact
-              </p>
-              <div className="mt-2 space-y-2">
-                {learningAdjustments.map((adjustment, index) => {
-                  const adjustmentIsNegative = adjustment.scoreDelta < 0;
-                  return (
-                    <div
-                      key={`${adjustment.targetType}-${adjustment.reason.slice(0, 30)}-${index}`}
-                      className="rounded-md border border-slate-200/80 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950/40"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {adjustmentIsNegative ? "⚠️ " : null}
-                          {adjustment.targetType} impact
-                        </p>
-                        <p
-                          className={`text-sm font-semibold ${
-                            adjustmentIsNegative
-                              ? "text-red-700 dark:text-red-300"
-                              : "text-emerald-700 dark:text-emerald-300"
-                          }`}
-                        >
-                          {adjustment.scoreDelta > 0 ? "+" : ""}
-                          {adjustment.scoreDelta}% confidence
-                        </p>
-                      </div>
-                      <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                        {getLearningImpactReason(adjustment)}
-                      </p>
-                      {adjustment.supportingFacts.length > 0 ? (
-                        <details className="mt-1.5 rounded-md border border-slate-100 bg-slate-50/70 px-2.5 py-1.5 dark:border-slate-800 dark:bg-slate-950/30">
-                          <summary className="cursor-pointer text-xs font-semibold text-cortex-blue-dark hover:text-cortex-blue dark:text-cortex-cyan">
-                            Supporting facts
-                          </summary>
-                          <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-xs text-slate-600 dark:text-slate-300">
-                            {adjustment.supportingFacts.map((fact, factIndex) => (
-                              <li key={`${factIndex}-${fact.slice(0, 24)}`}>{fact}</li>
-                            ))}
-                          </ul>
-                        </details>
-                      ) : null}
-                    </div>
-                  );
-                })}
               </div>
             </div>
           ) : null}
@@ -1924,29 +1709,7 @@ export default function TicketRoutingInsight({
             )}
           </div>
 
-          {confidencePresentation ? (
-            <div className="border-t border-slate-100 pt-3 dark:border-slate-800/80">
-              {confidencePresentation.kind === "soft" ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {confidencePresentation.text}
-                </p>
-              ) : (
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Signal Strength
-                  </span>
-                  <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                    {(confidenceLabel ?? confidencePresentation.text).replaceAll(
-                      " - ",
-                      " — ",
-                    )}
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {/* D. Override + technical */}
+          {/* D. Override */}
           {override ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/60">
               <p className="font-semibold text-slate-800 dark:text-slate-100">
@@ -1967,50 +1730,6 @@ export default function TicketRoutingInsight({
             </div>
           ) : null}
 
-          <div>
-            <button
-              type="button"
-              onClick={() => setTechExpanded((open) => !open)}
-              aria-expanded={techExpanded ? "true" : "false"}
-              aria-controls="cortex-decision-technical-details"
-              className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline dark:text-slate-400 dark:hover:text-slate-200"
-            >
-              {techExpanded ? "Hide technical details" : "Show technical details"}
-            </button>
-            <div
-              id="cortex-decision-technical-details"
-              className="mt-2 rounded-md border border-dashed border-slate-200/90 bg-slate-50/50 p-3 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400"
-              hidden={!techExpanded}
-            >
-              {techExpanded ? (
-                <>
-                  {decision.explanationText ? (
-                    <p className="mb-2 text-slate-600 dark:text-slate-300">
-                      {decision.explanationText}
-                    </p>
-                  ) : null}
-                  {decision.matchedRuleId != null ? (
-                    <p className="mb-1">
-                      Matched decision rule for Board{" "}
-                      {formatDisplayValue(ticket.boardName)}
-                    </p>
-                  ) : null}
-                  {explanation?.candidateCount != null ? (
-                    <p className="mb-1">
-                      Candidate decision rules evaluated: {explanation.candidateCount}
-                    </p>
-                  ) : null}
-                  <p>
-                    Recommendation recorded{" "}
-                    {new Date(decision.createdDateUtc).toLocaleString(undefined, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </p>
-                </>
-              ) : null}
-            </div>
-          </div>
                 </div>
               ) : null}
             </div>

@@ -65,7 +65,7 @@ function describeRule(
   }
 
   if (rule.boardId.trim()) {
-    const boardName = boardNameById.get(rule.boardId.trim()) ?? `Board #${rule.boardId}`;
+    const boardName = boardNameById.get(rule.boardId.trim()) ?? "Selected board";
     criteria.push(`Board: ${boardName}`);
   }
 
@@ -95,7 +95,10 @@ function describeRule(
     finalAssignments.push(`Business: ${label}`);
   }
 
-  return `${criteria.join(" + ") || "All matching tickets"} routes to ${finalAssignments.join(" | ") || "no assigned owner"}`;
+  const ifText = criteria.join(" AND ") || "Any ticket";
+  const thenText = finalAssignments.join(" | ") || "No owner assignment";
+  const summary = `${ifText} -> ${thenText}`;
+  return { ifText, thenText, summary };
 }
 
 export default function TicketRoutingSection({
@@ -345,9 +348,16 @@ export default function TicketRoutingSection({
                         <p className="font-medium text-gray-900 dark:text-slate-100">
                           Routing rule
                         </p>
-                        <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
-                          {describeRule(rule, boardNameById, ownerDirectory)}
-                        </p>
+                        <div className="mt-1 space-y-1 text-xs">
+                          <p className="text-gray-700 dark:text-slate-300">
+                            <span className="font-semibold">IF</span>{" "}
+                            {describeRule(rule, boardNameById, ownerDirectory).ifText}
+                          </p>
+                          <p className="text-gray-700 dark:text-slate-300">
+                            <span className="font-semibold">THEN</span>{" "}
+                            {describeRule(rule, boardNameById, ownerDirectory).thenText}
+                          </p>
+                        </div>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         <span
@@ -362,7 +372,7 @@ export default function TicketRoutingSection({
                         {rule.isValidConfiguration === false ? (
                           <span
                             className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
-                            title={rule.invalidReason ?? "Configuration error"}
+                            title="Configuration error"
                           >
                             Configuration error
                           </span>
@@ -388,10 +398,7 @@ export default function TicketRoutingSection({
                     </p>
                     <p className="mt-1 text-sm text-amber-900 dark:text-amber-100">
                       This rule will not be used because the selected owner is
-                      not eligible
-                      {selectedRule.invalidReason
-                        ? ` — ${selectedRule.invalidReason}.`
-                        : "."}
+                      not eligible.
                     </p>
                     <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
                       Pick an eligible owner and save to fix. Cortex skips this
@@ -582,16 +589,31 @@ export default function TicketRoutingSection({
                   </label>
                 </ConfigDetailCard>
 
-                <ConfigDetailCard title="Preview">
-                    <p className="text-sm text-gray-800 dark:text-slate-200">
-                      {(selectedRule.boardId.trim() ||
-                        selectedRule.priority.trim() ||
-                        selectedRule.requesterDepartment.trim() ||
-                        selectedRule.requesterRole.trim()) &&
-                      (selectedRule.synitiOwner.trim() || selectedRule.businessOwner.trim())
-                        ? describeRule(selectedRule, boardNameById, ownerDirectory)
-                        : "Add at least one decision factor and one owner."}
-                    </p>
+                <ConfigDetailCard title="Rule logic" subtitle="Readable IF / THEN">
+                    {(selectedRule.boardId.trim() ||
+                      selectedRule.priority.trim() ||
+                      selectedRule.requesterDepartment.trim() ||
+                      selectedRule.requesterRole.trim()) &&
+                    (selectedRule.synitiOwner.trim() || selectedRule.businessOwner.trim()) ? (
+                      <div className="space-y-2 text-sm text-gray-800 dark:text-slate-200">
+                        <p>
+                          <span className="font-semibold">IF</span>{" "}
+                          {describeRule(selectedRule, boardNameById, ownerDirectory).ifText}
+                        </p>
+                        <p>
+                          <span className="font-semibold">THEN</span>{" "}
+                          {describeRule(selectedRule, boardNameById, ownerDirectory).thenText}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-slate-400">
+                          Rule summary:{" "}
+                          {describeRule(selectedRule, boardNameById, ownerDirectory).summary}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-800 dark:text-slate-200">
+                        Add at least one decision factor and one owner.
+                      </p>
+                    )}
                 </ConfigDetailCard>
 
                 <ConfigDetailCard title="Actions">

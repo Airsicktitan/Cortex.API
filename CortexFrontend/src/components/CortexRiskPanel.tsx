@@ -24,6 +24,102 @@ function levelClasses(level: CortexRiskLevel): string {
   }
 }
 
+function riskStatusLabel(risk: CortexSlaRisk): "At Risk" | "Needs Attention" | "Stable" {
+  const sla = (risk.slaStatus || "").toLowerCase();
+  if (sla.includes("overdue") || sla.includes("late")) {
+    return "At Risk";
+  }
+  if (risk.riskLevel === "High") {
+    return "At Risk";
+  }
+  if (risk.riskLevel === "Medium") {
+    return "Needs Attention";
+  }
+  return "Stable";
+}
+
+function riskStatusClass(status: "At Risk" | "Needs Attention" | "Stable"): string {
+  switch (status) {
+    case "At Risk":
+      return "bg-red-100 text-red-900 dark:bg-red-950/40 dark:text-red-100";
+    case "Needs Attention":
+      return "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-50";
+    default:
+      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100";
+  }
+}
+
+function buildPredictiveSignals(risk: CortexSlaRisk): string[] {
+  const sources = [risk.slaStatus, ...risk.riskReasons, risk.recommendation]
+    .filter((value) => value && value.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+  const signals: string[] = [];
+
+  if (sources.includes("priority") && (sources.includes("high") || sources.includes("critical"))) {
+    signals.push("High priority");
+  }
+
+  if (
+    sources.includes("sla") &&
+    (sources.includes("overdue") || sources.includes("late"))
+  ) {
+    signals.push("SLA breach risk high");
+  } else if (
+    sources.includes("sla") &&
+    (sources.includes("near") ||
+      sources.includes("deadline") ||
+      sources.includes("approach") ||
+      sources.includes("due"))
+  ) {
+    signals.push("Near SLA deadline");
+  }
+
+  if (
+    sources.includes("missing detail") ||
+    sources.includes("missing information") ||
+    sources.includes("missing required") ||
+    (sources.includes("missing") && sources.includes("detail"))
+  ) {
+    signals.push("Missing required detail");
+  }
+
+  if (
+    sources.includes("awaiting approval") ||
+    sources.includes("pending approval") ||
+    (sources.includes("approval") && sources.includes("await"))
+  ) {
+    signals.push("Awaiting approval");
+  }
+
+  if (
+    sources.includes("workload") ||
+    sources.includes("capacity") ||
+    sources.includes("overloaded") ||
+    sources.includes("load")
+  ) {
+    signals.push("Owner workload high");
+  }
+
+  if (
+    sources.includes("similar") ||
+    sources.includes("follow-up") ||
+    sources.includes("follow up") ||
+    sources.includes("historical")
+  ) {
+    signals.push("Recent similar issues required follow-up");
+  }
+
+  if (signals.length === 0 && risk.riskLevel === "High") {
+    signals.push("Near SLA deadline");
+  }
+  if (signals.length === 0 && risk.riskLevel === "Medium") {
+    signals.push("Needs closer monitoring");
+  }
+
+  return Array.from(new Set(signals)).slice(0, 4);
+}
+
 function leadCopy(level: CortexRiskLevel): string {
   switch (level) {
     case "High":
@@ -35,18 +131,32 @@ function leadCopy(level: CortexRiskLevel): string {
   }
 }
 
-function immediateActionCopy(risk: CortexSlaRisk): string {
-  const recommendation = risk.recommendation?.trim();
-  if (recommendation) {
-    return recommendation;
+function recommendedAttentionCopy(
+  risk: CortexSlaRisk,
+  signals: string[],
+): string {
+  if (signals.includes("Missing required detail")) {
+    return "Request missing details now.";
+  }
+  if (signals.includes("Awaiting approval")) {
+    return "Approve or return for detail.";
+  }
+  if (signals.includes("Owner workload high")) {
+    return "Assign to an available owner.";
+  }
+  if (signals.includes("SLA breach risk high") || signals.includes("Near SLA deadline")) {
+    return "Review before end of day.";
+  }
+  if (signals.includes("Recent similar issues required follow-up")) {
+    return "Use follow-up checklist before assignment.";
   }
   switch (risk.riskLevel) {
     case "High":
-      return "Escalate due to critical risk.";
+      return "Review before end of day.";
     case "Medium":
-      return "Reassign to reduce SLA pressure.";
+      return "Review within the current shift.";
     default:
-      return "Continue with current ownership and monitor SLA trend.";
+      return "Continue with normal monitoring.";
   }
 }
 
@@ -107,13 +217,15 @@ export default function CortexRiskPanel({
     return null;
   }
 
+  const predictiveSignals = risk ? buildPredictiveSignals(risk) : [];
+
   return (
     <div
       id="cortex-risk-panel"
-      className={`mb-4 rounded-lg border px-4 py-3 shadow-sm transition-colors ${
+      className={`px-4 py-4 transition-colors ${
         highlightPanel
-          ? "border-red-300 bg-red-50/40 dark:border-red-700 dark:bg-red-950/20"
-          : "border-slate-200/90 bg-white dark:border-slate-700 dark:bg-slate-950/40"
+          ? "rounded-md border border-red-300 bg-red-50/40 dark:border-red-700 dark:bg-red-950/20"
+          : ""
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -121,16 +233,9 @@ export default function CortexRiskPanel({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Cortex Risk
           </p>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Predictive signals based on SLA, intake, and workload data
-          </p>
         </div>
         {risk ? (
-          <span
-            className={`rounded-md px-2.5 py-1 text-xs font-semibold ${levelClasses(
-              risk.riskLevel,
-            )}`}
-          >
+          <span className={`rounded-md px-2.5 py-1 text-xs font-semibold ${levelClasses(risk.riskLevel)}`}>
             {risk.riskLevel} risk
           </span>
         ) : null}
@@ -145,39 +250,54 @@ export default function CortexRiskPanel({
           {error}
         </p>
       ) : risk ? (
-        <div className="mt-3 space-y-3 text-sm text-slate-800 dark:text-slate-100">
-          <p className="font-medium">{leadCopy(risk.riskLevel)}</p>
+        <div className="mt-3 space-y-4 text-sm text-slate-800 dark:text-slate-100">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Risk Status
+            </p>
+            <div className="mt-1 flex items-center gap-2">
+              <span
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold ${riskStatusClass(
+                  riskStatusLabel(risk),
+                )}`}
+              >
+                {riskStatusLabel(risk)}
+              </span>
+              <span className="text-sm text-slate-600 dark:text-slate-300">
+                {leadCopy(risk.riskLevel)}
+              </span>
+            </div>
+          </div>
 
-          {risk.riskReasons.length > 0 ? (
-            <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
-              {risk.riskReasons.slice(0, 4).map((reason, index) => (
-                <li key={`${index}-${reason.slice(0, 24)}`}>{reason}</li>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Signals
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
+              {predictiveSignals.map((signal, index) => (
+                <li key={`${index}-${signal}`}>{signal}</li>
               ))}
             </ul>
-          ) : null}
+          </div>
 
           <div className="rounded-md border border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/50">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Recommended action
+              Recommended attention
             </p>
-            <button
-              type="button"
-              onClick={onRecommendedActionClick}
-              className="mt-0.5 text-left text-sm font-semibold text-slate-900 underline-offset-2 hover:underline dark:text-slate-50"
-            >
-              {immediateActionCopy(risk)}
-            </button>
-            {risk.recommendationReason ? (
-              <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
-                {risk.recommendationReason}
+            {onRecommendedActionClick ? (
+              <button
+                type="button"
+                onClick={onRecommendedActionClick}
+                className="mt-0.5 text-left text-sm font-semibold text-slate-900 underline-offset-2 hover:underline dark:text-slate-50"
+              >
+                {recommendedAttentionCopy(risk, predictiveSignals)}
+              </button>
+            ) : (
+              <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-50">
+                {recommendedAttentionCopy(risk, predictiveSignals)}
               </p>
-            ) : null}
+            )}
           </div>
-
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            SLA status: {risk.slaStatus || "—"} · Advisory only — no actions
-            are taken automatically.
-          </p>
         </div>
       ) : null}
     </div>

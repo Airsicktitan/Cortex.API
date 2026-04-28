@@ -309,12 +309,12 @@ export default function CortexInsightPanel({
   }, [error, insight, loading, matches.length]);
 
   return (
-    <section className="rounded-md border border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/45">
+    <section className="px-4 py-4">
       <button
         type="button"
         onClick={handleToggle}
         aria-expanded={expanded}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center justify-between gap-3 text-left"
       >
         <span>
           <span className="block text-sm font-semibold text-slate-900 dark:text-slate-50">
@@ -333,7 +333,7 @@ export default function CortexInsightPanel({
       </button>
 
       {expanded ? (
-        <div className="border-t border-slate-200 px-4 py-4 dark:border-slate-700">
+        <div className="mt-3 border-t border-slate-200 pt-4 dark:border-slate-700">
           {loading ? (
             <p className="text-sm text-slate-600 dark:text-slate-300" role="status">
               Loading Cortex Insight...

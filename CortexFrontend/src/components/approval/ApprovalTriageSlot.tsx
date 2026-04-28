@@ -448,11 +448,11 @@ export function ApprovalTriageModalColumn({
 
   return (
     <aside
-      className="flex min-h-0 min-w-0 flex-col border-t border-gray-200 pt-4 dark:border-slate-800 xl:min-h-0 xl:flex-1 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0"
+      className="flex min-h-0 min-w-0 flex-col"
       aria-label="Intake insight"
     >
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/45">
-        <div className="shrink-0 border-b border-gray-100 px-3 py-2.5 dark:border-slate-800">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-gray-200 px-4 py-3 dark:border-slate-800">
           <div className="flex justify-end">
             <button
               type="button"
@@ -476,7 +476,7 @@ export function ApprovalTriageModalColumn({
         <ScrollableViewport
           viewportRef={triageScrollRef}
           outerClassName="flex-1"
-          viewportClassName="h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4"
+          viewportClassName="h-full overflow-y-auto px-4 py-4"
           affordanceAriaLabel="Scroll intake insight to bottom"
         >
             <ApprovalTriagePanel
@@ -494,7 +494,7 @@ export function ApprovalTriageModalColumn({
             ) : null}
         </ScrollableViewport>
         {applyControls ? (
-          <div className="shrink-0 border-t border-gray-100 px-3 py-3 dark:border-slate-800 sm:px-4">
+          <div className="shrink-0 border-t border-gray-200 px-4 py-3 dark:border-slate-800">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
               Apply Suggestions
             </p>

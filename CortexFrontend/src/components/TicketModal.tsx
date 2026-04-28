@@ -3461,8 +3461,9 @@ export default function TicketModal({
 
             {/* ================= REVIEWER: CORTEX TABBED PANEL (right rail) ================= */}
             {showAiTriageColumn ? (
-              <div className="relative flex min-h-0 flex-col overflow-y-auto">
+              <div className="relative flex min-h-0 flex-col">
                 <CortexTabbedPanel
+                  key={ticket.id || "new-ticket-cortex"}
                   ticket={triageDisplayTicket}
                   isModalOpen={isOpen}
                   ticketBoards={ticketBoards}

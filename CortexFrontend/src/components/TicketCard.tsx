@@ -47,34 +47,6 @@ const statusColors = {
   Closed: "bg-gray-100 text-gray-800",
 };
 
-function resolveRiskBadge(
-  riskLevel: string | undefined | null,
-): { label: string; className: string } | null {
-  const normalized = (riskLevel ?? "").trim().toLowerCase();
-  if (normalized === "high" || normalized === "critical") {
-    return {
-      label: "🔴 High",
-      className:
-        "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/35 dark:text-red-100",
-    };
-  }
-  if (normalized === "medium" || normalized === "moderate") {
-    return {
-      label: "🟠 Medium",
-      className:
-        "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100",
-    };
-  }
-  if (normalized === "low") {
-    return {
-      label: "🟢 Low",
-      className:
-        "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/35 dark:text-emerald-100",
-    };
-  }
-  return null;
-}
-
 function getTicketApprovalStatus(ticket: Ticket): ApprovalStatus {
   return ticket.approvalStatus ?? "Approved";
 }
@@ -359,7 +331,6 @@ export default function TicketCard({
   const showStaleChip = Boolean(activity?.isStale && !isRequesterIntakeTicket);
   const chipBaseClass =
     "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium";
-  const riskBadge = resolveRiskBadge(ticket.operationalRisk?.riskLevel);
 
   const descriptionTitlePreview = (() => {
     const raw = ticket.description?.trim();
@@ -446,11 +417,6 @@ export default function TicketCard({
         {!isRequesterIntakeTicket ? (
           <span className={`${chipBaseClass} ${priorityColor}`}>
             {ticket.priority}
-          </span>
-        ) : null}
-        {!isRequesterIntakeTicket && riskBadge ? (
-          <span className={`${chipBaseClass} ${riskBadge.className}`}>
-            {riskBadge.label}
           </span>
         ) : null}
         {!isRequesterIntakeTicket && urgencyChip ? (
