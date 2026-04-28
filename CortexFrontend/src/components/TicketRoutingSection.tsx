@@ -231,12 +231,46 @@ export default function TicketRoutingSection({
   const ownerPickerDisabled =
     isBusy ||
     (Boolean(ownerDirectoryError) && ownerDirectory.length === 0);
+  const synitiEligibleOwners = useMemo(
+    () =>
+      ownerDirectory.filter(
+        (entry) => entry.isActive && entry.isSynitiOwnerEligible,
+      ),
+    [ownerDirectory],
+  );
+  const businessEligibleOwners = useMemo(
+    () =>
+      ownerDirectory.filter(
+        (entry) => entry.isActive && entry.isBusinessOwnerEligible,
+      ),
+    [ownerDirectory],
+  );
+  const noEligibleSynitiOwners =
+    !ownerDirectoryLoading &&
+    !ownerDirectoryError &&
+    synitiEligibleOwners.length === 0;
+  const noEligibleBusinessOwners =
+    !ownerDirectoryLoading &&
+    !ownerDirectoryError &&
+    businessEligibleOwners.length === 0;
   const synitiOwnerHelperText = ownerDirectoryError
     ? ownerDirectoryError
-    : "Optional. Leave blank if this rule should only set the business owner.";
+    : noEligibleSynitiOwners
+      ? "No eligible Syniti owners found. Mark a user as active, assign them to Syniti, and enable “Eligible for Syniti Owner assignment.”"
+      : "Optional. Leave blank if this rule should only set the business owner.";
   const businessOwnerHelperText = ownerDirectoryError
     ? ownerDirectoryError
-    : "Optional. Leave blank to keep the requester as the business owner.";
+    : noEligibleBusinessOwners
+      ? "No eligible business owners found. Mark a user as active and enable “Eligible for Business Owner assignment.”"
+      : "Optional. Leave blank to keep the requester as the business owner.";
+
+  const applyStarterRule = useCallback(() => {
+    onNew();
+    onChange("requesterDepartment", "Syniti");
+    onChange("titleContains", "login");
+    onChange("rulePriority", 80);
+    onChange("weight", 10);
+  }, [onChange, onNew]);
 
   return (
     <ConfigPageShell>
@@ -268,15 +302,30 @@ export default function TicketRoutingSection({
               <div className="space-y-4">
             {rules.length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-4 py-8 text-center dark:border-slate-700 dark:bg-slate-800/30">
-                <p className="text-sm font-medium text-gray-800 dark:text-slate-200">No rules yet</p>
-                <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-                  Create a decision rule for board, priority, department, or role.
+                <p className="text-sm font-medium text-gray-800 dark:text-slate-200">
+                  No routing rules configured yet
                 </p>
-                <div className="mt-4 flex justify-center">
+                <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                  Add a rule so Cortex can recommend owners before autonomy
+                  evaluates tickets. Start blank or use the login/authentication
+                  starter as a template.
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
                   <ConfigPrimaryButton onClick={onNew} disabled={isBusy}>
                     New rule
                   </ConfigPrimaryButton>
+                  <ConfigSecondaryButton
+                    onClick={applyStarterRule}
+                    disabled={isBusy}
+                  >
+                    Use login/authentication starter
+                  </ConfigSecondaryButton>
                 </div>
+                <p className="mt-3 text-xs text-gray-500 dark:text-slate-400">
+                  Starter pre-fills requester department “Syniti”, title
+                  keyword “login”, and priority 80 — pick a board and Syniti
+                  owner before saving.
+                </p>
               </div>
             ) : (
               <ul className="max-h-[min(480px,55vh)] space-y-1 overflow-y-auto pr-0.5">
@@ -300,15 +349,25 @@ export default function TicketRoutingSection({
                           {describeRule(rule, boardNameById, ownerDirectory)}
                         </p>
                       </div>
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                          rule.isEnabled
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
-                            : "bg-gray-200 text-gray-700 dark:bg-slate-800 dark:text-slate-300"
-                        }`}
-                      >
-                        {rule.isEnabled ? "On" : "Off"}
-                      </span>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                            rule.isEnabled
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                              : "bg-gray-200 text-gray-700 dark:bg-slate-800 dark:text-slate-300"
+                          }`}
+                        >
+                          {rule.isEnabled ? "On" : "Off"}
+                        </span>
+                        {rule.isValidConfiguration === false ? (
+                          <span
+                            className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+                            title={rule.invalidReason ?? "Invalid configuration"}
+                          >
+                            Invalid configuration
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </button>
                   </li>
@@ -322,6 +381,24 @@ export default function TicketRoutingSection({
               <div className="min-w-0 space-y-4">
             {selectedRule ? (
               <>
+                {selectedRule.isValidConfiguration === false ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 dark:border-amber-800/60 dark:bg-amber-950/30">
+                    <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                      Invalid configuration
+                    </p>
+                    <p className="mt-1 text-sm text-amber-900 dark:text-amber-100">
+                      This rule will not be used because the selected owner is
+                      not eligible
+                      {selectedRule.invalidReason
+                        ? ` — ${selectedRule.invalidReason}.`
+                        : "."}
+                    </p>
+                    <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                      Pick an eligible owner and save to fix. Cortex skips this
+                      rule until then; no tickets are reassigned.
+                    </p>
+                  </div>
+                ) : null}
                 <ConfigDetailCard
                   title={isNewRule ? "New routing rule" : "Routing rule"}
                   subtitle="Signals used"
@@ -403,23 +480,25 @@ export default function TicketRoutingSection({
                       <UserCombobox
                         label="Syniti owner"
                         value={selectedRule.synitiOwner}
-                        users={ownerDirectory}
+                        users={synitiEligibleOwners}
                         onChange={(value) => onChange("synitiOwner", value)}
-                        placeholder="Search users..."
+                        placeholder="Search eligible Syniti owners..."
                         loading={ownerDirectoryLoading}
-                        disabled={ownerPickerDisabled}
+                        disabled={ownerPickerDisabled || noEligibleSynitiOwners}
                         helperText={synitiOwnerHelperText}
+                        noResultsText="No eligible Syniti owners match."
                       />
 
                       <UserCombobox
                         label="Business owner"
                         value={selectedRule.businessOwner}
-                        users={ownerDirectory}
+                        users={businessEligibleOwners}
                         onChange={(value) => onChange("businessOwner", value)}
-                        placeholder="Search users..."
+                        placeholder="Search eligible business owners..."
                         loading={ownerDirectoryLoading}
-                        disabled={ownerPickerDisabled}
+                        disabled={ownerPickerDisabled || noEligibleBusinessOwners}
                         helperText={businessOwnerHelperText}
+                        noResultsText="No eligible business owners match."
                       />
                     </div>
                 </ConfigDetailCard>

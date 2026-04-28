@@ -1,21 +1,26 @@
+using Cortex.API.Database;
 using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Handlers;
 
 public static class TicketRoutingRuleHandlers
 {
     public static async Task<IResult> GetTicketRoutingRules(
-        ITicketRoutingRuleService service)
+        ITicketRoutingRuleService service,
+        CortexDbContext dbContext)
     {
         var rules = await service.GetAllAsync();
-        return Results.Ok(rules.Select(rule => rule.ToResponse()));
+        var aliases = await BuildOwnerAliasesAsync(dbContext);
+        return Results.Ok(rules.Select(rule => rule.ToResponse(aliases)));
     }
 
     public static async Task<IResult> CreateTicketRoutingRule(
         UpsertTicketRoutingRuleRequest request,
-        ITicketRoutingRuleService service)
+        ITicketRoutingRuleService service,
+        CortexDbContext dbContext)
     {
         try
         {
@@ -35,7 +40,8 @@ public static class TicketRoutingRuleHandlers
             };
 
             var savedRule = await service.CreateAsync(rule);
-            return Results.Created($"/api/settings/ticket-routing/{savedRule.Id}", savedRule.ToResponse());
+            var aliases = await BuildOwnerAliasesAsync(dbContext);
+            return Results.Created($"/api/settings/ticket-routing/{savedRule.Id}", savedRule.ToResponse(aliases));
         }
         catch (ArgumentException)
         {
@@ -46,7 +52,8 @@ public static class TicketRoutingRuleHandlers
     public static async Task<IResult> UpdateTicketRoutingRule(
         int id,
         UpsertTicketRoutingRuleRequest request,
-        ITicketRoutingRuleService service)
+        ITicketRoutingRuleService service,
+        CortexDbContext dbContext)
     {
         try
         {
@@ -66,7 +73,8 @@ public static class TicketRoutingRuleHandlers
             };
 
             var savedRule = await service.UpdateAsync(id, rule);
-            return Results.Ok(savedRule.ToResponse());
+            var aliases = await BuildOwnerAliasesAsync(dbContext);
+            return Results.Ok(savedRule.ToResponse(aliases));
         }
         catch (KeyNotFoundException)
         {
@@ -76,6 +84,12 @@ public static class TicketRoutingRuleHandlers
         {
             return SafeErrorResponses.BadRequest();
         }
+    }
+
+    private static async Task<IReadOnlyDictionary<string, User>> BuildOwnerAliasesAsync(CortexDbContext dbContext)
+    {
+        var users = await dbContext.Users.AsNoTracking().ToListAsync();
+        return OwnerFieldResolution.BuildAliasLookup(users);
     }
 
     public static async Task<IResult> DeleteTicketRoutingRule(

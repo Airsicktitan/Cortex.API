@@ -454,8 +454,11 @@ public static class ArchiveConfigurationMappings
 
 public static class TicketRoutingRuleMappings
 {
-    public static TicketRoutingRuleResponse ToResponse(this TicketRoutingRule rule)
+    public static TicketRoutingRuleResponse ToResponse(
+        this TicketRoutingRule rule,
+        IReadOnlyDictionary<string, User>? ownerAliases = null)
     {
+        var (isValid, invalidReason) = ResolveConfigurationStatus(rule, ownerAliases);
         return new TicketRoutingRuleResponse
         {
             Id = rule.Id,
@@ -470,9 +473,43 @@ public static class TicketRoutingRuleMappings
             SynitiOwner = rule.SynitiOwner ?? string.Empty,
             BusinessOwner = rule.BusinessOwner ?? string.Empty,
             IsEnabled = rule.IsEnabled,
+            IsValidConfiguration = isValid,
+            InvalidReason = invalidReason,
             CreatedDateUtc = rule.CreatedDateUtc,
             LastModifiedDateUtc = rule.LastModifiedDateUtc
         };
+    }
+
+    private static (bool IsValid, string? Reason) ResolveConfigurationStatus(
+        TicketRoutingRule rule,
+        IReadOnlyDictionary<string, User>? ownerAliases)
+    {
+        if (ownerAliases is null)
+        {
+            return (true, null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(rule.SynitiOwner))
+        {
+            var resolved = OwnerFieldResolution.ResolveUser(rule.SynitiOwner, ownerAliases);
+            if (resolved is null
+                || !OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(resolved))
+            {
+                return (false, "Syniti owner is not eligible");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(rule.BusinessOwner))
+        {
+            var resolved = OwnerFieldResolution.ResolveUser(rule.BusinessOwner, ownerAliases);
+            if (resolved is null
+                || !OwnerRoleAssignmentRules.IsValidBusinessOwnerAssignment(resolved))
+            {
+                return (false, "Business owner is not eligible");
+            }
+        }
+
+        return (true, null);
     }
 }
 

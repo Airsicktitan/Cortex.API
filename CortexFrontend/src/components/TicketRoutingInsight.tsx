@@ -1080,7 +1080,7 @@ export default function TicketRoutingInsight({
     );
     return hasSynitiRuleEvidence
       ? "No clear owner identified"
-      : "No Syniti owner rule applied";
+      : "No matching routing rule";
   }, [
     decision?.chosenSynitiOwner,
     explanation?.slots?.synitiOwner,
@@ -1107,7 +1107,7 @@ export default function TicketRoutingInsight({
     );
     return hasBusinessRuleEvidence
       ? "No clear business owner identified"
-      : "No business owner rule applied";
+      : "No matching routing rule";
   }, [
     decision?.chosenBusinessOwner,
     explanation?.slots?.businessOwner,
@@ -1229,8 +1229,23 @@ export default function TicketRoutingInsight({
     !hasOwnerRecommendation(decision) &&
     decision.outcomeType === "Fallback";
 
+  const noRuleGuidanceCopy = useMemo(() => {
+    const reason = decision?.noMatchReason?.trim();
+    switch (reason) {
+      case "NoRulesDefined":
+        return "No routing rules are configured. Add a routing rule so Cortex can recommend an owner.";
+      case "NoEnabledRules":
+        return "All routing rules are disabled. Enable a rule so Cortex can recommend an owner.";
+      case "MissingRequiredFactors":
+        return "Required routing inputs are missing. Add a routing rule that matches the available ticket factors.";
+      case "NoCriteriaMatched":
+      default:
+        return "No routing rule matched this ticket. Add or adjust a routing rule to enable owner recommendations.";
+    }
+  }, [decision?.noMatchReason]);
+
   const routingReasoningEmptyCopy = isLightweightNoRec
-    ? "No clear owner could be confidently determined for this ticket."
+    ? noRuleGuidanceCopy
     : "No routing signals were applied for this recommendation.";
   const decisionImpact = ticket.decisionImpact?.hasImpact
     ? ticket.decisionImpact
@@ -1777,7 +1792,7 @@ export default function TicketRoutingInsight({
               </div>
             ) : (
               <p className="text-sm text-slate-700 dark:text-slate-200">
-                No clear owner could be confidently determined for this ticket.
+                {noRuleGuidanceCopy}
               </p>
             )}
 
@@ -1843,9 +1858,13 @@ export default function TicketRoutingInsight({
                   <li key={`${index}-${line}`}>{line}</li>
                 ))}
               </ul>
+            ) : isLightweightNoRec ? (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                {noRuleGuidanceCopy}
+              </p>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                No better eligible alternative was identified based on current workload and routing signals.
+                Routing signals matched, but no competing eligible owner was ranked higher on workload.
               </p>
             )}
           </div>
@@ -1866,9 +1885,13 @@ export default function TicketRoutingInsight({
                   </li>
                 ))}
               </ul>
+            ) : isLightweightNoRec ? (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                {noRuleGuidanceCopy}
+              </p>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                No better eligible alternatives were identified based on current workload and routing signals.
+                Only one eligible owner was returned by the matched routing rule.
               </p>
             )}
           </div>

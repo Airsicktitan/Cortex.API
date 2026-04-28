@@ -371,6 +371,8 @@ public class TicketRoutingRuleService(
                 nameof(rule));
         }
 
+        await ValidateOwnerEligibilityAsync(rule);
+
         var existingRules = await _repository.GetAllAsync();
         var duplicateRule = existingRules.FirstOrDefault(existingRule =>
             existingRule.Id != existingId
@@ -404,6 +406,39 @@ public class TicketRoutingRuleService(
             throw new ArgumentException(
                 "A routing rule with the same criteria already exists.",
                 nameof(rule));
+        }
+    }
+
+    private async Task ValidateOwnerEligibilityAsync(TicketRoutingRule rule)
+    {
+        var hasSynitiOwner = !string.IsNullOrWhiteSpace(rule.SynitiOwner);
+        var hasBusinessOwner = !string.IsNullOrWhiteSpace(rule.BusinessOwner);
+        if (!hasSynitiOwner && !hasBusinessOwner)
+        {
+            return;
+        }
+
+        var users = await _dbContext.Users
+            .AsNoTracking()
+            .ToListAsync();
+        var aliases = OwnerFieldResolution.BuildAliasLookup(users);
+
+        if (hasSynitiOwner)
+        {
+            var resolved = OwnerFieldResolution.ResolveUser(rule.SynitiOwner, aliases)
+                ?? throw new ArgumentException(
+                    "Syniti owner must reference a user from the directory.",
+                    nameof(rule));
+            OwnerRoleAssignmentRules.EnsureSynitiOwnerAssignment(resolved);
+        }
+
+        if (hasBusinessOwner)
+        {
+            var resolved = OwnerFieldResolution.ResolveUser(rule.BusinessOwner, aliases)
+                ?? throw new ArgumentException(
+                    "Business owner must reference a user from the directory.",
+                    nameof(rule));
+            OwnerRoleAssignmentRules.EnsureBusinessOwnerAssignment(resolved);
         }
     }
 
