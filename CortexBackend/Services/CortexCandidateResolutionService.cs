@@ -46,7 +46,7 @@ public sealed class CortexCandidateResolutionService(
             .Where(user => user.IsActive)
             .ToListAsync(cancellationToken);
         var userAliases = OwnerFieldResolution.BuildAliasLookup(users);
-        AddSynitiEligiblePool(ownerKeys, users, routing);
+        AddSynitiEligiblePool(ownerKeys, users);
         if (ownerKeys.Count == 0)
         {
             return [];
@@ -110,15 +110,8 @@ public sealed class CortexCandidateResolutionService(
 
     private static void AddSynitiEligiblePool(
         ISet<string> ownerKeys,
-        IEnumerable<User> users,
-        RoutingDecisionResult routing)
+        IEnumerable<User> users)
     {
-        if (routing.OutcomeType != RoutingOutcomeType.RuleMatch
-            || !routing.MatchedRuleId.HasValue)
-        {
-            return;
-        }
-
         foreach (var user in users)
         {
             if (!OwnerRoleAssignmentRules.IsValidSynitiOwnerAssignment(user))

@@ -117,7 +117,6 @@ public sealed class ReassignmentRecommendationService(
         AddSynitiEligiblePool(
             eligibleOwnerKeys,
             users,
-            routingDecision,
             assignmentField);
 
         var ownerAliases = OwnerFieldResolution.BuildAliasLookup(users);
@@ -333,12 +332,9 @@ public sealed class ReassignmentRecommendationService(
     private static void AddSynitiEligiblePool(
         IList<string> ownerKeys,
         IEnumerable<User> users,
-        RoutingDecisionResult routingDecision,
         string assignmentField)
     {
-        if (assignmentField != "synitiOwner"
-            || routingDecision.OutcomeType != RoutingOutcomeType.RuleMatch
-            || !routingDecision.MatchedRuleId.HasValue)
+        if (assignmentField != "synitiOwner")
         {
             return;
         }
