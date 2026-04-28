@@ -923,6 +923,32 @@ function App() {
     ],
   );
 
+  const handleRiskDrillDown = useCallback(
+    (riskLevel: "High" | "Medium") => {
+      setSelectedSavedFilterId("");
+      setSelectedBoardId("all");
+      setMyTicketsOnly(false);
+      setMyTicketApprovalFilter("all");
+      handleSearchChange("");
+      handleFilterChange("risk");
+      handleFilterValueChange(riskLevel.toLowerCase());
+      setTicketListSort("most-overdue");
+      setCurrentPage(1);
+      setActiveView("tickets");
+    },
+    [
+      handleFilterChange,
+      handleFilterValueChange,
+      handleSearchChange,
+      setCurrentPage,
+      setMyTicketApprovalFilter,
+      setMyTicketsOnly,
+      setSelectedBoardId,
+      setSelectedSavedFilterId,
+      setTicketListSort,
+    ],
+  );
+
   // loadSlaConfigurations and other configuration loaders live in useConfiguration.
 
   // continueSessionAfterWarning is defined after useConfiguration (below) because its
@@ -2811,6 +2837,7 @@ function App() {
                   onRefresh={() => void loadAllTickets()}
                   onOpenTicket={openTicket}
                   onAttentionDrillDown={handleExecutiveAttentionDrillDown}
+                  onRiskDrillDown={handleRiskDrillDown}
                 />
               ) : activeView === "tickets" ? (
                 <TicketsContainer

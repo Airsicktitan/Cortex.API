@@ -155,6 +155,7 @@ builder.Services.AddScoped<IDecisionImpactService, DecisionImpactService>();
 builder.Services.Configure<CortexAutonomyOptions>(builder.Configuration.GetSection(CortexAutonomyOptions.SectionName));
 builder.Services.AddScoped<ICortexAutonomySettingsService, CortexAutonomySettingsService>();
 builder.Services.AddScoped<ICortexAutonomyService, CortexAutonomyService>();
+builder.Services.AddScoped<ICortexSlaRiskService, CortexSlaRiskService>();
 builder.Services.AddScoped<IRebalanceOverviewService, RebalanceOverviewService>();
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
 builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabilityService>();

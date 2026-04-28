@@ -1,162 +1,68 @@
-# Rebalance Engine Rules
+# Rebalance Engine Reference
 
-## Purpose
+## 1. Purpose
 
-Rebalance exists to:
+The Rebalance Engine reduces workload imbalance, lowers SLA risk, improves ownership clarity, and prevents ticket stagnation. It exists to provide decision support with execution fidelity, not speculative suggestions detached from actionability. In tier context, it is a deterministic operational balancing system that supports safe intervention and orchestration layers.
 
-- reduce workload imbalance
-- reduce SLA risk
-- improve ownership clarity
-- prevent ticket stagnation
+## 2. How It Works (High Level)
 
-It is NOT a suggestion engine — it is a **decision support system with execution fidelity**.
+The engine evaluates eligible move candidates using workload and risk inputs, generates explicit rebalance suggestions, and executes only what was shown if still valid. It outputs actionable and blocked suggestions with reasons, expected impact, and confidence. Core logic enforces "what is shown must equal what is executed" and forbids silent recomputation at execution time. Dependencies include eligibility checks, routing alignment checks, workload scoring, and execution validation.
 
----
+## 3. Signals / Inputs
 
-## Core Principle
+- Ticket signals: ticket id/name, current owner, SLA at-risk/breached state, overdue/stale state, ownership mismatch indicators.
+- User signals: accepted/rejected suggestions, override actions, rebalance approval context.
+- System signals: active ticket count, high/critical counts, eligibility flags (`IsSynitiOwnerEligible`, `IsBusinessOwnerEligible`), routing rule alignment state.
+- AI signals: advisory confidence/context only; no hidden reroute authority.
 
-### What is shown MUST equal what is executed
+## 4. Output / Behavior
 
-If the UI shows:
-"Move Ticket A from John → Sarah"
+Each suggestion includes action (ticket/from/to), why it is suggested, expected impact for source and target owners, and confidence level. Suggestions are split into actionable and blocked groups, where blocked items must clearly indicate reason (`Stale`, `Invalid`, `Conflicted`). Execution applies exact shown suggestions if still valid; invalid suggestions are blocked rather than rerouted.
 
-Execution MUST:
-- move to Sarah
-- NOT recompute a different owner
-- NOT silently re-evaluate a new winner
+## 5. Constraints (NON-NEGOTIABLE)
 
----
+- What is shown must equal what is executed.
+- Do not recompute a different owner at click time.
+- Only eligible owners may be suggested.
+- Validate eligibility at execution time.
+- If invalid, mark blocked and do not silently reroute.
+- Must remain predictable, explainable, and consistent.
+- If a system already exists, extend it - do not recreate it.
 
-## Suggestion Requirements
+## 6. UX Language Rules
 
-Each rebalance suggestion MUST include:
+Use:
+- "Cortex recommends this rebalance based on workload and SLA risk."
+- "Based on current signals, this suggestion is blocked because eligibility changed."
 
-### 1. Action
+Avoid:
+- "AI changed the target owner at execution."
+- "Model silently optimized this move."
 
-- Ticket name/id
-- From owner
-- To owner
+## 7. Tier Alignment
 
----
+Belongs to deterministic balancing and decision-support behavior used across upper tiers. It must not overlap with Tier 10 advisory-only insight generation and must not bypass Tier 11/Tier 12 governance controls when execution authority is involved.
 
-### 2. Why (Required)
+## 8. Extension Guidelines (CRITICAL)
 
-- workload imbalance
-- SLA risk
-- ownership mismatch
-- rule alignment improvement
+- Safe extensions: additional workload/risk signals, clearer blocked classifications, improved impact modeling.
+- Extend existing rebalance scoring and execution validation paths.
+- Preserve blocked/actionable split and exact-execution guarantees.
+- Must not introduce hidden recomputation or alternate execution pathways.
+- Must not weaken explainability or confidence semantics.
 
----
+## 9. Common Failure Modes
 
-### 3. Expected Impact (Required)
+- Suggestion executes to a different owner than displayed.
+- Mixed valid/invalid suggestions without proper labeling.
+- Missing impact details reduce trust in recommendations.
+- Eligibility/routing drift turns actionable suggestions stale quickly.
+- Performance regressions from repeated full recomputation and double evaluation.
 
-For BOTH:
+## 10. Example Scenario
 
-#### Source owner:
-- workload reduced
-- SLA pressure reduced
+Sample input: Ticket A is assigned to Owner X with high queue pressure and SLA risk; Owner Y is eligible with lower load and better rule alignment.
 
-#### Target owner:
-- workload increased (acceptable)
-- better alignment / lower risk
+Expected output: actionable suggestion "Move Ticket A from X to Y" with workload/SLA rationale, expected source and target impact, and confidence. If eligibility changes before execution, suggestion is reclassified as blocked (`Invalid`) with no silent reroute.
 
----
-
-### 4. Confidence
-
-- High → clear improvement
-- Medium → acceptable tradeoff
-- Low → edge case / weak improvement
-
----
-
-## Candidate Selection Rules
-
-When generating suggestions:
-
-- Only include **eligible owners**
-- Respect:
-  - IsSynitiOwnerEligible
-  - IsBusinessOwnerEligible
-
----
-
-## Workload Scoring Inputs
-
-Must consider:
-
-- active ticket count
-- high/critical tickets
-- SLA at-risk or breached
-- overdue/stale tickets
-
----
-
-## Blocked Suggestions
-
-If a suggestion cannot be executed, it MUST be classified as:
-
-### Stale
-- ticket changed since suggestion generation
-
-### Invalid
-- owner no longer eligible
-
-### Conflicted
-- routing rules now disagree
-
----
-
-## UI Rules
-
-Suggestions must be split into:
-
-### Actionable
-→ can be executed immediately
-
-### Blocked
-→ must clearly show WHY they cannot be executed
-
----
-
-## Execution Rules
-
-When executing rebalance:
-
-- Execute EXACT suggestions shown
-- Validate eligibility at execution time
-- If invalid:
-  - mark as blocked
-  - DO NOT silently reroute
-
----
-
-## Anti-Patterns (DO NOT DO)
-
-- ❌ Recompute new owner at click time
-- ❌ Hide why a suggestion exists
-- ❌ Show suggestions without impact explanation
-- ❌ Mix valid and invalid suggestions without labeling
-- ❌ Execute different result than UI displayed
-
----
-
-## Performance Rules
-
-- Avoid recomputing full dataset on every request
-- Use cached snapshots when possible
-- Avoid double evaluation (suggest + execute)
-
----
-
-## Trust Rule (MOST IMPORTANT)
-
-If the user loses trust in rebalance:
-
-The feature is worse than not existing.
-
-Everything must feel:
-
-- predictable
-- explainable
-- consistent
+Reasoning: rebalance preserves trust by keeping recommendations and execution perfectly aligned, even when conditions change.

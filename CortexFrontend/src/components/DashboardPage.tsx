@@ -23,6 +23,7 @@ interface DashboardPageProps {
   onRefresh: () => void;
   onOpenTicket: (ticket: Ticket) => void;
   onAttentionDrillDown: (filterValue: AttentionFilterValue) => void;
+  onRiskDrillDown: (riskLevel: "High" | "Medium") => void;
 }
 
 const CLOSED_STATUSES = new Set(["resolved", "closed"]);
@@ -133,6 +134,120 @@ function formatEstimatedHours(value: number) {
   }
 
   return `${Number.isInteger(value) ? value : value.toFixed(1)}h`;
+}
+
+function normalizeRiskLevel(
+  value: string | undefined | null,
+): "high" | "medium" | "low" | null {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "high" || normalized === "critical") {
+    return "high";
+  }
+  if (normalized === "medium" || normalized === "moderate") {
+    return "medium";
+  }
+  if (normalized === "low") {
+    return "low";
+  }
+  return null;
+}
+
+function CortexRiskOverviewCard({
+  tickets,
+  onRiskDrillDown,
+}: {
+  tickets: Ticket[];
+  onRiskDrillDown: (riskLevel: "High" | "Medium") => void;
+}) {
+  const activeTickets = tickets.filter((ticket) => !isClosedTicket(ticket));
+  const highRisk = activeTickets.filter(
+    (ticket) => normalizeRiskLevel(ticket.operationalRisk?.riskLevel) === "high",
+  ).length;
+  const mediumRisk = activeTickets.filter(
+    (ticket) => normalizeRiskLevel(ticket.operationalRisk?.riskLevel) === "medium",
+  ).length;
+  const lowRisk = activeTickets.filter(
+    (ticket) => normalizeRiskLevel(ticket.operationalRisk?.riskLevel) === "low",
+  ).length;
+  const totalScored = highRisk + mediumRisk + lowRisk;
+
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+            Cortex Risk Overview
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+            Risk distribution across active tickets with quick navigation to priority work.
+          </p>
+        </div>
+        <span className="w-fit rounded-full bg-cortex-blue-soft px-3 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
+          Tier 9 advisory
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => onRiskDrillDown("High")}
+          className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-left transition-colors hover:bg-red-100/80 dark:border-red-900/50 dark:bg-red-950/30 dark:hover:bg-red-950/50"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">
+            High Risk Tickets
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-red-900 dark:text-red-100">
+            {highRisk}
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => onRiskDrillDown("Medium")}
+          className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-left transition-colors hover:bg-amber-100/80 dark:border-amber-900/50 dark:bg-amber-950/30 dark:hover:bg-amber-950/50"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            At Risk Tickets
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-amber-900 dark:text-amber-100">
+            {mediumRisk}
+          </p>
+        </button>
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+            Low Risk Tickets
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-emerald-900 dark:text-emerald-100">
+            {lowRisk}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        {totalScored > 0 ? (
+          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800">
+            <div className="flex h-full w-full">
+              <div
+                className="bg-red-500"
+                style={{ width: `${(highRisk / totalScored) * 100}%` }}
+              />
+              <div
+                className="bg-amber-500"
+                style={{ width: `${(mediumRisk / totalScored) * 100}%` }}
+              />
+              <div
+                className="bg-emerald-500"
+                style={{ width: `${(lowRisk / totalScored) * 100}%` }}
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            Risk distribution appears as tickets accumulate risk scoring.
+          </p>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function buildImpactMetrics(tickets: Ticket[]) {
@@ -402,6 +517,7 @@ export default function DashboardPage({
   onRefresh,
   onOpenTicket,
   onAttentionDrillDown,
+  onRiskDrillDown,
 }: DashboardPageProps) {
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const tabScrollRef = useRef<HTMLDivElement | null>(null);
@@ -486,6 +602,7 @@ export default function DashboardPage({
             affordanceAriaLabel="Scroll dashboard overview to bottom"
           >
             <CortexImpactCard tickets={tickets} />
+            <CortexRiskOverviewCard tickets={tickets} onRiskDrillDown={onRiskDrillDown} />
             <ExecutiveAttentionPanel
               tickets={tickets}
               activeFilterValue={activeAttentionFilterValue}

@@ -33,8 +33,8 @@
           "net8.0": {
             "targetAlias": "net8.0",
             "projectReferences": {
-              "C:\\Users\\adamc\\documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj": {
-                "projectPath": "C:\\Users\\adamc\\documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj"
+              "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj": {
+                "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj"
               }
             }
           }
@@ -98,14 +98,14 @@
         }
       }
     },
-    "C:\\Users\\adamc\\documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj": {
+    "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\adamc\\documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
+        "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
         "projectName": "Cortex.API",
-        "projectPath": "C:\\Users\\adamc\\documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
+        "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
         "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\adamc\\documents\\Cortex.API\\CortexBackend\\obj\\",
+        "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

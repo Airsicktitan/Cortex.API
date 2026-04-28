@@ -123,7 +123,13 @@ export type RequesterLifecycleSummary = {
   rejected: number;
 };
 
-export type FilterOption = "all" | "status" | "priority" | "sla" | "attention";
+export type FilterOption =
+  | "all"
+  | "status"
+  | "priority"
+  | "sla"
+  | "attention"
+  | "risk";
 export type PageSizeOption = 10 | 25 | 50 | "all";
 export type TicketListSortOption =
   | "newest-first"
@@ -178,6 +184,20 @@ function ticketMatchesSearch(ticket: Ticket, searchValue: string) {
   return searchableValues.some((value) =>
     normalize(String(value ?? "")).includes(searchValue),
   );
+}
+
+function normalizeRiskLevel(value: string | undefined | null): "high" | "medium" | "low" | "" {
+  const normalized = normalize(String(value ?? ""));
+  if (normalized === "critical" || normalized === "high") {
+    return "high";
+  }
+  if (normalized === "moderate" || normalized === "medium") {
+    return "medium";
+  }
+  if (normalized === "low") {
+    return "low";
+  }
+  return "";
 }
 
 function getOwnerMatchCandidates(
@@ -1323,6 +1343,11 @@ export function useTickets({
               ticketMatchesAttentionFilter(ticket, filterInput),
             )
           : [];
+      } else if (filter === "risk") {
+        filteredTickets = filteredTickets.filter(
+          (ticket) =>
+            normalizeRiskLevel(ticket.operationalRisk?.riskLevel) === filterInput,
+        );
       } else {
         filteredTickets = filteredTickets.filter((ticket) =>
           normalize(ticket.priority ?? "").includes(filterInput),

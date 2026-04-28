@@ -113,6 +113,11 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status429TooManyRequests);
 
+        tickets.MapGet("/{id}/risk", TicketHandlers.GetTicketRisk)
+            .WithName("GetTicketRisk")
+            .Produces<CortexSlaRiskResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         tickets.MapPost("/routing/workload-preview", TicketHandlers.PostOwnerWorkloadPreview)
             .WithName("PostOwnerWorkloadPreview")
             .Produces<OwnerWorkloadPreviewResponse>(StatusCodes.Status200OK);

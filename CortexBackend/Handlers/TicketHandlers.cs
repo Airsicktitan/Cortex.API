@@ -522,6 +522,48 @@ public static class TicketHandlers
         return Results.Ok(result);
     }
 
+    public static async Task<IResult> GetTicketRisk(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ICortexSlaRiskService cortexSlaRiskService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var assessment = await cortexSlaRiskService.EvaluateRiskAsync(ticket, cancellationToken);
+        return Results.Ok(new CortexSlaRiskResponse
+        {
+            TicketId = ticket.Id,
+            RiskLevel = assessment.RiskLevel.ToString(),
+            RiskReasons = assessment.RiskReasons,
+            Recommendation = HumanizeRecommendation(assessment.Recommendation),
+            RecommendationReason = assessment.RecommendationReason,
+            Confidence = assessment.Confidence,
+            SlaStatus = assessment.SlaStatus,
+            EvaluatedAtUtc = DateTime.UtcNow
+        });
+    }
+
+    private static string HumanizeRecommendation(CortexRiskRecommendation recommendation) =>
+        recommendation switch
+        {
+            CortexRiskRecommendation.RequestMoreDetail => "Request more detail",
+            CortexRiskRecommendation.Reassign => "Reassign",
+            CortexRiskRecommendation.Escalate => "Escalate",
+            _ => "Keep on current path"
+        };
+
     /// <summary>
     /// Evaluates routing rules from draft field values without persisting (ticket modal live preview).
     /// Requester department/role come from the ticket creator, matching update-ticket routing behavior.

@@ -36,6 +36,7 @@ import type {
 } from "../types/cortexDecision";
 import type { CortexInsight } from "../types/cortexInsight";
 import type { CortexAutonomyResult } from "../types/cortexAutonomy";
+import type { CortexSlaRisk } from "../types/cortexRisk";
 import type { CortexSystemRecommendation } from "../types/cortexSystemRecommendation";
 import type { CortexAiAssessment } from "../types/cortexAiAssessment";
 import type {
@@ -425,6 +426,25 @@ export const ticketService = {
     );
     await ensureSuccess(response, "Unable to evaluate Cortex autonomy");
     return response.json() as Promise<CortexAutonomyResult>;
+  },
+
+  async getRisk(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<CortexSlaRisk | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/risk`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    await ensureSuccess(response, "Unable to load Cortex risk");
+    return response.json() as Promise<CortexSlaRisk>;
   },
 
   async getInsight(

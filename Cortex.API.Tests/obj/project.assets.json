@@ -9031,8 +9031,8 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "C:\\Users\\adamc\\documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj": {
-              "projectPath": "C:\\Users\\adamc\\documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj"
+            "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj": {
+              "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj"
             }
           }
         }

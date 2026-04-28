@@ -277,6 +277,7 @@ export default function TicketsContainer({
             <option value="priority">By Priority</option>
             <option value="sla">By SLA</option>
             <option value="attention">By Attention</option>
+            <option value="risk">By Risk</option>
           </select>
 
           <label className="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600 dark:border-slate-700 dark:text-slate-400">
@@ -326,6 +327,19 @@ export default function TicketsContainer({
                   {ATTENTION_FILTER_LABELS[option]}
                 </option>
               ))}
+            </select>
+          ) : filter === "risk" ? (
+            <select
+              value={filterValue}
+              onChange={(event) =>
+                handleFilterValueChange(event.target.value)
+              }
+              className="rounded-md border-gray-300 bg-white text-gray-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="">Select risk level</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
             </select>
           ) : filter !== "all" ? (
             <input

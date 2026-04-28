@@ -623,6 +623,9 @@ interface TicketRoutingInsightProps {
   livePreview?: RoutingLivePreviewInput | null;
   /** Called after guided reassignment apply when that flow is present on the ticket. */
   onReassignmentApplied?: (updatedTicket: Ticket) => void;
+  riskLevel?: "Low" | "Medium" | "High" | null;
+  onRecommendedOwnerClick?: () => void;
+  highlightPanel?: boolean;
 }
 
 export default function TicketRoutingInsight({
@@ -630,6 +633,9 @@ export default function TicketRoutingInsight({
   isModalOpen,
   ticketBoards,
   livePreview,
+  riskLevel,
+  onRecommendedOwnerClick,
+  highlightPanel = false,
 }: TicketRoutingInsightProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [data, setData] = useState<TicketRoutingLatestResponse | null>(null);
@@ -1308,13 +1314,21 @@ export default function TicketRoutingInsight({
     (cortexDecision?.learningConfidenceDelta ?? 0) < 0
       ? "text-red-700 dark:text-red-300"
       : "text-emerald-700 dark:text-emerald-300";
+  const isHighRisk = riskLevel === "High";
 
   if (!ticket.id) {
     return null;
   }
 
   return (
-    <div className="mb-6 rounded-xl border border-slate-200/95 bg-white p-4 shadow-sm dark:border-slate-600/80 dark:bg-slate-950/40 dark:shadow-none">
+    <div
+      id="cortex-decision-panel"
+      className={`mb-6 rounded-xl border p-4 shadow-sm transition-colors dark:shadow-none ${
+        highlightPanel
+          ? "border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/25"
+          : "border-slate-200/95 bg-white dark:border-slate-600/80 dark:bg-slate-950/40"
+      }`}
+    >
       <button
         type="button"
         onClick={() => setDecisionPanelExpanded((open) => !open)}
@@ -1333,6 +1347,11 @@ export default function TicketRoutingInsight({
               </span>
             ) : null}
           </p>
+          {isHighRisk ? (
+            <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-200">
+              ⚠️ This ticket is at risk - review recommended action below.
+            </p>
+          ) : null}
         </div>
         <span
           className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500"
@@ -1411,6 +1430,15 @@ export default function TicketRoutingInsight({
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
                     Recommended Ownership
                   </span>
+                  {isHighRisk ? (
+                    <button
+                      type="button"
+                      onClick={onRecommendedOwnerClick}
+                      className="ml-2 text-xs font-semibold text-cortex-blue underline-offset-2 hover:underline dark:text-cortex-cyan"
+                    >
+                      Check risk context
+                    </button>
+                  ) : null}
                   <span className="block mt-0.5 text-slate-500 dark:text-slate-400">
                     Syniti Owner:{" "}
                     <span className="text-slate-900 dark:text-slate-100">
