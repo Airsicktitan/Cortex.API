@@ -945,6 +945,10 @@ export default function TicketModal({
     ) {
       return false;
     }
+    // Active context: Cortex panel takes the right column; comments render inline.
+    if (approvalDisplayContext === "active") {
+      return false;
+    }
     return true;
   }, [approvalDisplayContext, ticket]);
 
@@ -2338,6 +2342,9 @@ export default function TicketModal({
   const showChangeReasonField = Boolean(ticket.id) && !isApprovalQueueContext;
   /** Reviewer + requester PendingApproval: no comment thread (intake vs collaboration). */
   const showCommentsColumn = commentsColumnEnabled;
+  /** Active context: Cortex occupies the right rail; reviewer uses ApprovalTriageModalColumn. */
+  const showCortexColumn =
+    Boolean(ticket.id) && approvalDisplayContext === "active";
   const canRenderTriageRegenerate =
     Boolean(ticket.id) && approvalDisplayContext === "reviewer";
   const canOfferTriageRegenerate =
@@ -2347,13 +2354,14 @@ export default function TicketModal({
     canOfferTriageRegenerate || !canRenderTriageRegenerate
       ? null
       : "Regenerate Analysis is available while the ticket is awaiting approval.";
-  const ticketModalGridClass = showAiTriageColumn
-    ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]"
-    : showCommentsColumn
+  const ticketModalGridClass =
+    showAiTriageColumn || showCortexColumn || showCommentsColumn
       ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]"
       : "grid-cols-1";
   const ticketModalMaxWidthClass =
-    showAiTriageColumn || showCommentsColumn ? "max-w-6xl" : "max-w-5xl";
+    showAiTriageColumn || showCortexColumn || showCommentsColumn
+      ? "max-w-6xl"
+      : "max-w-5xl";
   const showRequesterRequestSummary = Boolean(ticket.id) && isRequesterContext;
   const activeTypingUsers = typingUsers.filter(
     (typingUser) => typingUser.expiresAt > Date.now(),
@@ -3066,21 +3074,40 @@ export default function TicketModal({
                     </div>
                   </div>
 
-                  {!isRequesterContext ? (
-                    <CortexTabbedPanel
-                      ticket={cortexDecisionTicket}
-                      isModalOpen={isOpen}
-                      ticketBoards={ticketBoards}
-                      livePreview={routingLivePreviewInput}
-                      riskLevel={latestRisk?.riskLevel ?? null}
-                      onRiskReady={setLatestRisk}
-                      onOpenSourceTicket={onOpenSourceTicket}
-                      onReassignmentApplied={(updatedTicket) => {
-                        applyServerTicketToForm(updatedTicket);
-                        onTriageApplySuccess?.(updatedTicket);
-                      }}
-                    />
-                  ) : ticket.id ? (
+                  {/* Active context: comments rendered inline; Cortex is the right column. */}
+                  {showCortexColumn ? (
+                    <div className="rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30">
+                      <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-slate-800">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+                          Comments
+                        </h3>
+                        <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-slate-800 dark:text-slate-300">
+                          {comments.length}
+                        </span>
+                      </div>
+                      {loadingComments ? (
+                        <p className="text-sm text-gray-500 dark:text-slate-400">
+                          Loading comments…
+                        </p>
+                      ) : (
+                        <CommentList comments={comments} />
+                      )}
+                      {typingIndicatorText && (
+                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                          {typingIndicatorText}
+                        </p>
+                      )}
+                      <div className="mt-3">
+                        <AddComment
+                          onAdd={addComment}
+                          onTyping={() => {
+                            void signalTyping();
+                          }}
+                          disabled={!canCreateTickets(authRoles)}
+                        />
+                      </div>
+                    </div>
+                  ) : isRequesterContext && ticket.id ? (
                     <CortexInsightPanel
                       ticketId={ticket.id}
                       isOpen={isOpen}
@@ -3515,6 +3542,25 @@ export default function TicketModal({
                 regenerateLoading={regenerateTriageLoading}
                 applyControls={triageApplyControls}
               />
+            ) : null}
+
+            {/* ================= ACTIVE: CORTEX (right rail) ================= */}
+            {showCortexColumn ? (
+              <div className="relative flex min-h-0 flex-col overflow-y-auto">
+                <CortexTabbedPanel
+                  ticket={cortexDecisionTicket}
+                  isModalOpen={isOpen}
+                  ticketBoards={ticketBoards}
+                  livePreview={routingLivePreviewInput}
+                  riskLevel={latestRisk?.riskLevel ?? null}
+                  onRiskReady={setLatestRisk}
+                  onOpenSourceTicket={onOpenSourceTicket}
+                  onReassignmentApplied={(updatedTicket) => {
+                    applyServerTicketToForm(updatedTicket);
+                    onTriageApplySuccess?.(updatedTicket);
+                  }}
+                />
+              </div>
             ) : null}
 
             {/* ================= COMMENTS ================= */}
