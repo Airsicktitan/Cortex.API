@@ -175,9 +175,8 @@ export default function CortexRiskPanel({
           </div>
 
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            SLA status: {risk.slaStatus || "—"} · Confidence{" "}
-            {Math.round((risk.confidence ?? 0) * 100)}% · Advisory only — no
-            actions are taken automatically.
+            SLA status: {risk.slaStatus || "—"} · Advisory only — no actions
+            are taken automatically.
           </p>
         </div>
       ) : null}

@@ -45,10 +45,8 @@ import CommentList from "./CommentList";
 import AddComment from "./AddComment";
 import TicketHistoryModal from "./TicketHistoryModal";
 import UserCombobox from "./UserCombobox";
-import TicketRoutingInsight from "./TicketRoutingInsight";
 import CortexInsightPanel from "./CortexInsightPanel";
-import CortexAutonomyPanel from "./CortexAutonomyPanel";
-import CortexRiskPanel from "./CortexRiskPanel";
+import { CortexTabbedPanel } from "./CortexTabbedPanel";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
@@ -644,8 +642,6 @@ export default function TicketModal({
   /** Tracks last known server `ticket.priority` so we can sync the dropdown when AI updates priority without overwriting a divergent approver edit. */
   const lastServerTicketPriorityRef = useRef(ticket.priority);
   const [pendingNewCommentsCount, setPendingNewCommentsCount] = useState(0);
-  const [riskPanelHighlight, setRiskPanelHighlight] = useState(false);
-  const [decisionPanelHighlight, setDecisionPanelHighlight] = useState(false);
   const [latestRisk, setLatestRisk] = useState<CortexSlaRisk | null>(null);
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
@@ -809,48 +805,6 @@ export default function TicketModal({
     });
   }, [getAccessTokenSilently]);
 
-  const clearDecisionHighlightRef = useRef<number | null>(null);
-  const clearRiskHighlightRef = useRef<number | null>(null);
-
-  const highlightDecisionPanel = useCallback(() => {
-    setDecisionPanelHighlight(true);
-    document
-      .getElementById("cortex-decision-panel")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    if (clearDecisionHighlightRef.current !== null) {
-      window.clearTimeout(clearDecisionHighlightRef.current);
-    }
-    clearDecisionHighlightRef.current = window.setTimeout(
-      () => setDecisionPanelHighlight(false),
-      1800,
-    );
-  }, []);
-
-  const highlightRiskPanel = useCallback(() => {
-    setRiskPanelHighlight(true);
-    document
-      .getElementById("cortex-risk-panel")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    if (clearRiskHighlightRef.current !== null) {
-      window.clearTimeout(clearRiskHighlightRef.current);
-    }
-    clearRiskHighlightRef.current = window.setTimeout(
-      () => setRiskPanelHighlight(false),
-      1800,
-    );
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (clearDecisionHighlightRef.current !== null) {
-        window.clearTimeout(clearDecisionHighlightRef.current);
-      }
-      if (clearRiskHighlightRef.current !== null) {
-        window.clearTimeout(clearRiskHighlightRef.current);
-      }
-    };
-  }, []);
-
   /** Merge a server ticket into modal form state after save (stay-open edit path). */
   const applyServerTicketToForm = useCallback(
     (saved: Ticket) => {
@@ -885,8 +839,6 @@ export default function TicketModal({
   useEffect(() => {
     if (!isOpen) {
       setLatestRisk(null);
-      setDecisionPanelHighlight(false);
-      setRiskPanelHighlight(false);
     }
   }, [isOpen, ticket.id]);
 
@@ -3114,44 +3066,25 @@ export default function TicketModal({
                     </div>
                   </div>
 
-                  {ticket.id && !isRequesterContext ? (
-                    <TicketRoutingInsight
+                  {!isRequesterContext ? (
+                    <CortexTabbedPanel
                       ticket={cortexDecisionTicket}
                       isModalOpen={isOpen}
                       ticketBoards={ticketBoards}
                       livePreview={routingLivePreviewInput}
                       riskLevel={latestRisk?.riskLevel ?? null}
-                      onRecommendedOwnerClick={highlightRiskPanel}
-                      highlightPanel={decisionPanelHighlight}
+                      onRiskReady={setLatestRisk}
+                      onOpenSourceTicket={onOpenSourceTicket}
                       onReassignmentApplied={(updatedTicket) => {
                         applyServerTicketToForm(updatedTicket);
                         onTriageApplySuccess?.(updatedTicket);
                       }}
                     />
-                  ) : null}
-
-                  {ticket.id && !isRequesterContext ? (
-                    <CortexRiskPanel
-                      ticketId={ticket.id}
-                      isOpen={isOpen}
-                      onRiskReady={setLatestRisk}
-                      onRecommendedActionClick={highlightDecisionPanel}
-                      highlightPanel={riskPanelHighlight}
-                    />
-                  ) : null}
-
-                  {ticket.id ? (
+                  ) : ticket.id ? (
                     <CortexInsightPanel
                       ticketId={ticket.id}
                       isOpen={isOpen}
                       onOpenSourceTicket={onOpenSourceTicket}
-                    />
-                  ) : null}
-
-                  {ticket.id && !isRequesterContext ? (
-                    <CortexAutonomyPanel
-                      ticketId={ticket.id}
-                      isOpen={isOpen}
                     />
                   ) : null}
 

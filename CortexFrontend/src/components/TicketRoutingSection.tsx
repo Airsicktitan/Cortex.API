@@ -362,9 +362,9 @@ export default function TicketRoutingSection({
                         {rule.isValidConfiguration === false ? (
                           <span
                             className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
-                            title={rule.invalidReason ?? "Invalid configuration"}
+                            title={rule.invalidReason ?? "Configuration error"}
                           >
-                            Invalid configuration
+                            Configuration error
                           </span>
                         ) : null}
                       </div>
@@ -384,7 +384,7 @@ export default function TicketRoutingSection({
                 {selectedRule.isValidConfiguration === false ? (
                   <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 dark:border-amber-800/60 dark:bg-amber-950/30">
                     <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-                      Invalid configuration
+                      Configuration error
                     </p>
                     <p className="mt-1 text-sm text-amber-900 dark:text-amber-100">
                       This rule will not be used because the selected owner is

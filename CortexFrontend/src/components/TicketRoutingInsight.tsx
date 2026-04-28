@@ -74,7 +74,7 @@ function resolveBoardNameForDisplay(
   if (ticket.boardId === n && ticket.boardName?.trim()) {
     return ticket.boardName.trim();
   }
-  return "Unknown board";
+  return "—";
 }
 
 function normalizeOwnerToken(value: string | undefined | null): string {
@@ -590,7 +590,7 @@ function RecommendationWorkloadPill({
   if (!summary) {
     return (
       <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-        Workload data not available for comparison
+        —
       </span>
     );
   }
@@ -1272,7 +1272,7 @@ export default function TicketRoutingInsight({
       : null;
   const workloadComparisonLabel =
     workloadDifference == null
-      ? "Workload data not available for comparison"
+      ? "—"
       : workloadDifference <= 0
         ? "Recommended owner has equal or lower workload"
         : "Recommended owner has higher workload; routing signals still ranked this owner first";
@@ -1454,7 +1454,7 @@ export default function TicketRoutingInsight({
                 </p>
                 <p>
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    Decision Rationale
+                    Reasoning
                   </span>
                   <span className="block mt-0.5 text-slate-900 dark:text-slate-100">
                     {compactWhyLine}
@@ -1523,18 +1523,18 @@ export default function TicketRoutingInsight({
               </p>
               <div className="mt-2 rounded-md border border-slate-200/80 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950/40">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Confidence Analysis
+                  Signal Strength
                 </p>
                 {showLearningConfidenceBreakdown ? (
                   <div className="mt-1.5 space-y-1 text-sm">
                     <p className="text-slate-600 dark:text-slate-300">
-                      Base Confidence:{" "}
+                      Base signal:{" "}
                       <span className="font-medium">
                         {formatConfidencePercent(cortexDecision.baseConfidenceScore)}
                       </span>
                     </p>
                     <p className={learningDeltaClassName}>
-                      Learning Adjustment:{" "}
+                      Learning adjustment:{" "}
                       <span className="font-semibold">
                         {formatConfidenceDeltaPercent(cortexDecision.learningConfidenceDelta)}
                       </span>
@@ -1544,13 +1544,13 @@ export default function TicketRoutingInsight({
                       </span>
                     </p>
                     <p className="font-semibold text-slate-900 dark:text-slate-100">
-                      Final Confidence:{" "}
+                      Signal strength:{" "}
                       {formatConfidencePercent(cortexDecision.confidenceScore)}
                     </p>
                   </div>
                 ) : (
                   <p className="mt-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    Final Confidence: {formatConfidencePercent(cortexDecision.confidenceScore)}
+                    Signal strength: {formatConfidencePercent(cortexDecision.confidenceScore)}
                   </p>
                 )}
               </div>
@@ -1663,7 +1663,7 @@ export default function TicketRoutingInsight({
                 </CortexTooltip>
               ) : (
                 <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                  Workload data not available for comparison
+                  No workload data
                 </span>
               )}
             </div>
@@ -1746,13 +1746,13 @@ export default function TicketRoutingInsight({
                   Current owner workload:{" "}
                   {currentOwnerWorkloadScore != null
                     ? Math.max(0, currentOwnerWorkloadScore)
-                    : "Workload data not available for comparison"}
+                    : "—"}
                 </p>
                 <p>
                   Recommended owner workload:{" "}
                   {recommendedOwnerWorkloadScore != null
                     ? Math.max(0, recommendedOwnerWorkloadScore)
-                    : "Workload data not available for comparison"}
+                    : "—"}
                 </p>
                 <p>Workload comparison: {workloadComparisonLabel}</p>
                 <p>Action state: {actionState}</p>
@@ -1933,7 +1933,7 @@ export default function TicketRoutingInsight({
               ) : (
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Confidence
+                    Signal Strength
                   </span>
                   <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                     {(confidenceLabel ?? confidencePresentation.text).replaceAll(

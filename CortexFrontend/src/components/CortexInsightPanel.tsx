@@ -368,7 +368,7 @@ export default function CortexInsightPanel({
                   {matches.length} similar issue{matches.length === 1 ? "" : "s"} found
                 </p>
                 <span className="rounded-md bg-cortex-blue-soft px-2.5 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
-                  {Math.max(0, Math.min(100, insight.confidenceScore))}% confidence
+                  {Math.max(0, Math.min(100, insight.confidenceScore))}% match
                 </span>
               </div>
 
@@ -392,7 +392,7 @@ export default function CortexInsightPanel({
                       Strongest Source
                     </p>
                     <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                      {firstSimilar.status || "Unknown"}
+                      {firstSimilar.status || "—"}
                     </span>
                     <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                       {firstSimilar.confidenceScore}% match
@@ -464,7 +464,7 @@ export default function CortexInsightPanel({
                             {ticket.title}
                           </span>
                           <span className="text-slate-500 dark:text-slate-400">
-                            {ticket.status || "Unknown"} - {ticket.confidenceScore}% match
+                            {ticket.status || "—"} · {ticket.confidenceScore}% match
                           </span>
                           {onOpenSourceTicket ? (
                             <button
