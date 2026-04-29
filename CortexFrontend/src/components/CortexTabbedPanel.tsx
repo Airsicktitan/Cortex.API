@@ -113,6 +113,7 @@ export function CortexTabbedPanel({
               ticketBoards={ticketBoards}
               livePreview={livePreview}
               riskLevel={riskLevel}
+              memoryInsight={loadedInsight}
               onRecommendedOwnerClick={() => switchTab("risk")}
               onReassignmentApplied={onReassignmentApplied}
             />
