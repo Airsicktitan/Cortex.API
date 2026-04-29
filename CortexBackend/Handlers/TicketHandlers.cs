@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
+using System.Text.Json;
 
 /// <summary>
 /// Defines all ticket-related API handlers for CORTEX.
@@ -1164,25 +1165,50 @@ public static class TicketHandlers
         var requester = await userRepository.GetByIdAsync(ticket.CreatedBy);
         var requesterDepartment = requester?.Department;
         var requesterRole = requester?.Role;
+        var hadManualSynitiOwner = !string.IsNullOrWhiteSpace(ticket.SynitiOwner);
+        var hadManualBusinessOwner = !string.IsNullOrWhiteSpace(ticket.BusinessOwner);
+        var approvedPriority = ResolveApprovedPriority(ticket.Priority, ticket.AiTriageSuggestedPriority);
+        ticket.Priority = approvedPriority;
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} approval start. Priority={Priority}. ExistingSynitiOwner={ExistingSynitiOwner}. ExistingBusinessOwner={ExistingBusinessOwner}.",
+            ticket.Id,
+            approvedPriority,
+            ticket.SynitiOwner,
+            ticket.BusinessOwner);
         var routingDecision = await ticketRoutingRuleService.EvaluateAsync(
             BuildRoutingFactors(
                 ticket.BoardId,
-                NormalizePriority(ticket.Priority),
+                approvedPriority,
                 requesterDepartment,
                 requesterRole,
                 requesterDepartment,
                 ticket.Title),
             ticket.Id);
+        var latestDecision = await ticketRoutingRuleService.GetLatestDecisionAsync(ticket.Id);
+        var recommendedSynitiOwner = NormalizeOptionalValue(routingDecision.RecommendedSynitiOwner)
+            ?? TryExtractRecommendedOwnerFromDecisionExplanation(routingDecision.ExplanationJson, "synitiOwner")
+            ?? NormalizeOptionalValue(latestDecision?.ChosenSynitiOwner)
+            ?? TryExtractRecommendedOwnerFromDecisionExplanation(latestDecision?.ExplanationJson, "synitiOwner");
+        var recommendedBusinessOwner = NormalizeOptionalValue(routingDecision.RecommendedBusinessOwner)
+            ?? TryExtractRecommendedOwnerFromDecisionExplanation(routingDecision.ExplanationJson, "businessOwner")
+            ?? NormalizeOptionalValue(latestDecision?.ChosenBusinessOwner)
+            ?? TryExtractRecommendedOwnerFromDecisionExplanation(latestDecision?.ExplanationJson, "businessOwner");
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} recommendation resolved. RecommendedSynitiOwner={RecommendedSynitiOwner}. RecommendedBusinessOwner={RecommendedBusinessOwner}.",
+            ticket.Id,
+            recommendedSynitiOwner,
+            recommendedBusinessOwner);
 
         var originalForAssignment = CloneTicket(ticket);
-        var resolvedSynitiOwner = string.IsNullOrWhiteSpace(ticket.SynitiOwner)
-            ? routingDecision.RecommendedSynitiOwner ?? ticket.SynitiOwner
-            : ticket.SynitiOwner;
-        var resolvedBusinessOwner = string.IsNullOrWhiteSpace(ticket.BusinessOwner)
-            ? routingDecision.RecommendedBusinessOwner
+        var resolvedSynitiOwner = hadManualSynitiOwner
+            ? ticket.SynitiOwner
+            : recommendedSynitiOwner ?? ticket.SynitiOwner;
+        var resolvedBusinessOwner = hadManualBusinessOwner
+            ? ticket.BusinessOwner
+            : recommendedBusinessOwner
                 ?? ticket.BusinessOwner
                 ?? (requester is not null ? GetDefaultBusinessOwner(requester) : null)
-            : ticket.BusinessOwner;
+            ;
 
         try
         {
@@ -1200,6 +1226,7 @@ public static class TicketHandlers
 
         ticket.SynitiOwner = resolvedSynitiOwner;
         ticket.BusinessOwner = resolvedBusinessOwner;
+        ticket.Status = "In Progress";
         ticket.ApprovalStatus = ApprovalStatus.Approved;
         ticket.ApprovedAt = DateTime.UtcNow;
         ticket.ApprovedBy = currentUser.Id;
@@ -1213,18 +1240,24 @@ public static class TicketHandlers
         ticket.LastModifiedDate = DateTime.UtcNow;
 
         await ticketRoutingRuleService.RecordDecisionAsync(ticket.Id, routingDecision);
-        var approvalOwnerOverridden = HasOwnerOverride(
-                routingDecision.RecommendedSynitiOwner,
-                routingDecision.RecommendedBusinessOwner,
-                resolvedSynitiOwner,
-                resolvedBusinessOwner);
+        var synitiOwnerManuallyOverridden = hadManualSynitiOwner
+            && !OwnerFieldsEqual(recommendedSynitiOwner, resolvedSynitiOwner);
+        var businessOwnerManuallyOverridden = hadManualBusinessOwner
+            && !OwnerFieldsEqual(recommendedBusinessOwner, resolvedBusinessOwner);
+        var approvalOwnerOverridden = synitiOwnerManuallyOverridden || businessOwnerManuallyOverridden;
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} final owners. SynitiOwner={SynitiOwner}. BusinessOwner={BusinessOwner}. ManualOverride={ManualOverride}.",
+            ticket.Id,
+            resolvedSynitiOwner,
+            resolvedBusinessOwner,
+            approvalOwnerOverridden);
         if (approvalOwnerOverridden)
         {
             await ticketRoutingRuleService.RecordOverrideAsync(
                 ticketId: ticket.Id,
                 overriddenByUserId: currentUser.Id,
-                previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
-                previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
+                previousSynitiOwner: recommendedSynitiOwner,
+                previousBusinessOwner: recommendedBusinessOwner,
                 newSynitiOwner: resolvedSynitiOwner,
                 newBusinessOwner: resolvedBusinessOwner,
                 reasonType: RoutingOverrideReasonType.Other,
@@ -1250,6 +1283,12 @@ public static class TicketHandlers
         {
             return Results.Problem("Ticket was approved but could not be retrieved.");
         }
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} persisted owners. SynitiOwner={SynitiOwner}. BusinessOwner={BusinessOwner}. ApprovalStatus={ApprovalStatus}.",
+            updatedTicket.Id,
+            updatedTicket.SynitiOwner,
+            updatedTicket.BusinessOwner,
+            updatedTicket.ApprovalStatus);
 
         if (ticketOutcomeService is not null)
         {
@@ -1278,6 +1317,11 @@ public static class TicketHandlers
             mappingContext,
             operationalRiskService,
             reassignmentRecommendationService);
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} response owners. SynitiOwner={SynitiOwner}. BusinessOwner={BusinessOwner}.",
+            response.Id,
+            response.SynitiOwner,
+            response.BusinessOwner);
         var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(updatedTicket);
 
         await notificationService.CreateAssignmentNotificationsAsync(
@@ -2456,6 +2500,41 @@ public static class TicketHandlers
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
+    private static string? TryExtractRecommendedOwnerFromDecisionExplanation(
+        string? explanationJson,
+        string slotKey)
+    {
+        if (string.IsNullOrWhiteSpace(explanationJson) || string.IsNullOrWhiteSpace(slotKey))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(explanationJson);
+            if (!document.RootElement.TryGetProperty("slots", out var slots))
+            {
+                return null;
+            }
+
+            if (!slots.TryGetProperty(slotKey, out var slot))
+            {
+                return null;
+            }
+
+            if (!slot.TryGetProperty("selectedOwnerKey", out var selectedOwner))
+            {
+                return null;
+            }
+
+            return NormalizeOptionalValue(selectedOwner.GetString());
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private static RoutingFactors BuildRoutingFactors(
         int boardId,
         string priority,
@@ -2593,6 +2672,23 @@ public static class TicketHandlers
         }
 
         return normalizedPriority;
+    }
+
+    private static string ResolveApprovedPriority(string currentPriority, string? triageSuggestedPriority)
+    {
+        if (!string.IsNullOrWhiteSpace(triageSuggestedPriority))
+        {
+            try
+            {
+                return NormalizePriority(triageSuggestedPriority);
+            }
+            catch (ArgumentException)
+            {
+                // Ignore unsupported AI suggestion and retain the persisted priority.
+            }
+        }
+
+        return NormalizePriority(currentPriority);
     }
 
     private static string? GetDefaultBusinessOwner(User user)

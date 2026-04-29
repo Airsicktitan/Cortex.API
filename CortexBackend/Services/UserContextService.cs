@@ -12,12 +12,19 @@ public class UserContextService(
     IUserRepository userRepository,
     IHttpContextAccessor httpContextAccessor,
     IAccessApprovalService accessApproval,
+    CortexDbContext dbContext,
     ILogger<UserContextService> logger) : IUserContextService
 {
     private readonly IUserRepository _userRepo = userRepository;
     private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
     private readonly IAccessApprovalService _accessApproval = accessApproval;
+    private readonly CortexDbContext _dbContext = dbContext;
     private readonly ILogger<UserContextService> _logger = logger;
+    private static readonly HashSet<string> ElevatedAccessRoles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        Auth0Roles.Admin,
+        Auth0Roles.Developer
+    };
 
     public Task<User> GetCurrentUserAsync()
     {
@@ -63,6 +70,93 @@ public class UserContextService(
         var user = await _userRepo.GetByAuth0IdAsync(auth0Id);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var existingByEmail = user is null && !string.IsNullOrWhiteSpace(normalizedEmail)
+            ? await _userRepo.GetByEmailAsync(normalizedEmail)
+            : null;
+        if (user is null && existingByEmail is not null)
+        {
+            user = existingByEmail;
+        }
+
+        if (user is not null &&
+            string.IsNullOrWhiteSpace(user.Auth0Id))
+        {
+            user.Auth0Id = auth0Id;
+            changed = true;
+        }
+
+        var hasActiveElevatedUser = await _dbContext.Users
+            .AsNoTracking()
+            .AnyAsync(localUser =>
+                localUser.IsActive &&
+                ElevatedAccessRoles.Contains(localUser.Role),
+                cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (user is not null && !hasActiveElevatedUser)
+        {
+            if (!string.Equals(user.Role, Auth0Roles.Admin, StringComparison.OrdinalIgnoreCase))
+            {
+                user.Role = Auth0Roles.Admin;
+                changed = true;
+            }
+            if (!user.IsActive)
+            {
+                user.IsActive = true;
+                changed = true;
+            }
+            if (string.IsNullOrWhiteSpace(user.Department))
+            {
+                user.Department = UserDepartmentPolicy.DefaultDeveloperDepartment;
+                changed = true;
+            }
+            if (string.IsNullOrWhiteSpace(user.DisplayName))
+            {
+                user.DisplayName = string.IsNullOrWhiteSpace(displayName) ? normalizedEmail : displayName;
+                changed = true;
+            }
+
+            _logger.LogInformation(
+                "[BOOTSTRAP] First admin user created from authenticated Auth0 principal: {Email}",
+                normalizedEmail ?? user.Email);
+        }
+
+        if (user is null)
+        {
+            var shouldBootstrapFirstElevated = !hasActiveElevatedUser;
+            user = new User
+            {
+                Auth0Id = auth0Id,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? normalizedEmail : displayName,
+                NickName = string.IsNullOrWhiteSpace(nickName) ? null : nickName.Trim(),
+                Email = normalizedEmail ?? BuildFallbackEmail(auth0Id),
+                PhoneNumber = string.IsNullOrWhiteSpace(phoneNumber) ? null : phoneNumber.Trim(),
+                Department = shouldBootstrapFirstElevated
+                    ? UserDepartmentPolicy.DefaultDeveloperDepartment
+                    : ResolveDepartmentClaim(principal),
+                Role = shouldBootstrapFirstElevated ? Auth0Roles.Admin : Auth0Roles.User,
+                IsActive = shouldBootstrapFirstElevated,
+                CreatedDate = DateTime.UtcNow,
+                LastLoginDate = DateTime.UtcNow
+            };
+
+            await _userRepo.CreateUserAsync(user);
+            changed = true;
+
+            if (shouldBootstrapFirstElevated)
+            {
+                _logger.LogInformation(
+                    "[BOOTSTRAP] First admin user created from authenticated Auth0 principal: {Email}",
+                    user.Email);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "[AUTH0-LINK] Pending local user shell created from authenticated Auth0 principal: {Email}",
+                    user.Email);
+            }
+        }
+
         // Demo pilot bypass: only honored when the email claim is actually verified by
         // Auth0, so a brand-new identity claiming the demo email cannot impersonate the
         // pilot account. The demo row is pinned to its first-linked Auth0 subject — we
@@ -103,6 +197,12 @@ public class UserContextService(
                 auth0Id);
         }
 
+        if (changed)
+        {
+            await _userRepo.SaveChangesAsync();
+            changed = false;
+        }
+
         // Centralized access approval: unknown/inactive/expired identities are rejected
         // here instead of being silently auto-provisioned. Verified demo is exempt.
         var decision = _accessApproval.Evaluate(user, normalizedEmail, emailVerified);
@@ -121,25 +221,9 @@ public class UserContextService(
                 auth0Id);
         }
 
-        if (user == null)
+        if (user is null)
         {
-            // Only reachable for approved callers that have no local record yet.
-            // In v1 that means the demo pilot account; do not auto-provision anyone else.
-            user = new User
-            {
-                Auth0Id = auth0Id,
-                DisplayName = displayName,
-                NickName = string.IsNullOrWhiteSpace(nickName) ? null : nickName.Trim(),
-                Email = normalizedEmail ?? BuildFallbackEmail(auth0Id),
-                PhoneNumber = string.IsNullOrWhiteSpace(phoneNumber) ? null : phoneNumber.Trim(),
-                // New logins only: persist default Cortex role (do not touch Role for existing rows).
-                Role = Auth0Roles.User,
-                CreatedDate = DateTime.UtcNow,
-                LastLoginDate = DateTime.UtcNow
-            };
-
-            await _userRepo.CreateUserAsync(user);
-            changed = true;
+            throw new UnauthorizedAccessException("User resolution failed after access approval.");
         }
 
         if (!string.IsNullOrWhiteSpace(normalizedEmail) &&
@@ -266,6 +350,18 @@ public class UserContextService(
                   ?? principal.FindFirst("https://cortex-api/email_verified")?.Value;
 
         return bool.TryParse(raw, out var verified) && verified;
+    }
+
+    private static string? ResolveDepartmentClaim(ClaimsPrincipal principal)
+    {
+        var raw = principal.FindFirst("department")?.Value
+                  ?? principal.FindFirst("https://cortex-api/department")?.Value;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        return raw.Trim();
     }
 
     private static string BuildFallbackEmail(string auth0Id)

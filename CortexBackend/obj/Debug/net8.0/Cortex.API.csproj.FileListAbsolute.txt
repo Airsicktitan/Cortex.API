@@ -655,7 +655,6 @@ c:\Users\adamc\Documents\Cortex.API\artifacts\buildcheck-dept\Cortex.API.pdb
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\appsettings.Development.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\appsettings.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.staticwebassets.endpoints.json
-C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.exe
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.deps.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.runtimeconfig.json
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.dll
@@ -810,3 +809,4 @@ C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\refint\Cortex
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.pdb
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\Cortex.API.genruntimeconfig.cache
 C:\Users\adamc\Documents\Cortex.API\CortexBackend\obj\Debug\net8.0\ref\Cortex.API.dll
+C:\Users\adamc\Documents\Cortex.API\CortexBackend\bin\Debug\net8.0\Cortex.API.exe

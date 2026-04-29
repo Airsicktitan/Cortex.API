@@ -15,6 +15,7 @@ import { ticketService } from "../services/api";
 import type { CortexDecisionResult } from "../types/cortexDecision";
 import { formatDisplayValue } from "../utils/presentation";
 import { formatOwnerFieldForDisplay } from "../utils/ownerIdentity";
+import { deriveColdStartSignal } from "../utils/cortexHistoricalContext";
 import { CortexTooltip } from "./ui/Tooltip";
 
 const API_AUDIENCE = "https://cortex-api";
@@ -336,47 +337,35 @@ function hasOwnerRecommendation(decision: TicketRoutingDecisionDto): boolean {
   );
 }
 
-function humanizeCriterion(criterion: string): string {
-  switch (criterion) {
-    case "BoardId":
-      return "board alignment";
-    case "Priority":
-      return "priority alignment";
-    case "RequesterDepartment":
-    case "Department":
-      return "department alignment";
-    case "RequesterRole":
-      return "requester role alignment";
-    case "TitleContains":
-      return "title signal alignment";
-    default:
-      return criterion.replace(/([A-Z])/g, " $1").trim().toLowerCase();
+function buildSignalsSummary(context: {
+  priority?: string | null;
+  hasDepartmentSignal: boolean;
+  board?: string | null;
+}): string {
+  const signals: string[] = [];
+  if (context.priority?.trim()) {
+    signals.push("priority level");
   }
+  if (context.hasDepartmentSignal) {
+    signals.push("requester department");
+  }
+  if (context.board?.trim()) {
+    signals.push("ticket type");
+  }
+  if (signals.length === 0) {
+    return "Decision based on current routing configuration and ticket details.";
+  }
+  return `Decision based on ${signals.join(", ")}.`;
 }
 
-function extractSignalBullet(line: string): string | null {
-  const [labelRaw, valueRaw] = line.split(":");
-  const label = labelRaw?.trim().toLowerCase();
-  const value = valueRaw?.trim();
-  if (!label) {
-    return null;
+function buildConfidenceNarrative(confidence: "High" | "Medium" | "Low"): string {
+  if (confidence === "High") {
+    return "High confidence based on a strong match between ticket details and routing rules.";
   }
-  if (label === "board" && value) {
-    return `Matches ${value} board decision factor`;
+  if (confidence === "Medium") {
+    return "Moderate confidence; multiple factors influenced the recommendation.";
   }
-  if (label === "priority" && value) {
-    return `Matches ${value} priority decision factor`;
-  }
-  if (label === "requester department" && value) {
-    return `Matches ${value} requester department decision factor`;
-  }
-  if (label === "requester role" && value) {
-    return `Matches ${value} requester role decision factor`;
-  }
-  if (label === "department" && value) {
-    return `Matches ${value} department decision factor`;
-  }
-  return null;
+  return "Lower confidence; reviewer validation is recommended.";
 }
 
 function collectWorkloadOwnerKeys(
@@ -854,19 +843,31 @@ export default function TicketRoutingInsight({
 
   const selectedBecauseLines = useMemo(() => {
     const lines: string[] = [];
-    const signalBullets = matchedFactorLines
-      .map((line) => extractSignalBullet(line))
-      .filter((line): line is string => Boolean(line))
-      .slice(0, 2);
-    lines.push(...signalBullets);
+    const selectedOwner =
+      slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerDisplayName?.trim() ||
+      slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerKey?.trim() ||
+      null;
+    const priority = ticket.priority?.trim() ?? "";
+    const hasDepartmentSignal = matchedFactorLines.some((line) =>
+      line.toLowerCase().startsWith("requester department:") ||
+      line.toLowerCase().startsWith("department:"),
+    );
+    const departmentMatch = matchedFactorLines.find((line) =>
+      line.toLowerCase().startsWith("requester department:") ||
+      line.toLowerCase().startsWith("department:"),
+    );
+    const departmentValue = departmentMatch?.split(":")[1]?.trim();
 
-    if (lines.length === 0 && explanation?.matchedCriteria?.length) {
+    if ((priority === "High" || priority === "Critical") && selectedOwner) {
       lines.push(
-        `Recommendation matched ${explanation.matchedCriteria
-          .slice(0, 2)
-          .map((criterion) => humanizeCriterion(criterion))
-          .join(" and ")}.`,
+        `Selected because this is a ${priority.toLowerCase()}-priority ticket requiring timely handling, and ${selectedOwner} is aligned for urgent work.`,
       );
+    } else if (departmentValue && selectedOwner && departmentValue !== "—") {
+      lines.push(
+        `Selected because this request aligns with ${departmentValue} work, which is typically handled by ${selectedOwner}.`,
+      );
+    } else {
+      lines.push("Selected based on the closest match between ticket details and current routing rules.");
     }
 
     for (const slot of slotReasoning) {
@@ -875,7 +876,7 @@ export default function TicketRoutingInsight({
         continue;
       }
       if (slot.candidates.length <= 1) {
-        lines.push("No competing eligible recommendations met decision criteria");
+        lines.push("No other eligible owner showed a stronger routing and workload alignment.");
         continue;
       }
       const sorted = [...slot.candidates].sort(
@@ -894,18 +895,20 @@ export default function TicketRoutingInsight({
       }
 
       if (winner.workloadPenalty < nextBest.workloadPenalty) {
-        lines.push("Lower workload than other eligible recommendations");
+        lines.push("The selected owner currently has lower workload pressure than other eligible options.");
       } else if (winner.matchScore > nextBest.matchScore) {
-        lines.push("Stronger decision factor match than alternatives");
+        lines.push("The selected owner had the strongest overall match across routing signals.");
       }
     }
-    if (!slotReasoning.some((slot) => slot.candidates.length > 1)) {
-      lines.push(
-        "No better eligible alternative was identified based on current workload and routing signals",
-      );
-    }
+    lines.push(
+      buildSignalsSummary({
+        priority,
+        hasDepartmentSignal,
+        board: ticket.boardName,
+      }),
+    );
     return lines.slice(0, 3);
-  }, [matchedFactorLines, explanation?.matchedCriteria, slotReasoning]);
+  }, [matchedFactorLines, slotReasoning, ticket.boardName, ticket.priority]);
 
   const alternativesConsidered = useMemo(() => {
     return slotReasoning.flatMap((slot) => {
@@ -958,6 +961,27 @@ export default function TicketRoutingInsight({
       return [...alternatives, ...skipped];
     });
   }, [slotReasoning]);
+  const alternativesNarrative = useMemo(() => {
+    if (alternativesConsidered.length <= 0) {
+      return null;
+    }
+    const selectedOwner =
+      slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerDisplayName?.trim() ||
+      slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerKey?.trim() ||
+      "the recommended owner";
+    return `Other eligible owners were considered, but ${selectedOwner} was selected due to a stronger match on priority, department, or workload alignment.`;
+  }, [alternativesConsidered.length, slotReasoning]);
+  const signalsUsedSentence = useMemo(() => {
+    const hasDepartmentSignal = matchedFactorLines.some((line) =>
+      line.toLowerCase().startsWith("requester department:") ||
+      line.toLowerCase().startsWith("department:"),
+    );
+    return buildSignalsSummary({
+      priority: ticket.priority,
+      hasDepartmentSignal,
+      board: ticket.boardName,
+    });
+  }, [matchedFactorLines, ticket.boardName, ticket.priority]);
 
   const synitiOwnerDisplay = useMemo(() => {
     const slot = explanation?.slots?.synitiOwner;
@@ -1028,12 +1052,19 @@ export default function TicketRoutingInsight({
     () => buildOwnerLabel(ticket.businessOwner, ticket.businessOwnerDisplayName),
     [ticket.businessOwner, ticket.businessOwnerDisplayName],
   );
-  const synitiOwnerOverridden = Boolean(recommendedSynitiOwnerKey) &&
+  const hasFinalSynitiOwner = Boolean(ticket.synitiOwner?.trim());
+  const hasRecommendedSynitiOwner = Boolean(recommendedSynitiOwnerKey);
+  const synitiOwnerOverridden =
+    hasFinalSynitiOwner &&
+    hasRecommendedSynitiOwner &&
     !ownersMatch(ticket.synitiOwner, recommendedSynitiOwnerKey);
-  const businessOwnerOverridden = Boolean(recommendedBusinessOwnerKey) &&
+  const hasFinalBusinessOwner = Boolean(ticket.businessOwner?.trim());
+  const hasRecommendedBusinessOwner = Boolean(recommendedBusinessOwnerKey);
+  const businessOwnerOverridden =
+    hasFinalBusinessOwner &&
+    hasRecommendedBusinessOwner &&
     !ownersMatch(ticket.businessOwner, recommendedBusinessOwnerKey);
-  const hasManualOverride =
-    Boolean(override) || synitiOwnerOverridden || businessOwnerOverridden;
+  const hasManualOverride = synitiOwnerOverridden || businessOwnerOverridden;
 
   const workloadKeys = useMemo(
     () => (decision ? collectWorkloadOwnerKeys(decision, ticket, explanation) : []),
@@ -1132,6 +1163,58 @@ export default function TicketRoutingInsight({
   const routingReasoningEmptyCopy = isLightweightNoRec
     ? noRuleGuidanceCopy
     : "No routing signals were applied for this recommendation.";
+  const hasRoutingRecommendation = decision ? hasOwnerRecommendation(decision) : false;
+  const hasRoutingRules = decision
+    ? decision.noMatchReason !== "NoRulesDefined" &&
+      decision.noMatchReason !== "NoEnabledRules"
+    : true;
+  const hasEligibleOwners = useMemo(() => {
+    if (!decision || hasRoutingRecommendation) {
+      return true;
+    }
+    const slots = [
+      explanation?.slots?.synitiOwner,
+      explanation?.slots?.businessOwner,
+    ].filter(Boolean);
+    if (slots.length === 0) {
+      return true;
+    }
+    const hasAnyCandidates = slots.some(
+      (slot) => (slot?.candidates?.length ?? 0) > 0,
+    );
+    if (hasAnyCandidates) {
+      return true;
+    }
+    const hasEligibilityBlocks = slots.some((slot) =>
+      (slot?.skippedReasons ?? []).some((reason) =>
+        `${reason.reason ?? ""} ${reason.message ?? ""}`
+          .toLowerCase()
+          .includes("eligible"),
+      ),
+    );
+    return !hasEligibilityBlocks ? true : false;
+  }, [decision, explanation?.slots, hasRoutingRecommendation]);
+  const coldStartSignal = useMemo(
+    () =>
+      deriveColdStartSignal({
+        historicalContextBullets: historicalContext,
+        hasRoutingRecommendation,
+        hasRoutingRules,
+        hasEligibleOwners,
+        approvalStatus: ticket.approvalStatus,
+        priority: ticket.priority,
+        board: ticket.boardName,
+      }),
+    [
+      hasEligibleOwners,
+      hasRoutingRecommendation,
+      hasRoutingRules,
+      historicalContext,
+      ticket.approvalStatus,
+      ticket.boardName,
+      ticket.priority,
+    ],
+  );
   const decisionImpact = ticket.decisionImpact?.hasImpact
     ? ticket.decisionImpact
     : null;
@@ -1162,6 +1245,12 @@ export default function TicketRoutingInsight({
         ? "Medium"
         : "Low"
     : "—";
+  const confidenceNarrative =
+    recommendationStrength === "High" ||
+    recommendationStrength === "Medium" ||
+    recommendationStrength === "Low"
+      ? buildConfidenceNarrative(recommendationStrength)
+      : "Confidence details will appear once a recommendation is available.";
   const expectedImpactSummary = decisionImpact?.summary ??
     (workloadDifference != null && workloadDifference <= 0
       ? "Clearer ownership with lower workload pressure."
@@ -1362,6 +1451,28 @@ export default function TicketRoutingInsight({
                   ))}
                 </ul>
               </div>
+            ) : coldStartSignal ? (
+              <div
+                className={`space-y-2 rounded-lg border px-3 py-3 ${
+                  coldStartSignal.type === "starter-setup-needed"
+                    ? "border-amber-200 bg-amber-50/80 dark:border-amber-800/60 dark:bg-amber-950/20"
+                    : "border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/50"
+                }`}
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {coldStartSignal.title}
+                </p>
+                {coldStartSignal.body ? (
+                  <p className="text-sm text-slate-700 dark:text-slate-200">
+                    {coldStartSignal.body}
+                  </p>
+                ) : null}
+                <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
+                  {coldStartSignal.bullets.map((line, index) => (
+                    <li key={`${index}-${line}`}>{line}</li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
 
             <button
@@ -1412,7 +1523,7 @@ export default function TicketRoutingInsight({
                   Final owner: {finalSynitiOwnerDisplay}
                 </p>
                 <p>
-                  Decision strength: {recommendationStrength}
+                  Confidence: {recommendationStrength}
                 </p>
                 <p>
                   Manual override status: {hasManualOverride ? "Yes" : "No"}
@@ -1648,7 +1759,7 @@ export default function TicketRoutingInsight({
           {/* C. Decision reasoning */}
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Decision Factors
+              Signals used
             </p>
             {displayedFactorLines.length > 0 ? (
               <>
@@ -1692,40 +1803,44 @@ export default function TicketRoutingInsight({
               </p>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                Routing signals matched, but no competing eligible owner was ranked higher on workload.
+                Current ticket context and workload checks support this recommendation.
               </p>
             )}
+            <p className="text-sm text-slate-700 dark:text-slate-200">
+              {signalsUsedSentence}
+            </p>
           </div>
 
           <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Alternatives considered
             </p>
-            {alternativesConsidered.length > 0 ? (
-              <ul className="space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
-                {alternativesConsidered.map((entry, index) => (
-                  <li key={`${entry.slotLabel}-${entry.ownerLabel}-${index}`}>
-                    <span className="font-medium">{entry.ownerLabel}</span>
-                    <span className="text-slate-500 dark:text-slate-400">
-                      {" "}
-                      ({entry.slotLabel}) - Not selected because {entry.reason}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            {alternativesNarrative ? (
+              <p className="text-sm text-slate-700 dark:text-slate-200">
+                {alternativesNarrative}
+              </p>
             ) : isLightweightNoRec ? (
               <p className="text-sm text-slate-600 dark:text-slate-300">
                 {noRuleGuidanceCopy}
               </p>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                Only one eligible owner was returned by the matched routing rule.
+                Only one eligible owner was available for this request.
               </p>
             )}
           </div>
 
+          <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Confidence
+            </p>
+            <p className="text-sm text-slate-700 dark:text-slate-200">
+              {confidenceNarrative}
+            </p>
+          </div>
+
           {/* D. Override */}
-          {override ? (
+          {hasManualOverride && override ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/60">
               <p className="font-semibold text-slate-800 dark:text-slate-100">
                 ⚠️ Manual Override Detected

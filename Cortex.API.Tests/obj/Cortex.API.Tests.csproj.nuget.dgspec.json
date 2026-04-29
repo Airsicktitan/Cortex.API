@@ -10,7 +10,7 @@
         "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
         "projectName": "Cortex.API.Tests",
         "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
-        "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
+        "packagesPath": "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\5066f53ef7005c7e792d78746ded033f\\nuget",
         "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
@@ -104,7 +104,7 @@
         "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
         "projectName": "Cortex.API",
         "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
-        "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
+        "packagesPath": "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\5066f53ef7005c7e792d78746ded033f\\nuget",
         "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [

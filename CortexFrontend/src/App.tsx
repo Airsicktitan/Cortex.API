@@ -762,6 +762,7 @@ function App() {
       const updated = await ticketService.approveTicket(selectedTicket.id, token);
       upsertActiveTicketLocally(updated);
       setSelectedTicket(updated);
+      closeModal();
       toast.success("Ticket approved.");
       bumpApprovalQueueRefresh();
     } catch (error) {
@@ -770,6 +771,7 @@ function App() {
   }, [
     bumpApprovalQueueRefresh,
     canEditTicketsCap,
+    closeModal,
     getApiToken,
     selectedTicket?.id,
     setSelectedTicket,

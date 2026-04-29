@@ -6,6 +6,7 @@ import type {
   CortexLearningSignal,
 } from "../types/cortexInsight";
 import { formatDisplayDateTime } from "../utils/presentation";
+import { deriveHistoricalContextFromInsight } from "../utils/cortexHistoricalContext";
 
 const API_AUDIENCE = "https://cortex-api";
 
@@ -289,6 +290,10 @@ export default function CortexInsightPanel({
   const matches = insight?.matches ?? [];
   const firstSimilar = matches[0] ?? null;
   const learningSignals = insight?.learningSignals ?? [];
+  const historicalContext = useMemo(
+    () => deriveHistoricalContextFromInsight(insight),
+    [insight],
+  );
   const hasGeneratedFields = insight
     ? [
         insight.summary,
@@ -385,6 +390,19 @@ export default function CortexInsightPanel({
                   <ul className="mt-1.5 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
                     {insight.matchReasons.map((reason) => (
                       <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {historicalContext.length > 0 ? (
+                <div className="rounded-md border border-slate-100 bg-slate-50/70 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Historical Context
+                  </p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
+                    {historicalContext.map((line, index) => (
+                      <li key={`${index}-${line}`}>{line}</li>
                     ))}
                   </ul>
                 </div>

@@ -5,7 +5,12 @@ import type {
 } from "../types/cortexInsight";
 
 const MEMORY_CONTEXT_CONFIDENCE_THRESHOLD = 50;
-const MAX_HISTORICAL_CONTEXT_BULLETS = 2;
+const MAX_HISTORICAL_CONTEXT_BULLETS = 3;
+const RESOLVED_STATUSES = new Set(["resolved", "closed", "done", "completed"]);
+const ROUTING_RULES_MISSING_MESSAGE =
+  "Cortex needs routing rules and eligible owners before it can make useful recommendations.";
+const STARTER_INTELLIGENCE_MESSAGE =
+  "Cortex is using configured routing rules and current ticket signals because no similar resolved tickets exist yet.";
 
 function containsAnyText(
   source: string | undefined | null,
@@ -188,6 +193,95 @@ function historicalContextFromSimilarTicket(
   return null;
 }
 
+function cleanText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+
+  if (typeof value === "string") {
+    return value.replace(/\s+/g, " ").trim();
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value).replace(/\s+/g, " ").trim();
+  }
+
+  return "";
+}
+
+function normalizeReason(reason: string): string {
+  return cleanText(reason)
+    .replace(/^matched\s+/i, "")
+    .replace(/^matches\s+/i, "")
+    .replace(/^similarity\s+via\s+/i, "")
+    .replace(/\.$/, "");
+}
+
+function isResolvedMatch(match: CortexInsightSimilarTicket): boolean {
+  return RESOLVED_STATUSES.has(cleanText(match.status).toLowerCase());
+}
+
+function trimQuote(value?: string | null, maxLength = 120): string {
+  const text = cleanText(value);
+  if (!text) {
+    return "";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength).trim()}...`;
+}
+
+function buildMatchReasonPhrase(match: CortexInsightSimilarTicket): string {
+  const reasons = (match.matchReasons ?? [])
+    .map(normalizeReason)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (reasons.length === 0) {
+    return "";
+  }
+
+  return reasons.join(" and ");
+}
+
+function fallbackHistoricalContextFromSimilarTicket(
+  match: CortexInsightSimilarTicket,
+): string | null {
+  if (match.confidenceScore < MEMORY_CONTEXT_CONFIDENCE_THRESHOLD) {
+    return null;
+  }
+
+  const title = cleanText(match.title);
+  const quote = trimQuote(match.sourceQuote);
+  const reasonPhrase = buildMatchReasonPhrase(match);
+  const resolved = isResolvedMatch(match);
+
+  if (resolved && reasonPhrase) {
+    return `Resolved similar work matched on ${reasonPhrase}.`;
+  }
+
+  if (resolved && quote) {
+    return `A similar resolved ticket noted: "${quote}"`;
+  }
+
+  if (resolved && title) {
+    return `A related resolved ticket was found: "${trimQuote(title, 90)}".`;
+  }
+
+  if (reasonPhrase) {
+    return `Similar prior tickets matched on ${reasonPhrase}, which may help guide review.`;
+  }
+
+  if (quote) {
+    return `Prior ticket evidence noted: "${quote}"`;
+  }
+
+  if (title) {
+    return `A prior related ticket was found: "${trimQuote(title, 90)}".`;
+  }
+
+  return null;
+}
+
 export function deriveHistoricalContextFromInsight(
   insight?: CortexInsight | null,
 ): string[] {
@@ -216,5 +310,96 @@ export function deriveHistoricalContextFromInsight(
     }
   }
 
+  if (bullets.length === 0) {
+    const prioritizedMatches = [...(insight?.matches ?? [])]
+      .sort((left, right) => {
+        const resolvedDelta = Number(isResolvedMatch(right)) - Number(isResolvedMatch(left));
+        if (resolvedDelta !== 0) {
+          return resolvedDelta;
+        }
+        return right.confidenceScore - left.confidenceScore;
+      })
+      .filter((match) =>
+        isResolvedMatch(match) ||
+        match.confidenceScore >= MEMORY_CONTEXT_CONFIDENCE_THRESHOLD ||
+        cleanText(match.sourceQuote).length > 0 ||
+        (match.matchReasons?.length ?? 0) > 0,
+      );
+
+    for (const match of prioritizedMatches) {
+      addBullet(fallbackHistoricalContextFromSimilarTicket(match));
+    }
+  }
+
   return bullets;
+}
+
+export function hasMeaningfulHistoricalContext(
+  insight?: CortexInsight | null,
+): boolean {
+  return deriveHistoricalContextFromInsight(insight).length > 0;
+}
+
+export type ColdStartSignal = {
+  type:
+    | "historical-context"
+    | "starter-intelligence"
+    | "starter-setup-needed";
+  title: string;
+  body?: string;
+  bullets: string[];
+};
+
+export function deriveColdStartSignal(params: {
+  historicalContextBullets?: string[];
+  hasRoutingRecommendation?: boolean;
+  hasRoutingRules?: boolean;
+  hasEligibleOwners?: boolean;
+  approvalStatus?: string | null;
+  priority?: string | null;
+  board?: string | null;
+}): ColdStartSignal | null {
+  const historicalBullets = params.historicalContextBullets ?? [];
+  if (historicalBullets.length > 0) {
+    return null;
+  }
+
+  if (params.hasRoutingRules === false || params.hasEligibleOwners === false) {
+    return {
+      type: "starter-setup-needed",
+      title: "Starter Setup Needed",
+      body: ROUTING_RULES_MISSING_MESSAGE,
+      bullets: [
+        "Add at least one routing rule for common work types.",
+        "Mark users as eligible Syniti or Business owners.",
+        "Configure a fallback rule to prevent unassigned tickets.",
+      ],
+    };
+  }
+
+  const board = cleanText(params.board);
+  const priority = cleanText(params.priority);
+  const approvalStatus = cleanText(params.approvalStatus);
+  const recommendationLine = params.hasRoutingRecommendation === false
+    ? "No direct owner recommendation is available yet; Cortex is still evaluating configured signals."
+    : "Routing recommendation reflects the strongest currently available rule and ticket signals.";
+  const boardPriorityLine =
+    board && priority
+      ? `Routing is based on ${board} board and ${priority} priority signals.`
+      : "Routing is based on the current board, priority, and configured rule match.";
+  const approvalLine = approvalStatus.toLowerCase() === "pendingapproval"
+    ? "Reviewers can approve or override the recommendation while intake is pending approval."
+    : "Reviewers can approve or override the recommendation; Cortex will learn from outcomes over time.";
+
+  return {
+    type: "starter-intelligence",
+    title: "Starter Intelligence",
+    body: STARTER_INTELLIGENCE_MESSAGE,
+    bullets: [
+      boardPriorityLine,
+      recommendationLine,
+      "Historical context will appear once similar resolved tickets exist.",
+      approvalLine,
+    ],
+  };
 }
