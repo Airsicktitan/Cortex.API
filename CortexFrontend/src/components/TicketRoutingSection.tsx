@@ -18,6 +18,7 @@ import {
   ConfigTwoColumnWideCatalog,
   configCatalogItemClass,
 } from "./configurationAdminUi";
+import RoutingRuleHealthPanel from "./RoutingRuleHealthPanel";
 import {
   getUserFacingErrorMessage,
   USER_DIRECTORY_INVALIDATED_EVENT,
@@ -275,6 +276,13 @@ export default function TicketRoutingSection({
     onChange("weight", 10);
   }, [onChange, onNew]);
 
+  const [ruleHealthReloadKey, setRuleHealthReloadKey] = useState(0);
+
+  const handleRefreshRulesAndHealth = () => {
+    onRefresh();
+    setRuleHealthReloadKey((previous) => previous + 1);
+  };
+
   return (
     <ConfigPageShell>
       <ConfigPageHeader
@@ -285,7 +293,7 @@ export default function TicketRoutingSection({
             <ConfigPrimaryButton onClick={onNew} disabled={isBusy}>
               New rule
             </ConfigPrimaryButton>
-            <ConfigGhostButton onClick={onRefresh} disabled={isBusy}>
+            <ConfigGhostButton onClick={handleRefreshRulesAndHealth} disabled={isBusy}>
               Reload
             </ConfigGhostButton>
           </>
@@ -299,6 +307,8 @@ export default function TicketRoutingSection({
           Loading recommendation rules…
         </div>
       ) : (
+        <>
+          <RoutingRuleHealthPanel reloadKey={ruleHealthReloadKey} />
         <ConfigPageBody>
           <ConfigTwoColumnWideCatalog
             left={
@@ -656,6 +666,7 @@ export default function TicketRoutingSection({
             }
           />
         </ConfigPageBody>
+        </>
       )}
     </ConfigPageShell>
   );

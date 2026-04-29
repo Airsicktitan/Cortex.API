@@ -125,6 +125,7 @@ builder.Services.AddScoped<IReportDefinitionService, ReportDefinitionService>();
 builder.Services.AddScoped<IStoredProcedureDefinitionService, StoredProcedureDefinitionService>();
 builder.Services.AddScoped<ITicketStatusService, TicketStatusService>();
 builder.Services.AddScoped<ITicketRoutingRuleService, TicketRoutingRuleService>();
+builder.Services.AddScoped<IRoutingRuleHealthService, RoutingRuleHealthService>();
 builder.Services.AddScoped<ITicketBoardService, TicketBoardService>();
 builder.Services.AddScoped<IScheduledJobService, ScheduledJobService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();

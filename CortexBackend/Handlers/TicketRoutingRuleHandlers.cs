@@ -17,6 +17,14 @@ public static class TicketRoutingRuleHandlers
         return Results.Ok(rules.Select(rule => rule.ToResponse(aliases)));
     }
 
+    public static async Task<IResult> GetRoutingRuleHealth(
+        IRoutingRuleHealthService routingRuleHealthService,
+        CancellationToken cancellationToken)
+    {
+        var overview = await routingRuleHealthService.GetOverviewAsync(cancellationToken);
+        return Results.Ok(overview);
+    }
+
     public static async Task<IResult> CreateTicketRoutingRule(
         UpsertTicketRoutingRuleRequest request,
         ITicketRoutingRuleService service,
