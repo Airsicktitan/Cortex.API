@@ -1,27 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TicketCard from "./TicketCard";
 import { TicketGridSkeleton } from "./LoadingSkeletons";
 import type { ThemeMode } from "../theme";
 import type { Ticket } from "../types/ticket";
-import { ticketService } from "../services/api";
-import { getUserFacingErrorMessage } from "../services/api";
 import { formatApprovalQueueLastUpdatedLabel } from "../utils/approvalQueueLastUpdated";
 import toast from "react-hot-toast";
 import { canEditTickets } from "../utils/role";
+
 const MAX_REASON = 2000;
-/** Keeps "Updating…" visible briefly so it does not flash on fast responses. */
-const MIN_SILENT_REFRESH_INDICATOR_MS = 350;
 
 type ApprovalQueuePageProps = {
   theme: ThemeMode;
   isAuthenticated: boolean;
   bootstrapComplete: boolean;
   needsConsent: boolean;
-  getApiToken: (providedToken?: string) => Promise<string>;
   authRoles: string[] | undefined;
   openTicketById: (ticketId: string, providedToken?: string) => Promise<void>;
-  /** Increment from parent after approval actions from the ticket modal so this list stays in sync. */
-  externalRefreshNonce?: number;
+  tickets: Ticket[];
+  loading: boolean;
+  error: string | null;
+  silentRefreshing: boolean;
+  lastSuccessfulRefreshAt: number | null;
+  onRefresh: () => Promise<void> | void;
+  /**
+   * Approve/return/reject handlers shared with the Ticket Modal flow so the
+   * approval queue list, board, and selected ticket all update from the same
+   * code path. Each handler returns the updated ticket on success.
+   */
+  onApprove: (ticketId: string) => Promise<Ticket | null>;
+  onReturnForDetail: (ticketId: string, reason: string) => Promise<Ticket | null>;
+  onReject: (ticketId: string, reason: string) => Promise<Ticket | null>;
 };
 
 export default function ApprovalQueuePage({
@@ -29,14 +37,18 @@ export default function ApprovalQueuePage({
   isAuthenticated,
   bootstrapComplete,
   needsConsent,
-  getApiToken,
   authRoles,
   openTicketById,
-  externalRefreshNonce = 0,
+  tickets,
+  loading,
+  error,
+  silentRefreshing,
+  lastSuccessfulRefreshAt,
+  onRefresh,
+  onApprove,
+  onReturnForDetail,
+  onReject,
 }: ApprovalQueuePageProps) {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [reasonModal, setReasonModal] = useState<
     | { ticketId: string; mode: "return" | "reject" }
@@ -44,103 +56,9 @@ export default function ApprovalQueuePage({
   >(null);
   const [reasonDraft, setReasonDraft] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [silentRefreshing, setSilentRefreshing] = useState(false);
-  const [lastSuccessfulRefreshAt, setLastSuccessfulRefreshAt] = useState<number | null>(
-    null,
-  );
   const [relativeTimeTick, setRelativeTimeTick] = useState(0);
 
   const canReview = canEditTickets(authRoles);
-
-  const APPROVAL_QUEUE_POLL_MS = 25000;
-  const silentRefreshDepthRef = useRef(0);
-
-  const refreshQueueSilent = useCallback(async () => {
-    if (!isAuthenticated || !bootstrapComplete || needsConsent) {
-      return;
-    }
-
-    silentRefreshDepthRef.current += 1;
-    if (silentRefreshDepthRef.current === 1) {
-      setSilentRefreshing(true);
-    }
-    const startedAt = Date.now();
-
-    try {
-      const token = await getApiToken();
-      const data = await ticketService.getPendingApproval(token);
-      setTickets(data.items ?? []);
-      setError(null);
-      setLastSuccessfulRefreshAt(Date.now());
-    } catch {
-      /* keep existing list; avoid noisy empty states on background refresh */
-    } finally {
-      silentRefreshDepthRef.current -= 1;
-      if (silentRefreshDepthRef.current === 0) {
-        const elapsed = Date.now() - startedAt;
-        const delay = Math.max(0, MIN_SILENT_REFRESH_INDICATOR_MS - elapsed);
-        window.setTimeout(() => {
-          setSilentRefreshing(false);
-        }, delay);
-      }
-    }
-  }, [isAuthenticated, bootstrapComplete, needsConsent, getApiToken]);
-
-  const loadQueueInitial = useCallback(async () => {
-    if (!isAuthenticated || !bootstrapComplete || needsConsent) {
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getApiToken();
-      const data = await ticketService.getPendingApproval(token);
-      setTickets(data.items ?? []);
-      setLastSuccessfulRefreshAt(Date.now());
-    } catch (err) {
-      setError(getUserFacingErrorMessage(err, "Unable to load approval queue."));
-    } finally {
-      setLoading(false);
-    }
-  }, [isAuthenticated, bootstrapComplete, needsConsent, getApiToken]);
-
-  useEffect(() => {
-    void loadQueueInitial();
-  }, [loadQueueInitial]);
-
-  const lastExternalNonceRef = useRef(externalRefreshNonce);
-  useEffect(() => {
-    if (lastExternalNonceRef.current === externalRefreshNonce) {
-      return;
-    }
-    lastExternalNonceRef.current = externalRefreshNonce;
-    void refreshQueueSilent();
-  }, [externalRefreshNonce, refreshQueueSilent]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !bootstrapComplete || needsConsent) {
-      return;
-    }
-
-    const onResume = () => {
-      if (document.visibilityState === "visible") {
-        void refreshQueueSilent();
-      }
-    };
-
-    document.addEventListener("visibilitychange", onResume);
-    window.addEventListener("focus", onResume);
-    const intervalId = window.setInterval(() => {
-      void refreshQueueSilent();
-    }, APPROVAL_QUEUE_POLL_MS);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onResume);
-      window.removeEventListener("focus", onResume);
-      window.clearInterval(intervalId);
-    };
-  }, [isAuthenticated, bootstrapComplete, needsConsent, refreshQueueSilent]);
 
   useEffect(() => {
     if (loading || lastSuccessfulRefreshAt === null) {
@@ -185,13 +103,7 @@ export default function ApprovalQueuePage({
     }
     setPendingId(ticket.id);
     try {
-      const token = await getApiToken();
-      const updated = await ticketService.approveTicket(ticket.id, token);
-      setTickets((current) => current.filter((t) => t.id !== updated.id));
-      toast.success("Ticket approved.");
-      void refreshQueueSilent();
-    } catch (err) {
-      toast.error(getUserFacingErrorMessage(err, "Unable to approve."));
+      await onApprove(ticket.id);
     } finally {
       setPendingId(null);
     }
@@ -213,31 +125,14 @@ export default function ApprovalQueuePage({
 
     setPendingId(reasonModal.ticketId);
     try {
-      const token = await getApiToken();
-      if (reasonModal.mode === "return") {
-        const updated = await ticketService.returnTicketForDetail(
-          reasonModal.ticketId,
-          token,
-          trimmed,
-        );
-        setTickets((current) =>
-          current.map((t) => (t.id === updated.id ? updated : t)),
-        );
-        toast.success("Ticket returned for more detail.");
-      } else {
-        const updated = await ticketService.rejectTicket(
-          reasonModal.ticketId,
-          token,
-          trimmed,
-        );
-        setTickets((current) => current.filter((t) => t.id !== updated.id));
-        toast.success("Ticket rejected.");
+      const result =
+        reasonModal.mode === "return"
+          ? await onReturnForDetail(reasonModal.ticketId, trimmed)
+          : await onReject(reasonModal.ticketId, trimmed);
+      if (result) {
+        setReasonModal(null);
+        setReasonDraft("");
       }
-      void refreshQueueSilent();
-      setReasonModal(null);
-      setReasonDraft("");
-    } catch (err) {
-      toast.error(getUserFacingErrorMessage(err, "Unable to complete action."));
     } finally {
       setPendingId(null);
     }
@@ -281,7 +176,7 @@ export default function ApprovalQueuePage({
             ) : null}
             <button
               type="button"
-              onClick={() => void refreshQueueSilent()}
+              onClick={() => void onRefresh()}
               className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               Refresh

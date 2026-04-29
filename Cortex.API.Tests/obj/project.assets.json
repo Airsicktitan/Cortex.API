@@ -8999,7 +8999,7 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\5066f53ef7005c7e792d78746ded033f\\nuget": {},
+    "C:\\Users\\adamc\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
@@ -9008,7 +9008,7 @@
       "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
       "projectName": "Cortex.API.Tests",
       "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
-      "packagesPath": "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\5066f53ef7005c7e792d78746ded033f\\nuget",
+      "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
       "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [

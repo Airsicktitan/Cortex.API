@@ -468,11 +468,15 @@ interface TicketModalProps {
    * Needed while the modal is open because list upsert normally skips selected ticket sync.
    */
   onTriageApplySuccess?: (ticket: Ticket) => void;
-  /** When set, shows intake review actions for pending / needs-info tickets. */
+  /**
+   * When set, shows intake review actions for pending / needs-info tickets.
+   * Each handler returns the updated ticket on success (or `null` when the
+   * action was rejected / failed) so callers can sequence follow-up UI work.
+   */
   intakeApprovalHandlers?: {
-    approve: () => Promise<void>;
-    returnForDetail: (reason: string) => Promise<void>;
-    reject: (reason: string) => Promise<void>;
+    approve: () => Promise<unknown>;
+    returnForDetail: (reason: string) => Promise<unknown>;
+    reject: (reason: string) => Promise<unknown>;
   };
   onOpenSourceTicket?: (ticketId: string) => void | Promise<void>;
 }

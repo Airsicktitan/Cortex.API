@@ -42,6 +42,7 @@ import { applyTheme, getPreferredTheme, type ThemeMode } from "./theme";
 import { useUsers } from "./hooks/useUsers";
 import { useConfiguration } from "./hooks/useConfiguration";
 import { useTickets } from "./hooks/useTickets";
+import { usePendingApprovalQueue } from "./hooks/usePendingApprovalQueue";
 import { useSavedFilters } from "./hooks/useSavedFilters";
 import toast from "react-hot-toast";
 import {
@@ -747,101 +748,165 @@ function App() {
     isLikelyNetworkError,
   });
 
-  const [approvalQueueRefreshNonce, setApprovalQueueRefreshNonce] = useState(0);
-  const bumpApprovalQueueRefresh = useCallback(() => {
-    setApprovalQueueRefreshNonce((n) => n + 1);
-  }, []);
-
-  const handleIntakeApprove = useCallback(async () => {
-    if (!selectedTicket?.id || !canEditTicketsCap) {
-      return;
-    }
-
-    try {
-      const token = await getApiToken();
-      const updated = await ticketService.approveTicket(selectedTicket.id, token);
-      upsertActiveTicketLocally(updated);
-      setSelectedTicket(updated);
-      closeModal();
-      toast.success("Ticket approved.");
-      bumpApprovalQueueRefresh();
-    } catch (error) {
-      toast.error(getUserFacingErrorMessage(error, "Unable to approve ticket."));
-    }
-  }, [
-    bumpApprovalQueueRefresh,
-    canEditTicketsCap,
-    closeModal,
+  const {
+    pendingApprovalTickets,
+    pendingApprovalLoading,
+    pendingApprovalError,
+    pendingApprovalSilentRefreshing,
+    pendingApprovalLastSuccessfulRefreshAt,
+    refreshPendingApprovalQueueSilent,
+    applyReviewedTicketToQueue,
+  } = usePendingApprovalQueue({
+    isAuthenticated,
+    bootstrapComplete,
+    needsConsent,
+    enabled: activeView === "approval" && canEditTicketsCap,
     getApiToken,
-    selectedTicket?.id,
-    setSelectedTicket,
-    upsertActiveTicketLocally,
-  ]);
+  });
+
+  /**
+   * Shared post-action sync for approve / return / reject. Updates board and
+   * mySubmissions state, prunes the approval queue card, and—if the action
+   * targeted the currently-open modal—either updates or closes it. A single
+   * code path for queue-card and modal-driven flows keeps the UI consistent.
+   */
+  const applyReviewedTicketLocally = useCallback(
+    (updated: Ticket, options: { closeModalIfTargeted: boolean }) => {
+      const isTargetedOpenModal =
+        isModalOpen && selectedTicket?.id === updated.id;
+
+      if (isTargetedOpenModal && options.closeModalIfTargeted) {
+        upsertActiveTicketLocally(updated, { syncSelectedTicket: false });
+        closeModal();
+      } else {
+        upsertActiveTicketLocally(updated, { syncSelectedTicket: true });
+      }
+
+      applyReviewedTicketToQueue(updated);
+    },
+    [
+      applyReviewedTicketToQueue,
+      closeModal,
+      isModalOpen,
+      selectedTicket?.id,
+      upsertActiveTicketLocally,
+    ],
+  );
+
+  const handleIntakeApprove = useCallback(
+    async (ticketId?: string): Promise<Ticket | null> => {
+      const targetId = ticketId ?? selectedTicket?.id;
+      if (!targetId || !canEditTicketsCap) {
+        return null;
+      }
+
+      try {
+        const token = await getApiToken();
+        const updated = await ticketService.approveTicket(targetId, token);
+        applyReviewedTicketLocally(updated, { closeModalIfTargeted: true });
+        toast.success("Ticket approved.");
+        return updated;
+      } catch (error) {
+        toast.error(getUserFacingErrorMessage(error, "Unable to approve ticket."));
+        return null;
+      }
+    },
+    [
+      applyReviewedTicketLocally,
+      canEditTicketsCap,
+      getApiToken,
+      selectedTicket?.id,
+    ],
+  );
 
   const handleIntakeReturn = useCallback(
-    async (reason: string) => {
-      if (!selectedTicket?.id || !canEditTicketsCap) {
-        return;
+    async (
+      reasonOrTicketId: string,
+      reasonWhenTicketIdProvided?: string,
+    ): Promise<Ticket | null> => {
+      const ticketId =
+        reasonWhenTicketIdProvided !== undefined
+          ? reasonOrTicketId
+          : (selectedTicket?.id ?? "");
+      const reason =
+        reasonWhenTicketIdProvided !== undefined
+          ? reasonWhenTicketIdProvided
+          : reasonOrTicketId;
+      if (!ticketId || !canEditTicketsCap) {
+        return null;
       }
 
       try {
         const token = await getApiToken();
         const updated = await ticketService.returnTicketForDetail(
-          selectedTicket.id,
+          ticketId,
           token,
           reason,
         );
-        setSelectedTicket(updated);
-        upsertActiveTicketLocally(updated, { syncSelectedTicket: false });
+        applyReviewedTicketLocally(updated, { closeModalIfTargeted: true });
         toast.success("Ticket returned for more detail.");
-        bumpApprovalQueueRefresh();
+        return updated;
       } catch (error) {
-        toast.error(
-          getUserFacingErrorMessage(error, "Unable to return ticket."),
-        );
+        toast.error(getUserFacingErrorMessage(error, "Unable to return ticket."));
+        return null;
       }
     },
     [
-      bumpApprovalQueueRefresh,
+      applyReviewedTicketLocally,
       canEditTicketsCap,
       getApiToken,
       selectedTicket?.id,
-      setSelectedTicket,
-      upsertActiveTicketLocally,
     ],
   );
 
   const handleIntakeReject = useCallback(
-    async (reason: string) => {
-      if (!selectedTicket?.id || !canEditTicketsCap) {
-        return;
+    async (
+      reasonOrTicketId: string,
+      reasonWhenTicketIdProvided?: string,
+    ): Promise<Ticket | null> => {
+      const ticketId =
+        reasonWhenTicketIdProvided !== undefined
+          ? reasonOrTicketId
+          : (selectedTicket?.id ?? "");
+      const reason =
+        reasonWhenTicketIdProvided !== undefined
+          ? reasonWhenTicketIdProvided
+          : reasonOrTicketId;
+      if (!ticketId || !canEditTicketsCap) {
+        return null;
       }
 
       try {
         const token = await getApiToken();
-        const updated = await ticketService.rejectTicket(
-          selectedTicket.id,
-          token,
-          reason,
-        );
-        setSelectedTicket(updated);
-        upsertActiveTicketLocally(updated, { syncSelectedTicket: false });
+        const updated = await ticketService.rejectTicket(ticketId, token, reason);
+        applyReviewedTicketLocally(updated, { closeModalIfTargeted: true });
         toast.success("Ticket rejected.");
-        bumpApprovalQueueRefresh();
+        return updated;
       } catch (error) {
-        toast.error(
-          getUserFacingErrorMessage(error, "Unable to reject ticket."),
-        );
+        toast.error(getUserFacingErrorMessage(error, "Unable to reject ticket."));
+        return null;
       }
     },
     [
-      bumpApprovalQueueRefresh,
+      applyReviewedTicketLocally,
       canEditTicketsCap,
       getApiToken,
       selectedTicket?.id,
-      setSelectedTicket,
-      upsertActiveTicketLocally,
     ],
+  );
+
+  const handleApprovalQueueApprove = useCallback(
+    (ticketId: string) => handleIntakeApprove(ticketId),
+    [handleIntakeApprove],
+  );
+  const handleApprovalQueueReturn = useCallback(
+    (ticketId: string, reason: string) =>
+      handleIntakeReturn(ticketId, reason),
+    [handleIntakeReturn],
+  );
+  const handleApprovalQueueReject = useCallback(
+    (ticketId: string, reason: string) => handleIntakeReject(ticketId, reason),
+    [handleIntakeReject],
   );
 
   const ticketModalOpenRef = useRef(false);
@@ -2895,10 +2960,19 @@ function App() {
                   isAuthenticated={isAuthenticated}
                   bootstrapComplete={bootstrapComplete}
                   needsConsent={needsConsent}
-                  getApiToken={getApiToken}
                   authRoles={effectiveAuthRoles}
                   openTicketById={openTicketById}
-                  externalRefreshNonce={approvalQueueRefreshNonce}
+                  tickets={pendingApprovalTickets}
+                  loading={pendingApprovalLoading}
+                  error={pendingApprovalError}
+                  silentRefreshing={pendingApprovalSilentRefreshing}
+                  lastSuccessfulRefreshAt={
+                    pendingApprovalLastSuccessfulRefreshAt
+                  }
+                  onRefresh={refreshPendingApprovalQueueSilent}
+                  onApprove={handleApprovalQueueApprove}
+                  onReturnForDetail={handleApprovalQueueReturn}
+                  onReject={handleApprovalQueueReject}
                 />
               ) : activeView === "archived" && canViewArchived ? (
                 <ArchivedTicketsPage
@@ -3219,7 +3293,9 @@ function App() {
             })
           }
           onTriagePersisted={
-            activeView === "approval" ? bumpApprovalQueueRefresh : undefined
+            activeView === "approval"
+              ? () => void refreshPendingApprovalQueueSilent()
+              : undefined
           }
           onTriageApplySuccess={(updatedTicket) =>
             upsertActiveTicketLocally(updatedTicket, { syncSelectedTicket: true })
