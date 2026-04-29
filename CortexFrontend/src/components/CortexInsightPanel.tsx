@@ -13,6 +13,7 @@ interface CortexInsightPanelProps {
   ticketId: string;
   isOpen: boolean;
   onOpenSourceTicket?: (ticketId: string) => void | Promise<void>;
+  onInsightReady?: (insight: CortexInsight | null) => void;
 }
 
 function InsightField({
@@ -193,6 +194,7 @@ export default function CortexInsightPanel({
   ticketId,
   isOpen,
   onOpenSourceTicket,
+  onInsightReady,
 }: CortexInsightPanelProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [expanded, setExpanded] = useState(false);
@@ -206,9 +208,10 @@ export default function CortexInsightPanel({
     abortRef.current = null;
     setExpanded(false);
     setInsight(null);
+    onInsightReady?.(null);
     setLoading(false);
     setError(null);
-  }, [ticketId, isOpen]);
+  }, [ticketId, isOpen, onInsightReady]);
 
   useEffect(() => {
     return () => {
@@ -241,6 +244,7 @@ export default function CortexInsightPanel({
       );
       if (!controller.signal.aborted) {
         setInsight(result);
+        onInsightReady?.(result);
       }
     } catch (err) {
       if (!controller.signal.aborted) {
@@ -262,6 +266,7 @@ export default function CortexInsightPanel({
     insight,
     isOpen,
     loading,
+    onInsightReady,
     ticketId,
   ]);
 

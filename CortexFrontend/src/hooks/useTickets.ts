@@ -114,6 +114,49 @@ function notifyTicketSaveSuccess(
   toast.success(message, { id: "ticket-save-success" });
 }
 
+function uploadAttachmentsAfterTicketSave(
+  savedTicket: Ticket,
+  attachments: File[],
+  token: string,
+) {
+  if (attachments.length === 0) {
+    return;
+  }
+
+  const filesToUpload = [...attachments];
+  const uploadToastId = `ticket-attachment-upload-${savedTicket.id}-${Date.now()}`;
+  toast.loading(
+    filesToUpload.length === 1
+      ? "Uploading attachment..."
+      : `Uploading ${filesToUpload.length} attachments...`,
+    { id: uploadToastId },
+  );
+
+  void attachmentService
+    .upload(savedTicket.id, filesToUpload, token)
+    .then(() => {
+      toast.success(
+        filesToUpload.length === 1
+          ? "Attachment uploaded"
+          : `${filesToUpload.length} attachments uploaded`,
+        { id: uploadToastId },
+      );
+    })
+    .catch((attachmentError) => {
+      console.warn("Attachment upload failed after ticket save", {
+        ticketId: savedTicket.id,
+        error: attachmentError,
+      });
+      toast.error(
+        getUserFacingErrorMessage(
+          attachmentError,
+          "Ticket saved, but attachments could not be uploaded.",
+        ),
+        { id: uploadToastId },
+      );
+    });
+}
+
 export type MyTicketApprovalFilter = "all" | ApprovalStatus;
 export type RequesterLifecycleSummary = {
   total: number;
@@ -1582,7 +1625,7 @@ export function useTickets({
       try {
         const token = await getApiToken();
         let savedTicket: Ticket;
-        let successMessage = isCreateAction ? "Ticket created" : "Ticket updated";
+        const successMessage = isCreateAction ? "Ticket created" : "Ticket updated";
 
         if (isCreateAction) {
           const createPayload: CreateTicketInput = {
@@ -1604,47 +1647,14 @@ export function useTickets({
         }
 
         if (attachments.length > 0) {
-          try {
-            await attachmentService.upload(savedTicket.id, attachments, token);
-            successMessage +=
-              attachments.length === 1
-                ? " with 1 attachment"
-                : ` with ${attachments.length} attachments`;
-          } catch (attachmentError) {
-            console.error("Failed to upload attachments", attachmentError);
-            notifyTicketSaveSuccess(
-              isCreateAction,
-              savedTicket,
-              successMessage,
-              0,
-              {
-                resubmittedForReview:
-                  !isCreateAction &&
-                  wasNeedsMoreInfo &&
-                  savedTicket.approvalStatus === "PendingApproval",
-              },
-            );
-            toast.error(
-              getUserFacingErrorMessage(
-                attachmentError,
-                "Ticket saved, but attachments could not be uploaded",
-              ),
-            );
-            setIsModalOpen(false);
-            setSelectedTicket(null);
-            return {
-              outcome: "saved",
-              savedTicket,
-              shouldCloseModal: true,
-            };
-          }
+          uploadAttachmentsAfterTicketSave(savedTicket, attachments, token);
         }
 
         notifyTicketSaveSuccess(
           isCreateAction,
           savedTicket,
           successMessage,
-          attachments.length,
+          0,
           {
             resubmittedForReview:
               !isCreateAction &&

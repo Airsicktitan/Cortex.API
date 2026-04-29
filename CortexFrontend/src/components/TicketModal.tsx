@@ -36,6 +36,7 @@ import { commentService } from "../services/commentService";
 import {
   attachmentService,
   getUserFacingErrorMessage,
+  TICKET_ATTACHMENTS_CHANGED_EVENT,
   ticketService,
   USER_DIRECTORY_INVALIDATED_EVENT,
   userService,
@@ -1688,6 +1689,37 @@ export default function TicketModal({
     }
   }, [getApiToken, ticket.id]);
 
+  useEffect(() => {
+    if (!isOpen || !ticket.id) {
+      return;
+    }
+
+    const handleTicketAttachmentsChanged = (event: Event) => {
+      if (!(event instanceof CustomEvent)) {
+        return;
+      }
+
+      const changedTicketId =
+        typeof event.detail?.ticketId === "string" ? event.detail.ticketId : "";
+      if (changedTicketId !== ticket.id) {
+        return;
+      }
+
+      void reloadAttachments();
+    };
+
+    window.addEventListener(
+      TICKET_ATTACHMENTS_CHANGED_EVENT,
+      handleTicketAttachmentsChanged,
+    );
+    return () => {
+      window.removeEventListener(
+        TICKET_ATTACHMENTS_CHANGED_EVENT,
+        handleTicketAttachmentsChanged,
+      );
+    };
+  }, [isOpen, reloadAttachments, ticket.id]);
+
   const loadOwnerDirectory = useCallback(async () => {
     setOwnerDirectoryLoading(true);
     setOwnerDirectoryError(null);
@@ -2349,13 +2381,17 @@ export default function TicketModal({
   const ticketActivity = hasPersistedSla && !isRequesterIntakeTicket ? getActivitySignal(ticket) : null;
   const waitingOnLabel = hasPersistedSla && !isRequesterIntakeTicket ? getWaitingOnLabel(ticket) : null;
   const urgencyGuidanceText =
-    slaDisplayLabel === "Overdue"
-      ? `SLA overdue${waitingOnLabel ? ` — ${waitingOnLabel}` : " — assign or update before further delay"}.`
-      : slaDisplayLabel === "At Risk"
-        ? `SLA at risk${waitingOnLabel ? ` — ${waitingOnLabel}` : " — consider reassigning or escalating"}.`
-        : waitingOnLabel && ticketActivity?.isStale
-          ? `${waitingOnLabel} · no activity for ${ticketActivity.label}.`
-          : null;
+    slaDisplayLabel === "Paused"
+      ? waitingOnLabel
+        ? `${waitingOnLabel} — SLA not started.`
+        : "SLA not started — waiting for intake to complete."
+      : slaDisplayLabel === "Overdue"
+        ? `SLA overdue${waitingOnLabel ? ` — ${waitingOnLabel}` : " — assign or update before further delay"}.`
+        : slaDisplayLabel === "At Risk"
+          ? `SLA at risk${waitingOnLabel ? ` — ${waitingOnLabel}` : " — consider reassigning or escalating"}.`
+          : waitingOnLabel && ticketActivity?.isStale
+            ? `${waitingOnLabel} · no activity for ${ticketActivity.label}.`
+            : null;
   const currentUserOwnerToken =
     currentUser?.id != null ? `${USER_ID_TOKEN_PREFIX}${currentUser.id}` : null;
   const canAssignToMe =
@@ -2529,7 +2565,9 @@ export default function TicketModal({
               SLA Deadline
             </p>
             <p className="mt-1 text-gray-800 dark:text-slate-200">
-              {formatDisplayDateTime(ticket.slaTargetDate)}
+              {slaDisplayLabel === "Paused"
+                ? "Not started"
+                : formatDisplayDateTime(ticket.slaTargetDate)}
             </p>
           </div>
           <div className="sm:col-span-2">

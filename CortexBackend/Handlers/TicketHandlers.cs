@@ -9,6 +9,7 @@ using Cortex.API.Validation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 
@@ -527,6 +528,7 @@ public static class TicketHandlers
         [FromServices] ITicketRepository repo,
         [FromServices] ITicketVisibilityService ticketVisibilityService,
         [FromServices] ICortexSlaRiskService cortexSlaRiskService,
+        [FromServices] ICortexInsightService cortexInsightService,
         CancellationToken cancellationToken)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
@@ -541,7 +543,11 @@ public static class TicketHandlers
             return Results.NotFound();
         }
 
-        var assessment = await cortexSlaRiskService.EvaluateRiskAsync(ticket, cancellationToken);
+        cortexInsightService.TryGetCachedInsight(ticket.Id, visibilityContext, out var cachedInsight);
+        var assessment = await cortexSlaRiskService.EvaluateRiskAsync(
+            ticket,
+            cancellationToken,
+            cachedInsight);
         return Results.Ok(new CortexSlaRiskResponse
         {
             TicketId = ticket.Id,
@@ -1459,15 +1465,13 @@ public static class TicketHandlers
     public static async Task<IResult> CreateTicket(
         CreateTicketRequest request,
         ITicketRepository repo,
+        IServiceScopeFactory serviceScopeFactory,
         IUserContextService userContext,
         IUserRepository userRepository,
-        IAiSettingsService aiSettingsService,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketBoardService ticketBoardService,
         ITicketRoutingRuleService ticketRoutingRuleService,
-        ITicketTriageAiService triageAi,
-        ITicketTriageVocabularyProvider triageVocabulary,
         ITicketAuditService ticketAuditService,
         [FromServices] IOperationalRiskService operationalRiskService,
         [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
@@ -1478,7 +1482,6 @@ public static class TicketHandlers
         IWorkflowMetricsService workflowMetrics,
         ICortexDecisionService? cortexDecisionService,
         ILogger<TicketHandlersLogCategory> logger,
-        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
         [FromServices] ITicketOutcomeService? ticketOutcomeService = null,
         [FromServices] ICortexAutonomyService? cortexAutonomyService = null)
     {
@@ -1488,7 +1491,6 @@ public static class TicketHandlers
 
             var nextTicketId = await repo.GetNextTicketIdAsync();
             var currentUser = await userContext.GetCurrentUserAsync();
-            var aiSettings = await aiSettingsService.GetAsync();
             var createStatus = "New";
             var normalizedPriority = NormalizePriority(request.Priority!);
 
@@ -1574,27 +1576,6 @@ public static class TicketHandlers
             if (createdTicket is null)
                 return Results.Problem("Ticket was created but could not be retrieved.");
 
-            await TicketTriagePersistence.TryGenerateAndPersistAsync(
-                createdTicket,
-                repo,
-                triageAi,
-                triageVocabulary,
-                userRepository,
-                ticketBoardService,
-                aiSettings,
-                logger,
-                CancellationToken.None);
-
-            createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
-            if (createdTicket is null)
-                return Results.Problem("Ticket was created but could not be retrieved.");
-
-            await TryEnsureEmbeddingAsync(
-                cortexEmbeddingService,
-                createdTicket.Id,
-                logger,
-                CancellationToken.None);
-
             var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
             var mappingContext = await mappingContextFactory.CreateAsync(
                 [createdTicket.CreatedBy],
@@ -1633,6 +1614,13 @@ public static class TicketHandlers
                 request.IntakeAssistSave,
                 createdTicket.Id,
                 CancellationToken.None);
+
+            QueuePostSubmitEnrichment(
+                serviceScopeFactory,
+                createdTicket.Id,
+                runTriage: true,
+                runEmbedding: true,
+                logger);
 
             await TryRunAutonomyEvaluationAsync(cortexAutonomyService, createdTicket, logger, CancellationToken.None);
 
@@ -1680,15 +1668,13 @@ public static class TicketHandlers
         UpdateTicketRequest request,
         HttpContext httpContext,
         ITicketRepository repo,
+        IServiceScopeFactory serviceScopeFactory,
         IUserContextService userContext,
         IUserRepository userRepository,
-        IAiSettingsService aiSettingsService,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketBoardService ticketBoardService,
         ITicketRoutingRuleService ticketRoutingRuleService,
-        ITicketTriageAiService triageAi,
-        ITicketTriageVocabularyProvider triageVocabulary,
         ITicketAuditService ticketAuditService,
         [FromServices] IOperationalRiskService operationalRiskService,
         [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
@@ -1698,7 +1684,6 @@ public static class TicketHandlers
         IResponseMappingContextFactory mappingContextFactory,
         IWorkflowMetricsService workflowMetrics,
         ILogger<TicketHandlersLogCategory> logger,
-        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
         [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null,
         [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
@@ -1708,8 +1693,6 @@ public static class TicketHandlers
 
             var existing = await repo.GetTicketByIdAsync(id);
             var currentUser = await userContext.GetCurrentUserAsync();
-            var aiSettings = await aiSettingsService.GetAsync();
-
             if (existing is null)
                 return Results.NotFound();
 
@@ -1934,29 +1917,6 @@ public static class TicketHandlers
                 }
             }
 
-            if (isRequesterNeedsMoreInfoRevision)
-            {
-                await TicketTriagePersistence.TryGenerateAndPersistAsync(
-                    updatedTicket,
-                    repo,
-                    triageAi,
-                    triageVocabulary,
-                    userRepository,
-                    ticketBoardService,
-                    aiSettings,
-                    logger,
-                    CancellationToken.None);
-                updatedTicket = await repo.GetTicketByIdAsync(id);
-                if (updatedTicket is null)
-                    return Results.Problem("Ticket was updated but could not be retrieved.");
-            }
-
-            await TryEnsureEmbeddingAsync(
-                cortexEmbeddingService,
-                updatedTicket.Id,
-                logger,
-                CancellationToken.None);
-
             var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
             var mappingContext = await mappingContextFactory.CreateAsync(
                 [updatedTicket.CreatedBy],
@@ -2026,6 +1986,13 @@ public static class TicketHandlers
                 updatedTicket.Id,
                 CancellationToken.None);
 
+            QueuePostSubmitEnrichment(
+                serviceScopeFactory,
+                updatedTicket.Id,
+                runTriage: isRequesterNeedsMoreInfoRevision,
+                runEmbedding: true,
+                logger);
+
             return Results.Ok(updatedTicketResponse);
         }
         catch (ArgumentException exception)
@@ -2059,6 +2026,74 @@ public static class TicketHandlers
             },
             ticketId,
             cancellationToken);
+    }
+
+    private static void QueuePostSubmitEnrichment(
+        IServiceScopeFactory serviceScopeFactory,
+        string ticketId,
+        bool runTriage,
+        bool runEmbedding,
+        ILogger<TicketHandlersLogCategory> logger)
+    {
+        if (string.IsNullOrWhiteSpace(ticketId) || (!runTriage && !runEmbedding))
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = serviceScopeFactory.CreateScope();
+                var scopedRepo = scope.ServiceProvider.GetRequiredService<ITicketRepository>();
+                var ticket = await scopedRepo.GetTicketByIdAsync(ticketId);
+                if (ticket is null)
+                {
+                    logger.LogWarning(
+                        "Post-submit enrichment skipped because ticket {TicketId} could not be loaded.",
+                        ticketId);
+                    return;
+                }
+
+                if (runTriage)
+                {
+                    var triageAi = scope.ServiceProvider.GetRequiredService<ITicketTriageAiService>();
+                    var triageVocabulary = scope.ServiceProvider.GetRequiredService<ITicketTriageVocabularyProvider>();
+                    var userRepository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+                    var ticketBoardService = scope.ServiceProvider.GetRequiredService<ITicketBoardService>();
+                    var aiSettingsService = scope.ServiceProvider.GetRequiredService<IAiSettingsService>();
+                    var aiSettings = await aiSettingsService.GetAsync();
+
+                    await TicketTriagePersistence.TryGenerateAndPersistAsync(
+                        ticket,
+                        scopedRepo,
+                        triageAi,
+                        triageVocabulary,
+                        userRepository,
+                        ticketBoardService,
+                        aiSettings,
+                        logger,
+                        CancellationToken.None);
+                }
+
+                if (runEmbedding)
+                {
+                    var cortexEmbeddingService = scope.ServiceProvider.GetService<ICortexEmbeddingService>();
+                    await TryEnsureEmbeddingAsync(
+                        cortexEmbeddingService,
+                        ticketId,
+                        logger,
+                        CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Post-submit enrichment failed for ticket {TicketId}. Ticket save already completed.",
+                    ticketId);
+            }
+        });
     }
 
     public static async Task<IResult> ArchiveTicket(

@@ -936,7 +936,9 @@ export const attachmentService = {
     });
 
     await ensureSuccess(response, "Unable to upload attachments");
-    return response.json();
+    const uploadedAttachments = (await response.json()) as TicketAttachment[];
+    notifyTicketAttachmentsChanged(ticketId);
+    return uploadedAttachments;
   },
 
   async download(ticketId: string, attachmentId: number, token: string): Promise<Blob> {
@@ -998,6 +1000,19 @@ export const attachmentService = {
     return response.json() as Promise<ScreenshotInsightResult>;
   },
 };
+
+export const TICKET_ATTACHMENTS_CHANGED_EVENT =
+  "cortex-ticket-attachments-changed";
+
+function notifyTicketAttachmentsChanged(ticketId: string) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(TICKET_ATTACHMENTS_CHANGED_EVENT, {
+        detail: { ticketId },
+      }),
+    );
+  }
+}
 
 let userDirectoryCache: UserDirectoryEntry[] | null = null;
 let userDirectoryRequest: Promise<UserDirectoryEntry[]> | null = null;

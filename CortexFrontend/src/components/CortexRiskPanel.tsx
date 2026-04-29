@@ -1,13 +1,20 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect, useState } from "react";
 import { ticketService } from "../services/api";
+import type {
+  CortexInsight,
+  CortexLearningSignal,
+} from "../types/cortexInsight";
 import type { CortexRiskLevel, CortexSlaRisk } from "../types/cortexRisk";
 
 const API_AUDIENCE = "https://cortex-api";
+const MEMORY_PATTERN_SIGNAL = "Recent similar issues required follow-up";
+const MEDIUM_INSIGHT_CONFIDENCE = 50;
 
 interface CortexRiskPanelProps {
   ticketId: string;
   isOpen: boolean;
+  insight?: CortexInsight | null;
   onRiskReady?: (risk: CortexSlaRisk | null) => void;
   onRecommendedActionClick?: () => void;
   highlightPanel?: boolean;
@@ -49,7 +56,100 @@ function riskStatusClass(status: "At Risk" | "Needs Attention" | "Stable"): stri
   }
 }
 
-function buildPredictiveSignals(risk: CortexSlaRisk): string[] {
+function containsAny(source: string | undefined | null, terms: string[]): boolean {
+  const normalized = source?.toLowerCase() ?? "";
+  return terms.some((term) => normalized.includes(term));
+}
+
+function isMediumOrHigh(confidence: string | undefined | null): boolean {
+  const normalized = confidence?.trim().toLowerCase();
+  return normalized === "medium" || normalized === "high";
+}
+
+function hasRiskLearningSignal(signal: CortexLearningSignal): boolean {
+  if (!isMediumOrHigh(signal.confidence)) {
+    return false;
+  }
+
+  const text = [
+    signal.signalType,
+    signal.title,
+    signal.description,
+    ...(signal.supportingFacts ?? []),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    containsAny(text, [
+      "follow-up",
+      "follow up",
+      "clarification",
+      "reassign",
+      "reassignment",
+      "reassigned",
+      "reopened",
+      "rework",
+      "override",
+      "overridden",
+      "returned",
+      "rejected",
+      "needs more info",
+      "more detail",
+    ])
+  ) {
+    return true;
+  }
+
+  return (
+    text.includes("sla") &&
+    containsAny(text, [
+      "breach",
+      "breached",
+      "elevated",
+      "pressure",
+      "late",
+      "miss",
+      "missed",
+      "at risk",
+    ])
+  );
+}
+
+function hasMemoryPatternRisk(insight?: CortexInsight | null): boolean {
+  const matches = insight?.matches ?? [];
+  if (matches.length === 0) {
+    return false;
+  }
+
+  const hasMediumConfidence =
+    (insight?.confidenceScore ?? 0) >= MEDIUM_INSIGHT_CONFIDENCE ||
+    matches.some((match) => match.confidenceScore >= MEDIUM_INSIGHT_CONFIDENCE);
+  if (!hasMediumConfidence) {
+    return false;
+  }
+
+  const hasLearningRisk = (insight?.learningSignals ?? []).some(hasRiskLearningSignal);
+  const hasFrictionStatus = matches.some(
+    (match) =>
+      match.confidenceScore >= MEDIUM_INSIGHT_CONFIDENCE &&
+      containsAny(match.status, [
+        "rejected",
+        "needs more info",
+        "returned",
+        "reopened",
+        "resolved late",
+        "breached",
+      ]),
+  );
+
+  return hasLearningRisk || hasFrictionStatus;
+}
+
+function buildPredictiveSignals(
+  risk: CortexSlaRisk,
+  insight?: CortexInsight | null,
+): string[] {
   const sources = [risk.slaStatus, ...risk.riskReasons, risk.recommendation]
     .filter((value) => value && value.trim().length > 0)
     .join(" ")
@@ -75,7 +175,13 @@ function buildPredictiveSignals(risk: CortexSlaRisk): string[] {
     signals.push("Near SLA deadline");
   }
 
+  // Weak / optional gaps (distinct from blocking "missing detail" escalation).
   if (
+    sources.includes("optional refinement") ||
+    sources.includes("review can proceed")
+  ) {
+    signals.push("Minor detail gap");
+  } else if (
     sources.includes("missing detail") ||
     sources.includes("missing information") ||
     sources.includes("missing required") ||
@@ -92,6 +198,10 @@ function buildPredictiveSignals(risk: CortexSlaRisk): string[] {
     signals.push("Awaiting approval");
   }
 
+  if (sources.includes("longer than the usual intake window")) {
+    signals.push("Extended approval wait");
+  }
+
   if (
     sources.includes("workload") ||
     sources.includes("capacity") ||
@@ -102,25 +212,26 @@ function buildPredictiveSignals(risk: CortexSlaRisk): string[] {
   }
 
   if (
-    sources.includes("similar") ||
-    sources.includes("follow-up") ||
-    sources.includes("follow up") ||
-    sources.includes("historical")
+    risk.riskReasons.some((reason) => reason.trim() === MEMORY_PATTERN_SIGNAL) ||
+    hasMemoryPatternRisk(insight)
   ) {
-    signals.push("Recent similar issues required follow-up");
+    signals.push(MEMORY_PATTERN_SIGNAL);
   }
 
   if (signals.length === 0 && risk.riskLevel === "High") {
     signals.push("Near SLA deadline");
   }
-  if (signals.length === 0 && risk.riskLevel === "Medium") {
-    signals.push("Needs closer monitoring");
-  }
 
   return Array.from(new Set(signals)).slice(0, 4);
 }
 
-function leadCopy(level: CortexRiskLevel): string {
+function leadCopy(level: CortexRiskLevel, signals: string[]): string {
+  const onlyIntakeRoutine =
+    signals.length > 0 &&
+    signals.every((s) => ["Awaiting approval", "Minor detail gap"].includes(s));
+  if (level === "Low" && onlyIntakeRoutine) {
+    return "Intake is proceeding; nothing here suggests operational escalation yet.";
+  }
   switch (level) {
     case "High":
       return "This ticket is likely to miss its SLA without intervention.";
@@ -135,11 +246,25 @@ function recommendedAttentionCopy(
   risk: CortexSlaRisk,
   signals: string[],
 ): string {
+  const status = riskStatusLabel(risk);
+  const onlyIntakeInformational =
+    signals.length > 0 &&
+    signals.every((s) =>
+      ["Awaiting approval", "Minor detail gap"].includes(s),
+    );
+
+  if (status === "Stable" && (signals.length === 0 || onlyIntakeInformational)) {
+    return "Proceed through normal review.";
+  }
+
+  if (signals.includes("Extended approval wait")) {
+    return "Follow up with approvers — intake has waited longer than usual.";
+  }
   if (signals.includes("Missing required detail")) {
     return "Request missing details now.";
   }
-  if (signals.includes("Awaiting approval")) {
-    return "Approve or return for detail.";
+  if (signals.includes("Awaiting approval") && status === "Needs Attention") {
+    return "Prioritize approval or return for detail.";
   }
   if (signals.includes("Owner workload high")) {
     return "Assign to an available owner.";
@@ -163,6 +288,7 @@ function recommendedAttentionCopy(
 export default function CortexRiskPanel({
   ticketId,
   isOpen,
+  insight,
   onRiskReady,
   onRecommendedActionClick,
   highlightPanel = false,
@@ -217,7 +343,7 @@ export default function CortexRiskPanel({
     return null;
   }
 
-  const predictiveSignals = risk ? buildPredictiveSignals(risk) : [];
+  const predictiveSignals = risk ? buildPredictiveSignals(risk, insight) : [];
 
   return (
     <div
@@ -264,7 +390,7 @@ export default function CortexRiskPanel({
                 {riskStatusLabel(risk)}
               </span>
               <span className="text-sm text-slate-600 dark:text-slate-300">
-                {leadCopy(risk.riskLevel)}
+                {leadCopy(risk.riskLevel, predictiveSignals)}
               </span>
             </div>
           </div>

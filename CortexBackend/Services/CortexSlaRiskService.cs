@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Cortex.API.DTO;
 using Cortex.API.Models;
 
 namespace Cortex.API.Services;
@@ -12,20 +13,28 @@ public sealed class CortexSlaRiskService(
     ISlaConfigurationService slaConfigurationService,
     IWorkloadSnapshotService workloadSnapshotService) : ICortexSlaRiskService
 {
+    /// <summary>Past this age in Pending Approval, intake is treated as stale (aligns with workload stale window).</summary>
+    private static readonly TimeSpan StalePendingApprovalThreshold =
+        TimeSpan.FromHours(WorkloadScoringPolicy.StaleTicketAgeHours);
+
     private const int HighRiskThreshold = 8;
     private const int MediumRiskThreshold = 4;
     private const int CommentFrictionThreshold = 4;
     private const int MaxSignals = 7;
+    private const int MediumInsightConfidenceThreshold = 50;
+    private const string MemoryPatternRiskSignal = "Recent similar issues required follow-up";
 
     public async Task<CortexSlaRiskAssessment> EvaluateRiskAsync(
         Ticket ticket,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CortexInsightDto? cachedInsight = null)
     {
         ArgumentNullException.ThrowIfNull(ticket);
 
         var priorityMap = await slaConfigurationService.GetPriorityMapAsync().ConfigureAwait(false);
         priorityMap.TryGetValue(ticket.Priority ?? string.Empty, out var slaConfiguration);
         var slaSnapshot = TicketSlaCalculator.Calculate(ticket, slaConfiguration);
+        var utcNow = DateTime.UtcNow;
 
         var ownerSnapshot = string.IsNullOrWhiteSpace(ticket.SynitiOwner)
             ? null
@@ -33,7 +42,7 @@ public sealed class CortexSlaRiskService(
                 .GetSnapshotAsync(ticket.SynitiOwner!, cancellationToken)
                 .ConfigureAwait(false);
 
-        var signals = CollectSignals(ticket, slaSnapshot, ownerSnapshot);
+        var signals = CollectSignals(ticket, slaSnapshot, ownerSnapshot, utcNow);
         var score = signals.Sum(signal => signal.Weight);
         var firedCount = signals.Count;
 
@@ -43,7 +52,8 @@ public sealed class CortexSlaRiskService(
             slaSnapshot,
             ownerSnapshot,
             signals,
-            riskLevel);
+            riskLevel,
+            utcNow);
 
         var assessment = new CortexSlaRiskAssessment
         {
@@ -56,6 +66,13 @@ public sealed class CortexSlaRiskService(
             Confidence = ComputeConfidence(firedCount, riskLevel),
         };
 
+        if (HasMemoryPatternRisk(cachedInsight)
+            && !assessment.RiskReasons.Any(reason =>
+                string.Equals(reason, MemoryPatternRiskSignal, StringComparison.Ordinal)))
+        {
+            assessment.RiskReasons.Add(MemoryPatternRiskSignal);
+        }
+
         if (assessment.RiskReasons.Count == 0)
         {
             assessment.RiskReasons.Add("No elevated SLA, intake, or workload signals on this ticket.");
@@ -64,12 +81,102 @@ public sealed class CortexSlaRiskService(
         return assessment;
     }
 
+    private static bool HasMemoryPatternRisk(CortexInsightDto? insight)
+    {
+        if (insight?.Matches is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        if (!HasMediumConfidenceMatch(insight))
+        {
+            return false;
+        }
+
+        return insight.LearningSignals.Any(IsRiskLearningSignal)
+            || insight.Matches.Any(IsFrictionMatch);
+    }
+
+    private static bool HasMediumConfidenceMatch(CortexInsightDto insight) =>
+        insight.ConfidenceScore >= MediumInsightConfidenceThreshold
+        || insight.Matches.Any(match => match.ConfidenceScore >= MediumInsightConfidenceThreshold);
+
+    private static bool IsRiskLearningSignal(CortexLearningSignalDto signal)
+    {
+        if (!IsMediumOrHigh(signal.Confidence))
+        {
+            return false;
+        }
+
+        var text = string.Join(
+            ' ',
+            signal.SignalType,
+            signal.Title,
+            signal.Description,
+            string.Join(' ', signal.SupportingFacts));
+
+        if (ContainsAny(
+                text,
+                "follow-up",
+                "follow up",
+                "clarification",
+                "reassign",
+                "reassignment",
+                "reassigned",
+                "reopened",
+                "rework",
+                "override",
+                "overridden",
+                "returned",
+                "rejected",
+                "needs more info",
+                "more detail"))
+        {
+            return true;
+        }
+
+        return text.Contains("sla", StringComparison.OrdinalIgnoreCase)
+            && ContainsAny(
+                text,
+                "breach",
+                "breached",
+                "elevated",
+                "pressure",
+                "late",
+                "miss",
+                "missed",
+                "at risk");
+    }
+
+    private static bool IsFrictionMatch(CortexInsightSimilarTicketDto match) =>
+        match.ConfidenceScore >= MediumInsightConfidenceThreshold
+        && ContainsAny(
+            match.Status,
+            "rejected",
+            "needs more info",
+            "returned",
+            "reopened",
+            "resolved late",
+            "breached");
+
+    private static bool IsMediumOrHigh(string? confidence) =>
+        confidence?.Trim().Equals("Medium", StringComparison.OrdinalIgnoreCase) == true
+        || confidence?.Trim().Equals("High", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static bool ContainsAny(string? source, params string[] terms) =>
+        !string.IsNullOrWhiteSpace(source)
+        && terms.Any(term => source.Contains(term, StringComparison.OrdinalIgnoreCase));
+
     private static List<RiskSignal> CollectSignals(
         Ticket ticket,
         TicketSlaSnapshot slaSnapshot,
-        WorkloadSnapshot? ownerSnapshot)
+        WorkloadSnapshot? ownerSnapshot,
+        DateTime utcNow)
     {
         var signals = new List<RiskSignal>();
+        var isIntakeGate = ticket.ApprovalStatus is ApprovalStatus.PendingApproval
+            or ApprovalStatus.NeedsMoreInfo
+            or ApprovalStatus.Rejected;
 
         if (IsHighOrCritical(ticket.Priority))
         {
@@ -82,34 +189,51 @@ public sealed class CortexSlaRiskService(
         {
             case "Breached":
             case "Resolved Late":
-                signals.Add(new RiskSignal(5, "SLA target has already been breached."));
+                if (!isIntakeGate)
+                {
+                    signals.Add(new RiskSignal(5, "SLA target has already been breached."));
+                }
+
                 break;
             case "At Risk":
-                signals.Add(new RiskSignal(3, "Within the SLA warning window — deadline is close."));
+                if (!isIntakeGate)
+                {
+                    signals.Add(new RiskSignal(3, "Within the SLA warning window — deadline is close."));
+                }
+
                 break;
             case "Pending Approval":
-                signals.Add(new RiskSignal(1, "Awaiting approval; SLA clock has not started."));
+                if (IsStalePendingApproval(ticket, utcNow))
+                {
+                    signals.Add(new RiskSignal(
+                        4,
+                        "Approval has been pending longer than the usual intake window."));
+                }
+
+                // Informational only — does not contribute to score; normal workflow, not operational risk.
+                signals.Add(new RiskSignal(0, "Awaiting approval; SLA clock has not started."));
                 break;
             case "Needs More Info":
                 signals.Add(new RiskSignal(2, "Returned for more detail; SLA paused but progress is blocked."));
                 break;
         }
 
-        if (HasMissingDetails(ticket))
+        AddAiTriageMissingDetailSignal(signals, ticket, slaSnapshot);
+
+        if (!isIntakeGate)
         {
-            signals.Add(new RiskSignal(2, "AI triage flagged missing details on this ticket."));
+            if (string.Equals(ticket.AiTriagePotentialSlaRisk, "High", StringComparison.OrdinalIgnoreCase))
+            {
+                signals.Add(new RiskSignal(2, "AI triage flagged this ticket as high SLA pressure."));
+            }
+            else if (string.Equals(ticket.AiTriagePotentialSlaRisk, "Medium", StringComparison.OrdinalIgnoreCase))
+            {
+                signals.Add(new RiskSignal(1, "AI triage flagged this ticket as moderate SLA pressure."));
+            }
         }
 
-        if (string.Equals(ticket.AiTriagePotentialSlaRisk, "High", StringComparison.OrdinalIgnoreCase))
-        {
-            signals.Add(new RiskSignal(2, "AI triage flagged this ticket as high SLA pressure."));
-        }
-        else if (string.Equals(ticket.AiTriagePotentialSlaRisk, "Medium", StringComparison.OrdinalIgnoreCase))
-        {
-            signals.Add(new RiskSignal(1, "AI triage flagged this ticket as moderate SLA pressure."));
-        }
-
-        if (ownerSnapshot is not null)
+        // Until intake completes, SynitiOwner can be tentative — avoid treating workload as operational risk here.
+        if (ownerSnapshot is not null && ticket.ApprovalStatus != ApprovalStatus.PendingApproval)
         {
             if (string.Equals(ownerSnapshot.Status, "Overloaded", StringComparison.OrdinalIgnoreCase))
             {
@@ -133,15 +257,102 @@ public sealed class CortexSlaRiskService(
         return signals;
     }
 
+    private static bool IsStalePendingApproval(Ticket ticket, DateTime utcNow)
+    {
+        if (ticket.ApprovalStatus != ApprovalStatus.PendingApproval)
+        {
+            return false;
+        }
+
+        var createdUtc = ToUtcAssumeUnspecifiedUtc(ticket.CreatedDate);
+        return createdUtc <= utcNow - StalePendingApprovalThreshold;
+    }
+
+    private static DateTime ToUtcAssumeUnspecifiedUtc(DateTime value) =>
+        value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+
+    /// <summary>
+    /// AI triage missing-detail payloads: weighted by priority/intake gate so intake + low priority
+    /// does not read as elevated operational risk. Skips duplication when SLA status is already "Needs More Info".
+    /// </summary>
+    private static void AddAiTriageMissingDetailSignal(
+        List<RiskSignal> signals,
+        Ticket ticket,
+        TicketSlaSnapshot slaSnapshot)
+    {
+        if (!HasMissingDetails(ticket))
+        {
+            return;
+        }
+
+        if (string.Equals(slaSnapshot.Status, "Needs More Info", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (ticket.ApprovalStatus == ApprovalStatus.PendingApproval)
+        {
+            if (IsHighOrCritical(ticket.Priority))
+            {
+                signals.Add(new RiskSignal(
+                    3,
+                    "AI triage flagged missing details — confirm scope before approval."));
+            }
+            else
+            {
+                signals.Add(new RiskSignal(
+                    1,
+                    "Optional refinement points noted by AI triage; review can proceed."));
+            }
+
+            return;
+        }
+
+        signals.Add(new RiskSignal(2, "AI triage flagged missing details on this ticket."));
+    }
+
     private (CortexRiskRecommendation Action, string Reason) ResolveRecommendation(
         Ticket ticket,
         TicketSlaSnapshot slaSnapshot,
         WorkloadSnapshot? ownerSnapshot,
         IReadOnlyList<RiskSignal> signals,
-        CortexRiskLevel riskLevel)
+        CortexRiskLevel riskLevel,
+        DateTime utcNow)
     {
-        var hasMissingDetails = HasMissingDetails(ticket)
-            || ticket.ApprovalStatus == ApprovalStatus.NeedsMoreInfo;
+        if (ticket.ApprovalStatus == ApprovalStatus.NeedsMoreInfo)
+        {
+            return (
+                CortexRiskRecommendation.RequestMoreDetail,
+                "Ticket was returned for more detail — address gaps before work proceeds.");
+        }
+
+        if (HasMissingDetails(ticket) && ticket.ApprovalStatus == ApprovalStatus.PendingApproval)
+        {
+            if (IsHighOrCritical(ticket.Priority))
+            {
+                return (
+                    CortexRiskRecommendation.RequestMoreDetail,
+                    "High-impact priority with flagged gaps — confirm scope before approving.");
+            }
+
+            if (IsStalePendingApproval(ticket, utcNow))
+            {
+                return (
+                    CortexRiskRecommendation.KeepOnCurrentPath,
+                    "Approval has been pending longer than usual — follow up with reviewers when appropriate.");
+            }
+
+            return (
+                CortexRiskRecommendation.KeepOnCurrentPath,
+                "Proceed through normal review; optional refinements can follow approval.");
+        }
+
+        var hasMissingDetails = HasMissingDetails(ticket);
         if (hasMissingDetails)
         {
             return (

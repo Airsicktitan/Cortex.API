@@ -1,7 +1,8 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import type { Ticket } from "../types/ticket";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { RoutingLivePreviewInput } from "./TicketRoutingInsight";
+import type { CortexInsight } from "../types/cortexInsight";
 import type { CortexSlaRisk } from "../types/cortexRisk";
 import TicketRoutingInsight from "./TicketRoutingInsight";
 import CortexRiskPanel from "./CortexRiskPanel";
@@ -46,7 +47,20 @@ export function CortexTabbedPanel({
   const [visited, setVisited] = useState<ReadonlySet<CortexTab>>(
     new Set<CortexTab>(["review"]),
   );
+  const [loadedInsightState, setLoadedInsightState] = useState<{
+    ticketId: string;
+    insight: CortexInsight | null;
+  } | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const loadedInsight =
+    loadedInsightState?.ticketId === ticket.id
+      ? loadedInsightState.insight
+      : null;
+
+  const handleInsightReady = useCallback((insight: CortexInsight | null) => {
+    setLoadedInsightState({ ticketId: ticket.id ?? "", insight });
+  }, [ticket.id]);
 
   function switchTab(tab: CortexTab) {
     setActiveTab(tab);
@@ -110,6 +124,7 @@ export function CortexTabbedPanel({
             <CortexRiskPanel
               ticketId={ticket.id}
               isOpen={isModalOpen}
+              insight={loadedInsight}
               onRiskReady={onRiskReady}
               onRecommendedActionClick={() => switchTab("decision")}
             />
@@ -122,6 +137,7 @@ export function CortexTabbedPanel({
               ticketId={ticket.id}
               isOpen={isModalOpen}
               onOpenSourceTicket={onOpenSourceTicket}
+              onInsightReady={handleInsightReady}
             />
           </div>
         )}
