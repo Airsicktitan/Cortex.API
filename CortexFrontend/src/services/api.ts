@@ -24,6 +24,7 @@ import type {
   TicketRoutingLatestResponse,
 } from "../types/ticketRoutingInsight";
 import type { WorkflowMetricsSnapshot } from "../types/workflowMetrics";
+import type { IntakeLearningOverview } from "../types/intakeLearning";
 import type {
   RepeatIssueAiReviewResponse,
   RepeatIssueGroupDetailResponse,
@@ -886,6 +887,14 @@ export const metricsService = {
     });
     await ensureSuccess(response, "Unable to load workflow metrics");
     return response.json() as Promise<WorkflowMetricsSnapshot>;
+  },
+
+  async getIntakeLearningOverview(token: string): Promise<IntakeLearningOverview> {
+    const response = await fetch(`${API_BASE_URL}/reports/intake-learning`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load intake learning insights.");
+    return response.json() as Promise<IntakeLearningOverview>;
   },
 };
 

@@ -137,6 +137,7 @@ type ReportSection =
   | "sla"
   | "telemetry"
   | "recurring-issues"
+  | "intake-learning"
   | "online-users"
   | "custom";
 type SessionPromptState = "warning" | "expired" | null;

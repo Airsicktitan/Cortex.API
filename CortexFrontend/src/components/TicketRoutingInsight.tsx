@@ -393,6 +393,55 @@ function humanizeAlternativeReason(reason: string | undefined): string {
   }
 }
 
+function humanizeLearningTargetType(label: string | undefined): string {
+  switch (label) {
+    case "Owner":
+      return "Similar owner history";
+    case "Rule":
+      return "Rule override patterns";
+    case "Decision":
+      return "Follow-up patterns";
+    case "Risk":
+      return "SLA risk signals";
+    default:
+      return label?.trim() || "Historical signal";
+  }
+}
+
+/** Backend populates adjustments + delta together when adaptive learning applies. */
+function hasLearningImpactTransparency(decision: CortexDecisionResult): boolean {
+  const list = decision.learningAdjustments;
+  if (list != null && list.length > 0) {
+    return true;
+  }
+  const delta = decision.learningConfidenceDelta;
+  if (delta == null || delta === undefined) {
+    return false;
+  }
+  return Math.abs(Number(delta)) >= 1e-4;
+}
+
+function pctPointsFromConfidenceDelta(unitDelta: number): number {
+  return Math.round(Math.abs(unitDelta) * 100);
+}
+
+/** Advisory headline — uses payload delta/reason paths only (no fabricated claims). */
+function summarizeLearningConfidenceLine(decision: CortexDecisionResult): string {
+  const delta = decision.learningConfidenceDelta;
+  if (delta == null || delta === undefined) {
+    return "Past outcomes influenced how Cortex frames reviewer confidence alongside routing.";
+  }
+  const d = Number(delta);
+  const pct = pctPointsFromConfidenceDelta(d);
+  if (d > 1e-9) {
+    return `Cortex adjusted advisor confidence by +${pct}% based on prior outcomes.`;
+  }
+  if (d < -1e-9) {
+    return `Cortex reduced advisor confidence by ${pct}% because similar routing patterns have mixed outcomes.`;
+  }
+  return "Historic outcomes minimally shifted advisor framing; routing picks still follow deterministic rules.";
+}
+
 function collectWorkloadOwnerKeys(
   decision: TicketRoutingDecisionDto | null,
   ticket: Ticket,
@@ -1885,6 +1934,41 @@ export default function TicketRoutingInsight({
               </ul>
             ) : null}
           </div>
+
+          {cortexDecision &&
+          hasLearningImpactTransparency(cortexDecision) ? (
+            <div className="rounded-lg border border-sky-200/70 bg-sky-50/60 px-3 py-3 dark:border-sky-900/50 dark:bg-sky-950/25">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-300">
+                Learning impact
+              </p>
+              <p className="mt-1 text-[11px] leading-snug text-slate-600 dark:text-slate-400">
+                {summarizeLearningConfidenceLine(cortexDecision)}
+              </p>
+              {(cortexDecision.learningAdjustments ?? []).length > 0 ? (
+                <div className="mt-2">
+                  <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    Signals considered
+                  </p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[13px] leading-snug text-slate-700 dark:text-slate-200">
+                    {(cortexDecision.learningAdjustments ?? []).map(
+                      (adjustment, index) => (
+                        <li key={`lrn-${adjustment.targetType}-${index}`}>
+                          {adjustment.reason?.trim()
+                            ? adjustment.reason.trim()
+                            : `${humanizeLearningTargetType(
+                                adjustment.targetType,
+                              )} influenced confidence.`}
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                </div>
+              ) : null}
+              <p className="mt-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                Learning supports reviewer judgment about confidence; routing rules still determine the recommended owners.
+              </p>
+            </div>
+          ) : null}
 
           <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">

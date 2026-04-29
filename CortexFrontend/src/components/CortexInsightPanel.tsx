@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ticketService } from "../services/api";
 import type {
   CortexInsight,
+  CortexInsightSimilarTicket,
   CortexLearningSignal,
 } from "../types/cortexInsight";
 import { formatDisplayDateTime } from "../utils/presentation";
@@ -45,6 +46,97 @@ function confidenceBadgeClasses(confidence: string): string {
     default:
       return "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
   }
+}
+
+/** Reviewer-readable band (paired with Backend High/Medium/Low). */
+function historicalEvidenceSubtitle(confidenceRaw: string): string {
+  switch (confidenceRaw.trim().toLowerCase()) {
+    case "high":
+      return "Strong historical signal";
+    case "medium":
+      return "Moderate evidence";
+    default:
+      return "Limited history — early signal";
+  }
+}
+
+function reviewerConfidencePhrase(confidenceRaw: string): string {
+  switch (confidenceRaw.trim().toLowerCase()) {
+    case "high":
+      return "High confidence";
+    case "medium":
+      return "Medium confidence";
+    case "low":
+      return "Low confidence";
+    default:
+      return "Confidence unspecified";
+  }
+}
+
+/**
+ * Pulls countable provenance sentences already embedded in Cortex supporting facts
+ * (matches backend CortexLearningSignalDto lines like "12 similar tickets analyzed").
+ */
+function provenanceLineFromSupportingFacts(signal: CortexLearningSignal): string | null {
+  const facts = signal.supportingFacts ?? [];
+  if (facts.length === 0) {
+    return null;
+  }
+
+  let similarAnalyzed: number | null = null;
+  let withOutcomes: number | null = null;
+  let ruleMatchedPrior: number | null = null;
+  let ownerCompletedAnalyzed: number | null = null;
+
+  for (const fact of facts) {
+    const s = fact.trim();
+    let m = /^(\d+)\s+similar tickets analyzed\b/i.exec(s);
+    if (m) similarAnalyzed = Number(m[1]);
+    m = /^(\d+)\s+with recorded outcomes\b/i.exec(s);
+    if (m) withOutcomes = Number(m[1]);
+    m = /^(\d+)\s+prior tickets matched this rule\b/i.exec(s);
+    if (m) ruleMatchedPrior = Number(m[1]);
+    m = /^(\d+)\s+completed tickets analyzed\b/i.exec(s);
+    if (m) ownerCompletedAnalyzed = Number(m[1]);
+  }
+
+  if (similarAnalyzed != null && withOutcomes != null && withOutcomes > 0) {
+    return `Based on ${similarAnalyzed} similar past tickets (${withOutcomes} with outcomes recorded).`;
+  }
+  if (similarAnalyzed != null) {
+    return `Based on ${similarAnalyzed} comparable past tickets.`;
+  }
+  if (ruleMatchedPrior != null) {
+    return `Based on ${ruleMatchedPrior} prior tickets matched on this routing pattern.`;
+  }
+  if (ownerCompletedAnalyzed != null) {
+    return `Based on ${ownerCompletedAnalyzed} completed tickets for comparison.`;
+  }
+
+  const factCount = facts.length;
+  if (factCount > 0 && signal.signalType === "Semantic") {
+    return "Derived from prior ticket clusters and outcomes.";
+  }
+  if (factCount > 0 && signal.signalType === "Rule") {
+    return "Derived from prior routing outcomes.";
+  }
+  return `Grounded in ${factCount} supporting facts from Cortex history — advisory only.`;
+}
+
+function normalizeMatchReason(reason: string): string {
+  return reason
+    .trim()
+    .replace(/^matched\s+/i, "")
+    .replace(/^matches\s+/i, "")
+    .replace(/\.$/, "");
+}
+
+function similarityMatchSnippet(match: CortexInsightSimilarTicket): string | null {
+  const trimmed = [...(match.matchReasons ?? [])]
+    .map((r) => normalizeMatchReason(r))
+    .filter(Boolean)
+    .slice(0, 2);
+  return trimmed.length > 0 ? trimmed.join("; ") : null;
 }
 
 /**
@@ -104,6 +196,7 @@ function LearningSignalCard({ signal }: { signal: CortexLearningSignal }) {
   const confidenceLabel = signal.confidence?.trim() || "Low";
   const supportingFacts = signal.supportingFacts ?? [];
   const keyMetric = extractKeyMetricFromSupportingFacts(supportingFacts);
+  const provenance = provenanceLineFromSupportingFacts(signal);
   const useTwoLineHeader =
     Boolean(keyMetric) &&
     keyMetric != null &&
@@ -115,11 +208,12 @@ function LearningSignalCard({ signal }: { signal: CortexLearningSignal }) {
       <div className="space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
         <span
-          className={`rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${confidenceBadgeClasses(
+          className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${confidenceBadgeClasses(
             confidenceLabel,
           )}`}
+          title={`${reviewerConfidencePhrase(confidenceLabel)} · ${historicalEvidenceSubtitle(confidenceLabel)}`}
         >
-          {confidenceLabel}
+          {reviewerConfidencePhrase(confidenceLabel)}
         </span>
         {signal.signalType ? (
           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -127,6 +221,11 @@ function LearningSignalCard({ signal }: { signal: CortexLearningSignal }) {
           </span>
         ) : null}
         </div>
+        {provenance ? (
+          <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">
+            {provenance}
+          </p>
+        ) : null}
         {keyMetric && !useTwoLineHeader ? (
           <p className="text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">
             {showImpactGlyph ? (
@@ -177,7 +276,7 @@ function LearningSignalCard({ signal }: { signal: CortexLearningSignal }) {
       {supportingFacts.length > 0 ? (
         <details className="mt-2 rounded-md border border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/30">
           <summary className="cursor-pointer text-xs font-semibold text-cortex-blue-dark hover:text-cortex-blue dark:text-cortex-cyan">
-            Supporting detail
+            Evidence detail ({supportingFacts.length} lines from Cortex history)
           </summary>
           <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
             {supportingFacts.map((fact, index) => (
@@ -347,18 +446,27 @@ export default function CortexInsightPanel({
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
           ) : insight && matches.length === 0 ? (
             <div className="space-y-4">
-              <p className="rounded-md border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-sm leading-snug text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-200">
-                <span className="font-semibold text-slate-800 dark:text-slate-100">
-                  No historical context found yet.{" "}
-                </span>
-                Cortex has not found similar past tickets for this item yet. Past
-                resolution patterns below can still refine how you judge risk and
-                follow-up—they do not set routing here.
-              </p>
+              <div className="space-y-2 rounded-md border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-sm leading-snug dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-200">
+                <p className="font-semibold text-slate-800 dark:text-slate-100">
+                  No closely related tickets found yet.
+                </p>
+                <p>
+                  Cortex looked for wording and ticket patterns resembling this item; nothing surfaced with enough overlap to summarize here.
+                  {learningSignals.length === 0
+                    ? " Outcome-backed learning signals appear below once history exists."
+                    : " Past-resolution signals listed below come from Cortex history — advisory only."}
+                </p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Historical context supports reviewer judgment. It does not assign owners or change routing rules.
+                </p>
+              </div>
               {learningSignals.length > 0 ? (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Past resolution signals
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    These summaries use outcome counts recorded in Cortex. They support review—they do not reroute assignments on their own.
                   </p>
                   <div className="mt-2 space-y-2">
                     {learningSignals.map((signal, index) => (
@@ -374,9 +482,18 @@ export default function CortexInsightPanel({
           ) : insight ? (
             <div className="space-y-4">
               <p className="rounded-md border border-slate-200/80 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-900/55 dark:text-slate-300">
-                Patterns from prior tickets inform judgment only. Ownership, priority,
-                and routing remain on the Decision tab—nothing here assigns work.
+                Historical context supports reviewer judgment. It does not assign owners
+                or change routing rules — use the Decision tab for recommendations.
               </p>
+              {insight.matches.length > 0 &&
+              insight.confidenceScore < 50 &&
+              (insight.learningSignals ?? []).length === 0 ? (
+                <p className="rounded-md border border-amber-100 bg-amber-50/85 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-900/55 dark:bg-amber-950/25 dark:text-amber-100">
+                  Limited history available — Cortex surfaced related wording or fields, but
+                  there may not yet be enough completed outcomes to treat this as a strong
+                  pattern. Treat overlaps as exploratory context during review.
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                   {matches.length} similar past ticket
@@ -384,10 +501,11 @@ export default function CortexInsightPanel({
                 </p>
                 <span
                   className="rounded-md bg-cortex-blue-soft px-2.5 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100"
-                  title="Advisory similarity index across past tickets—not a routing verdict"
+                  title="How closely past ticket text/metadata overlaps this ticket (advisory; wording overlap, not a routing verdict)"
                 >
-                  Overall similarity •{" "}
+                  Overall overlap index •{" "}
                   {Math.max(0, Math.min(100, insight.confidenceScore))}%
+                  <span className="sr-only"> reviewer advisory index only</span>
                 </span>
               </div>
 
@@ -415,13 +533,18 @@ export default function CortexInsightPanel({
                     </span>
                     <span
                       className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                      title="How closely this past ticket resembles the present case"
+                      title="How strongly this historical ticket aligns with yours for review cues"
                     >
-                      Match confidence • {firstSimilar.confidenceScore}%
+                      Evidence overlap • {firstSimilar.confidenceScore}%
                     </span>
                   </div>
+                  {similarityMatchSnippet(firstSimilar) ? (
+                    <p className="mt-1 text-xs italic text-slate-600 dark:text-slate-300">
+                      Related because: {similarityMatchSnippet(firstSimilar)}
+                    </p>
+                  ) : null}
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Why this may matter: corroborating language, approvals, or follow-up patterns from prior work—not a verdict on routing.
+                    Helps show how comparable past assignments or resolutions progressed—not a routing decision.
                   </p>
                   <p className="mt-1 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">
                     {firstSimilar.title}
@@ -449,13 +572,26 @@ export default function CortexInsightPanel({
                   {firstSimilar.sourceQuote ? (
                     <>
                       <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Relevant quote
+                        Notable excerpt from ticket
                       </p>
                       <blockquote className="mt-1 border-l-2 border-cortex-blue/35 pl-3 text-sm leading-relaxed text-slate-700 dark:border-cortex-cyan/35 dark:text-slate-200">
                         {firstSimilar.sourceQuote}
                       </blockquote>
                     </>
                   ) : null}
+                  {firstSimilar.lastMeaningfulComment?.trim() ? (
+                    <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">
+                        Latest noteworthy comment —
+                      </span>{" "}
+                      {firstSimilar.lastMeaningfulComment.length > 260
+                        ? `${firstSimilar.lastMeaningfulComment.slice(0, 259)}…`
+                        : firstSimilar.lastMeaningfulComment}
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    Next step as reviewer: skim the highlighted detail, verify it still mirrors this ticket, then return here or continue in Decision.
+                  </p>
                 </div>
               ) : null}
 
@@ -494,7 +630,7 @@ export default function CortexInsightPanel({
                             {ticket.title}
                           </span>
                           <span className="text-slate-500 dark:text-slate-400">
-                            {ticket.status || "—"} · Confidence {ticket.confidenceScore}%
+                            {ticket.status || "—"} · Overlap strength {ticket.confidenceScore}%
                           </span>
                           {onOpenSourceTicket ? (
                             <button
@@ -513,6 +649,11 @@ export default function CortexInsightPanel({
                             </a>
                           )}
                         </div>
+                        {similarityMatchSnippet(ticket) ? (
+                          <p className="mt-1 text-xs italic text-slate-600 dark:text-slate-300">
+                            Related because: {similarityMatchSnippet(ticket)}
+                          </p>
+                        ) : null}
                         {ticket.sourceQuote ? (
                           <blockquote className="mt-2 border-l-2 border-slate-200 pl-3 text-sm leading-relaxed text-slate-600 dark:border-slate-700 dark:text-slate-300">
                             {ticket.sourceQuote}
@@ -528,6 +669,9 @@ export default function CortexInsightPanel({
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Past resolution signals
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    These summaries use outcome counts recorded in Cortex. They support review—they do not reroute assignments on their own.
                   </p>
                   <div className="mt-2 space-y-2">
                     {learningSignals.map((signal, index) => (
