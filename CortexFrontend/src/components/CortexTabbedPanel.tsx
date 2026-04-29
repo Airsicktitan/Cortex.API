@@ -145,6 +145,9 @@ export function CortexTabbedPanel({
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Cortex
         </p>
+        <p className="mb-3 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+          Routing recommendation, SLA risk, advisory insight
+        </p>
         <div className="-mb-px flex" role="tablist" aria-label="Cortex tabs">
           {ALL_TABS.map((tab) => (
             <button

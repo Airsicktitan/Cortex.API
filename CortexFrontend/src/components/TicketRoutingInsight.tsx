@@ -360,12 +360,37 @@ function buildSignalsSummary(context: {
 
 function buildConfidenceNarrative(confidence: "High" | "Medium" | "Low"): string {
   if (confidence === "High") {
-    return "High confidence based on a strong match between ticket details and routing rules.";
+    return "Strong advisor confidence—ticket details line up cleanly with Cortex’s read. Routing rules still compute the recommendation.";
   }
   if (confidence === "Medium") {
-    return "Moderate confidence; multiple factors influenced the recommendation.";
+    return "Moderate advisor confidence: several signals pulled in different directions. Prefer a quick reviewer check.";
   }
-  return "Lower confidence; reviewer validation is recommended.";
+  return "Lower advisor confidence; confirm ownership or intake context before committing.";
+}
+
+/** Readable label for routing “alternative candidate” reasons (scores are illustrative only). */
+function humanizeAlternativeReason(reason: string | undefined): string {
+  const raw = (reason ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("not eligible") &&
+    lower.includes("unresolved")
+  ) {
+    return "Listed owner couldn’t be resolved from routing metadata";
+  }
+  switch (lower) {
+    case "weaker match":
+      return "Lower combined routing alignment";
+    case "higher workload":
+      return "Higher queue pressure than selected owner";
+    case "not eligible":
+      return "Did not qualify under current routing rules";
+    default:
+      if (!raw) {
+        return "Other routing consideration";
+      }
+      return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
 }
 
 function collectWorkloadOwnerKeys(
@@ -848,10 +873,6 @@ export default function TicketRoutingInsight({
       slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerKey?.trim() ||
       null;
     const priority = ticket.priority?.trim() ?? "";
-    const hasDepartmentSignal = matchedFactorLines.some((line) =>
-      line.toLowerCase().startsWith("requester department:") ||
-      line.toLowerCase().startsWith("department:"),
-    );
     const departmentMatch = matchedFactorLines.find((line) =>
       line.toLowerCase().startsWith("requester department:") ||
       line.toLowerCase().startsWith("department:"),
@@ -900,13 +921,7 @@ export default function TicketRoutingInsight({
         lines.push("The selected owner had the strongest overall match across routing signals.");
       }
     }
-    lines.push(
-      buildSignalsSummary({
-        priority,
-        hasDepartmentSignal,
-        board: ticket.boardName,
-      }),
-    );
+    /** Routing factors appear under “Signals matched”; avoid repeating generic summary here. */
     return lines.slice(0, 3);
   }, [matchedFactorLines, slotReasoning, ticket.boardName, ticket.priority]);
 
@@ -968,8 +983,8 @@ export default function TicketRoutingInsight({
     const selectedOwner =
       slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerDisplayName?.trim() ||
       slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerKey?.trim() ||
-      "the recommended owner";
-    return `Other eligible owners were considered, but ${selectedOwner} was selected due to a stronger match on priority, department, or workload alignment.`;
+      "the recommended assignment";
+    return `Eligible owners were evaluated in order. Routing placed “${selectedOwner}” ahead based on matched rules and workload cues (these workload cues are advisory and do not change rule outcomes).`;
   }, [alternativesConsidered.length, slotReasoning]);
   const signalsUsedSentence = useMemo(() => {
     const hasDepartmentSignal = matchedFactorLines.some((line) =>
@@ -1298,11 +1313,13 @@ export default function TicketRoutingInsight({
           <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-50">
             Cortex Decision
           </h3>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Recommended ownership, action state, and concise reasoning
+          <p className="mt-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
+            Recommended assignment comes from deterministic routing rules. Workload
+            outlook and Cortex Insight are advisory only—they do not change rule
+            evaluation.
             {isLiveRoutingPreview && previewLoading && decision ? (
               <span className="ml-1.5 font-medium text-slate-400 dark:text-slate-500">
-                · Updating…
+                Updating…
               </span>
             ) : null}
           </p>
@@ -1375,19 +1392,25 @@ export default function TicketRoutingInsight({
           >
             <div className="rounded-xl border border-cortex-blue/20 bg-sky-50/70 px-4 py-3.5 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/20">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-sm font-semibold tracking-wide text-cortex-blue dark:text-sky-300">
-                  Cortex Recommendation
-                </p>
+                <div>
+                  <p className="text-sm font-semibold tracking-wide text-cortex-blue dark:text-sky-300">
+                    Recommended assignment
+                  </p>
+                  <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                    Deterministic routing. Scores shown in technical detail refine rank
+                    only—Cortex Insight does not pick owners independently of rules.
+                  </p>
+                </div>
                 <span
                   className={`rounded-md px-2.5 py-1 text-xs font-semibold ${compactDecisionStateClass}`}
                 >
                   {compactDecisionState}
                 </span>
               </div>
-              <div className="mt-3 space-y-2 text-sm text-slate-800 dark:text-slate-100">
-                <p>
+              <div className="mt-3 space-y-3 text-sm text-slate-800 dark:text-slate-100">
+                <div>
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    Recommended Ownership
+                    Recommendation
                   </span>
                   {isHighRisk ? (
                     <button
@@ -1395,46 +1418,57 @@ export default function TicketRoutingInsight({
                       onClick={onRecommendedOwnerClick}
                       className="ml-2 text-xs font-semibold text-cortex-blue underline-offset-2 hover:underline dark:text-cortex-cyan"
                     >
-                      Check risk context
+                      Check SLA risk context
                     </button>
                   ) : null}
-                  <span className="block mt-0.5 text-slate-500 dark:text-slate-400">
-                    Syniti Owner:{" "}
-                    <span className="text-slate-900 dark:text-slate-100">
-                      {synitiOwnerDisplay}
-                    </span>
+                  <span className="mt-1 block text-slate-600 dark:text-slate-300">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      Syniti owner:
+                    </span>{" "}
+                    <span className="text-slate-900 dark:text-slate-100">{synitiOwnerDisplay}</span>
                   </span>
-                  <span className="block text-slate-500 dark:text-slate-400">
-                    Business Owner:{" "}
-                    <span className="text-slate-900 dark:text-slate-100">
-                      {businessOwnerDisplay}
-                    </span>
+                  <span className="block text-slate-600 dark:text-slate-300">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      Business owner:
+                    </span>{" "}
+                    <span className="text-slate-900 dark:text-slate-100">{businessOwnerDisplay}</span>
                   </span>
-                </p>
-                <p>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    Reasoning
-                  </span>
-                  <span className="block mt-0.5 text-slate-900 dark:text-slate-100">
-                    {compactWhyLine}
-                  </span>
-                </p>
-                <p>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    Suggested Action State
-                  </span>
-                  <span className="block mt-0.5 text-slate-900 dark:text-slate-100">
-                    {compactDecisionState}
-                  </span>
-                </p>
+                </div>
+
+                {(selectedBecauseLines.length > 0 || compactWhyLine) && (
+                  <div>
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">
+                      Selected because
+                    </p>
+                    {selectedBecauseLines.length > 0 ? (
+                      <ul className="mt-2 list-disc space-y-1.5 pl-4 text-[13px] leading-relaxed text-slate-700 dark:text-slate-200">
+                        {selectedBecauseLines.map((line, index) => (
+                          <li key={`hero-${index}-${line.slice(0, 40)}`}>{line}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1.5 text-[13px] leading-relaxed text-slate-700 dark:text-slate-200">
+                        {compactWhyLine}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="rounded-md border border-slate-200/80 bg-white/60 px-3 py-2 text-[13px] leading-snug text-slate-600 dark:border-slate-600/70 dark:bg-slate-900/35 dark:text-slate-300">
+                  <span className="font-semibold text-slate-800 dark:text-slate-100">
+                    What Cortex considered —
+                  </span>{" "}
+                  {signalsUsedSentence}
+                </div>
               </div>
               {hasManualOverride ? (
                 <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 dark:border-amber-800/60 dark:bg-amber-950/30">
                   <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
-                    ⚠️ Manual Override Detected
+                    Manual override detected
                   </p>
                   <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
-                    Cortex recommendation was not applied. Current assignment reflects user-selected values.
+                    Ticket fields were changed after routing ran—the saved assignment may
+                    no longer mirror the routing recommendation shown here.
                   </p>
                 </div>
               ) : null}
@@ -1482,7 +1516,7 @@ export default function TicketRoutingInsight({
               aria-controls="cortex-decision-full-reasoning"
               className="text-xs font-semibold text-cortex-blue underline-offset-2 hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan"
             >
-              {fullReasoningExpanded ? "Hide full reasoning" : "Show full reasoning"}
+              {fullReasoningExpanded ? "Hide technical detail & routing breakdown" : "Show technical detail & routing breakdown"}
             </button>
 
             <div id="cortex-decision-full-reasoning" hidden={!fullReasoningExpanded}>
@@ -1510,23 +1544,27 @@ export default function TicketRoutingInsight({
           {cortexDecision ? (
             <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Cortex Decision Context
+                Cortex Insight (Advisory AI)
               </p>
-              <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+              <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                Summarizes patterns for reviewers. Assignment still follows routing outcomes,
+                workload ranking, and your manual saves.
+              </p>
+              <p className="mt-2 text-sm font-medium text-slate-900 dark:text-slate-100">
                 {cortexDecision.summary}
               </p>
-              <div className="mt-2 grid gap-1 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2">
+              <div className="mt-2 grid gap-1.5 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-2">
                 <p>
-                  Recommended owner: {synitiOwnerDisplay}
+                  Recommendation target (Syniti): {synitiOwnerDisplay}
                 </p>
                 <p>
-                  Final owner: {finalSynitiOwnerDisplay}
+                  Currently assigned (Syniti): {finalSynitiOwnerDisplay}
                 </p>
                 <p>
-                  Confidence: {recommendationStrength}
+                  Advisor confidence: {recommendationStrength}
                 </p>
                 <p>
-                  Manual override status: {hasManualOverride ? "Yes" : "No"}
+                  Manual divergence: {hasManualOverride ? "Yes" : "No"}
                 </p>
               </div>
             </div>
@@ -1535,13 +1573,13 @@ export default function TicketRoutingInsight({
           <div className="rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-50 to-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200/60 dark:border-slate-600/70 dark:from-slate-900/80 dark:to-slate-950/60 dark:ring-slate-700/50">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                Workload Signal
+                Workload outlook
               </span>
               <CortexTooltip content={WORKLOAD_SIGNAL_ABOUT_TOOLTIP}>
                 <button
                   type="button"
                   className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400/60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:focus:ring-slate-500/50"
-                  aria-label="About Workload Signal"
+                  aria-label="About workload outlook"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -1583,9 +1621,14 @@ export default function TicketRoutingInsight({
                 Estimating workload…
               </p>
             ) : workloadPreview ? (
-              <p className="mt-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
-                {workloadPreview.sentence}
-              </p>
+              <>
+                <p className="mt-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
+                  {workloadPreview.sentence}
+                </p>
+                <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                  Headline load band is directional only; workload does not veto routing rules on its own.
+                </p>
+              </>
             ) : workloadKeys.length === 0 ? (
               <p className="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-300">
                 Add owners to see workload context.
@@ -1608,7 +1651,7 @@ export default function TicketRoutingInsight({
             >
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Cortex Impact
+                  Operational impact
                 </p>
                 <span
                   className={
@@ -1648,7 +1691,7 @@ export default function TicketRoutingInsight({
           <div className="space-y-3">
             <div className="rounded-lg border border-slate-100 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Cortex Decision Context
+                Ticket snapshot (operational cues)
               </p>
               <div className="mt-1 grid gap-1 text-sm text-slate-700 dark:text-slate-200 sm:grid-cols-2">
                 <p>Priority: {ticket.priority || "—"}</p>
@@ -1759,7 +1802,7 @@ export default function TicketRoutingInsight({
           {/* C. Decision reasoning */}
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Signals used
+              Routing rule signals matched
             </p>
             {displayedFactorLines.length > 0 ? (
               <>
@@ -1789,7 +1832,7 @@ export default function TicketRoutingInsight({
 
           <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Selected because
+              Selected because (expanded)
             </p>
             {selectedBecauseLines.length > 0 ? (
               <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
@@ -1806,9 +1849,6 @@ export default function TicketRoutingInsight({
                 Current ticket context and workload checks support this recommendation.
               </p>
             )}
-            <p className="text-sm text-slate-700 dark:text-slate-200">
-              {signalsUsedSentence}
-            </p>
           </div>
 
           <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
@@ -1825,14 +1865,37 @@ export default function TicketRoutingInsight({
               </p>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                Only one eligible owner was available for this request.
+                Only one eligible owner was surfaced for this request.
               </p>
             )}
+            {alternativesConsidered.length > 0 ? (
+              <ul className="mt-2 list-none space-y-2 pl-0 text-sm">
+                {alternativesConsidered.map((alt, idx) => (
+                  <li
+                    key={`alt-${idx}-${alt.slotLabel}-${alt.ownerLabel}`}
+                    className="flex flex-wrap items-baseline gap-x-2 rounded-md border border-slate-100 bg-white/80 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-950/40"
+                  >
+                    <span className="font-medium text-slate-900 dark:text-slate-50">
+                      {alt.ownerLabel}
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      ({alt.slotLabel})
+                    </span>
+                    <span className="w-full pt-1 text-xs text-slate-600 dark:text-slate-400 sm:w-auto sm:pt-0">
+                      {humanizeAlternativeReason(alt.reason)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Confidence
+              Advisor confidence
+            </p>
+            <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+              Reflects Cortex Insight scoring only; routing rules compute the deterministic assignment separately.
             </p>
             <p className="text-sm text-slate-700 dark:text-slate-200">
               {confidenceNarrative}
