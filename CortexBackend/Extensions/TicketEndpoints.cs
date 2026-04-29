@@ -113,6 +113,12 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status429TooManyRequests);
 
+        tickets.MapGet("/{id}/insight/cache", TicketHandlers.GetTicketCachedInsight)
+            .WithName("GetTicketCachedInsight")
+            .Produces<CortexInsightDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status404NotFound);
+
         tickets.MapGet("/{id}/risk", TicketHandlers.GetTicketRisk)
             .WithName("GetTicketRisk")
             .Produces<CortexSlaRiskResponse>(StatusCodes.Status200OK)

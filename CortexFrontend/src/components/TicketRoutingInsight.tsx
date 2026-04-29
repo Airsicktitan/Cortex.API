@@ -3,10 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { Ticket } from "../types/ticket";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type {
-  CortexInsight,
-  CortexLearningSignal,
-} from "../types/cortexInsight";
-import type {
   OwnerWorkloadPreviewResponse,
   OwnerWorkloadSummaryDto,
   RoutingExplanationPayload,
@@ -29,9 +25,6 @@ const MAX_FACTOR_LINES = 3;
 /** Debounce title/department for routing preview POST to avoid spam while typing. */
 const PREVIEW_TEXT_DEBOUNCE_MS = 400;
 
-const MEMORY_CONTEXT_CONFIDENCE_THRESHOLD = 50;
-const MAX_HISTORICAL_CONTEXT_BULLETS = 2;
-
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -39,195 +32,6 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
     return () => clearTimeout(t);
   }, [value, delayMs]);
   return debounced;
-}
-
-function containsAnyText(
-  source: string | undefined | null,
-  terms: string[],
-): boolean {
-  const normalized = source?.toLowerCase() ?? "";
-  return terms.some((term) => normalized.includes(term));
-}
-
-function isMediumOrHighSignal(confidence: string | undefined | null): boolean {
-  const normalized = confidence?.trim().toLowerCase();
-  return normalized === "medium" || normalized === "high";
-}
-
-function hasMediumConfidenceInsight(insight?: CortexInsight | null): boolean {
-  const matches = insight?.matches ?? [];
-  if (matches.length === 0) {
-    return false;
-  }
-
-  return (
-    (insight?.confidenceScore ?? 0) >= MEMORY_CONTEXT_CONFIDENCE_THRESHOLD ||
-    matches.some(
-      (match) =>
-        match.confidenceScore >= MEMORY_CONTEXT_CONFIDENCE_THRESHOLD,
-    )
-  );
-}
-
-function learningSignalText(signal: CortexLearningSignal): string {
-  return [
-    signal.signalType,
-    signal.title,
-    signal.description,
-    ...(signal.supportingFacts ?? []),
-  ]
-    .join(" ")
-    .toLowerCase();
-}
-
-function historicalContextFromLearningSignal(
-  signal: CortexLearningSignal,
-): string | null {
-  if (!isMediumOrHighSignal(signal.confidence)) {
-    return null;
-  }
-
-  const text = learningSignalText(signal);
-  const title = signal.title?.trim().toLowerCase() ?? "";
-
-  if (
-    containsAnyText(title, ["often needed follow-up"]) ||
-    containsAnyText(text, [
-      "follow-up",
-      "follow up",
-      "clarification",
-      "more detail",
-      "higher-than-average comment",
-      "comment activity",
-    ])
-  ) {
-    return "Similar tickets often required follow-up before approval";
-  }
-
-  if (
-    containsAnyText(text, [
-      "returned",
-      "rejected",
-      "needs more info",
-      "approval friction",
-      "before approval",
-    ])
-  ) {
-    return "Similar tickets had approval friction";
-  }
-
-  if (
-    containsAnyText(title, [
-      "strong delivery history",
-      "strong historical performance",
-      "successful owner found",
-    ]) ||
-    containsAnyText(text, [
-      "resolved successfully",
-      "stable assignments",
-      "low override activity",
-      "consistent record",
-      "within sla",
-    ])
-  ) {
-    return "Related tickets were resolved without reassignment";
-  }
-
-  if (
-    containsAnyText(text, [
-      "reassign",
-      "reassignment",
-      "reassigned",
-      "override",
-      "overridden",
-      "reopened",
-      "rework",
-    ])
-  ) {
-    return "Related tickets often needed ownership changes";
-  }
-
-  if (
-    text.includes("sla") &&
-    containsAnyText(text, [
-      "breach",
-      "breached",
-      "pressure",
-      "late",
-      "missed",
-      "at risk",
-      "elevated",
-    ])
-  ) {
-    return "Similar tickets showed SLA pressure";
-  }
-
-  return null;
-}
-
-function historicalContextFromMatchStatus(status: string): string | null {
-  if (
-    containsAnyText(status, [
-      "returned",
-      "returned for detail",
-      "returned for details",
-      "rejected",
-      "needs more info",
-      "needsmoreinfo",
-      "needs more information",
-    ])
-  ) {
-    return "Similar tickets had approval friction";
-  }
-
-  if (containsAnyText(status, ["reopened", "rework"])) {
-    return "Related tickets often needed ownership changes";
-  }
-
-  if (
-    containsAnyText(status, [
-      "resolved late",
-      "breached",
-      "sla breach",
-      "outside sla",
-      "outsidesla",
-    ])
-  ) {
-    return "Similar tickets showed SLA pressure";
-  }
-
-  return null;
-}
-
-function buildHistoricalContextBullets(
-  insight?: CortexInsight | null,
-): string[] {
-  if (!hasMediumConfidenceInsight(insight)) {
-    return [];
-  }
-
-  const bullets: string[] = [];
-  const addBullet = (bullet: string | null) => {
-    if (
-      bullet &&
-      bullets.length < MAX_HISTORICAL_CONTEXT_BULLETS &&
-      !bullets.includes(bullet)
-    ) {
-      bullets.push(bullet);
-    }
-  };
-
-  for (const signal of insight?.learningSignals ?? []) {
-    addBullet(historicalContextFromLearningSignal(signal));
-  }
-
-  for (const match of insight?.matches ?? []) {
-    if (match.confidenceScore >= MEMORY_CONTEXT_CONFIDENCE_THRESHOLD) {
-      addBullet(historicalContextFromMatchStatus(match.status));
-    }
-  }
-
-  return bullets;
 }
 
 /** Draft fields that drive live POST /routing/preview (existing tickets in the modal). */
@@ -738,7 +542,7 @@ interface TicketRoutingInsightProps {
   /** Called after guided reassignment apply when that flow is present on the ticket. */
   onReassignmentApplied?: (updatedTicket: Ticket) => void;
   riskLevel?: "Low" | "Medium" | "High" | null;
-  memoryInsight?: CortexInsight | null;
+  historicalContext?: string[];
   onRecommendedOwnerClick?: () => void;
   highlightPanel?: boolean;
 }
@@ -749,7 +553,7 @@ export default function TicketRoutingInsight({
   ticketBoards,
   livePreview,
   riskLevel,
-  memoryInsight,
+  historicalContext = [],
   onRecommendedOwnerClick,
   highlightPanel = false,
 }: TicketRoutingInsightProps) {
@@ -784,10 +588,6 @@ export default function TicketRoutingInsight({
   );
   const livePreviewBoardId = livePreview?.boardId;
   const livePreviewPriority = livePreview?.priority;
-  const historicalContextBullets = useMemo(
-    () => buildHistoricalContextBullets(memoryInsight),
-    [memoryInsight],
-  );
 
   useEffect(() => {
     setDecisionPanelExpanded(true);
@@ -1551,13 +1351,13 @@ export default function TicketRoutingInsight({
               ) : null}
             </div>
 
-            {historicalContextBullets.length > 0 ? (
+            {historicalContext.length > 0 ? (
               <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Historical context
                 </p>
                 <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
-                  {historicalContextBullets.map((line, index) => (
+                  {historicalContext.map((line, index) => (
                     <li key={`${index}-${line}`}>{line}</li>
                   ))}
                 </ul>

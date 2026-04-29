@@ -49,40 +49,12 @@ public sealed class TicketOutcomeService : ITicketOutcomeService
 
         try
         {
-            var outcome = await _db.TicketOutcomes
-                .FirstOrDefaultAsync(o => o.TicketId == ticket.Id, cancellationToken);
-
-            if (outcome is null)
-            {
-                outcome = new TicketOutcome
-                {
-                    TicketId = ticket.Id,
-                    BoardId = ticket.BoardId,
-                    AssignedSynitiOwner = NormalizeOwner(ticket.SynitiOwner),
-                    AssignedBusinessOwner = NormalizeOwner(ticket.BusinessOwner),
-                    FinalSynitiOwner = NormalizeOwner(ticket.SynitiOwner),
-                    FinalBusinessOwner = NormalizeOwner(ticket.BusinessOwner),
-                    MatchedRuleId = matchedRuleId,
-                    CreatedAtUtc = DateTime.UtcNow,
-                };
-                _db.TicketOutcomes.Add(outcome);
-            }
-            else
-            {
-                outcome.BoardId = ticket.BoardId;
-                if (string.IsNullOrWhiteSpace(outcome.AssignedSynitiOwner))
-                {
-                    outcome.AssignedSynitiOwner = NormalizeOwner(ticket.SynitiOwner);
-                }
-                if (string.IsNullOrWhiteSpace(outcome.AssignedBusinessOwner))
-                {
-                    outcome.AssignedBusinessOwner = NormalizeOwner(ticket.BusinessOwner);
-                }
-                outcome.FinalSynitiOwner = NormalizeOwner(ticket.SynitiOwner);
-                outcome.FinalBusinessOwner = NormalizeOwner(ticket.BusinessOwner);
-                outcome.MatchedRuleId ??= matchedRuleId;
-                outcome.LastUpdatedAtUtc = DateTime.UtcNow;
-            }
+            var (outcome, _) = await GetOrCreateOutcomeAsync(ticket.Id, cancellationToken);
+            outcome.BoardId = ticket.BoardId;
+            SetInitialOwnersIfMissing(outcome, ticket);
+            SetFinalOwners(outcome, ticket.SynitiOwner, ticket.BusinessOwner);
+            outcome.MatchedRuleId ??= matchedRuleId;
+            Touch(outcome);
 
             await _db.SaveChangesAsync(cancellationToken);
         }
@@ -99,6 +71,122 @@ public sealed class TicketOutcomeService : ITicketOutcomeService
         string ticketId,
         string? finalSynitiOwner,
         string? finalBusinessOwner,
+        CancellationToken cancellationToken = default) =>
+        await MarkRoutingOverriddenAsync(
+            ticketId,
+            finalSynitiOwner,
+            finalBusinessOwner,
+            cancellationToken);
+
+    public async Task MarkReturnedForDetailAsync(
+        Ticket ticket,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(ticket.Id))
+        {
+            return;
+        }
+
+        try
+        {
+            var (outcome, _) = await GetOrCreateOutcomeAsync(ticket.Id, cancellationToken);
+            outcome.BoardId = ticket.BoardId;
+            outcome.WasReturnedForDetail = true;
+            SetInitialOwnersIfMissing(outcome, ticket);
+            SetFinalOwners(outcome, ticket.SynitiOwner, ticket.BusinessOwner);
+            Touch(outcome);
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "TicketOutcome return-for-detail capture failed for ticket {TicketId}.",
+                ticket.Id);
+        }
+    }
+
+    public async Task MarkReassignedAsync(
+        Ticket ticket,
+        string? previousSynitiOwner,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(ticket.Id))
+        {
+            return;
+        }
+
+        try
+        {
+            var (outcome, _) = await GetOrCreateOutcomeAsync(ticket.Id, cancellationToken);
+            var previousOwner = NormalizeOwner(previousSynitiOwner) ?? outcome.AssignedSynitiOwner;
+            var currentOwner = NormalizeOwner(ticket.SynitiOwner);
+
+            outcome.BoardId = ticket.BoardId;
+            if (string.IsNullOrWhiteSpace(outcome.AssignedSynitiOwner))
+            {
+                outcome.AssignedSynitiOwner = previousOwner ?? currentOwner;
+            }
+            if (string.IsNullOrWhiteSpace(outcome.AssignedBusinessOwner))
+            {
+                outcome.AssignedBusinessOwner = NormalizeOwner(ticket.BusinessOwner);
+            }
+
+            if (HasMeaningfulOwnerChange(previousOwner, currentOwner)
+                || HasMeaningfulOwnerChange(outcome.AssignedSynitiOwner, currentOwner))
+            {
+                outcome.WasReassigned = true;
+            }
+
+            SetFinalOwners(outcome, ticket.SynitiOwner, ticket.BusinessOwner);
+            Touch(outcome);
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "TicketOutcome reassignment capture failed for ticket {TicketId}.",
+                ticket.Id);
+        }
+    }
+
+    public async Task MarkSlaBreachedAsync(
+        Ticket ticket,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(ticket.Id))
+        {
+            return;
+        }
+
+        try
+        {
+            var (outcome, _) = await GetOrCreateOutcomeAsync(ticket.Id, cancellationToken);
+            outcome.BoardId = ticket.BoardId;
+            outcome.SlaBreached = true;
+            outcome.WasSlaBreached = true;
+            SetInitialOwnersIfMissing(outcome, ticket);
+            SetFinalOwners(outcome, ticket.SynitiOwner, ticket.BusinessOwner);
+            Touch(outcome);
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "TicketOutcome SLA breach capture failed for ticket {TicketId}.",
+                ticket.Id);
+        }
+    }
+
+    public async Task MarkRoutingOverriddenAsync(
+        string ticketId,
+        string? finalSynitiOwner,
+        string? finalBusinessOwner,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(ticketId))
@@ -108,32 +196,20 @@ public sealed class TicketOutcomeService : ITicketOutcomeService
 
         try
         {
-            var outcome = await _db.TicketOutcomes
-                .FirstOrDefaultAsync(o => o.TicketId == ticketId, cancellationToken);
+            var (outcome, _) = await GetOrCreateOutcomeAsync(ticketId, cancellationToken);
+            var normalizedSynitiOwner = NormalizeOwner(finalSynitiOwner);
 
-            if (outcome is null)
+            if ((outcome.WasRoutingOverridden
+                    && HasMeaningfulOwnerChange(outcome.FinalSynitiOwner, normalizedSynitiOwner))
+                || HasMeaningfulOwnerChange(outcome.AssignedSynitiOwner, normalizedSynitiOwner))
             {
-                outcome = new TicketOutcome
-                {
-                    TicketId = ticketId,
-                    FinalSynitiOwner = NormalizeOwner(finalSynitiOwner),
-                    FinalBusinessOwner = NormalizeOwner(finalBusinessOwner),
-                    WasOverridden = true,
-                    CreatedAtUtc = DateTime.UtcNow,
-                };
-                _db.TicketOutcomes.Add(outcome);
+                outcome.WasReassigned = true;
             }
-            else
-            {
-                if (outcome.WasOverridden)
-                {
-                    outcome.WasReassigned = true;
-                }
-                outcome.WasOverridden = true;
-                outcome.FinalSynitiOwner = NormalizeOwner(finalSynitiOwner);
-                outcome.FinalBusinessOwner = NormalizeOwner(finalBusinessOwner);
-                outcome.LastUpdatedAtUtc = DateTime.UtcNow;
-            }
+
+            outcome.WasOverridden = true;
+            outcome.WasRoutingOverridden = true;
+            SetFinalOwners(outcome, finalSynitiOwner, finalBusinessOwner);
+            Touch(outcome);
 
             await _db.SaveChangesAsync(cancellationToken);
         }
@@ -146,7 +222,7 @@ public sealed class TicketOutcomeService : ITicketOutcomeService
         }
     }
 
-    public async Task RecordTerminalAsync(
+    public async Task MarkCompletedAsync(
         Ticket ticket,
         bool slaBreached,
         int commentCount,
@@ -159,43 +235,25 @@ public sealed class TicketOutcomeService : ITicketOutcomeService
 
         try
         {
-            // If commentCount was not provided (negative sentinel), look it up.
             var resolvedCommentCount = commentCount >= 0
                 ? commentCount
                 : await _db.Comments
                     .AsNoTracking()
                     .CountAsync(c => c.TicketId == ticket.Id, cancellationToken);
 
-            var outcome = await _db.TicketOutcomes
-                .FirstOrDefaultAsync(o => o.TicketId == ticket.Id, cancellationToken);
-
-            if (outcome is null)
-            {
-                outcome = new TicketOutcome
-                {
-                    TicketId = ticket.Id,
-                    BoardId = ticket.BoardId,
-                    AssignedSynitiOwner = NormalizeOwner(ticket.SynitiOwner),
-                    AssignedBusinessOwner = NormalizeOwner(ticket.BusinessOwner),
-                    CreatedAtUtc = DateTime.UtcNow,
-                };
-                _db.TicketOutcomes.Add(outcome);
-            }
-
+            var (outcome, _) = await GetOrCreateOutcomeAsync(ticket.Id, cancellationToken);
             outcome.BoardId = ticket.BoardId;
-            outcome.FinalSynitiOwner = NormalizeOwner(ticket.SynitiOwner);
-            outcome.FinalBusinessOwner = NormalizeOwner(ticket.BusinessOwner);
+            SetInitialOwnersIfMissing(outcome, ticket);
+            SetFinalOwners(outcome, ticket.SynitiOwner, ticket.BusinessOwner);
             outcome.SlaBreached = slaBreached;
+            outcome.WasSlaBreached = slaBreached;
             outcome.CommentCount = resolvedCommentCount;
             outcome.ReachedTerminalStatus = true;
             outcome.CompletedAtUtc = DateTime.UtcNow;
-            outcome.LastUpdatedAtUtc = DateTime.UtcNow;
+            outcome.CompletedAt = outcome.CompletedAtUtc;
+            Touch(outcome);
 
-            if (!string.IsNullOrWhiteSpace(outcome.AssignedSynitiOwner)
-                && !string.Equals(
-                    outcome.AssignedSynitiOwner?.Trim(),
-                    outcome.FinalSynitiOwner?.Trim(),
-                    StringComparison.OrdinalIgnoreCase))
+            if (HasMeaningfulOwnerChange(outcome.AssignedSynitiOwner, outcome.FinalSynitiOwner))
             {
                 outcome.WasReassigned = true;
             }
@@ -206,10 +264,17 @@ public sealed class TicketOutcomeService : ITicketOutcomeService
         {
             _logger.LogWarning(
                 ex,
-                "TicketOutcome terminal capture failed for ticket {TicketId}.",
+                "TicketOutcome completion capture failed for ticket {TicketId}.",
                 ticket.Id);
         }
     }
+
+    public async Task RecordTerminalAsync(
+        Ticket ticket,
+        bool slaBreached,
+        int commentCount,
+        CancellationToken cancellationToken = default) =>
+        await MarkCompletedAsync(ticket, slaBreached, commentCount, cancellationToken);
 
     /// <summary>
     /// Convenience overload that computes SLA breach and comment count from current state.
@@ -255,7 +320,7 @@ public sealed class TicketOutcomeService : ITicketOutcomeService
 
             outcome.WasReopened = true;
             outcome.ReachedTerminalStatus = false;
-            outcome.LastUpdatedAtUtc = DateTime.UtcNow;
+            Touch(outcome);
 
             await _db.SaveChangesAsync(cancellationToken);
         }
@@ -266,6 +331,65 @@ public sealed class TicketOutcomeService : ITicketOutcomeService
                 "TicketOutcome reopen capture failed for ticket {TicketId}.",
                 ticketId);
         }
+    }
+
+    private async Task<(TicketOutcome Outcome, bool Created)> GetOrCreateOutcomeAsync(
+        string ticketId,
+        CancellationToken cancellationToken)
+    {
+        var outcome = await _db.TicketOutcomes
+            .FirstOrDefaultAsync(o => o.TicketId == ticketId, cancellationToken);
+
+        if (outcome is not null)
+        {
+            return (outcome, false);
+        }
+
+        outcome = new TicketOutcome
+        {
+            TicketId = ticketId,
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        _db.TicketOutcomes.Add(outcome);
+        return (outcome, true);
+    }
+
+    private static void SetInitialOwnersIfMissing(TicketOutcome outcome, Ticket ticket)
+    {
+        if (string.IsNullOrWhiteSpace(outcome.AssignedSynitiOwner))
+        {
+            outcome.AssignedSynitiOwner = NormalizeOwner(ticket.SynitiOwner);
+        }
+        if (string.IsNullOrWhiteSpace(outcome.AssignedBusinessOwner))
+        {
+            outcome.AssignedBusinessOwner = NormalizeOwner(ticket.BusinessOwner);
+        }
+    }
+
+    private static void SetFinalOwners(
+        TicketOutcome outcome,
+        string? synitiOwner,
+        string? businessOwner)
+    {
+        outcome.FinalSynitiOwner = NormalizeOwner(synitiOwner);
+        outcome.FinalBusinessOwner = NormalizeOwner(businessOwner);
+        outcome.FinalOwner = outcome.FinalSynitiOwner;
+    }
+
+    private static void Touch(TicketOutcome outcome)
+    {
+        outcome.LastUpdatedAtUtc = DateTime.UtcNow;
+        outcome.LastUpdatedAt = outcome.LastUpdatedAtUtc;
+    }
+
+    private static bool HasMeaningfulOwnerChange(string? previousOwner, string? currentOwner)
+    {
+        var previous = NormalizeOwner(previousOwner);
+        var current = NormalizeOwner(currentOwner);
+
+        return previous is not null
+            && current is not null
+            && !string.Equals(previous, current, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeOwner(string? owner)

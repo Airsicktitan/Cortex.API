@@ -74,3 +74,6 @@ appsettings.*.Local.json
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+
+appsettings.Development.json

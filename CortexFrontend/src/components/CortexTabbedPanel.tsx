@@ -1,13 +1,18 @@
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Ticket } from "../types/ticket";
 import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { RoutingLivePreviewInput } from "./TicketRoutingInsight";
 import type { CortexInsight } from "../types/cortexInsight";
 import type { CortexSlaRisk } from "../types/cortexRisk";
+import { ticketService } from "../services/api";
+import { deriveHistoricalContextFromInsight } from "../utils/cortexHistoricalContext";
 import TicketRoutingInsight from "./TicketRoutingInsight";
 import CortexRiskPanel from "./CortexRiskPanel";
 import CortexInsightPanel from "./CortexInsightPanel";
 import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
+
+const API_AUDIENCE = "https://cortex-api";
 
 type CortexTab = "review" | "decision" | "risk" | "insight";
 
@@ -43,6 +48,7 @@ export function CortexTabbedPanel({
   onReassignmentApplied,
   reviewSlot,
 }: CortexTabbedPanelProps) {
+  const { getAccessTokenSilently } = useAuth0();
   const [activeTab, setActiveTab] = useState<CortexTab>("review");
   const [visited, setVisited] = useState<ReadonlySet<CortexTab>>(
     new Set<CortexTab>(["review"]),
@@ -52,14 +58,80 @@ export function CortexTabbedPanel({
     insight: CortexInsight | null;
   } | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const cacheHydratedTicketIdRef = useRef<string | null>(null);
+  const cacheHydrationAbortRef = useRef<AbortController | null>(null);
 
   const loadedInsight =
     loadedInsightState?.ticketId === ticket.id
       ? loadedInsightState.insight
       : null;
+  const historicalContext = useMemo(
+    () => deriveHistoricalContextFromInsight(loadedInsight),
+    [loadedInsight],
+  );
+
+  useEffect(() => {
+    if (!isModalOpen || !ticket.id) {
+      cacheHydrationAbortRef.current?.abort();
+      cacheHydrationAbortRef.current = null;
+      cacheHydratedTicketIdRef.current = null;
+      return;
+    }
+
+    if (cacheHydratedTicketIdRef.current === ticket.id) {
+      return;
+    }
+
+    const ticketId = ticket.id;
+    const controller = new AbortController();
+    cacheHydrationAbortRef.current?.abort();
+    cacheHydrationAbortRef.current = controller;
+
+    void (async () => {
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: { audience: API_AUDIENCE },
+        });
+        const cachedInsight = await ticketService.getCachedInsight(
+          ticketId,
+          token,
+          controller.signal,
+        );
+
+        if (!controller.signal.aborted) {
+          setLoadedInsightState((current) => {
+            if (current?.ticketId === ticketId && current.insight) {
+              return current;
+            }
+            return { ticketId, insight: cachedInsight };
+          });
+          cacheHydratedTicketIdRef.current = ticketId;
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          console.warn("Cached Cortex Insight hydration failed", err);
+          cacheHydratedTicketIdRef.current = ticketId;
+        }
+      } finally {
+        if (cacheHydrationAbortRef.current === controller) {
+          cacheHydrationAbortRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      controller.abort();
+      if (cacheHydrationAbortRef.current === controller) {
+        cacheHydrationAbortRef.current = null;
+      }
+    };
+  }, [getAccessTokenSilently, isModalOpen, ticket.id]);
 
   const handleInsightReady = useCallback((insight: CortexInsight | null) => {
-    setLoadedInsightState({ ticketId: ticket.id ?? "", insight });
+    setLoadedInsightState({
+      ticketId: ticket.id ?? "",
+      insight,
+    });
   }, [ticket.id]);
 
   function switchTab(tab: CortexTab) {
@@ -113,7 +185,7 @@ export function CortexTabbedPanel({
               ticketBoards={ticketBoards}
               livePreview={livePreview}
               riskLevel={riskLevel}
-              memoryInsight={loadedInsight}
+              historicalContext={historicalContext}
               onRecommendedOwnerClick={() => switchTab("risk")}
               onReassignmentApplied={onReassignmentApplied}
             />

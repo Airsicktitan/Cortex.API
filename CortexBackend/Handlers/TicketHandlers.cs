@@ -514,6 +514,32 @@ public static class TicketHandlers
         return Results.Ok(insight);
     }
 
+    public static async Task<IResult> GetTicketCachedInsight(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ICortexInsightService cortexInsightService)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        return cortexInsightService.TryGetCachedInsight(
+            ticket.Id,
+            visibilityContext,
+            out var cachedInsight)
+            ? Results.Ok(cachedInsight)
+            : Results.NoContent();
+    }
+
     public static async Task<IResult> PostOwnerWorkloadPreview(
         OwnerWorkloadPreviewRequest? request,
         IOwnerWorkloadPreviewService workloadPreviewService)
@@ -529,6 +555,7 @@ public static class TicketHandlers
         [FromServices] ITicketVisibilityService ticketVisibilityService,
         [FromServices] ICortexSlaRiskService cortexSlaRiskService,
         [FromServices] ICortexInsightService cortexInsightService,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService,
         CancellationToken cancellationToken)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
@@ -548,6 +575,11 @@ public static class TicketHandlers
             ticket,
             cancellationToken,
             cachedInsight);
+        if (ticketOutcomeService is not null && IsBreachedSlaStatus(assessment.SlaStatus))
+        {
+            await ticketOutcomeService.MarkSlaBreachedAsync(ticket, cancellationToken);
+        }
+
         return Results.Ok(new CortexSlaRiskResponse
         {
             TicketId = ticket.Id,
@@ -569,6 +601,11 @@ public static class TicketHandlers
             CortexRiskRecommendation.Escalate => "Escalate",
             _ => "Keep on current path"
         };
+
+    private static bool IsBreachedSlaStatus(string? slaStatus) =>
+        slaStatus is not null
+        && (slaStatus.Equals("Breached", StringComparison.OrdinalIgnoreCase)
+            || slaStatus.Equals("Resolved Late", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Evaluates routing rules from draft field values without persisting (ticket modal live preview).
@@ -653,7 +690,8 @@ public static class TicketHandlers
         [FromServices] IOperationalRiskService operationalRiskService,
         [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         [FromServices] IReassignmentExecutionService reassignmentExecutionService,
-        [FromServices] IDecisionImpactService decisionImpactService)
+        [FromServices] IDecisionImpactService decisionImpactService,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         var body = request ?? new ReassignmentApplyRequest();
         if (!string.IsNullOrWhiteSpace(body.TicketId)
@@ -773,6 +811,23 @@ public static class TicketHandlers
         if (refreshedTicket is null)
         {
             return Results.Problem("Ticket was updated but could not be retrieved.");
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            if (HasMeaningfulOwnerChange(originalTicket.SynitiOwner, refreshedTicket.SynitiOwner))
+            {
+                await ticketOutcomeService.MarkReassignedAsync(
+                    refreshedTicket,
+                    originalTicket.SynitiOwner,
+                    CancellationToken.None);
+            }
+
+            await ticketOutcomeService.RecordOverrideAsync(
+                refreshedTicket.Id,
+                refreshedTicket.SynitiOwner,
+                refreshedTicket.BusinessOwner,
+                CancellationToken.None);
         }
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
@@ -1262,7 +1317,8 @@ public static class TicketHandlers
         [FromServices] IOperationalRiskService operationalRiskService,
         [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         IRealtimeEventService realtimeEventService,
-        IRealtimeAudienceResolver realtimeAudienceResolver)
+        IRealtimeAudienceResolver realtimeAudienceResolver,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         var reason = request?.Reason?.Trim() ?? string.Empty;
         if (string.IsNullOrEmpty(reason))
@@ -1324,6 +1380,13 @@ public static class TicketHandlers
         if (updatedTicket is null)
         {
             return Results.Problem("Ticket was updated but could not be retrieved.");
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            await ticketOutcomeService.MarkReturnedForDetailAsync(
+                updatedTicket,
+                CancellationToken.None);
         }
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
@@ -1900,6 +1963,13 @@ public static class TicketHandlers
                         updatedTicket.BusinessOwner,
                         CancellationToken.None);
                 }
+                if (HasMeaningfulOwnerChange(originalTicket.SynitiOwner, updatedTicket.SynitiOwner))
+                {
+                    await ticketOutcomeService.MarkReassignedAsync(
+                        updatedTicket,
+                        originalTicket.SynitiOwner,
+                        CancellationToken.None);
+                }
 
                 var wasTerminalBefore = TicketOutcomeService.IsTerminalStatus(originalTicket.Status);
                 var isTerminalNow = TicketOutcomeService.IsTerminalStatus(updatedTicket.Status);
@@ -2339,6 +2409,16 @@ public static class TicketHandlers
             StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool HasMeaningfulOwnerChange(string? previousOwner, string? currentOwner)
+    {
+        var previous = NormalizeOptionalValue(previousOwner);
+        var current = NormalizeOptionalValue(currentOwner);
+
+        return previous is not null
+            && current is not null
+            && !string.Equals(previous, current, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Ticket CloneTicket(Ticket ticket)
     {
         return new Ticket
@@ -2648,7 +2728,8 @@ public static class TicketHandlers
         ILogger<TicketHandlersLogCategory> logger,
         CancellationToken cancellationToken = default,
         [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
-        [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null)
+        [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
         if (ticket is null)
@@ -2742,7 +2823,21 @@ public static class TicketHandlers
             {
                 message =
                     "This ticket was updated elsewhere. Refresh the page to load the latest version before trying again.",
-                });
+            });
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            var wasTerminalBefore = TicketOutcomeService.IsTerminalStatus(originalSnapshot.Status);
+            var isTerminalNow = TicketOutcomeService.IsTerminalStatus(ticket.Status);
+            if (!wasTerminalBefore && isTerminalNow)
+            {
+                await ticketOutcomeService.RecordTerminalAsync(ticket, cancellationToken);
+            }
+            else if (wasTerminalBefore && !isTerminalNow)
+            {
+                await ticketOutcomeService.RecordReopenAsync(ticket.Id, cancellationToken);
+            }
         }
 
         await TryEnsureEmbeddingAsync(

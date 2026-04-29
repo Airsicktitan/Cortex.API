@@ -463,6 +463,25 @@ export const ticketService = {
     return response.json() as Promise<CortexInsight>;
   },
 
+  async getCachedInsight(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<CortexInsight | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/insight/cache`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 204 || response.status === 404) {
+      return null;
+    }
+    await ensureSuccess(response, "Unable to load cached Cortex Insight");
+    return response.json() as Promise<CortexInsight>;
+  },
+
   async postWorkloadPreview(
     body: OwnerWorkloadPreviewRequest,
     token: string,
