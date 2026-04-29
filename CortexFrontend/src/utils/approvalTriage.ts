@@ -59,7 +59,7 @@ export function getReviewerIntakeQualityCopy(kind: ReviewerIntakeQualityKind): {
     default:
       return {
         title: "No intake analysis available",
-        body: "This ticket has not been analyzed for completeness.",
+        body: "Run reviewer analysis from Decision to evaluate completeness and missing details.",
       };
   }
 }

@@ -50,10 +50,8 @@ import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
 import { ScrollableViewport } from "./ui/ScrollableViewport";
 import { ScreenshotInsightEvidenceCard } from "./ticket-modal/ScreenshotInsightEvidenceCard";
-import {
-  getIntakeAssistResultFingerprint,
-  IntakeAssistResultPanel,
-} from "./ticket-modal/IntakeAssistResultPanel";
+import { IntakeAssistResultPanel } from "./ticket-modal/IntakeAssistResultPanel";
+import { getIntakeAssistResultFingerprint } from "../utils/intakeAssistFingerprint";
 import {
   deriveReviewerIntakeQualitySignal,
   getReviewerIntakeQualityCopy,
@@ -2481,7 +2479,8 @@ export default function TicketModal({
                         {formatTicketIdentifier(ticket.id)}
                       </p>
                       {ticket.id && (
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
                           {!isRequesterIntakeTicket ? (
                             <span className="rounded-full bg-cortex-blue-soft px-3 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
                               {status}
@@ -2510,6 +2509,15 @@ export default function TicketModal({
                             >
                               {approvalBadgePresentation.label}
                             </span>
+                          ) : null}
+                          </div>
+                          {isApprovalQueueContext &&
+                          getTicketApprovalStatus(ticket) === "PendingApproval" &&
+                          /\bin\s*progress\b/i.test((status ?? "").trim()) ? (
+                            <p className="mt-2 max-w-prose text-xs leading-snug text-amber-800 dark:text-amber-200">
+                              Approval may still be required even while ticket Status looks
+                              ahead—workflow fields stay editable until approval clears.
+                            </p>
                           ) : null}
                         </div>
                       )}
@@ -2666,29 +2674,6 @@ export default function TicketModal({
                         </button>
                       )}
                     </div>
-                    {reviewerIntakeQualityKind !== null &&
-                    reviewerIntakeQualityCopy ? (
-                      <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-2.5 dark:border-slate-700 dark:bg-slate-900/50">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                              reviewerIntakeQualityKind === "none"
-                                ? "border border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-                                : reviewerIntakeQualityKind === "ready"
-                                  ? CLARITY_STATE_PILL_CLASS.ready_for_execution
-                                  : reviewerIntakeQualityKind === "gaps"
-                                    ? CLARITY_STATE_PILL_CLASS.would_have_required_follow_up
-                                    : CLARITY_STATE_PILL_CLASS.requires_clarification
-                            }`}
-                          >
-                            {reviewerIntakeQualityCopy.title}
-                          </span>
-                        </div>
-                        <p className="mt-1.5 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
-                          {reviewerIntakeQualityCopy.body}
-                        </p>
-                      </div>
-                    ) : null}
                     {isCreateMode && !formReadOnly ? (
                       <p className="mb-2 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
                         Improve this request before submission so reviewers can
@@ -2995,19 +2980,13 @@ export default function TicketModal({
                         ) : null}
                         <p className="max-w-xl text-xs leading-snug text-gray-500 dark:text-slate-500">
                           {showAiTriageColumn
-                            ? "Use screenshot analysis as supporting evidence; reviewer guidance stays in the AI rail."
+                            ? "Screenshot analysis adds reviewer-ready visual evidence to the Evidence tab."
                             : "Understand what&apos;s happening from screenshots before asking follow-up questions."}
                         </p>
                         {screenshotInsightError ? (
                           <p className="text-xs text-red-600 dark:text-red-400">
                             {screenshotInsightError}
                           </p>
-                        ) : null}
-                        {screenshotInsightResult ? (
-                          <ScreenshotInsightEvidenceCard
-                            result={screenshotInsightResult}
-                            compactForReviewerRail={showAiTriageColumn}
-                          />
                         ) : null}
                       </div>
                     ) : null}
@@ -3345,6 +3324,39 @@ export default function TicketModal({
                       regenerateLoading={regenerateTriageLoading}
                       applyControls={triageApplyControls}
                     />
+                  }
+                  intakeSlot={
+                    reviewerIntakeQualityKind !== null &&
+                    reviewerIntakeQualityCopy ? (
+                      <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-2.5 dark:border-slate-700 dark:bg-slate-900/50">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              reviewerIntakeQualityKind === "none"
+                                ? "border border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                : reviewerIntakeQualityKind === "ready"
+                                  ? CLARITY_STATE_PILL_CLASS.ready_for_execution
+                                  : reviewerIntakeQualityKind === "gaps"
+                                    ? CLARITY_STATE_PILL_CLASS.would_have_required_follow_up
+                                    : CLARITY_STATE_PILL_CLASS.requires_clarification
+                            }`}
+                          >
+                            {reviewerIntakeQualityCopy.title}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+                          {reviewerIntakeQualityCopy.body}
+                        </p>
+                      </div>
+                    ) : null
+                  }
+                  evidenceSlot={
+                    screenshotInsightResult ? (
+                      <ScreenshotInsightEvidenceCard
+                        result={screenshotInsightResult}
+                        compactForReviewerRail={showAiTriageColumn}
+                      />
+                    ) : null
                   }
                 />
               </div>

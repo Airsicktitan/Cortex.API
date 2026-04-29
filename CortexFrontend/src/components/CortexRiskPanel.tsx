@@ -1,5 +1,5 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ticketService } from "../services/api";
 import type {
   CortexInsight,
@@ -8,7 +8,12 @@ import type {
 import type { CortexRiskLevel, CortexSlaRisk } from "../types/cortexRisk";
 
 const API_AUDIENCE = "https://cortex-api";
-const MEMORY_PATTERN_SIGNAL = "Recent similar issues required follow-up";
+/** Sentence returned from risk APIs for memory-style patterns; detection uses equality. */
+const MEMORY_PATTERN_SIGNAL_API = "Recent similar issues required follow-up";
+const MEMORY_PATTERN_WATCH_ITEM = "Similar past work suggested follow-up";
+const SIGNAL_SLA_PRESSURE = "SLA overdue or breach pressure";
+const SIGNAL_APPROACHING_SLA = "Approaching SLA deadline";
+const SIGNAL_PRIORITY = "Elevated priority";
 const MEDIUM_INSIGHT_CONFIDENCE = 50;
 
 interface CortexRiskPanelProps {
@@ -157,14 +162,14 @@ function buildPredictiveSignals(
   const signals: string[] = [];
 
   if (sources.includes("priority") && (sources.includes("high") || sources.includes("critical"))) {
-    signals.push("High priority");
+    signals.push(SIGNAL_PRIORITY);
   }
 
   if (
     sources.includes("sla") &&
     (sources.includes("overdue") || sources.includes("late"))
   ) {
-    signals.push("SLA breach risk high");
+    signals.push(SIGNAL_SLA_PRESSURE);
   } else if (
     sources.includes("sla") &&
     (sources.includes("near") ||
@@ -172,7 +177,7 @@ function buildPredictiveSignals(
       sources.includes("approach") ||
       sources.includes("due"))
   ) {
-    signals.push("Near SLA deadline");
+    signals.push(SIGNAL_APPROACHING_SLA);
   }
 
   // Weak / optional gaps (distinct from blocking "missing detail" escalation).
@@ -212,14 +217,14 @@ function buildPredictiveSignals(
   }
 
   if (
-    risk.riskReasons.some((reason) => reason.trim() === MEMORY_PATTERN_SIGNAL) ||
+    risk.riskReasons.some((reason) => reason.trim() === MEMORY_PATTERN_SIGNAL_API) ||
     hasMemoryPatternRisk(insight)
   ) {
-    signals.push(MEMORY_PATTERN_SIGNAL);
+    signals.push(MEMORY_PATTERN_WATCH_ITEM);
   }
 
   if (signals.length === 0 && risk.riskLevel === "High") {
-    signals.push("Near SLA deadline");
+    signals.push(SIGNAL_APPROACHING_SLA);
   }
 
   return Array.from(new Set(signals)).slice(0, 4);
@@ -230,15 +235,15 @@ function leadCopy(level: CortexRiskLevel, signals: string[]): string {
     signals.length > 0 &&
     signals.every((s) => ["Awaiting approval", "Minor detail gap"].includes(s));
   if (level === "Low" && onlyIntakeRoutine) {
-    return "Intake is proceeding; nothing here suggests operational escalation yet.";
+    return "No SLA escalation needed. Intake timing looks routine—approve, return, or reject remains a separate business judgment.";
   }
   switch (level) {
     case "High":
-      return "This ticket is likely to miss its SLA without intervention.";
+      return "SLA operational risk is high—this ticket likely needs action soon.";
     case "Medium":
-      return "Based on current signals, this ticket may require attention.";
+      return "Operational risk may be elevated from SLA and workflow signals below.";
     default:
-      return "Cortex does not currently detect risk on this ticket.";
+      return "No SLA escalation needed. Cortex has not flagged active SLA deadline pressure from this evaluation.";
   }
 }
 
@@ -254,7 +259,7 @@ function recommendedAttentionCopy(
     );
 
   if (status === "Stable" && (signals.length === 0 || onlyIntakeInformational)) {
-    return "Proceed through normal review.";
+    return "Proceed with normal review pacing. Approval, return, or rejection should still be based on business justification—not this SLA read.";
   }
 
   if (signals.includes("Extended approval wait")) {
@@ -269,10 +274,10 @@ function recommendedAttentionCopy(
   if (signals.includes("Owner workload high")) {
     return "Assign to an available owner.";
   }
-  if (signals.includes("SLA breach risk high") || signals.includes("Near SLA deadline")) {
+  if (signals.includes(SIGNAL_SLA_PRESSURE) || signals.includes(SIGNAL_APPROACHING_SLA)) {
     return "Review before end of day.";
   }
-  if (signals.includes("Recent similar issues required follow-up")) {
+  if (signals.includes(MEMORY_PATTERN_WATCH_ITEM)) {
     return "Use follow-up checklist before assignment.";
   }
   switch (risk.riskLevel) {
@@ -281,8 +286,16 @@ function recommendedAttentionCopy(
     case "Medium":
       return "Review within the current shift.";
     default:
-      return "Continue with normal monitoring.";
+      return "No SLA-driven urgency surfaced here—prioritize approve, return, or reject based on substance, not SLA timing alone.";
   }
+}
+
+function recommendedNextStep(risk: CortexSlaRisk, signals: string[]): string {
+  const fromApi = risk.recommendation?.trim();
+  if (fromApi) {
+    return fromApi;
+  }
+  return recommendedAttentionCopy(risk, signals);
 }
 
 export default function CortexRiskPanel({
@@ -297,6 +310,7 @@ export default function CortexRiskPanel({
   const [risk, setRisk] = useState<CortexSlaRisk | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const riskFetchCompletedRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen || !ticketId || !isAuthenticated) {
@@ -307,6 +321,7 @@ export default function CortexRiskPanel({
     let cancelled = false;
 
     (async () => {
+      riskFetchCompletedRef.current = false;
       setLoading(true);
       setError(null);
       try {
@@ -324,9 +339,10 @@ export default function CortexRiskPanel({
         }
       } catch (err) {
         if (!cancelled && (err as { name?: string }).name !== "AbortError") {
-          setError("Cortex risk signals are temporarily unavailable.");
+          setError("Unable to load risk guidance.");
         }
       } finally {
+        riskFetchCompletedRef.current = true;
         if (!cancelled) {
           setLoading(false);
         }
@@ -344,6 +360,9 @@ export default function CortexRiskPanel({
   }
 
   const predictiveSignals = risk ? buildPredictiveSignals(risk, insight) : [];
+  const riskDriverLines = risk
+    ? risk.riskReasons.map((r) => r.trim()).filter((r) => r.length > 0)
+    : [];
 
   return (
     <div
@@ -355,76 +374,161 @@ export default function CortexRiskPanel({
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Cortex Risk
+            SLA &amp; operational risk
+          </p>
+          <p className="mt-1 max-w-xl text-xs leading-snug text-slate-500 dark:text-slate-400">
+            SLA operational signals—not business approval outcomes. Routing and reviewer actions stay on Decision.
           </p>
         </div>
         {risk ? (
-          <span className={`rounded-md px-2.5 py-1 text-xs font-semibold ${levelClasses(risk.riskLevel)}`}>
+          <span
+            className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold ${levelClasses(risk.riskLevel)}`}
+          >
             {risk.riskLevel} risk
           </span>
         ) : null}
       </div>
 
       {loading && !risk ? (
-        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-          Evaluating risk signals…
+        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400" role="status">
+          Loading SLA and operational risk guidance…
         </p>
       ) : error ? (
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-          {error}
-        </p>
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{error}</p>
       ) : risk ? (
-        <div className="mt-3 space-y-4 text-sm text-slate-800 dark:text-slate-100">
+        <div className="mt-4 space-y-4 text-sm text-slate-800 dark:text-slate-100">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Risk Status
+              Current operational risk level
             </p>
-            <div className="mt-1 flex items-center gap-2">
-              <span
-                className={`rounded-md px-2.5 py-1 text-xs font-semibold ${riskStatusClass(
-                  riskStatusLabel(risk),
-                )}`}
-              >
-                {riskStatusLabel(risk)}
-              </span>
-              <span className="text-sm text-slate-600 dark:text-slate-300">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold ${riskStatusClass(
+                    riskStatusLabel(risk),
+                  )}`}
+                >
+                  {riskStatusLabel(risk)}
+                </span>
+              </div>
+              <p className="min-w-0 flex-1 text-sm leading-snug text-slate-600 dark:text-slate-300">
+                <span className="font-medium text-slate-800 dark:text-slate-100">
+                  Risk outlook:{" "}
+                </span>
                 {leadCopy(risk.riskLevel, predictiveSignals)}
-              </span>
+              </p>
             </div>
           </div>
 
+          {risk.slaStatus?.trim() ? (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                SLA outlook
+              </p>
+              <p className="mt-1.5 text-sm text-slate-700 dark:text-slate-200">
+                {risk.slaStatus.trim()}
+              </p>
+            </div>
+          ) : null}
+
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Signals
+              Risk drivers
             </p>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
-              {predictiveSignals.map((signal, index) => (
-                <li key={`${index}-${signal}`}>{signal}</li>
-              ))}
-            </ul>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Why this ticket may need attention (from Cortex&apos;s SLA and workflow
+              evaluation).
+            </p>
+            {riskDriverLines.length > 0 ? (
+              <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-slate-700 dark:text-slate-200">
+                {riskDriverLines.map((line, index) => (
+                  <li key={`${index}-${line.slice(0, 48)}`}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-300">
+                No separate driver list was returned—use the outlook, SLA line, and
+                watch items below.
+              </p>
+            )}
           </div>
 
-          <div className="rounded-md border border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/50">
+          {predictiveSignals.length > 0 ? (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Supporting watch items
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Condensed reminders from the same evaluation (different from the driver list above).
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
+                {predictiveSignals.map((signal, index) => (
+                  <li key={`${index}-${signal}`}>{signal}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="rounded-md border border-slate-100 bg-slate-50/70 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/50">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Recommended attention
+              Recommended next step
             </p>
+            {risk.recommendation?.trim() ? null : (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Heuristic suggestion from SLA and intake rules when the service does
+                not return a specific line.
+              </p>
+            )}
             {onRecommendedActionClick ? (
               <button
                 type="button"
                 onClick={onRecommendedActionClick}
-                className="mt-0.5 text-left text-sm font-semibold text-slate-900 underline-offset-2 hover:underline dark:text-slate-50"
+                className="mt-1.5 text-left text-sm font-semibold text-slate-900 underline-offset-2 hover:underline dark:text-slate-50"
               >
-                {recommendedAttentionCopy(risk, predictiveSignals)}
+                {recommendedNextStep(risk, predictiveSignals)}
               </button>
             ) : (
-              <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-50">
-                {recommendedAttentionCopy(risk, predictiveSignals)}
+              <p className="mt-1.5 text-sm font-semibold text-slate-900 dark:text-slate-50">
+                {recommendedNextStep(risk, predictiveSignals)}
               </p>
             )}
+            {risk.recommendationReason?.trim() ? (
+              <p className="mt-2 text-xs leading-snug text-slate-600 dark:text-slate-400">
+                {risk.recommendationReason.trim()}
+              </p>
+            ) : null}
           </div>
+
+          <details className="rounded-md border border-slate-100 bg-white/40 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-400">
+            <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
+              Supporting detail
+            </summary>
+            <dl className="mt-2 space-y-1.5">
+              <div>
+                <dt className="font-medium text-slate-600 dark:text-slate-400">
+                  Evaluation time
+                </dt>
+                <dd>
+                  {new Date(risk.evaluatedAtUtc).toLocaleString(undefined, {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })}
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-[11px] leading-snug text-slate-500 dark:text-slate-500">
+              Guidance blends SLA and workflow inputs with optional advisory patterns;
+              it does not display a separate routing score.
+            </p>
+          </details>
         </div>
+      ) : riskFetchCompletedRef.current && !loading && !risk ? (
+        <p className="mt-3 text-sm leading-snug text-slate-600 dark:text-slate-300">
+          No SLA risk signals are available yet. Cortex has not detected an active SLA
+          risk for this ticket, or risk guidance has not been recorded.
+        </p>
       ) : null}
     </div>
   );

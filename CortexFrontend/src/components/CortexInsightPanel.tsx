@@ -6,7 +6,6 @@ import type {
   CortexLearningSignal,
 } from "../types/cortexInsight";
 import { formatDisplayDateTime } from "../utils/presentation";
-import { deriveHistoricalContextFromInsight } from "../utils/cortexHistoricalContext";
 
 const API_AUDIENCE = "https://cortex-api";
 
@@ -178,7 +177,7 @@ function LearningSignalCard({ signal }: { signal: CortexLearningSignal }) {
       {supportingFacts.length > 0 ? (
         <details className="mt-2 rounded-md border border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/30">
           <summary className="cursor-pointer text-xs font-semibold text-cortex-blue-dark hover:text-cortex-blue dark:text-cortex-cyan">
-            Details
+            Supporting detail
           </summary>
           <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
             {supportingFacts.map((fact, index) => (
@@ -252,7 +251,7 @@ export default function CortexInsightPanel({
         setError(
           err instanceof Error
             ? err.message
-            : "Unable to load Cortex Insight",
+            : "Unable to load historical context",
         );
       }
     } finally {
@@ -290,10 +289,6 @@ export default function CortexInsightPanel({
   const matches = insight?.matches ?? [];
   const firstSimilar = matches[0] ?? null;
   const learningSignals = insight?.learningSignals ?? [];
-  const historicalContext = useMemo(
-    () => deriveHistoricalContextFromInsight(insight),
-    [insight],
-  );
   const hasGeneratedFields = insight
     ? [
         insight.summary,
@@ -304,18 +299,18 @@ export default function CortexInsightPanel({
     : false;
   const statusText = useMemo(() => {
     if (loading) {
-      return "Loading";
+      return "Loading similar tickets…";
     }
     if (error) {
-      return "Unavailable";
+      return "Unable to load";
     }
     if (!insight) {
-      return "Ready";
+      return "Show below to fetch";
     }
     if (matches.length === 0) {
-      return "No matches";
+      return "No close matches returned";
     }
-    return `${matches.length} similar`;
+    return `${matches.length} similar past ticket${matches.length === 1 ? "" : "s"}`;
   }, [error, insight, loading, matches.length]);
 
   return (
@@ -328,7 +323,7 @@ export default function CortexInsightPanel({
       >
         <span>
           <span className="block text-sm font-semibold text-slate-900 dark:text-slate-50">
-            Cortex Insight
+            Similar past work
           </span>
           <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
             {statusText}
@@ -338,7 +333,7 @@ export default function CortexInsightPanel({
           className="shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400"
           aria-hidden="true"
         >
-          {expanded ? "Hide" : "Show"}
+          {expanded ? "Hide detail" : "Show"}
         </span>
       </button>
 
@@ -346,19 +341,24 @@ export default function CortexInsightPanel({
         <div className="mt-3 border-t border-slate-200 pt-4 dark:border-slate-700">
           {loading ? (
             <p className="text-sm text-slate-600 dark:text-slate-300" role="status">
-              Loading Cortex Insight...
+              Loading similar tickets and historical patterns…
             </p>
           ) : error ? (
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
           ) : insight && matches.length === 0 ? (
             <div className="space-y-4">
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                No similar tickets found.
+              <p className="rounded-md border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-sm leading-snug text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-200">
+                <span className="font-semibold text-slate-800 dark:text-slate-100">
+                  No historical context found yet.{" "}
+                </span>
+                Cortex has not found similar past tickets for this item yet. Past
+                resolution patterns below can still refine how you judge risk and
+                follow-up—they do not set routing here.
               </p>
               {learningSignals.length > 0 ? (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Cortex Learning Insights
+                    Past resolution signals
                   </p>
                   <div className="mt-2 space-y-2">
                     {learningSignals.map((signal, index) => (
@@ -373,19 +373,28 @@ export default function CortexInsightPanel({
             </div>
           ) : insight ? (
             <div className="space-y-4">
+              <p className="rounded-md border border-slate-200/80 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-900/55 dark:text-slate-300">
+                Patterns from prior tickets inform judgment only. Ownership, priority,
+                and routing remain on the Decision tab—nothing here assigns work.
+              </p>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                  {matches.length} similar issue{matches.length === 1 ? "" : "s"} found
+                  {matches.length} similar past ticket
+                  {matches.length === 1 ? "" : "s"} surfaced
                 </p>
-                <span className="rounded-md bg-cortex-blue-soft px-2.5 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100">
-                  {Math.max(0, Math.min(100, insight.confidenceScore))}% match
+                <span
+                  className="rounded-md bg-cortex-blue-soft px-2.5 py-1 text-xs font-semibold text-cortex-ink dark:bg-cortex-blue/20 dark:text-slate-100"
+                  title="Advisory similarity index across past tickets—not a routing verdict"
+                >
+                  Overall similarity •{" "}
+                  {Math.max(0, Math.min(100, insight.confidenceScore))}%
                 </span>
               </div>
 
               {insight.matchReasons.length > 0 ? (
                 <div className="rounded-md border border-slate-100 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Match Reasons
+                    Why tickets look related
                   </p>
                   <ul className="mt-1.5 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
                     {insight.matchReasons.map((reason) => (
@@ -395,32 +404,25 @@ export default function CortexInsightPanel({
                 </div>
               ) : null}
 
-              {historicalContext.length > 0 ? (
-                <div className="rounded-md border border-slate-100 bg-slate-50/70 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Historical Context
-                  </p>
-                  <ul className="mt-1.5 list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
-                    {historicalContext.map((line, index) => (
-                      <li key={`${index}-${line}`}>{line}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
               {firstSimilar ? (
                 <div className="rounded-md border border-cortex-blue/20 bg-white px-3 py-3 dark:border-cortex-blue/35 dark:bg-slate-950/35">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Strongest Source
+                      Closest similar ticket
                     </p>
                     <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                      {firstSimilar.status || "—"}
+                      Status: {firstSimilar.status || "—"}
                     </span>
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                      {firstSimilar.confidenceScore}% match
+                    <span
+                      className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                      title="How closely this past ticket resembles the present case"
+                    >
+                      Match confidence • {firstSimilar.confidenceScore}%
                     </span>
                   </div>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Why this may matter: corroborating language, approvals, or follow-up patterns from prior work—not a verdict on routing.
+                  </p>
                   <p className="mt-1 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">
                     {firstSimilar.title}
                   </p>
@@ -433,21 +435,26 @@ export default function CortexInsightPanel({
                         onClick={() => void onOpenSourceTicket(firstSimilar.sourceTicketId)}
                         className="font-semibold text-cortex-blue hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan"
                       >
-                        Open source ticket
+                        View similar ticket
                       </button>
                     ) : (
                       <a
                         href={firstSimilar.sourceUrl}
                         className="font-semibold text-cortex-blue hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan"
                       >
-                        Open source ticket
+                        View similar ticket
                       </a>
                     )}
                   </div>
                   {firstSimilar.sourceQuote ? (
-                    <blockquote className="mt-2 border-l-2 border-cortex-blue/35 pl-3 text-sm leading-relaxed text-slate-700 dark:border-cortex-cyan/35 dark:text-slate-200">
-                      {firstSimilar.sourceQuote}
-                    </blockquote>
+                    <>
+                      <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Relevant quote
+                      </p>
+                      <blockquote className="mt-1 border-l-2 border-cortex-blue/35 pl-3 text-sm leading-relaxed text-slate-700 dark:border-cortex-cyan/35 dark:text-slate-200">
+                        {firstSimilar.sourceQuote}
+                      </blockquote>
+                    </>
                   ) : null}
                 </div>
               ) : null}
@@ -465,7 +472,7 @@ export default function CortexInsightPanel({
                   <InsightField label="Resolution" value={insight.resolution} />
                   <InsightField label="Root cause" value={insight.rootCause} />
                   <InsightField
-                    label="Suggested next step"
+                    label="Suggested next step (hint only)"
                     value={insight.suggestedNextStep}
                   />
                 </div>
@@ -474,7 +481,7 @@ export default function CortexInsightPanel({
               {matches.length > 1 ? (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Other Matches
+                    Additional similar tickets
                   </p>
                   <ul className="mt-2 space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
                     {matches.slice(1).map((ticket) => (
@@ -487,7 +494,7 @@ export default function CortexInsightPanel({
                             {ticket.title}
                           </span>
                           <span className="text-slate-500 dark:text-slate-400">
-                            {ticket.status || "—"} · {ticket.confidenceScore}% match
+                            {ticket.status || "—"} · Confidence {ticket.confidenceScore}%
                           </span>
                           {onOpenSourceTicket ? (
                             <button
@@ -495,14 +502,14 @@ export default function CortexInsightPanel({
                               onClick={() => void onOpenSourceTicket(ticket.sourceTicketId)}
                               className="text-xs font-semibold text-cortex-blue hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan"
                             >
-                              Open
+                              View similar ticket
                             </button>
                           ) : (
                             <a
                               href={ticket.sourceUrl}
                               className="text-xs font-semibold text-cortex-blue hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan"
                             >
-                              Open
+                              View similar ticket
                             </a>
                           )}
                         </div>
@@ -520,7 +527,7 @@ export default function CortexInsightPanel({
               {learningSignals.length > 0 ? (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Cortex Learning Insights
+                    Past resolution signals
                   </p>
                   <div className="mt-2 space-y-2">
                     {learningSignals.map((signal, index) => (

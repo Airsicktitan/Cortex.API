@@ -14,16 +14,28 @@ import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 
 const API_AUDIENCE = "https://cortex-api";
 
-type CortexTab = "review" | "decision" | "risk" | "insight";
+type CortexTab =
+  | "decision"
+  | "risk"
+  | "intake"
+  | "evidence"
+  | "history";
 
 const TAB_LABELS: Record<CortexTab, string> = {
-  review: "Review",
   decision: "Decision",
   risk: "Risk",
-  insight: "Insight",
+  intake: "Intake",
+  evidence: "Evidence",
+  history: "History",
 };
 
-const ALL_TABS: CortexTab[] = ["review", "decision", "risk", "insight"];
+const ALL_TABS: CortexTab[] = [
+  "decision",
+  "risk",
+  "intake",
+  "evidence",
+  "history",
+];
 
 export interface CortexTabbedPanelProps {
   ticket: Ticket;
@@ -35,6 +47,8 @@ export interface CortexTabbedPanelProps {
   onOpenSourceTicket?: (ticketId: string) => void | Promise<void>;
   onReassignmentApplied?: (updatedTicket: Ticket) => void;
   reviewSlot?: ReactNode;
+  intakeSlot?: ReactNode;
+  evidenceSlot?: ReactNode;
 }
 
 export function CortexTabbedPanel({
@@ -47,11 +61,13 @@ export function CortexTabbedPanel({
   onOpenSourceTicket,
   onReassignmentApplied,
   reviewSlot,
+  intakeSlot,
+  evidenceSlot,
 }: CortexTabbedPanelProps) {
   const { getAccessTokenSilently } = useAuth0();
-  const [activeTab, setActiveTab] = useState<CortexTab>("review");
+  const [activeTab, setActiveTab] = useState<CortexTab>("decision");
   const [visited, setVisited] = useState<ReadonlySet<CortexTab>>(
-    new Set<CortexTab>(["review"]),
+    new Set<CortexTab>(["decision"]),
   );
   const [loadedInsightState, setLoadedInsightState] = useState<{
     ticketId: string;
@@ -146,9 +162,14 @@ export function CortexTabbedPanel({
           Cortex
         </p>
         <p className="mb-3 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-          Routing recommendation, SLA risk, advisory insight
+          Decision controls routing and reviewer actions. Risk, Intake, Evidence, and History
+          provide advisory context.
         </p>
-        <div className="-mb-px flex" role="tablist" aria-label="Cortex tabs">
+        <div
+          className="-mb-px flex flex-wrap gap-y-1"
+          role="tablist"
+          aria-label="Cortex tabs"
+        >
           {ALL_TABS.map((tab) => (
             <button
               key={tab}
@@ -156,7 +177,7 @@ export function CortexTabbedPanel({
               role="tab"
               aria-selected={activeTab === tab}
               onClick={() => switchTab(tab)}
-              className={`mr-1 border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none ${
+              className={`mr-1 mb-1 border-b-2 px-2.5 py-2 text-sm font-medium transition-colors last:mr-0 focus-visible:outline-none sm:px-3 ${
                 activeTab === tab
                   ? "border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
                   : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -172,28 +193,39 @@ export function CortexTabbedPanel({
         ref={scrollContainerRef}
         className="scroll-surface min-h-0 flex-1 overflow-y-auto pb-12"
       >
-        <div className={activeTab === "review" ? undefined : "hidden"}>
-          {reviewSlot ?? (
-            <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
-              No review content available.
+        <div className={activeTab === "decision" ? undefined : "hidden"}>
+          <div className="border-b border-slate-100 px-4 pb-4 pt-2 dark:border-slate-800/80">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Reviewer apply
             </p>
+            <div className="mt-3">
+              {reviewSlot ?? (
+                <div className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
+                  <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">
+                    No triage apply actions yet
+                  </p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+                    For example when analysis is still loading or unavailable.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+          {ticket.id && visited.has("decision") && (
+            <div>
+              <TicketRoutingInsight
+                ticket={ticket}
+                isModalOpen={isModalOpen}
+                ticketBoards={ticketBoards}
+                livePreview={livePreview}
+                riskLevel={riskLevel}
+                historicalContext={historicalContext}
+                onRecommendedOwnerClick={() => switchTab("risk")}
+                onReassignmentApplied={onReassignmentApplied}
+              />
+            </div>
           )}
         </div>
-
-        {ticket.id && visited.has("decision") && (
-          <div className={activeTab === "decision" ? undefined : "hidden"}>
-            <TicketRoutingInsight
-              ticket={ticket}
-              isModalOpen={isModalOpen}
-              ticketBoards={ticketBoards}
-              livePreview={livePreview}
-              riskLevel={riskLevel}
-              historicalContext={historicalContext}
-              onRecommendedOwnerClick={() => switchTab("risk")}
-              onReassignmentApplied={onReassignmentApplied}
-            />
-          </div>
-        )}
 
         {ticket.id && visited.has("risk") && (
           <div className={activeTab === "risk" ? undefined : "hidden"}>
@@ -207,8 +239,43 @@ export function CortexTabbedPanel({
           </div>
         )}
 
-        {ticket.id && visited.has("insight") && (
-          <div className={activeTab === "insight" ? undefined : "hidden"}>
+        {visited.has("intake") && (
+          <div className={activeTab === "intake" ? undefined : "hidden"}>
+            <div className="px-4 py-3">
+              {intakeSlot ?? (
+                <div className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
+                  <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">
+                    No intake analysis available
+                  </p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+                    Run reviewer analysis from Decision to evaluate completeness and
+                    missing details.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {visited.has("evidence") && (
+          <div className={activeTab === "evidence" ? undefined : "hidden"}>
+            <div className="px-4 py-3">
+              {evidenceSlot ?? (
+                <div className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
+                  <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">
+                    No screenshot evidence analyzed yet
+                  </p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-gray-600 dark:text-slate-400">
+                    Use Analyze screenshots in Attachments to add visual evidence here.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {ticket.id && visited.has("history") && (
+          <div className={activeTab === "history" ? undefined : "hidden"}>
             <CortexInsightPanel
               ticketId={ticket.id}
               isOpen={isModalOpen}
@@ -218,9 +285,9 @@ export function CortexTabbedPanel({
           </div>
         )}
 
-        {!ticket.id && activeTab !== "review" && (
+        {!ticket.id && activeTab !== "decision" && (
           <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
-            Save the ticket to unlock Cortex insights.
+            Save the ticket to use the Cortex tabs.
           </p>
         )}
       </div>

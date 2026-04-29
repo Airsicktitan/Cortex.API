@@ -1314,9 +1314,7 @@ export default function TicketRoutingInsight({
             Cortex Decision
           </h3>
           <p className="mt-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
-            Recommended assignment comes from deterministic routing rules. Workload
-            outlook and Cortex Insight are advisory only—they do not change rule
-            evaluation.
+            Owners follow configured routing rules; workload and history are advisory only—they never override outcomes.
             {isLiveRoutingPreview && previewLoading && decision ? (
               <span className="ml-1.5 font-medium text-slate-400 dark:text-slate-500">
                 Updating…
@@ -1397,8 +1395,7 @@ export default function TicketRoutingInsight({
                     Recommended assignment
                   </p>
                   <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-                    Deterministic routing. Scores shown in technical detail refine rank
-                    only—Cortex Insight does not pick owners independently of rules.
+                    Scores reflect rule-based routing only; they do not bypass configured assignment rules.
                   </p>
                 </div>
                 <span
@@ -1477,7 +1474,7 @@ export default function TicketRoutingInsight({
             {historicalContext.length > 0 ? (
               <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Historical context
+                  Historical notes (Decision snapshot)
                 </p>
                 <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
                   {historicalContext.map((line, index) => (
@@ -1544,11 +1541,10 @@ export default function TicketRoutingInsight({
           {cortexDecision ? (
             <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Cortex Insight (Advisory AI)
+                Advisory readable summary
               </p>
               <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-                Summarizes patterns for reviewers. Assignment still follows routing outcomes,
-                workload ranking, and your manual saves.
+                Readable routing context for reviewers. Final assignment follows routing outputs, workload cues, and your manual saves—not this text alone.
               </p>
               <p className="mt-2 text-sm font-medium text-slate-900 dark:text-slate-100">
                 {cortexDecision.summary}
@@ -1895,7 +1891,7 @@ export default function TicketRoutingInsight({
               Advisor confidence
             </p>
             <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-              Reflects Cortex Insight scoring only; routing rules compute the deterministic assignment separately.
+              Reflects advisory similarity scoring only; routing rules compute the deterministic assignment separately.
             </p>
             <p className="text-sm text-slate-700 dark:text-slate-200">
               {confidenceNarrative}

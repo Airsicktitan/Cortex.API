@@ -12,16 +12,6 @@ import {
 } from "../../types/intakeAssist";
 import { IntakeDraftPreview } from "./IntakeDraftPreview";
 
-export function getIntakeAssistResultFingerprint(result: IntakeAssistResult): string {
-  return [
-    result.clarityState,
-    result.improvedDescription ?? "",
-    result.guidanceMessage ?? "",
-    result.suggestedSummary ?? "",
-    result.missingDetails.join("\u001e"),
-  ].join("\u0000");
-}
-
 /**
  * Inline panel rendered under the Description textarea while in create mode.
  * Intentionally scoped so it shares intake vocabulary with TicketModal and
