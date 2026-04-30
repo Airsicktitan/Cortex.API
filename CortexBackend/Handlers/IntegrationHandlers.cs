@@ -243,4 +243,10 @@ public static class IntegrationHandlers
             return SafeErrorResponses.IntegrationApi(ex);
         }
     }
+
+    public static async Task<IResult> GetSourceReadiness(int sourceId, IExternalIntegrationService integrationService)
+    {
+        var readiness = await integrationService.GetSourceReadinessAsync(sourceId);
+        return readiness is null ? Results.NotFound() : Results.Ok(readiness);
+    }
 }

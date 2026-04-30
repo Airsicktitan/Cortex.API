@@ -85,6 +85,11 @@ public static class IntegrationEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status400BadRequest);
 
+        integrations.MapGet("/sources/{sourceId:int}/readiness", IntegrationHandlers.GetSourceReadiness)
+            .WithName("GetExternalSourceReadiness")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         integrations.MapPost("/sources/{sourceId:int}/discover-fields", IntegrationHandlers.DiscoverSharePointFields)
             .WithName("DiscoverSharePointListFields")
             .Produces(StatusCodes.Status200OK)

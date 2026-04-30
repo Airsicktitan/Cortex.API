@@ -66,6 +66,26 @@ export interface ExternalSourceSyncResponse {
   message?: string | null;
 }
 
+export type IntegrationReadinessCheckStatus = "Passed" | "Warning" | "Failed";
+
+export interface IntegrationReadinessCheckDto {
+  key: string;
+  label: string;
+  status: IntegrationReadinessCheckStatus;
+  message: string;
+}
+
+export interface ExternalSourceReadinessResponse {
+  sourceId: number;
+  sourceName: string;
+  provider: IntegrationProvider;
+  sourceType: ExternalSourceType;
+  isReady: boolean;
+  canDiscoverFields: boolean;
+  canSync: boolean;
+  checks: IntegrationReadinessCheckDto[];
+}
+
 export interface CreateIntegrationConnectionInput {
   provider: IntegrationProvider;
   displayName: string;

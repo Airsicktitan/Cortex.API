@@ -5,6 +5,7 @@ import type {
   ExternalBoardMappingResponse,
   ExternalFieldMappingItemInput,
   ExternalFieldMappingResponse,
+  ExternalSourceReadinessResponse,
   ExternalSourceSyncResponse,
   ExternalWorkItemResponse,
   ExternalWorkSourceResponse,
@@ -209,6 +210,17 @@ export const integrationsService = {
       headers: authHeaders(token),
     });
     await ensureSuccess(response, "Unable to load external work items");
+    return response.json();
+  },
+
+  async getSourceReadiness(
+    token: string,
+    sourceId: number,
+  ): Promise<ExternalSourceReadinessResponse> {
+    const response = await fetch(`${integrationsBase}/sources/${sourceId}/readiness`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load source readiness.");
     return response.json();
   },
 

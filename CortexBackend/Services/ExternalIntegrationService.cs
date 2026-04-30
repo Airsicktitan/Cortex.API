@@ -1,18 +1,22 @@
+using Cortex.API.Configuration;
 using Cortex.API.Database;
 using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Services.Integrations;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Cortex.API.Services;
 
 public sealed class ExternalIntegrationService(
     CortexDbContext db,
     ISharePointGraphClient sharePointGraphClient,
-    IEnumerable<IExternalWorkSourceAdapter> workSourceAdapters) : IExternalIntegrationService
+    IEnumerable<IExternalWorkSourceAdapter> workSourceAdapters,
+    IOptions<SharePointGraphOptions> sharePointGraphOptions) : IExternalIntegrationService
 {
     private readonly CortexDbContext _db = db;
     private readonly ISharePointGraphClient _graph = sharePointGraphClient;
+    private readonly SharePointGraphOptions _sharePointGraphOptions = sharePointGraphOptions.Value;
     private readonly IExternalWorkSourceAdapter _sharePointWorkSourceAdapter = workSourceAdapters
             .FirstOrDefault(a => a.Provider == IntegrationProvider.SharePoint)
         ?? throw new InvalidOperationException(
@@ -747,6 +751,254 @@ public sealed class ExternalIntegrationService(
             errors,
             items.Count,
             message);
+    }
+
+    public async Task<ExternalSourceReadinessResponse?> GetSourceReadinessAsync(
+        int sourceId,
+        CancellationToken cancellationToken = default)
+    {
+        var source = await _db.ExternalWorkSources.AsNoTracking()
+            .Include(s => s.IntegrationConnection)
+            .FirstOrDefaultAsync(s => s.Id == sourceId, cancellationToken);
+
+        if (source is null)
+        {
+            return null;
+        }
+
+        var mappingCount = await _db.ExternalFieldMappings.AsNoTracking()
+            .CountAsync(m => m.ExternalWorkSourceId == sourceId, cancellationToken);
+
+        var connection = source.IntegrationConnection;
+        var isSpList = source.Provider == IntegrationProvider.SharePoint
+                       && source.SourceType == ExternalSourceType.SharePointList;
+        var graphConfigured = IsSharePointGraphAppConfigured(connection, _sharePointGraphOptions);
+
+        var checks = new List<IntegrationReadinessCheckDto>();
+
+        checks.Add(new IntegrationReadinessCheckDto(
+            "connectionPresent",
+            "Connection",
+            IntegrationReadinessCheckStatus.Passed,
+            "This source is linked to an integration connection."));
+
+        checks.Add(connection.IsEnabled
+            ? new IntegrationReadinessCheckDto(
+                "connectionEnabled",
+                "Connection enabled",
+                IntegrationReadinessCheckStatus.Passed,
+                "The integration connection is enabled.")
+            : new IntegrationReadinessCheckDto(
+                "connectionEnabled",
+                "Connection enabled",
+                IntegrationReadinessCheckStatus.Failed,
+                "Connection is disabled. Enable it before running live discovery or sync."));
+
+        checks.Add(source.IsEnabled
+            ? new IntegrationReadinessCheckDto(
+                "sourceEnabled",
+                "Source enabled",
+                IntegrationReadinessCheckStatus.Passed,
+                "The external source is enabled.")
+            : new IntegrationReadinessCheckDto(
+                "sourceEnabled",
+                "Source enabled",
+                IntegrationReadinessCheckStatus.Failed,
+                "Source is disabled. Enable it before running live discovery or sync."));
+
+        if (source.Provider == IntegrationProvider.SharePoint)
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "providerSharePoint",
+                "Provider",
+                IntegrationReadinessCheckStatus.Passed,
+                "Provider is SharePoint."));
+        }
+        else
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "providerSharePoint",
+                "Provider",
+                IntegrationReadinessCheckStatus.Warning,
+                "Live discovery and read-only sync are available for SharePoint sources."));
+        }
+
+        if (isSpList)
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "sourceTypeSharePointList",
+                "Source type",
+                IntegrationReadinessCheckStatus.Passed,
+                "Source type is SharePoint List."));
+        }
+        else if (source.Provider == IntegrationProvider.SharePoint)
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "sourceTypeSharePointList",
+                "Source type",
+                IntegrationReadinessCheckStatus.Warning,
+                "Select SharePoint List as the source type for live discovery and sync."));
+        }
+        else
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "sourceTypeSharePointList",
+                "Source type",
+                IntegrationReadinessCheckStatus.Warning,
+                "SharePoint List is required for live discovery and read-only sync."));
+        }
+
+        if (isSpList)
+        {
+            checks.Add(graphConfigured
+                ? new IntegrationReadinessCheckDto(
+                    "sharePointGraphApp",
+                    "Microsoft Graph",
+                    IntegrationReadinessCheckStatus.Passed,
+                    "Microsoft Graph application credentials are configured for this environment.")
+                : new IntegrationReadinessCheckDto(
+                    "sharePointGraphApp",
+                    "Microsoft Graph",
+                    IntegrationReadinessCheckStatus.Failed,
+                    "SharePoint sync is not configured for this environment. Add Microsoft Graph credentials to enable live discovery and sync."));
+        }
+        else
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "sharePointGraphApp",
+                "Microsoft Graph",
+                IntegrationReadinessCheckStatus.Warning,
+                "Microsoft Graph credentials are not required until you use a SharePoint List source."));
+        }
+
+        var urlOk = false;
+        if (!isSpList)
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "externalUrl",
+                "Source URL",
+                IntegrationReadinessCheckStatus.Warning,
+                "A SharePoint list URL is required only for SharePoint List sources."));
+        }
+        else if (string.IsNullOrWhiteSpace(source.ExternalUrl))
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "externalUrl",
+                "Source URL",
+                IntegrationReadinessCheckStatus.Failed,
+                "Source URL is missing."));
+        }
+        else if (!SharePointSiteUrlParser.TryParseListPageUrl(
+                     source.ExternalUrl,
+                     out _,
+                     out _,
+                     out var parseErr))
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "externalUrl",
+                "Source URL",
+                IntegrationReadinessCheckStatus.Failed,
+                string.IsNullOrWhiteSpace(parseErr)
+                    ? "Source URL is not a valid SharePoint list address."
+                    : parseErr!));
+        }
+        else
+        {
+            urlOk = true;
+            checks.Add(new IntegrationReadinessCheckDto(
+                "externalUrl",
+                "Source URL",
+                IntegrationReadinessCheckStatus.Passed,
+                "SharePoint site information can be read from the source URL."));
+        }
+
+        var idOk = false;
+        if (!isSpList)
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "externalSourceId",
+                "External source ID",
+                IntegrationReadinessCheckStatus.Warning,
+                "An external source ID is required only for SharePoint List sources."));
+        }
+        else if (string.IsNullOrWhiteSpace(source.ExternalSourceId))
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "externalSourceId",
+                "External source ID",
+                IntegrationReadinessCheckStatus.Failed,
+                "External source ID is missing."));
+        }
+        else
+        {
+            idOk = true;
+            checks.Add(new IntegrationReadinessCheckDto(
+                "externalSourceId",
+                "External source ID",
+                IntegrationReadinessCheckStatus.Passed,
+                "List identifier is present."));
+        }
+
+        if (!isSpList)
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "fieldMappings",
+                "Field mappings",
+                IntegrationReadinessCheckStatus.Passed,
+                "Field mappings can be saved for any external source."));
+        }
+        else if (mappingCount == 0)
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "fieldMappings",
+                "Field mappings",
+                IntegrationReadinessCheckStatus.Warning,
+                "Save at least one field mapping before running read-only sync."));
+        }
+        else
+        {
+            checks.Add(new IntegrationReadinessCheckDto(
+                "fieldMappings",
+                "Field mappings",
+                IntegrationReadinessCheckStatus.Passed,
+                "Field mappings are saved."));
+        }
+
+        var canDiscoverFields = connection.IsEnabled
+            && source.IsEnabled
+            && isSpList
+            && graphConfigured
+            && urlOk
+            && idOk;
+
+        var canSync = canDiscoverFields && mappingCount > 0;
+
+        return new ExternalSourceReadinessResponse(
+            source.Id,
+            source.Name,
+            source.Provider,
+            source.SourceType,
+            canSync,
+            canDiscoverFields,
+            canSync,
+            checks);
+    }
+
+    private static bool IsSharePointGraphAppConfigured(
+        IntegrationConnection connection,
+        SharePointGraphOptions options)
+    {
+        var tenant = connection.TenantId?.Trim();
+        if (string.IsNullOrEmpty(tenant))
+        {
+            tenant = options.TenantId?.Trim();
+        }
+
+        var clientId = options.ClientId?.Trim();
+        var clientSecret = options.ClientSecret?.Trim();
+        return !string.IsNullOrEmpty(tenant)
+               && !string.IsNullOrEmpty(clientId)
+               && !string.IsNullOrEmpty(clientSecret);
     }
 
     private static void ApplyConnectionSyncFields(IntegrationConnection connection, DateTime syncUtc, string status, string message)

@@ -8,6 +8,7 @@ import type {
   ExternalBoardMappingItemInput,
   ExternalBoardMappingMode,
   ExternalFieldMappingItemInput,
+  ExternalSourceReadinessResponse,
   ExternalSourceSyncResponse,
   ExternalSourceType,
   ExternalWorkItemResponse,
@@ -15,6 +16,7 @@ import type {
   IntegrationAuthMode,
   IntegrationConnectionResponse,
   IntegrationProvider,
+  IntegrationReadinessCheckStatus,
   IntegrationSyncMode,
   ManualUpsertExternalWorkItemInput,
   SharePointDiscoveredFieldResponse,
@@ -133,27 +135,52 @@ function humanizeCortexFieldDisplay(field: CortexField): string {
   return field.replace(/([A-Z])/g, " $1").trim();
 }
 
-function isSharePointListSource(source: ExternalWorkSourceResponse | null): boolean {
-  return source?.provider === "SharePoint" && source?.sourceType === "SharePointList";
+function readinessHeadline(r: ExternalSourceReadinessResponse): string {
+  if (r.canSync) {
+    return "Ready for SharePoint discovery and read-only sync.";
+  }
+  if (r.canDiscoverFields) {
+    return "Some setup is complete, but Cortex needs more information before sync.";
+  }
+  return "Setup required before live discovery or sync can run.";
 }
 
-function liveSharePointActionsBlockedReason(
-  connection: IntegrationConnectionResponse | null,
-  source: ExternalWorkSourceResponse | null,
+function readinessCheckRowClass(status: IntegrationReadinessCheckStatus): string {
+  switch (status) {
+    case "Passed":
+      return "text-green-800 dark:text-green-200/90";
+    case "Warning":
+      return "text-amber-900 dark:text-amber-100/90";
+    case "Failed":
+      return "text-red-800 dark:text-red-200/90";
+    default:
+      return "text-gray-800 dark:text-slate-200";
+  }
+}
+
+function primaryReadinessHint(
+  readiness: ExternalSourceReadinessResponse | null,
+  which: "discover" | "sync",
 ): string | null {
-  if (!connection || !source) {
-    return "Select a connection and an external source.";
+  if (!readiness) {
+    return null;
   }
-  if (!connection.isEnabled) {
-    return "Enable this connection to use live discovery and sync.";
+  if (which === "discover" && readiness.canDiscoverFields) {
+    return null;
   }
-  if (!source.isEnabled) {
-    return "Enable this external source to use live discovery and sync.";
+  if (which === "sync" && readiness.canSync) {
+    return null;
   }
-  if (!isSharePointListSource(source)) {
-    return "Live discovery and sync are currently available for SharePoint Lists.";
+  const failed = readiness.checks.filter((c) => c.status === "Failed");
+  if (failed.length > 0) {
+    return failed.map((c) => c.message).join(" ");
   }
-  return null;
+  if (which === "sync" && readiness.canDiscoverFields && !readiness.canSync) {
+    const fm = readiness.checks.find((c) => c.key === "fieldMappings");
+    return fm?.message ?? "Save field mappings before syncing.";
+  }
+  const warn = readiness.checks.find((c) => c.status === "Warning");
+  return warn?.message ?? null;
 }
 
 function mappingRowIdentity(name: string, key?: string | null): string {
@@ -287,6 +314,10 @@ export default function IntegrationsPage({
     | null
   >(null);
 
+  const [sourceReadiness, setSourceReadiness] = useState<ExternalSourceReadinessResponse | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+
   const selectedConnection = useMemo(
     () => connections.find((c) => c.id === selectedConnectionId) ?? null,
     [connections, selectedConnectionId],
@@ -297,9 +328,22 @@ export default function IntegrationsPage({
     [sources, selectedSourceId],
   );
 
-  const sharePointLiveBlockReason = useMemo(
-    () => liveSharePointActionsBlockedReason(selectedConnection, selectedSource),
-    [selectedConnection, selectedSource],
+  const loadSourceReadiness = useCallback(
+    async (sourceId: number) => {
+      setReadinessLoading(true);
+      setReadinessError(null);
+      try {
+        const token = await getToken();
+        const r = await integrationsService.getSourceReadiness(token, sourceId);
+        setSourceReadiness(r);
+      } catch {
+        setSourceReadiness(null);
+        setReadinessError("Unable to check source readiness.");
+      } finally {
+        setReadinessLoading(false);
+      }
+    },
+    [getToken],
   );
 
   const loadConnections = useCallback(async () => {
@@ -429,6 +473,15 @@ export default function IntegrationsPage({
   }, [selectedConnectionId, loadSources]);
 
   useEffect(() => {
+    if (selectedSourceId === null) {
+      setSourceReadiness(null);
+      setReadinessError(null);
+      return;
+    }
+    void loadSourceReadiness(selectedSourceId);
+  }, [selectedSourceId, loadSourceReadiness]);
+
+  useEffect(() => {
     if (tab === "fields" && selectedSourceId !== null) {
       void loadFieldMappings(selectedSourceId);
     }
@@ -480,6 +533,21 @@ export default function IntegrationsPage({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [itemDetail]);
+
+  const discoverActionDisabled =
+    !selectedSourceId ||
+    discoverLoading ||
+    fieldLoading ||
+    readinessLoading ||
+    !!readinessError ||
+    !sourceReadiness?.canDiscoverFields;
+
+  const syncActionDisabled =
+    !selectedSourceId ||
+    syncLoading ||
+    readinessLoading ||
+    !!readinessError ||
+    !sourceReadiness?.canSync;
 
   const showBanner = (type: "ok" | "err", text: string) => {
     setBanner({ type, text });
@@ -557,6 +625,9 @@ export default function IntegrationsPage({
       }
       setConnectionModal(null);
       await loadConnections();
+      if (selectedSourceId !== null) {
+        void loadSourceReadiness(selectedSourceId);
+      }
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to save connection."));
     }
@@ -570,6 +641,9 @@ export default function IntegrationsPage({
       await loadConnections();
       if (selectedConnectionId === c.id) {
         await loadSources(c.id);
+      }
+      if (selectedSourceId !== null) {
+        void loadSourceReadiness(selectedSourceId);
       }
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to update connection."));
@@ -648,6 +722,9 @@ export default function IntegrationsPage({
       }
       setSourceModal(null);
       await loadSources(selectedConnectionId);
+      if (selectedSourceId !== null) {
+        void loadSourceReadiness(selectedSourceId);
+      }
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to save source."));
     }
@@ -662,6 +739,9 @@ export default function IntegrationsPage({
       await integrationsService.setSourceEnabled(token, s.id, !s.isEnabled);
       showBanner("ok", s.isEnabled ? "Source disabled." : "Source enabled.");
       await loadSources(selectedConnectionId);
+      if (selectedSourceId !== null) {
+        void loadSourceReadiness(selectedSourceId);
+      }
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to update source."));
     }
@@ -690,6 +770,7 @@ export default function IntegrationsPage({
       await integrationsService.replaceFieldMappings(token, selectedSourceId, body);
       showBanner("ok", "Field mappings saved.");
       await loadFieldMappings(selectedSourceId);
+      void loadSourceReadiness(selectedSourceId);
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to save field mappings."));
     } finally {
@@ -791,7 +872,13 @@ export default function IntegrationsPage({
     if (selectedSourceId === null) {
       return;
     }
-    if (sharePointLiveBlockReason) {
+    if (
+      readinessLoading ||
+      readinessError ||
+      !sourceReadiness?.canDiscoverFields ||
+      discoverLoading ||
+      fieldLoading
+    ) {
       return;
     }
     setDiscoverLoading(true);
@@ -805,6 +892,7 @@ export default function IntegrationsPage({
       setDiscoveredFields([]);
     } finally {
       setDiscoverLoading(false);
+      void loadSourceReadiness(selectedSourceId);
     }
   };
 
@@ -838,7 +926,7 @@ export default function IntegrationsPage({
     if (selectedSourceId === null) {
       return;
     }
-    if (sharePointLiveBlockReason) {
+    if (readinessLoading || readinessError || !sourceReadiness?.canSync || syncLoading) {
       return;
     }
     setSyncLoading(true);
@@ -857,6 +945,7 @@ export default function IntegrationsPage({
       setSyncSummary({ kind: "error", message: msg });
     } finally {
       setSyncLoading(false);
+      void loadSourceReadiness(selectedSourceId);
     }
   };
 
@@ -961,6 +1050,38 @@ export default function IntegrationsPage({
                     </select>
                   </div>
                 </div>
+                {selectedSourceId ? (
+                  <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/90 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Source readiness</h3>
+                    {readinessLoading ? (
+                      <p className="mt-2 text-sm text-gray-600 dark:text-slate-400">Checking source readiness…</p>
+                    ) : readinessError ? (
+                      <p className="mt-2 text-sm text-amber-900 dark:text-amber-100/90">{readinessError}</p>
+                    ) : sourceReadiness ? (
+                      <>
+                        <p className="mt-2 text-sm text-gray-800 dark:text-slate-200">{readinessHeadline(sourceReadiness)}</p>
+                        <ul className="mt-3 space-y-2 text-xs">
+                          {sourceReadiness.checks.map((c) => (
+                            <li
+                              key={c.key}
+                              className={`flex gap-2 rounded-md px-2 py-1 ${readinessCheckRowClass(c.status)}`}
+                            >
+                              <span className="shrink-0 font-medium" aria-hidden>
+                                {c.status === "Passed" ? "✓" : c.status === "Warning" ? "!" : "✗"}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="font-medium">{c.label}</span>
+                                <span className="block text-gray-600 dark:text-slate-400">{c.message}</span>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="mt-2 text-sm text-gray-600 dark:text-slate-400">No readiness data.</p>
+                    )}
+                  </div>
+                ) : null}
               </ConfigDetailCard>
             )}
 
@@ -1134,9 +1255,7 @@ export default function IntegrationsPage({
                   <div className="flex flex-wrap items-center gap-3">
                     <ConfigPrimaryButton
                       onClick={() => void discoverFieldsFromSource()}
-                      disabled={
-                        !selectedSourceId || !!sharePointLiveBlockReason || discoverLoading || fieldLoading
-                      }
+                      disabled={discoverActionDisabled}
                     >
                       {discoverLoading ? "Discovering…" : "Discover fields"}
                     </ConfigPrimaryButton>
@@ -1146,8 +1265,14 @@ export default function IntegrationsPage({
                   </div>
                   {!selectedSourceId ? (
                     <p className="text-xs text-gray-500 dark:text-slate-500">Select an external source above to enable discovery.</p>
-                  ) : sharePointLiveBlockReason ? (
-                    <p className="text-xs text-amber-800 dark:text-amber-200/90">{sharePointLiveBlockReason}</p>
+                  ) : readinessLoading ? (
+                    <p className="text-xs text-gray-600 dark:text-slate-400">Checking source readiness…</p>
+                  ) : readinessError ? (
+                    <p className="text-xs text-amber-800 dark:text-amber-200/90">{readinessError}</p>
+                  ) : primaryReadinessHint(sourceReadiness, "discover") ? (
+                    <p className="text-xs text-amber-800 dark:text-amber-200/90">
+                      {primaryReadinessHint(sourceReadiness, "discover")}
+                    </p>
                   ) : null}
                 </div>
                 <Callout title="Mappings translate customer-specific fields into Cortex concepts.">
@@ -1458,7 +1583,7 @@ export default function IntegrationsPage({
                   <div className="flex flex-wrap items-center gap-3">
                     <ConfigPrimaryButton
                       onClick={() => void syncExternalSourceNow()}
-                      disabled={!selectedSourceId || !!sharePointLiveBlockReason || syncLoading}
+                      disabled={syncActionDisabled}
                     >
                       {syncLoading ? "Syncing…" : "Sync now"}
                     </ConfigPrimaryButton>
@@ -1469,8 +1594,14 @@ export default function IntegrationsPage({
                   </div>
                   {!selectedSourceId ? (
                     <p className="text-xs text-gray-500 dark:text-slate-500">Select an external source above to run a sync.</p>
-                  ) : sharePointLiveBlockReason ? (
-                    <p className="text-xs text-amber-800 dark:text-amber-200/90">{sharePointLiveBlockReason}</p>
+                  ) : readinessLoading ? (
+                    <p className="text-xs text-gray-600 dark:text-slate-400">Checking source readiness…</p>
+                  ) : readinessError ? (
+                    <p className="text-xs text-amber-800 dark:text-amber-200/90">{readinessError}</p>
+                  ) : primaryReadinessHint(sourceReadiness, "sync") ? (
+                    <p className="text-xs text-amber-800 dark:text-amber-200/90">
+                      {primaryReadinessHint(sourceReadiness, "sync")}
+                    </p>
                   ) : null}
                 </div>
                 {syncSummary?.kind === "success" ? (

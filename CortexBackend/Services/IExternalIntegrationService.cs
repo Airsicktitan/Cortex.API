@@ -43,4 +43,6 @@ public interface IExternalIntegrationService
     Task<IReadOnlyList<SharePointDiscoveredFieldResponse>?> DiscoverSharePointFieldsAsync(int sourceId, CancellationToken cancellationToken = default);
 
     Task<ExternalSourceSyncResponse?> SyncSharePointSourceAsync(int sourceId, CancellationToken cancellationToken = default);
+
+    Task<ExternalSourceReadinessResponse?> GetSourceReadinessAsync(int sourceId, CancellationToken cancellationToken = default);
 }
