@@ -8,6 +8,7 @@ import type {
   ExternalBoardMappingItemInput,
   ExternalBoardMappingMode,
   ExternalFieldMappingItemInput,
+  ExternalSourceSyncResponse,
   ExternalSourceType,
   ExternalWorkItemResponse,
   ExternalWorkSourceResponse,
@@ -16,6 +17,7 @@ import type {
   IntegrationProvider,
   IntegrationSyncMode,
   ManualUpsertExternalWorkItemInput,
+  SharePointDiscoveredFieldResponse,
   UpdateExternalWorkSourceInput,
   UpdateIntegrationConnectionInput,
 } from "../types/integrations";
@@ -131,6 +133,42 @@ function humanizeCortexFieldDisplay(field: CortexField): string {
   return field.replace(/([A-Z])/g, " $1").trim();
 }
 
+function isSharePointListSource(source: ExternalWorkSourceResponse | null): boolean {
+  return source?.provider === "SharePoint" && source?.sourceType === "SharePointList";
+}
+
+function liveSharePointActionsBlockedReason(
+  connection: IntegrationConnectionResponse | null,
+  source: ExternalWorkSourceResponse | null,
+): string | null {
+  if (!connection || !source) {
+    return "Select a connection and an external source.";
+  }
+  if (!connection.isEnabled) {
+    return "Enable this connection to use live discovery and sync.";
+  }
+  if (!source.isEnabled) {
+    return "Enable this external source to use live discovery and sync.";
+  }
+  if (!isSharePointListSource(source)) {
+    return "Live discovery and sync are currently available for SharePoint Lists.";
+  }
+  return null;
+}
+
+function mappingRowIdentity(name: string, key?: string | null): string {
+  const k = key?.trim();
+  const n = name.trim();
+  return (k || n).toLowerCase();
+}
+
+function humanizeConnectionSyncStatus(status?: string | null): string {
+  if (!status?.trim()) {
+    return "—";
+  }
+  return status.trim();
+}
+
 function DetailField({
   label,
   children,
@@ -238,6 +276,17 @@ export default function IntegrationsPage({
   });
   const [upsertSaving, setUpsertSaving] = useState(false);
 
+  const [discoveredFields, setDiscoveredFields] = useState<SharePointDiscoveredFieldResponse[]>([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncSummary, setSyncSummary] = useState<
+    | { kind: "success"; data: ExternalSourceSyncResponse }
+    | { kind: "error"; message: string }
+    | null
+  >(null);
+
   const selectedConnection = useMemo(
     () => connections.find((c) => c.id === selectedConnectionId) ?? null,
     [connections, selectedConnectionId],
@@ -246,6 +295,11 @@ export default function IntegrationsPage({
   const selectedSource = useMemo(
     () => sources.find((s) => s.id === selectedSourceId) ?? null,
     [sources, selectedSourceId],
+  );
+
+  const sharePointLiveBlockReason = useMemo(
+    () => liveSharePointActionsBlockedReason(selectedConnection, selectedSource),
+    [selectedConnection, selectedSource],
   );
 
   const loadConnections = useCallback(async () => {
@@ -396,8 +450,23 @@ export default function IntegrationsPage({
   }, [tab, selectedSourceId, loadItems]);
 
   useEffect(() => {
+    setDiscoveredFields([]);
+    setDiscoverError(null);
+    setSyncSummary(null);
+  }, [selectedSourceId]);
+
+  useEffect(() => {
     setItemDetail(null);
   }, [tab, selectedSourceId]);
+
+  useEffect(() => {
+    if (!itemDetail || itemsLoading) {
+      return;
+    }
+    if (!items.some((i) => i.id === itemDetail.id)) {
+      setItemDetail(null);
+    }
+  }, [items, itemsLoading, itemDetail]);
 
   useEffect(() => {
     if (!itemDetail) {
@@ -718,6 +787,79 @@ export default function IntegrationsPage({
     }
   };
 
+  const discoverFieldsFromSource = async () => {
+    if (selectedSourceId === null) {
+      return;
+    }
+    if (sharePointLiveBlockReason) {
+      return;
+    }
+    setDiscoverLoading(true);
+    setDiscoverError(null);
+    try {
+      const token = await getToken();
+      const list = await integrationsService.discoverSharePointFields(token, selectedSourceId);
+      setDiscoveredFields(list);
+    } catch (e) {
+      setDiscoverError(getUserFacingErrorMessage(e, "Unable to discover fields."));
+      setDiscoveredFields([]);
+    } finally {
+      setDiscoverLoading(false);
+    }
+  };
+
+  const addDiscoveredFieldToMapping = (field: SharePointDiscoveredFieldResponse) => {
+    const id = mappingRowIdentity(field.externalFieldName, field.externalFieldKey);
+    if (!id) {
+      return;
+    }
+    const exists = fieldDraft.some(
+      (row) => mappingRowIdentity(row.externalFieldName, row.externalFieldKey) === id,
+    );
+    if (exists) {
+      return;
+    }
+    const suggested = field.suggestedCortexField;
+    const cortex: CortexField =
+      suggested && CORTEX_FIELDS.includes(suggested) ? suggested : "Unknown";
+    setFieldDraft([
+      ...fieldDraft,
+      {
+        externalFieldName: field.externalFieldName,
+        externalFieldKey: field.externalFieldKey?.trim() || "",
+        cortexField: cortex,
+        isRequired: false,
+        transformHint: "",
+      },
+    ]);
+  };
+
+  const syncExternalSourceNow = async () => {
+    if (selectedSourceId === null) {
+      return;
+    }
+    if (sharePointLiveBlockReason) {
+      return;
+    }
+    setSyncLoading(true);
+    setSyncSummary(null);
+    try {
+      const token = await getToken();
+      const result = await integrationsService.syncSharePointSource(token, selectedSourceId);
+      setSyncSummary({ kind: "success", data: result });
+      await loadItems(selectedSourceId);
+      await loadConnections();
+      if (selectedConnectionId !== null) {
+        await loadSources(selectedConnectionId);
+      }
+    } catch (e) {
+      const msg = getUserFacingErrorMessage(e, "Sync failed.");
+      setSyncSummary({ kind: "error", message: msg });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
   const selectSourceForMapping = (sourceId: number) => {
     setSelectedSourceId(sourceId);
     setTab("fields");
@@ -756,7 +898,7 @@ export default function IntegrationsPage({
       <ConfigPageShell>
         <ConfigPageHeader
           title="External integrations"
-          description="Model SharePoint lists, Jira projects, and ServiceNow tables as external sources. Live authentication and automatic sync are not connected yet—use manual mode to configure and test safely."
+          description="Connect SharePoint lists, Jira projects, or ServiceNow tables as external sources. For SharePoint Lists, you can discover fields, map them to Cortex, and run a read-only sync that updates external work items without changing SharePoint or creating Cortex tickets automatically."
         />
         <ConfigPageBody>
           <div className="flex min-w-0 max-w-full flex-wrap gap-2 border-b border-gray-200 pb-4 dark:border-slate-700">
@@ -862,9 +1004,33 @@ export default function IntegrationsPage({
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationAuthMode(c.authMode)}</td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationSyncMode(c.syncMode)}</td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{c.isEnabled ? "Yes" : "No"}</td>
-                            <td className="max-w-[200px] truncate px-4 py-3 text-gray-600 dark:text-slate-400" title={c.lastSyncMessage ?? undefined}>
-                              {formatWhen(c.lastSyncUtc)}
-                              {c.lastSyncStatus ? ` · ${c.lastSyncStatus}` : ""}
+                            <td
+                              className="max-w-[220px] px-4 py-3 text-gray-700 dark:text-slate-300"
+                              title={
+                                c.lastSyncMessage?.trim()
+                                  ? c.lastSyncMessage.trim()
+                                  : c.lastSyncUtc
+                                    ? undefined
+                                    : "No sync has completed for this connection yet."
+                              }
+                            >
+                              {!c.lastSyncUtc ? (
+                                <span className="text-gray-600 dark:text-slate-400">Never synced</span>
+                              ) : (
+                                <div className="space-y-0.5">
+                                  <div className="font-medium text-gray-900 dark:text-slate-100">
+                                    {humanizeConnectionSyncStatus(c.lastSyncStatus)}
+                                  </div>
+                                  <div className="text-xs text-gray-600 dark:text-slate-400">
+                                    {formatWhen(c.lastSyncUtc)}
+                                  </div>
+                                  {c.lastSyncMessage?.trim() ? (
+                                    <div className="line-clamp-2 text-xs text-gray-500 dark:text-slate-500">
+                                      {c.lastSyncMessage.trim()}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{formatWhen(c.createdAtUtc)}</td>
                             <td className="space-x-2 whitespace-nowrap px-4 py-3 text-right">
@@ -964,12 +1130,96 @@ export default function IntegrationsPage({
 
             {tab === "fields" && (
               <div className="space-y-4">
+                <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <ConfigPrimaryButton
+                      onClick={() => void discoverFieldsFromSource()}
+                      disabled={
+                        !selectedSourceId || !!sharePointLiveBlockReason || discoverLoading || fieldLoading
+                      }
+                    >
+                      {discoverLoading ? "Discovering…" : "Discover fields"}
+                    </ConfigPrimaryButton>
+                    <p className="min-w-0 flex-1 text-sm text-gray-600 dark:text-slate-400">
+                      Read the source schema and suggest Cortex field mappings.
+                    </p>
+                  </div>
+                  {!selectedSourceId ? (
+                    <p className="text-xs text-gray-500 dark:text-slate-500">Select an external source above to enable discovery.</p>
+                  ) : sharePointLiveBlockReason ? (
+                    <p className="text-xs text-amber-800 dark:text-amber-200/90">{sharePointLiveBlockReason}</p>
+                  ) : null}
+                </div>
                 <Callout title="Mappings translate customer-specific fields into Cortex concepts.">
                   Saving replaces the full mapping list for this source. Add every field you need before saving.
                   <span className="mt-2 block text-sky-900/90 dark:text-sky-200/90">
                     Optional note for how Cortex should interpret values from this external field.
                   </span>
                 </Callout>
+                {discoverError ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">{discoverError}</p>
+                ) : null}
+                {discoveredFields.length > 0 ? (
+                  <div className="min-w-0 max-w-full space-y-2 rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Discovered source fields</h3>
+                    <p className="text-sm text-gray-600 dark:text-slate-400">
+                      These fields were read from the external source. Review the suggestions before adding them to the
+                      mapping table.
+                    </p>
+                    <div className="max-w-full overflow-x-auto rounded-lg border border-gray-100 dark:border-slate-800">
+                      <table className="min-w-[720px] w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                        <thead className="bg-gray-50 dark:bg-slate-800/80">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Source field</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Field key</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Type</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Suggested Cortex field</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-300">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                          {discoveredFields.map((f) => {
+                            const label = f.displayName?.trim() || f.externalFieldName;
+                            const keyDisp = f.externalFieldKey?.trim() || f.externalFieldName || "—";
+                            const already = fieldDraft.some(
+                              (row) =>
+                                mappingRowIdentity(row.externalFieldName, row.externalFieldKey)
+                                === mappingRowIdentity(f.externalFieldName, f.externalFieldKey),
+                            );
+                            return (
+                              <tr key={`${f.externalFieldName}:${f.externalFieldKey ?? ""}`} className="bg-white dark:bg-slate-900">
+                                <td className="px-3 py-2 text-gray-900 dark:text-slate-100" title={label}>
+                                  {label}
+                                  {f.isHidden ? (
+                                    <span className="ml-2 text-xs text-gray-500 dark:text-slate-500">(hidden)</span>
+                                  ) : null}
+                                </td>
+                                <td className="max-w-[180px] truncate px-3 py-2 font-mono text-xs text-gray-700 dark:text-slate-300" title={keyDisp}>
+                                  {keyDisp}
+                                </td>
+                                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{f.type?.trim() || "—"}</td>
+                                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">
+                                  {f.suggestedCortexField
+                                    ? humanizeCortexFieldDisplay(f.suggestedCortexField)
+                                    : "—"}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {already ? (
+                                    <span className="text-xs text-gray-500 dark:text-slate-500">Already mapped</span>
+                                  ) : (
+                                    <ConfigGhostButton className="!py-1" onClick={() => addDiscoveredFieldToMapping(f)}>
+                                      Add to mapping
+                                    </ConfigGhostButton>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
                 {!selectedSourceId ? (
                   <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
                 ) : fieldError ? (
@@ -1201,8 +1451,50 @@ export default function IntegrationsPage({
             {tab === "items" && (
               <div className="min-w-0 max-w-full space-y-4">
                 <Callout title="External items are stored safely before becoming Cortex tickets.">
-                  No automatic import runs from this screen. Use a test item to validate mapping and structure.
+                  No automatic Cortex ticket import runs from this screen. Add a manual test item or use Sync now for a
+                  SharePoint List after mappings are saved.
                 </Callout>
+                <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <ConfigPrimaryButton
+                      onClick={() => void syncExternalSourceNow()}
+                      disabled={!selectedSourceId || !!sharePointLiveBlockReason || syncLoading}
+                    >
+                      {syncLoading ? "Syncing…" : "Sync now"}
+                    </ConfigPrimaryButton>
+                    <p className="min-w-0 flex-1 text-sm text-gray-600 dark:text-slate-400">
+                      Reads the selected external source and updates external work items. Cortex tickets are not created
+                      automatically.
+                    </p>
+                  </div>
+                  {!selectedSourceId ? (
+                    <p className="text-xs text-gray-500 dark:text-slate-500">Select an external source above to run a sync.</p>
+                  ) : sharePointLiveBlockReason ? (
+                    <p className="text-xs text-amber-800 dark:text-amber-200/90">{sharePointLiveBlockReason}</p>
+                  ) : null}
+                </div>
+                {syncSummary?.kind === "success" ? (
+                  <div className="rounded-lg border border-green-200 bg-green-50/90 px-4 py-3 text-sm text-green-950 dark:border-green-900 dark:bg-green-950/40 dark:text-green-100">
+                    <p className="font-medium text-green-900 dark:text-green-100">Sync complete</p>
+                    <ul className="mt-2 list-inside list-disc space-y-0.5 text-green-900/95 dark:text-green-100/95">
+                      <li>Created: {syncSummary.data.createdCount}</li>
+                      <li>Updated: {syncSummary.data.updatedCount}</li>
+                      <li>Unchanged: {syncSummary.data.unchangedCount}</li>
+                      <li>Skipped: {syncSummary.data.skippedCount}</li>
+                      <li>Errors: {syncSummary.data.errorCount}</li>
+                      <li>Items processed: {syncSummary.data.itemCount}</li>
+                    </ul>
+                    {syncSummary.data.message?.trim() ? (
+                      <p className="mt-2 text-green-900/90 dark:text-green-100/90">{syncSummary.data.message.trim()}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {syncSummary?.kind === "error" ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100">
+                    <p className="font-medium">Sync failed</p>
+                    <p className="mt-1">{syncSummary.message}</p>
+                  </div>
+                ) : null}
                 <div className="flex flex-wrap justify-end gap-2">
                   <ConfigSecondaryButton
                     onClick={() => selectedSourceId && void loadItems(selectedSourceId)}

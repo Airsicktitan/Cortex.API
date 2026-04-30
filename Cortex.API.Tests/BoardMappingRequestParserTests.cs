@@ -5,6 +5,7 @@ using Cortex.API.DTO;
 using Cortex.API.Handlers;
 using Cortex.API.Models;
 using Cortex.API.Services;
+using Cortex.API.Tests.TestDoubles;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Tests;
@@ -72,7 +73,7 @@ public class BoardMappingRequestParserTests
         await context.SaveChangesAsync();
         var boardId = await context.TicketBoardDefinitions.Select(b => b.Id).FirstAsync();
 
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,
@@ -110,7 +111,7 @@ public class BoardMappingRequestParserTests
         var boardId = await context.TicketBoardDefinitions.Select(b => b.Id).FirstAsync();
         var boardName = await context.TicketBoardDefinitions.Where(b => b.Id == boardId).Select(b => b.Name).FirstAsync();
 
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,
@@ -144,7 +145,7 @@ public class BoardMappingRequestParserTests
         await context.SaveChangesAsync();
         var boardId = await context.TicketBoardDefinitions.Select(b => b.Id).FirstAsync();
 
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,
@@ -180,7 +181,7 @@ public class BoardMappingRequestParserTests
         await context.SaveChangesAsync();
         var boardId = await context.TicketBoardDefinitions.Select(b => b.Id).FirstAsync();
 
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
 
         var result = await service.ReplaceBoardMappingsAsync(77123,
         [
@@ -197,7 +198,7 @@ public class BoardMappingRequestParserTests
         SeedBoard(context);
         await context.SaveChangesAsync();
 
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,
@@ -225,7 +226,7 @@ public class BoardMappingRequestParserTests
         await context.SaveChangesAsync();
         var boardId = await context.TicketBoardDefinitions.Select(b => b.Id).FirstAsync();
 
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,

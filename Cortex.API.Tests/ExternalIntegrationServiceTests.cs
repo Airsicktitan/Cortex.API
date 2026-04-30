@@ -2,17 +2,27 @@ using Cortex.API.Database;
 using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Services;
+using Cortex.API.Services.Integrations;
+using Cortex.API.Tests.TestDoubles;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Tests;
 
 public class ExternalIntegrationServiceTests
 {
+    private static ExternalIntegrationService CreateIntegrationService(
+        CortexDbContext context,
+        FakeSharePointGraphClient? graph = null)
+    {
+        graph ??= new FakeSharePointGraphClient();
+        return IntegrationServiceTestFactory.Create(context, graph);
+    }
+
     [Fact]
     public async Task CreateConnection_PersistsIntegrationConnection()
     {
         await using var context = CreateContext();
-        var service = new ExternalIntegrationService(context);
+        var service = CreateIntegrationService(context);
 
         var response = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
@@ -37,7 +47,7 @@ public class ExternalIntegrationServiceTests
     public async Task CreateSource_UnderConnection_PersistsExternalWorkSource()
     {
         await using var context = CreateContext();
-        var service = new ExternalIntegrationService(context);
+        var service = CreateIntegrationService(context);
 
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
@@ -65,7 +75,7 @@ public class ExternalIntegrationServiceTests
     public async Task ReplaceFieldMappings_ReplacesMappingSet()
     {
         await using var context = CreateContext();
-        var service = new ExternalIntegrationService(context);
+        var service = CreateIntegrationService(context);
 
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
@@ -112,7 +122,7 @@ public class ExternalIntegrationServiceTests
         await context.SaveChangesAsync();
         var boardId = await context.TicketBoardDefinitions.Select(b => b.Id).FirstAsync();
 
-        var service = new ExternalIntegrationService(context);
+        var service = CreateIntegrationService(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.Jira,
@@ -146,7 +156,7 @@ public class ExternalIntegrationServiceTests
     public async Task ManualUpsert_CreatesExternalWorkItem()
     {
         await using var context = CreateContext();
-        var service = new ExternalIntegrationService(context);
+        var service = CreateIntegrationService(context);
         var source = await CreateSharePointSourceAsync(service);
 
         var item = await service.ManualUpsertWorkItemAsync(source!.Id, new ManualUpsertExternalWorkItemRequest
@@ -171,7 +181,7 @@ public class ExternalIntegrationServiceTests
     public async Task ManualUpsert_SameExternalItemId_UpdatesInsteadOfDuplicating()
     {
         await using var context = CreateContext();
-        var service = new ExternalIntegrationService(context);
+        var service = CreateIntegrationService(context);
         var source = await CreateSharePointSourceAsync(service);
 
         await service.ManualUpsertWorkItemAsync(source!.Id, new ManualUpsertExternalWorkItemRequest
@@ -194,7 +204,7 @@ public class ExternalIntegrationServiceTests
     public async Task ManualUpsert_AllowsNullCortexTicketId()
     {
         await using var context = CreateContext();
-        var service = new ExternalIntegrationService(context);
+        var service = CreateIntegrationService(context);
         var source = await CreateSharePointSourceAsync(service);
 
         var item = await service.ManualUpsertWorkItemAsync(source!.Id, new ManualUpsertExternalWorkItemRequest
@@ -236,7 +246,7 @@ public class ExternalIntegrationServiceTests
         context.Tickets.Add(ticket);
         await context.SaveChangesAsync();
 
-        var service = new ExternalIntegrationService(context);
+        var service = CreateIntegrationService(context);
         var source = await CreateSharePointSourceAsync(service);
 
         var item = await service.ManualUpsertWorkItemAsync(source!.Id, new ManualUpsertExternalWorkItemRequest

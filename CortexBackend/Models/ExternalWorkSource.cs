@@ -1,5 +1,14 @@
 namespace Cortex.API.Models;
 
+/// <summary>
+/// Configuration for ingesting external <em>work</em> items (lists, projects, ticket tables) into Cortex.
+/// </summary>
+/// <remarks>
+/// Scoped to board-adjacent work streams (SharePoint lists, Jira, ServiceNow, etc.).
+/// Do not treat this type as the only integration surface on <see cref="IntegrationConnection"/>:
+/// reference/context providers (such as a future SAP metadata or lookup integration) should use
+/// their own entities while still reusing <see cref="IntegrationConnection"/> for auth and identity.
+/// </remarks>
 public class ExternalWorkSource
 {
     public int Id { get; set; }

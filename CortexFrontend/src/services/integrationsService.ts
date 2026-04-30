@@ -5,10 +5,12 @@ import type {
   ExternalBoardMappingResponse,
   ExternalFieldMappingItemInput,
   ExternalFieldMappingResponse,
+  ExternalSourceSyncResponse,
   ExternalWorkItemResponse,
   ExternalWorkSourceResponse,
   IntegrationConnectionResponse,
   ManualUpsertExternalWorkItemInput,
+  SharePointDiscoveredFieldResponse,
   UpdateExternalWorkSourceInput,
   UpdateIntegrationConnectionInput,
 } from "../types/integrations";
@@ -224,6 +226,35 @@ export const integrationsService = {
       },
     );
     await ensureSuccess(response, "Unable to save external work item");
+    return response.json();
+  },
+
+  async discoverSharePointFields(
+    token: string,
+    sourceId: number,
+  ): Promise<SharePointDiscoveredFieldResponse[]> {
+    const response = await fetch(
+      `${integrationsBase}/sources/${sourceId}/discover-fields`,
+      {
+        method: "POST",
+        headers: authHeaders(token, true),
+        body: "{}",
+      },
+    );
+    await ensureSuccess(response, "Unable to discover fields from the external source.");
+    return response.json();
+  },
+
+  async syncSharePointSource(
+    token: string,
+    sourceId: number,
+  ): Promise<ExternalSourceSyncResponse> {
+    const response = await fetch(`${integrationsBase}/sources/${sourceId}/sync`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: "{}",
+    });
+    await ensureSuccess(response, "Unable to sync the external source.");
     return response.json();
   },
 };

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Cortex.API.DTO;
 using Cortex.API.Services;
+using Cortex.API.Services.Integrations;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -214,6 +215,32 @@ public static class IntegrationHandlers
         catch (ArgumentException)
         {
             return SafeErrorResponses.BadRequest();
+        }
+    }
+
+    public static async Task<IResult> DiscoverSharePointFields(int sourceId, IExternalIntegrationService integrationService)
+    {
+        try
+        {
+            var fields = await integrationService.DiscoverSharePointFieldsAsync(sourceId);
+            return fields is null ? Results.NotFound() : Results.Ok(fields);
+        }
+        catch (IntegrationApiException ex)
+        {
+            return SafeErrorResponses.IntegrationApi(ex);
+        }
+    }
+
+    public static async Task<IResult> SyncSharePointSource(int sourceId, IExternalIntegrationService integrationService)
+    {
+        try
+        {
+            var result = await integrationService.SyncSharePointSourceAsync(sourceId);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        }
+        catch (IntegrationApiException ex)
+        {
+            return SafeErrorResponses.IntegrationApi(ex);
         }
     }
 }

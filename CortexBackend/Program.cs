@@ -55,6 +55,14 @@ builder.Services.AddHealthChecks()
     .AddDbContextCheck<CortexDbContext>(tags: ["ready"]);
 
 builder.Services.Configure<Auth0ManagementOptions>(builder.Configuration.GetSection("Auth0"));
+builder.Services.Configure<SharePointGraphOptions>(builder.Configuration.GetSection("SharePointGraph"));
+builder.Services.AddHttpClient(
+    "SharePointGraph",
+    client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(2);
+    });
+builder.Services.AddScoped<ISharePointGraphClient, SharePointGraphClient>();
 
 
 // Add services
@@ -94,7 +102,8 @@ builder.Services.AddHttpClient<IAuth0UserRoleSyncService, Auth0UserRoleSyncServi
     });
 builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
 builder.Services.AddScoped<IExternalIntegrationService, ExternalIntegrationService>();
-builder.Services.AddScoped<IExternalWorkSourceAdapter, SharePointExternalWorkSourceAdapter>();
+builder.Services.AddScoped<SharePointExternalWorkSourceAdapter>();
+builder.Services.AddScoped<IExternalWorkSourceAdapter>(sp => sp.GetRequiredService<SharePointExternalWorkSourceAdapter>());
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();

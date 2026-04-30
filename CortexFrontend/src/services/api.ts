@@ -155,19 +155,19 @@ async function readErrorMessage(
       const code =
         typeof codeRaw === "string" && codeRaw.trim() ? codeRaw.trim() : undefined;
 
-      const detail = "detail" in data ? data.detail : undefined;
-      if (typeof detail === "string" && detail.trim()) {
-        return { message: detail, code };
-      }
-
-      const message = "message" in data ? data.message : undefined;
-      if (typeof message === "string" && message.trim()) {
-        return { message, code };
-      }
-
-      const title = "title" in data ? data.title : undefined;
+      const title = "title" in data ? (data as { title?: unknown }).title : undefined;
       if (typeof title === "string" && title.trim()) {
-        return { message: title, code };
+        return { message: title.trim(), code };
+      }
+
+      const detail = "detail" in data ? (data as { detail?: unknown }).detail : undefined;
+      if (typeof detail === "string" && detail.trim()) {
+        return { message: detail.trim(), code };
+      }
+
+      const message = "message" in data ? (data as { message?: unknown }).message : undefined;
+      if (typeof message === "string" && message.trim()) {
+        return { message: message.trim(), code };
       }
 
       if (code) {

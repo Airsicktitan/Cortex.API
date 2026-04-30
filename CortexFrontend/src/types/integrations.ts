@@ -41,6 +41,31 @@ export interface IntegrationConnectionResponse {
   externalWorkSourceCount: number;
 }
 
+export interface SharePointDiscoveredFieldResponse {
+  externalFieldName: string;
+  externalFieldKey?: string | null;
+  displayName?: string | null;
+  type?: string | null;
+  isHidden: boolean;
+  isReadOnly: boolean;
+  suggestedCortexField?: CortexField | null;
+}
+
+export interface ExternalSourceSyncResponse {
+  sourceId: number;
+  sourceName: string;
+  provider: IntegrationProvider;
+  startedAtUtc: string;
+  completedAtUtc?: string | null;
+  createdCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  itemCount: number;
+  message?: string | null;
+}
+
 export interface CreateIntegrationConnectionInput {
   provider: IntegrationProvider;
   displayName: string;

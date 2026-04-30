@@ -85,6 +85,21 @@ public static class IntegrationEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status400BadRequest);
 
+        integrations.MapPost("/sources/{sourceId:int}/discover-fields", IntegrationHandlers.DiscoverSharePointFields)
+            .WithName("DiscoverSharePointListFields")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status502BadGateway);
+
+        integrations.MapPost("/sources/{sourceId:int}/sync", IntegrationHandlers.SyncSharePointSource)
+            .WithName("SyncSharePointExternalSource")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status502BadGateway);
+
         integrations.MapGet("/sources/{sourceId:int}/items", IntegrationHandlers.ListWorkItems)
             .WithName("ListExternalWorkItems")
             .Produces(StatusCodes.Status200OK)

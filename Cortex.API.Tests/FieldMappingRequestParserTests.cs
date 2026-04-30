@@ -5,6 +5,7 @@ using Cortex.API.DTO;
 using Cortex.API.Handlers;
 using Cortex.API.Models;
 using Cortex.API.Services;
+using Cortex.API.Tests.TestDoubles;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Tests;
@@ -96,7 +97,7 @@ public class FieldMappingRequestParserTests
     public async Task ReplaceFieldMappings_OneMapping_ReturnsOkList()
     {
         await using var context = CreateDbContext();
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,
@@ -128,7 +129,7 @@ public class FieldMappingRequestParserTests
     public async Task ReplaceFieldMappings_FiveMappings_GetReturnsSame()
     {
         await using var context = CreateDbContext();
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,
@@ -163,7 +164,7 @@ public class FieldMappingRequestParserTests
     public async Task ReplaceFieldMappings_SecondPut_ReplacesWithoutDuplicates()
     {
         await using var context = CreateDbContext();
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,
@@ -198,7 +199,7 @@ public class FieldMappingRequestParserTests
     public async Task ReplaceFieldMappings_MissingSource_ReturnsNull()
     {
         await using var context = CreateDbContext();
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
 
         var result = await service.ReplaceFieldMappingsAsync(91919,
         [
@@ -212,7 +213,7 @@ public class FieldMappingRequestParserTests
     public async Task ReplaceFieldMappings_InvalidEnumValue_ThrowsArgumentException()
     {
         await using var context = CreateDbContext();
-        var service = new ExternalIntegrationService(context);
+        var service = IntegrationServiceTestFactory.Create(context);
         var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
         {
             Provider = IntegrationProvider.SharePoint,
