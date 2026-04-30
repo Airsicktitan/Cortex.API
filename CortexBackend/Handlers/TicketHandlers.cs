@@ -371,10 +371,11 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         IResponseMappingContextFactory mappingContextFactory)
     {
-        var ticket = await repo.GetTicketByIdAsync(id);
+        var ticketId = id.Trim();
+        var ticket = await repo.GetTicketByIdAsync(ticketId);
         if (ticket is null)
         {
-            var archivedTicket = await repo.GetArchivedTicketByIdAsync(id);
+            var archivedTicket = await repo.GetArchivedTicketByIdAsync(ticketId);
             if (archivedTicket is null)
             {
                 return Results.NotFound();
@@ -398,7 +399,7 @@ public static class TicketHandlers
             }
         }
 
-        var history = (await ticketAuditService.GetTicketHistoryAsync(id)).ToList();
+        var history = (await ticketAuditService.GetTicketHistoryAsync(ticketId)).ToList();
         var mappingContext = await mappingContextFactory.CreateAsync(
             history.Select(entry => entry.ChangedBy));
         return Results.Ok(history.Select(entry => entry.ToResponse(mappingContext)));

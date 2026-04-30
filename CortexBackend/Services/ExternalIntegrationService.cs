@@ -711,7 +711,9 @@ public sealed class ExternalIntegrationService(
         // persisted ticket + link (same pattern as other best-effort telemetry).
         try
         {
-            var actor = await _userContext.GetCurrentUserAsync(null, cancellationToken);
+            // Must use parameterless overload: passing null principal makes UserContextService treat the
+            // caller as unauthenticated and skip resolving the HttpContext user, so audit would never persist.
+            var actor = await _userContext.GetCurrentUserAsync();
             await _ticketAudit.RecordExternalItemPromotedToTicketAsync(
                 created.Id,
                 row,

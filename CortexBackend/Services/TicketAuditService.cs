@@ -11,9 +11,10 @@ public class TicketAuditService(CortexDbContext context) : ITicketAuditService
 
     public async Task<IReadOnlyList<TicketAuditEntry>> GetTicketHistoryAsync(string ticketId)
     {
+        var normalized = ticketId.Trim();
         return await _context.TicketAuditEntries
             .Include(entry => entry.FieldChanges)
-            .Where(entry => entry.TicketId == ticketId)
+            .Where(entry => entry.TicketId == normalized)
             .OrderByDescending(entry => entry.ChangedDateUtc)
             .ThenByDescending(entry => entry.Id)
             .ToListAsync();
