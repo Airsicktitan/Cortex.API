@@ -303,6 +303,13 @@ export default function IntegrationsPage({
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
   const [itemDetail, setItemDetail] = useState<ExternalWorkItemResponse | null>(null);
+  /** Review queue: filter external work items in the Items tab (local only). */
+  const [itemsLinkFilter, setItemsLinkFilter] = useState<
+    "all" | "needsTicket" | "linked"
+  >("all");
+  const [itemsSearch, setItemsSearch] = useState("");
+  const [itemsPriorityFilter, setItemsPriorityFilter] = useState("");
+  const [itemsStatusFilter, setItemsStatusFilter] = useState("");
 
   const [createTicketOpen, setCreateTicketOpen] = useState(false);
   const [createTicketFor, setCreateTicketFor] = useState<ExternalWorkItemResponse | null>(null);
@@ -374,6 +381,73 @@ export default function IntegrationsPage({
     () => sources.find((s) => s.id === selectedSourceId) ?? null,
     [sources, selectedSourceId],
   );
+
+  const externalItemsQueueCounts = useMemo(() => {
+    const total = items.length;
+    const linked = items.filter((i) => Boolean(i.cortexTicketId?.trim())).length;
+    return { total, linked, needs: total - linked };
+  }, [items]);
+
+  const externalItemStatusOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const i of items) {
+      const s = i.status?.trim();
+      if (s) {
+        seen.add(s);
+      }
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [items]);
+
+  const filteredExternalItems = useMemo(() => {
+    let list = items;
+    if (itemsLinkFilter === "needsTicket") {
+      list = list.filter((i) => !i.cortexTicketId?.trim());
+    } else if (itemsLinkFilter === "linked") {
+      list = list.filter((i) => Boolean(i.cortexTicketId?.trim()));
+    }
+
+    const q = itemsSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter((i) => {
+        const parts = [
+          i.title,
+          i.externalItemId,
+          i.requester,
+          i.assignedTo,
+          i.department,
+          i.category,
+          i.status,
+          i.priority,
+        ]
+          .map((x) => (x ?? "").toLowerCase())
+          .join("\n");
+        return parts.includes(q);
+      });
+    }
+
+    if (itemsPriorityFilter) {
+      const p = itemsPriorityFilter.toLowerCase();
+      list = list.filter(
+        (i) => (i.priority ?? "").trim().toLowerCase() === p,
+      );
+    }
+
+    if (itemsStatusFilter) {
+      const s = itemsStatusFilter.toLowerCase();
+      list = list.filter(
+        (i) => (i.status ?? "").trim().toLowerCase() === s,
+      );
+    }
+
+    return list;
+  }, [
+    items,
+    itemsLinkFilter,
+    itemsSearch,
+    itemsPriorityFilter,
+    itemsStatusFilter,
+  ]);
 
   const loadSourceReadiness = useCallback(
     async (sourceId: number) => {
@@ -560,6 +634,13 @@ export default function IntegrationsPage({
   }, [tab, selectedSourceId]);
 
   useEffect(() => {
+    setItemsLinkFilter("all");
+    setItemsSearch("");
+    setItemsPriorityFilter("");
+    setItemsStatusFilter("");
+  }, [selectedSourceId]);
+
+  useEffect(() => {
     if (!itemDetail || itemsLoading) {
       return;
     }
@@ -603,6 +684,10 @@ export default function IntegrationsPage({
 
   const startCreateCortexTicket = useCallback(
     async (item: ExternalWorkItemResponse) => {
+      if (item.cortexTicketId?.trim()) {
+        showBanner("err", "This external item is already linked to a Cortex ticket.");
+        return;
+      }
       if (selectedSourceId === null) {
         showBanner("err", "Select an external source first.");
         return;
@@ -1762,6 +1847,94 @@ export default function IntegrationsPage({
                     <p className="mt-1">{syncSummary.message}</p>
                   </div>
                 ) : null}
+
+                <div className="rounded-lg border border-gray-200 bg-white/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/50">
+                  <p className="text-xs text-gray-600 dark:text-slate-400">
+                    Creating a Cortex ticket is manual. Sync does not create tickets automatically.
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {(
+                      [
+                        { id: "all" as const, label: "All", count: externalItemsQueueCounts.total },
+                        {
+                          id: "needsTicket" as const,
+                          label: "Needs Cortex ticket",
+                          count: externalItemsQueueCounts.needs,
+                        },
+                        {
+                          id: "linked" as const,
+                          label: "Linked to Cortex ticket",
+                          count: externalItemsQueueCounts.linked,
+                        },
+                      ] as const
+                    ).map((chip) => (
+                      <button
+                        key={chip.id}
+                        type="button"
+                        onClick={() => setItemsLinkFilter(chip.id)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                          itemsLinkFilter === chip.id
+                            ? "border-cortex-blue bg-cortex-blue-soft text-cortex-ink dark:border-cortex-blue dark:bg-cortex-blue/20 dark:text-slate-100"
+                            : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/80"
+                        }`}
+                      >
+                        {chip.label}{" "}
+                        <span className="font-medium opacity-75 tabular-nums">{chip.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                    <div className="min-w-0 flex-1 sm:max-w-md">
+                      <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
+                        Search
+                      </label>
+                      <input
+                        type="search"
+                        placeholder="Search external items..."
+                        value={itemsSearch}
+                        onChange={(e) => setItemsSearch(e.target.value)}
+                        className={configFieldClass}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
+                        Priority
+                      </label>
+                      <select
+                        className={configFieldClass}
+                        value={itemsPriorityFilter}
+                        onChange={(e) => setItemsPriorityFilter(e.target.value)}
+                      >
+                        <option value="">All priorities</option>
+                        {EXTERNAL_TICKET_PRIORITIES.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
+                        Status
+                      </label>
+                      <select
+                        className={configFieldClass}
+                        value={itemsStatusFilter}
+                        onChange={(e) => setItemsStatusFilter(e.target.value)}
+                        disabled={externalItemStatusOptions.length === 0}
+                      >
+                        <option value="">All statuses</option>
+                        {externalItemStatusOptions.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap justify-end gap-2">
                   <ConfigSecondaryButton
                     onClick={() => selectedSourceId && void loadItems(selectedSourceId)}
@@ -1780,9 +1953,25 @@ export default function IntegrationsPage({
                 ) : itemsLoading ? (
                   <p className="text-sm text-gray-500 dark:text-slate-400">Loading items…</p>
                 ) : items.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
-                    No external work items found yet. Use manual upsert to test this source before enabling live sync.
-                  </p>
+                  <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
+                    <p className="font-medium text-gray-800 dark:text-slate-200">No external items yet</p>
+                    <p className="mx-auto mt-2 max-w-lg">
+                      No external items have been captured for this source yet. Use manual upsert for testing or sync a
+                      configured SharePoint List.
+                    </p>
+                  </div>
+                ) : filteredExternalItems.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
+                    {itemsSearch.trim() ? (
+                      <p>No external items match this search.</p>
+                    ) : itemsLinkFilter === "needsTicket" && externalItemsQueueCounts.needs === 0 ? (
+                      <p>All external items for this source are already linked to Cortex tickets.</p>
+                    ) : itemsLinkFilter === "linked" && externalItemsQueueCounts.linked === 0 ? (
+                      <p>No external items have been promoted to Cortex tickets yet.</p>
+                    ) : (
+                      <p>No external items match the selected filters.</p>
+                    )}
+                  </div>
                 ) : (
                   <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-gray-200 dark:border-slate-700">
                     <div className="w-full max-w-full overflow-x-auto overscroll-x-contain">
@@ -1805,7 +1994,7 @@ export default function IntegrationsPage({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
-                        {items.map((it) => (
+                        {filteredExternalItems.map((it) => (
                           <tr key={it.id} className="bg-white dark:bg-slate-900">
                             <td className="max-w-[280px] min-w-[220px] px-3 py-2 font-medium text-gray-900 dark:text-slate-100">
                               <span className="block truncate" title={it.title || undefined}>
@@ -1825,8 +2014,24 @@ export default function IntegrationsPage({
                             <td className="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-slate-400">{formatWhen(it.dueDateUtc)}</td>
                             <td className="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-slate-400">{formatWhen(it.lastModifiedUtc)}</td>
                             <td className="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-slate-400">{formatWhen(it.lastSeenUtc)}</td>
-                            <td className="min-w-[160px] whitespace-nowrap px-3 py-2 text-gray-700 dark:text-slate-300">
-                              {it.cortexTicketId ? formatLinkedTicketDisplay(it.cortexTicketId) : "Not linked"}
+                            <td className="min-w-[160px] whitespace-nowrap px-3 py-2">
+                              {it.cortexTicketId?.trim() ? (
+                                onOpenCortexTicketById ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void onOpenCortexTicketById(it.cortexTicketId!)}
+                                    className="font-semibold text-cortex-blue hover:underline dark:text-cortex-cyan"
+                                  >
+                                    {formatLinkedTicketDisplay(it.cortexTicketId)}
+                                  </button>
+                                ) : (
+                                  <span className="font-semibold text-gray-900 dark:text-slate-100">
+                                    {formatLinkedTicketDisplay(it.cortexTicketId)}
+                                  </span>
+                                )
+                              ) : (
+                                <span className="text-gray-500 dark:text-slate-500">Not linked</span>
+                              )}
                             </td>
                             <td className="whitespace-nowrap px-3 py-2">
                               {it.externalUrl ? (
@@ -1838,9 +2043,31 @@ export default function IntegrationsPage({
                               )}
                             </td>
                             <td className="whitespace-nowrap px-3 py-2 text-right">
-                              <ConfigGhostButton className="!whitespace-nowrap !py-1.5" onClick={() => setItemDetail(it)}>
-                                View details
-                              </ConfigGhostButton>
+                              <div className="flex flex-wrap justify-end gap-1">
+                                <ConfigGhostButton
+                                  className="!whitespace-nowrap !py-1.5"
+                                  onClick={() => setItemDetail(it)}
+                                >
+                                  View details
+                                </ConfigGhostButton>
+                                {it.cortexTicketId?.trim() ? (
+                                  onOpenCortexTicketById ? (
+                                    <ConfigGhostButton
+                                      className="!whitespace-nowrap !py-1.5"
+                                      onClick={() => void onOpenCortexTicketById(it.cortexTicketId!)}
+                                    >
+                                      Open ticket
+                                    </ConfigGhostButton>
+                                  ) : null
+                                ) : (
+                                  <ConfigGhostButton
+                                    className="!whitespace-nowrap !py-1.5"
+                                    onClick={() => void startCreateCortexTicket(it)}
+                                  >
+                                    Create Cortex ticket
+                                  </ConfigGhostButton>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
