@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 /** Shared SaaS-style configuration page shell (matches Role Definitions baseline). */
 export function ConfigPageShell({ children }: { children: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       {children}
     </section>
   );
@@ -39,7 +39,7 @@ export function ConfigPageHeader({
 }
 
 export function ConfigPageBody({ children }: { children: ReactNode }) {
-  return <div className="p-6">{children}</div>;
+  return <div className="min-w-0 max-w-full p-6">{children}</div>;
 }
 
 export function ConfigTwoColumn({ left, right }: { left: ReactNode; right: ReactNode }) {

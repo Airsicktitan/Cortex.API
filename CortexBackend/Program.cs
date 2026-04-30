@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.SignalR;
 using Microsoft.AspNetCore.RateLimiting;
 using Cortex.API.Services;
+using Cortex.API.Services.Integrations;
 using Cortex.API.Configuration;
 using Cortex.API.Authorization;
 using Cortex.API.Hubs;
@@ -92,6 +93,8 @@ builder.Services.AddHttpClient<IAuth0UserRoleSyncService, Auth0UserRoleSyncServi
         }
     });
 builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
+builder.Services.AddScoped<IExternalIntegrationService, ExternalIntegrationService>();
+builder.Services.AddScoped<IExternalWorkSourceAdapter, SharePointExternalWorkSourceAdapter>();
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -472,6 +475,7 @@ app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();
 app.MapTicketRoutingRuleEndpoints();
 app.MapTicketBoardEndpoints();
+app.MapIntegrationEndpoints();
 app.MapScheduledJobEndpoints();
 app.MapNotificationEndpoints();
 app.MapSystemEndpoints();

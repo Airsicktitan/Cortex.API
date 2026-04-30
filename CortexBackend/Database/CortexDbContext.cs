@@ -43,6 +43,11 @@ public class CortexDbContext : DbContext
     public DbSet<CortexSystemRecommendationState> CortexSystemRecommendationStates => Set<CortexSystemRecommendationState>();
     public DbSet<CortexAutonomyDecision> CortexAutonomyDecisions => Set<CortexAutonomyDecision>();
     public DbSet<CortexAutonomyConfiguration> CortexAutonomyConfigurations => Set<CortexAutonomyConfiguration>();
+    public DbSet<IntegrationConnection> IntegrationConnections => Set<IntegrationConnection>();
+    public DbSet<ExternalWorkSource> ExternalWorkSources => Set<ExternalWorkSource>();
+    public DbSet<ExternalBoardMapping> ExternalBoardMappings => Set<ExternalBoardMapping>();
+    public DbSet<ExternalFieldMapping> ExternalFieldMappings => Set<ExternalFieldMapping>();
+    public DbSet<ExternalWorkItem> ExternalWorkItems => Set<ExternalWorkItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -976,6 +981,138 @@ public class CortexDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(d => d.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<IntegrationConnection>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Provider)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(c => c.DisplayName)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(c => c.TenantId).HasMaxLength(200);
+            entity.Property(c => c.OrganizationId).HasMaxLength(200);
+            entity.Property(c => c.AuthMode)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(c => c.SyncMode)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(c => c.LastSyncStatus).HasMaxLength(50);
+            entity.Property(c => c.LastSyncMessage).HasMaxLength(2000);
+            entity.Property(c => c.CreatedAtUtc).IsRequired();
+            entity.HasIndex(c => c.Provider);
+            entity.HasMany(c => c.ExternalWorkSources)
+                .WithOne(s => s.IntegrationConnection)
+                .HasForeignKey(s => s.IntegrationConnectionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExternalWorkSource>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.Provider)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(s => s.SourceType)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(s => s.ExternalSourceId)
+                .IsRequired()
+                .HasMaxLength(450);
+            entity.Property(s => s.Name)
+                .IsRequired()
+                .HasMaxLength(500);
+            entity.Property(s => s.ExternalUrl).HasMaxLength(2000);
+            entity.Property(s => s.CreatedAtUtc).IsRequired();
+            entity.HasIndex(s => s.IntegrationConnectionId);
+            entity.HasIndex(s => new { s.IntegrationConnectionId, s.ExternalSourceId })
+                .IsUnique();
+            entity.HasMany(s => s.BoardMappings)
+                .WithOne(m => m.ExternalWorkSource)
+                .HasForeignKey(m => m.ExternalWorkSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(s => s.FieldMappings)
+                .WithOne(m => m.ExternalWorkSource)
+                .HasForeignKey(m => m.ExternalWorkSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(s => s.WorkItems)
+                .WithOne(i => i.ExternalWorkSource)
+                .HasForeignKey(i => i.ExternalWorkSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExternalBoardMapping>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.MappingMode)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(m => m.CreatedAtUtc).IsRequired();
+            entity.HasOne(m => m.Board)
+                .WithMany()
+                .HasForeignKey(m => m.BoardId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ExternalFieldMapping>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.ExternalFieldName)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(m => m.ExternalFieldKey).HasMaxLength(200);
+            entity.Property(m => m.CortexField)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(m => m.TransformHint).HasMaxLength(500);
+            entity.Property(m => m.CreatedAtUtc).IsRequired();
+        });
+
+        modelBuilder.Entity<ExternalWorkItem>(entity =>
+        {
+            entity.HasKey(i => i.Id);
+            entity.Property(i => i.Provider)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(i => i.ExternalItemId)
+                .IsRequired()
+                .HasMaxLength(450);
+            entity.Property(i => i.ExternalUrl).HasMaxLength(2000);
+            entity.Property(i => i.Title)
+                .IsRequired()
+                .HasMaxLength(500);
+            entity.Property(i => i.Status).HasMaxLength(200);
+            entity.Property(i => i.Priority).HasMaxLength(100);
+            entity.Property(i => i.Requester).HasMaxLength(500);
+            entity.Property(i => i.AssignedTo).HasMaxLength(500);
+            entity.Property(i => i.Department).HasMaxLength(200);
+            entity.Property(i => i.Category).HasMaxLength(200);
+            entity.Property(i => i.RawJson)
+                .IsRequired();
+            entity.Property(i => i.SyncHash).HasMaxLength(64);
+            entity.Property(i => i.CortexTicketId).HasMaxLength(450);
+            entity.Property(i => i.LastSeenUtc).IsRequired();
+            entity.Property(i => i.CreatedAtUtc).IsRequired();
+            entity.HasIndex(i => new { i.ExternalWorkSourceId, i.ExternalItemId })
+                .IsUnique();
+            entity.HasIndex(i => i.CortexTicketId);
+            entity.HasIndex(i => i.LastSeenUtc);
+            entity.HasIndex(i => i.IsDeleted);
+            entity.HasOne(i => i.CortexTicket)
+                .WithMany()
+                .HasForeignKey(i => i.CortexTicketId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

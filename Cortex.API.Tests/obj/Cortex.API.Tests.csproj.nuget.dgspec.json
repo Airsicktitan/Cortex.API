@@ -10,7 +10,7 @@
         "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
         "projectName": "Cortex.API.Tests",
         "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
-        "packagesPath": "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\71536992efa68265f418a7c1bfb4e2c6\\nuget",
+        "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
         "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
@@ -94,7 +94,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.202/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.203/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
@@ -104,7 +104,7 @@
         "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
         "projectName": "Cortex.API",
         "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj",
-        "packagesPath": "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\71536992efa68265f418a7c1bfb4e2c6\\nuget",
+        "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
         "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
@@ -199,7 +199,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.202/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.203/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

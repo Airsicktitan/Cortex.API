@@ -38,6 +38,7 @@ import TicketBoardRegistrySection from "./TicketBoardRegistrySection";
 import TicketRoutingSection from "./TicketRoutingSection";
 import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
 import CortexAutonomyControlSection from "./CortexAutonomyControlSection";
+import IntegrationsPage from "./IntegrationsPage";
 
 interface ConfigurationPageProps {
   slaConfigurations: SlaConfiguration[];
@@ -224,6 +225,7 @@ interface ConfigurationPageProps {
 
 type ConfigSection =
   | "general"
+  | "integrations"
   | "boards"
   | "statuses"
   | "routing"
@@ -436,6 +438,11 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
         label: "General",
         description: "SLA, session, and archive policy setup",
       },
+      {
+        id: "integrations",
+        label: "Integrations",
+        description: "External work sources, field and board mapping, and preview items",
+      },
       { id: "boards", label: "Boards", description: "Ticket board setup and behavior" },
       { id: "statuses", label: "Statuses", description: "Define workflow stages for tickets" },
       {
@@ -533,7 +540,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="grid gap-0 lg:grid-cols-[280px_1fr]">
+        <div className="grid gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
           <aside className="border-b border-gray-100 p-4 dark:border-slate-800 lg:border-b-0 lg:border-r">
             <nav className="space-y-3">
               {navItems.map((item) => (
@@ -553,7 +560,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
             </nav>
           </aside>
 
-          <div className="p-4 md:p-6">
+          <div className="min-w-0 max-w-full p-4 md:p-6">
             {activeSection === "general" && (
               <div className="space-y-6">
                 <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -622,6 +629,16 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                   onRunNow={onRunArchiveNow}
                 />
               </div>
+            )}
+
+            {activeSection === "integrations" && (
+              <IntegrationsPage
+                ticketBoards={ticketBoards}
+                ticketBoardLoading={ticketBoardLoading}
+                onRefreshTicketBoards={() => {
+                  onRefreshTicketBoards();
+                }}
+              />
             )}
 
             {activeSection === "boards" && (

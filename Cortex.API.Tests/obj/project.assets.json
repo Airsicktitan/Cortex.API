@@ -8999,7 +8999,7 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\71536992efa68265f418a7c1bfb4e2c6\\nuget": {},
+    "C:\\Users\\adamc\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
@@ -9008,7 +9008,7 @@
       "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
       "projectName": "Cortex.API.Tests",
       "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
-      "packagesPath": "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\71536992efa68265f418a7c1bfb4e2c6\\nuget",
+      "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
       "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
@@ -9092,7 +9092,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.202/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.203/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

@@ -1,0 +1,1644 @@
+import { useAuth0 } from "@auth0/auth0-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { TicketBoardDefinition } from "../types/ticketBoard";
+import type {
+  CreateExternalWorkSourceInput,
+  CreateIntegrationConnectionInput,
+  CortexField,
+  ExternalBoardMappingItemInput,
+  ExternalBoardMappingMode,
+  ExternalFieldMappingItemInput,
+  ExternalSourceType,
+  ExternalWorkItemResponse,
+  ExternalWorkSourceResponse,
+  IntegrationAuthMode,
+  IntegrationConnectionResponse,
+  IntegrationProvider,
+  IntegrationSyncMode,
+  ManualUpsertExternalWorkItemInput,
+  UpdateExternalWorkSourceInput,
+  UpdateIntegrationConnectionInput,
+} from "../types/integrations";
+import {
+  AUTH_MODES,
+  BOARD_MAPPING_MODES,
+  CORTEX_FIELDS,
+  INTEGRATION_PROVIDERS,
+  SOURCE_TYPES,
+  SYNC_MODES,
+} from "../types/integrations";
+import { getUserFacingErrorMessage } from "../services/api";
+import { integrationsService } from "../services/integrationsService";
+import {
+  ConfigDetailCard,
+  ConfigGhostButton,
+  ConfigPageBody,
+  ConfigPageHeader,
+  ConfigPageShell,
+  ConfigPrimaryButton,
+  ConfigSecondaryButton,
+  configFieldClass,
+} from "./configurationAdminUi";
+
+const API_AUDIENCE = "https://cortex-api";
+
+type IntegrationsTab = "connections" | "sources" | "fields" | "boards" | "items";
+
+function Callout({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-sky-200 bg-sky-50/90 px-4 py-3 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+      <p className="font-medium text-sky-900 dark:text-sky-100">{title}</p>
+      <div className="mt-1.5 text-sky-800 dark:text-sky-200/90">{children}</div>
+    </div>
+  );
+}
+
+function formatWhen(iso?: string | null): string {
+  if (!iso) {
+    return "—";
+  }
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Display labels only; API values stay as enum strings. */
+function humanizeExternalSourceType(sourceType: ExternalSourceType): string {
+  switch (sourceType) {
+    case "SharePointList":
+      return "SharePoint List";
+    case "JiraProject":
+      return "Jira Project";
+    case "ServiceNowTable":
+      return "ServiceNow Table";
+    default:
+      return sourceType;
+  }
+}
+
+function humanizeIntegrationSyncMode(syncMode: IntegrationSyncMode): string {
+  switch (syncMode) {
+    case "ReadOnly":
+      return "Read only";
+    case "ImportToCortex":
+      return "Import to Cortex";
+    case "TwoWay":
+      return "Two-way";
+    default:
+      return syncMode;
+  }
+}
+
+function humanizeIntegrationAuthMode(authMode: IntegrationAuthMode): string {
+  switch (authMode) {
+    case "Manual":
+      return "Manual";
+    case "OAuth":
+      return "OAuth";
+    case "AppRegistration":
+      return "App registration";
+    default:
+      return authMode;
+  }
+}
+
+function humanizeExternalBoardMappingMode(mode: ExternalBoardMappingMode): string {
+  switch (mode) {
+    case "ReferenceOnly":
+      return "Reference only";
+    case "Import":
+      return "Import";
+    case "Mirror":
+      return "Mirror";
+    default:
+      return mode;
+  }
+}
+
+/** Readable Cortex field labels in dropdowns; values stay PascalCase enums. */
+function humanizeCortexFieldDisplay(field: CortexField): string {
+  return field.replace(/([A-Z])/g, " $1").trim();
+}
+
+function DetailField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border-b border-gray-100 py-3 last:border-b-0 dark:border-slate-800">
+      <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">{label}</div>
+      <div className="mt-1 text-sm text-gray-900 dark:text-slate-100">{children}</div>
+    </div>
+  );
+}
+
+const emptyFieldRow = (): ExternalFieldMappingItemInput => ({
+  externalFieldName: "",
+  externalFieldKey: "",
+  cortexField: "Title",
+  isRequired: false,
+  transformHint: "",
+});
+
+const emptyBoardRow = (): ExternalBoardMappingItemInput => ({
+  boardId: 0,
+  mappingMode: "ReferenceOnly",
+  isDefault: false,
+});
+
+export interface IntegrationsPageProps {
+  ticketBoards: TicketBoardDefinition[];
+  ticketBoardLoading: boolean;
+  onRefreshTicketBoards: () => void;
+}
+
+export default function IntegrationsPage({
+  ticketBoards,
+  ticketBoardLoading,
+  onRefreshTicketBoards,
+}: IntegrationsPageProps) {
+  const { getAccessTokenSilently } = useAuth0();
+  const getToken = useCallback(async () => {
+    return getAccessTokenSilently({
+      authorizationParams: { audience: API_AUDIENCE },
+    });
+  }, [getAccessTokenSilently]);
+
+  const [tab, setTab] = useState<IntegrationsTab>("connections");
+  const [banner, setBanner] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const [connections, setConnections] = useState<IntegrationConnectionResponse[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(true);
+  const [connectionsError, setConnectionsError] = useState<string | null>(null);
+
+  const [selectedConnectionId, setSelectedConnectionId] = useState<number | null>(null);
+  const [sources, setSources] = useState<ExternalWorkSourceResponse[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
+
+  const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
+
+  const [fieldDraft, setFieldDraft] = useState<ExternalFieldMappingItemInput[]>([]);
+  const [fieldLoading, setFieldLoading] = useState(false);
+  const [fieldSaving, setFieldSaving] = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+
+  const [boardDraft, setBoardDraft] = useState<ExternalBoardMappingItemInput[]>([]);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const [boardSaving, setBoardSaving] = useState(false);
+  const [boardError, setBoardError] = useState<string | null>(null);
+
+  const [items, setItems] = useState<ExternalWorkItemResponse[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+  const [itemDetail, setItemDetail] = useState<ExternalWorkItemResponse | null>(null);
+
+  const [connectionModal, setConnectionModal] = useState<
+    | { mode: "create"; draft: CreateIntegrationConnectionInput }
+    | { mode: "edit"; id: number; draft: UpdateIntegrationConnectionInput & { provider: IntegrationProvider } }
+    | null
+  >(null);
+
+  const [sourceModal, setSourceModal] = useState<
+    | { mode: "create"; draft: CreateExternalWorkSourceInput }
+    | { mode: "edit"; id: number; draft: UpdateExternalWorkSourceInput & { provider: IntegrationProvider; sourceType: ExternalSourceType; externalSourceId: string } }
+    | null
+  >(null);
+
+  const [upsertOpen, setUpsertOpen] = useState(false);
+  const [upsertDraft, setUpsertDraft] = useState<ManualUpsertExternalWorkItemInput>({
+    externalItemId: "",
+    title: "",
+    externalUrl: "",
+    description: "",
+    status: "",
+    priority: "",
+    requester: "",
+    assignedTo: "",
+    department: "",
+    category: "",
+    dueDateUtc: "",
+    lastModifiedUtc: "",
+    rawJson: "",
+    cortexTicketId: "",
+  });
+  const [upsertSaving, setUpsertSaving] = useState(false);
+
+  const selectedConnection = useMemo(
+    () => connections.find((c) => c.id === selectedConnectionId) ?? null,
+    [connections, selectedConnectionId],
+  );
+
+  const selectedSource = useMemo(
+    () => sources.find((s) => s.id === selectedSourceId) ?? null,
+    [sources, selectedSourceId],
+  );
+
+  const loadConnections = useCallback(async () => {
+    setConnectionsLoading(true);
+    setConnectionsError(null);
+    try {
+      const token = await getToken();
+      const list = await integrationsService.listConnections(token);
+      setConnections(list);
+      setSelectedConnectionId((prev) => {
+        if (prev !== null && list.some((c) => c.id === prev)) {
+          return prev;
+        }
+        return list[0]?.id ?? null;
+      });
+    } catch (e) {
+      setConnectionsError(getUserFacingErrorMessage(e, "Unable to load connections."));
+    } finally {
+      setConnectionsLoading(false);
+    }
+  }, [getToken]);
+
+  const loadSources = useCallback(
+    async (connectionId: number) => {
+      setSourcesLoading(true);
+      setSourcesError(null);
+      try {
+        const token = await getToken();
+        const list = await integrationsService.listSources(token, connectionId);
+        setSources(list);
+        setSelectedSourceId((prev) => {
+          if (prev !== null && list.some((s) => s.id === prev)) {
+            return prev;
+          }
+          return list[0]?.id ?? null;
+        });
+      } catch (e) {
+        setSourcesError(getUserFacingErrorMessage(e, "Unable to load sources."));
+        setSources([]);
+        setSelectedSourceId(null);
+      } finally {
+        setSourcesLoading(false);
+      }
+    },
+    [getToken],
+  );
+
+  const loadFieldMappings = useCallback(
+    async (sourceId: number) => {
+      setFieldLoading(true);
+      setFieldError(null);
+      try {
+        const token = await getToken();
+        const list = await integrationsService.getFieldMappings(token, sourceId);
+        setFieldDraft(
+          list.map((m) => ({
+            externalFieldName: m.externalFieldName,
+            externalFieldKey: m.externalFieldKey ?? "",
+            cortexField: m.cortexField,
+            isRequired: m.isRequired,
+            transformHint: m.transformHint ?? "",
+          })),
+        );
+      } catch (e) {
+        setFieldError(getUserFacingErrorMessage(e, "Unable to load field mappings."));
+        setFieldDraft([]);
+      } finally {
+        setFieldLoading(false);
+      }
+    },
+    [getToken],
+  );
+
+  const loadBoardMappings = useCallback(
+    async (sourceId: number) => {
+      setBoardLoading(true);
+      setBoardError(null);
+      try {
+        const token = await getToken();
+        const list = await integrationsService.getBoardMappings(token, sourceId);
+        setBoardDraft(
+          list.map((m) => ({
+            boardId: m.boardId,
+            mappingMode: m.mappingMode,
+            isDefault: m.isDefault,
+          })),
+        );
+      } catch (e) {
+        setBoardError(getUserFacingErrorMessage(e, "Unable to load board mappings."));
+        setBoardDraft([]);
+      } finally {
+        setBoardLoading(false);
+      }
+    },
+    [getToken],
+  );
+
+  const loadItems = useCallback(
+    async (sourceId: number) => {
+      setItemsLoading(true);
+      setItemsError(null);
+      try {
+        const token = await getToken();
+        const list = await integrationsService.listWorkItems(token, sourceId);
+        setItems(list);
+      } catch (e) {
+        setItemsError(getUserFacingErrorMessage(e, "Unable to load external work items."));
+        setItems([]);
+      } finally {
+        setItemsLoading(false);
+      }
+    },
+    [getToken],
+  );
+
+  useEffect(() => {
+    void loadConnections();
+  }, [loadConnections]);
+
+  useEffect(() => {
+    if (selectedConnectionId !== null) {
+      void loadSources(selectedConnectionId);
+    } else {
+      setSources([]);
+      setSelectedSourceId(null);
+    }
+  }, [selectedConnectionId, loadSources]);
+
+  useEffect(() => {
+    if (tab === "fields" && selectedSourceId !== null) {
+      void loadFieldMappings(selectedSourceId);
+    }
+  }, [tab, selectedSourceId, loadFieldMappings]);
+
+  useEffect(() => {
+    if (tab === "boards" && selectedSourceId !== null) {
+      void loadBoardMappings(selectedSourceId);
+      if (ticketBoards.length === 0 && !ticketBoardLoading) {
+        void onRefreshTicketBoards();
+      }
+    }
+  }, [tab, selectedSourceId, loadBoardMappings, ticketBoards.length, ticketBoardLoading, onRefreshTicketBoards]);
+
+  useEffect(() => {
+    if (tab === "items" && selectedSourceId !== null) {
+      void loadItems(selectedSourceId);
+    }
+  }, [tab, selectedSourceId, loadItems]);
+
+  useEffect(() => {
+    setItemDetail(null);
+  }, [tab, selectedSourceId]);
+
+  useEffect(() => {
+    if (!itemDetail) {
+      return;
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setItemDetail(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [itemDetail]);
+
+  const showBanner = (type: "ok" | "err", text: string) => {
+    setBanner({ type, text });
+    window.setTimeout(() => setBanner(null), 6000);
+  };
+
+  const openCreateConnection = () => {
+    setConnectionModal({
+      mode: "create",
+      draft: {
+        provider: "SharePoint",
+        displayName: "",
+        tenantId: "",
+        organizationId: "",
+        authMode: "Manual",
+        syncMode: "ReadOnly",
+        isEnabled: true,
+      },
+    });
+  };
+
+  const openEditConnection = (c: IntegrationConnectionResponse) => {
+    setConnectionModal({
+      mode: "edit",
+      id: c.id,
+      draft: {
+        provider: c.provider,
+        displayName: c.displayName,
+        tenantId: c.tenantId ?? "",
+        organizationId: c.organizationId ?? "",
+        authMode: c.authMode,
+        syncMode: c.syncMode,
+        isEnabled: c.isEnabled,
+      },
+    });
+  };
+
+  const saveConnectionModal = async () => {
+    if (!connectionModal) {
+      return;
+    }
+    try {
+      const token = await getToken();
+      if (connectionModal.mode === "create") {
+        const d = connectionModal.draft;
+        if (!d.displayName.trim()) {
+          showBanner("err", "Display name is required.");
+          return;
+        }
+        await integrationsService.createConnection(token, {
+          provider: d.provider,
+          displayName: d.displayName.trim(),
+          tenantId: d.tenantId?.trim() || null,
+          organizationId: d.organizationId?.trim() || null,
+          authMode: d.authMode ?? "Manual",
+          syncMode: d.syncMode ?? "ReadOnly",
+          isEnabled: d.isEnabled ?? true,
+        });
+        showBanner("ok", "Connection created.");
+      } else {
+        const d = connectionModal.draft;
+        if (!d.displayName.trim()) {
+          showBanner("err", "Display name is required.");
+          return;
+        }
+        await integrationsService.updateConnection(token, connectionModal.id, {
+          displayName: d.displayName.trim(),
+          tenantId: d.tenantId?.trim() || null,
+          organizationId: d.organizationId?.trim() || null,
+          authMode: d.authMode ?? undefined,
+          syncMode: d.syncMode ?? undefined,
+          isEnabled: d.isEnabled ?? undefined,
+        });
+        showBanner("ok", "Connection updated.");
+      }
+      setConnectionModal(null);
+      await loadConnections();
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to save connection."));
+    }
+  };
+
+  const toggleConnectionEnabled = async (c: IntegrationConnectionResponse) => {
+    try {
+      const token = await getToken();
+      await integrationsService.setConnectionEnabled(token, c.id, !c.isEnabled);
+      showBanner("ok", c.isEnabled ? "Connection disabled." : "Connection enabled.");
+      await loadConnections();
+      if (selectedConnectionId === c.id) {
+        await loadSources(c.id);
+      }
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to update connection."));
+    }
+  };
+
+  const openCreateSource = () => {
+    if (!selectedConnection) {
+      showBanner("err", "Select a connection first.");
+      return;
+    }
+    setSourceModal({
+      mode: "create",
+      draft: {
+        provider: selectedConnection.provider,
+        sourceType: "SharePointList",
+        externalSourceId: "",
+        name: "",
+        externalUrl: "",
+        isEnabled: true,
+      },
+    });
+  };
+
+  const openEditSource = (s: ExternalWorkSourceResponse) => {
+    setSourceModal({
+      mode: "edit",
+      id: s.id,
+      draft: {
+        provider: s.provider,
+        sourceType: s.sourceType,
+        externalSourceId: s.externalSourceId,
+        name: s.name,
+        externalUrl: s.externalUrl ?? "",
+        isEnabled: s.isEnabled,
+      },
+    });
+  };
+
+  const saveSourceModal = async () => {
+    if (!sourceModal || selectedConnectionId === null) {
+      return;
+    }
+    try {
+      const token = await getToken();
+      if (sourceModal.mode === "create") {
+        const d = sourceModal.draft;
+        if (!d.name.trim() || !d.externalSourceId.trim()) {
+          showBanner("err", "Name and external source ID are required.");
+          return;
+        }
+        await integrationsService.createSource(token, selectedConnectionId, {
+          provider: d.provider,
+          sourceType: d.sourceType,
+          externalSourceId: d.externalSourceId.trim(),
+          name: d.name.trim(),
+          externalUrl: d.externalUrl?.trim() || null,
+          isEnabled: d.isEnabled ?? true,
+        });
+        showBanner("ok", "Source created.");
+      } else {
+        const d = sourceModal.draft;
+        if (!d.name.trim()) {
+          showBanner("err", "Name is required.");
+          return;
+        }
+        await integrationsService.updateSource(token, sourceModal.id, {
+          name: d.name.trim(),
+          externalUrl: d.externalUrl?.trim() || null,
+          provider: d.provider,
+          sourceType: d.sourceType,
+          externalSourceId: d.externalSourceId.trim() || undefined,
+          isEnabled: d.isEnabled ?? undefined,
+        });
+        showBanner("ok", "Source updated.");
+      }
+      setSourceModal(null);
+      await loadSources(selectedConnectionId);
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to save source."));
+    }
+  };
+
+  const toggleSourceEnabled = async (s: ExternalWorkSourceResponse) => {
+    if (selectedConnectionId === null) {
+      return;
+    }
+    try {
+      const token = await getToken();
+      await integrationsService.setSourceEnabled(token, s.id, !s.isEnabled);
+      showBanner("ok", s.isEnabled ? "Source disabled." : "Source enabled.");
+      await loadSources(selectedConnectionId);
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to update source."));
+    }
+  };
+
+  const saveFieldMappings = async () => {
+    if (selectedSourceId === null) {
+      return;
+    }
+    for (const row of fieldDraft) {
+      if (!row.externalFieldName.trim()) {
+        showBanner("err", "Each row needs an external field name.");
+        return;
+      }
+    }
+    setFieldSaving(true);
+    try {
+      const token = await getToken();
+      const body = fieldDraft.map((row) => ({
+        externalFieldName: row.externalFieldName.trim(),
+        externalFieldKey: row.externalFieldKey?.trim() || null,
+        cortexField: row.cortexField,
+        isRequired: row.isRequired,
+        transformHint: row.transformHint?.trim() || null,
+      }));
+      await integrationsService.replaceFieldMappings(token, selectedSourceId, body);
+      showBanner("ok", "Field mappings saved.");
+      await loadFieldMappings(selectedSourceId);
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to save field mappings."));
+    } finally {
+      setFieldSaving(false);
+    }
+  };
+
+  const saveBoardMappings = async () => {
+    if (selectedSourceId === null) {
+      return;
+    }
+    for (const row of boardDraft) {
+      if (!row.boardId || !ticketBoards.some((b) => b.id === row.boardId)) {
+        showBanner("err", "Each row needs a valid Cortex board.");
+        return;
+      }
+    }
+    setBoardSaving(true);
+    try {
+      const token = await getToken();
+      await integrationsService.replaceBoardMappings(token, selectedSourceId, boardDraft);
+      showBanner("ok", "Board mappings saved.");
+      await loadBoardMappings(selectedSourceId);
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to save board mappings."));
+    } finally {
+      setBoardSaving(false);
+    }
+  };
+
+  const submitUpsert = async () => {
+    if (selectedSourceId === null) {
+      return;
+    }
+    if (!upsertDraft.externalItemId.trim() || !upsertDraft.title.trim()) {
+      showBanner("err", "External item ID and title are required.");
+      return;
+    }
+    setUpsertSaving(true);
+    try {
+      const token = await getToken();
+      const raw =
+        upsertDraft.rawJson?.trim() ||
+        JSON.stringify({
+          externalItemId: upsertDraft.externalItemId.trim(),
+          title: upsertDraft.title.trim(),
+          description: upsertDraft.description?.trim() || undefined,
+          status: upsertDraft.status?.trim() || undefined,
+          priority: upsertDraft.priority?.trim() || undefined,
+        });
+      const body: ManualUpsertExternalWorkItemInput = {
+        externalItemId: upsertDraft.externalItemId.trim(),
+        title: upsertDraft.title.trim(),
+        externalUrl: upsertDraft.externalUrl?.trim() || null,
+        description: upsertDraft.description?.trim() || null,
+        status: upsertDraft.status?.trim() || null,
+        priority: upsertDraft.priority?.trim() || null,
+        requester: upsertDraft.requester?.trim() || null,
+        assignedTo: upsertDraft.assignedTo?.trim() || null,
+        department: upsertDraft.department?.trim() || null,
+        category: upsertDraft.category?.trim() || null,
+        dueDateUtc: upsertDraft.dueDateUtc
+          ? new Date(upsertDraft.dueDateUtc).toISOString()
+          : null,
+        lastModifiedUtc: upsertDraft.lastModifiedUtc
+          ? new Date(upsertDraft.lastModifiedUtc).toISOString()
+          : null,
+        rawJson: raw,
+        cortexTicketId: upsertDraft.cortexTicketId?.trim() || null,
+      };
+      await integrationsService.manualUpsertWorkItem(token, selectedSourceId, body);
+      setUpsertOpen(false);
+      showBanner("ok", "External work item saved.");
+      await loadItems(selectedSourceId);
+      setUpsertDraft({
+        externalItemId: "",
+        title: "",
+        externalUrl: "",
+        description: "",
+        status: "",
+        priority: "",
+        requester: "",
+        assignedTo: "",
+        department: "",
+        category: "",
+        dueDateUtc: "",
+        lastModifiedUtc: "",
+        rawJson: "",
+        cortexTicketId: "",
+      });
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to save work item."));
+    } finally {
+      setUpsertSaving(false);
+    }
+  };
+
+  const selectSourceForMapping = (sourceId: number) => {
+    setSelectedSourceId(sourceId);
+    setTab("fields");
+  };
+
+  const tabButtons: { id: IntegrationsTab; label: string }[] = [
+    { id: "connections", label: "Connections" },
+    { id: "sources", label: "Sources" },
+    { id: "fields", label: "Field mapping" },
+    { id: "boards", label: "Board mapping" },
+    { id: "items", label: "External items" },
+  ];
+
+  return (
+    <div className="min-w-0 max-w-full space-y-6">
+      {banner ? (
+        <div
+          className={
+            banner.type === "ok"
+              ? "rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900 dark:border-green-900 dark:bg-green-950/40 dark:text-green-100"
+              : "rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100"
+          }
+        >
+          {banner.text}
+        </div>
+      ) : null}
+
+      <section className="min-w-0 max-w-full rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Integrations</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+          Connect external work sources, map their fields to Cortex concepts, and inspect external work items before
+          importing them into Cortex.
+        </p>
+      </section>
+
+      <ConfigPageShell>
+        <ConfigPageHeader
+          title="External integrations"
+          description="Model SharePoint lists, Jira projects, and ServiceNow tables as external sources. Live authentication and automatic sync are not connected yet—use manual mode to configure and test safely."
+        />
+        <ConfigPageBody>
+          <div className="flex min-w-0 max-w-full flex-wrap gap-2 border-b border-gray-200 pb-4 dark:border-slate-700">
+            {tabButtons.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => setTab(b.id)}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                  tab === b.id
+                    ? "bg-cortex-blue text-white shadow-sm dark:bg-cortex-blue"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 min-w-0 max-w-full space-y-6">
+            {tab !== "connections" && (
+              <ConfigDetailCard title="Selection" subtitle="Choose where mapping and items apply.">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Connection</label>
+                    <select
+                      className={configFieldClass}
+                      value={selectedConnectionId ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSelectedConnectionId(v ? Number(v) : null);
+                      }}
+                      disabled={connectionsLoading || connections.length === 0}
+                    >
+                      <option value="">— Select —</option>
+                      {connections.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">External source</label>
+                    <select
+                      className={configFieldClass}
+                      value={selectedSourceId ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSelectedSourceId(v ? Number(v) : null);
+                      }}
+                      disabled={!selectedConnectionId || sourcesLoading || sources.length === 0}
+                    >
+                      <option value="">— Select —</option>
+                      {sources.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </ConfigDetailCard>
+            )}
+
+            {tab === "connections" && (
+              <div className="space-y-4">
+                <Callout title="Connections represent systems Cortex can read from.">
+                  Live authentication is not connected yet. Manual mode lets Cortex model and test external sources safely.
+                </Callout>
+                <div className="flex justify-end">
+                  <ConfigPrimaryButton onClick={openCreateConnection}>Add connection</ConfigPrimaryButton>
+                </div>
+                {connectionsError ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">{connectionsError}</p>
+                ) : null}
+                {connectionsLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-slate-400">Loading connections…</p>
+                ) : connections.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
+                    No connections yet. Add a connection to register an external system.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                    <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                      <thead className="bg-gray-50 dark:bg-slate-800/80">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Name</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Provider</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Auth</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Sync</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Enabled</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Last sync</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Created</th>
+                          <th className="px-4 py-3 text-right font-medium text-gray-700 dark:text-slate-300">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                        {connections.map((c) => (
+                          <tr key={c.id} className="bg-white dark:bg-slate-900">
+                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{c.displayName}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{c.provider}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationAuthMode(c.authMode)}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationSyncMode(c.syncMode)}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{c.isEnabled ? "Yes" : "No"}</td>
+                            <td className="max-w-[200px] truncate px-4 py-3 text-gray-600 dark:text-slate-400" title={c.lastSyncMessage ?? undefined}>
+                              {formatWhen(c.lastSyncUtc)}
+                              {c.lastSyncStatus ? ` · ${c.lastSyncStatus}` : ""}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{formatWhen(c.createdAtUtc)}</td>
+                            <td className="space-x-2 whitespace-nowrap px-4 py-3 text-right">
+                              <ConfigGhostButton className="!py-1.5" onClick={() => openEditConnection(c)}>
+                                Edit
+                              </ConfigGhostButton>
+                              <ConfigGhostButton className="!py-1.5" onClick={() => void toggleConnectionEnabled(c)}>
+                                {c.isEnabled ? "Disable" : "Enable"}
+                              </ConfigGhostButton>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === "sources" && (
+              <div className="space-y-4">
+                <Callout title="Sources represent boards, lists, projects, or tables inside those systems.">
+                  A SharePoint list can act like a lightweight board. Cortex stores it as an external work source before creating
+                  any Cortex tickets.
+                </Callout>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <ConfigSecondaryButton onClick={() => selectedConnectionId && void loadSources(selectedConnectionId)} disabled={!selectedConnectionId || sourcesLoading}>
+                    Refresh sources
+                  </ConfigSecondaryButton>
+                  <ConfigPrimaryButton onClick={openCreateSource} disabled={!selectedConnectionId}>
+                    Add source
+                  </ConfigPrimaryButton>
+                </div>
+                {sourcesError ? <p className="text-sm text-red-600 dark:text-red-400">{sourcesError}</p> : null}
+                {!selectedConnectionId ? (
+                  <p className="text-sm text-gray-600 dark:text-slate-400">Select a connection above to manage sources.</p>
+                ) : sourcesLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-slate-400">Loading sources…</p>
+                ) : sources.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
+                    No sources for this connection yet.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                    <table className="min-w-[960px] w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                      <thead className="bg-gray-50 dark:bg-slate-800/80">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Name</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Type</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Provider</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">External ID</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">URL</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Enabled</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Created</th>
+                          <th className="px-4 py-3 text-right font-medium text-gray-700 dark:text-slate-300">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                        {sources.map((s) => (
+                          <tr key={s.id} className="bg-white dark:bg-slate-900">
+                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{s.name}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeExternalSourceType(s.sourceType)}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{s.provider}</td>
+                            <td className="max-w-[140px] truncate px-4 py-3 text-gray-700 dark:text-slate-300" title={s.externalSourceId}>
+                              {s.externalSourceId}
+                            </td>
+                            <td className="max-w-[160px] truncate px-4 py-3 text-cortex-blue dark:text-cortex-cyan">
+                              {s.externalUrl ? (
+                                <a href={s.externalUrl} target="_blank" rel="noreferrer" className="hover:underline">
+                                  Link
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{s.isEnabled ? "Yes" : "No"}</td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{formatWhen(s.createdAtUtc)}</td>
+                            <td className="space-x-2 whitespace-nowrap px-4 py-3 text-right">
+                              <ConfigGhostButton className="!py-1.5" onClick={() => selectSourceForMapping(s.id)}>
+                                Map fields
+                              </ConfigGhostButton>
+                              <ConfigGhostButton className="!py-1.5" onClick={() => openEditSource(s)}>
+                                Edit
+                              </ConfigGhostButton>
+                              <ConfigGhostButton className="!py-1.5" onClick={() => void toggleSourceEnabled(s)}>
+                                {s.isEnabled ? "Disable" : "Enable"}
+                              </ConfigGhostButton>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === "fields" && (
+              <div className="space-y-4">
+                <Callout title="Mappings translate customer-specific fields into Cortex concepts.">
+                  Saving replaces the full mapping list for this source. Add every field you need before saving.
+                  <span className="mt-2 block text-sky-900/90 dark:text-sky-200/90">
+                    Optional note for how Cortex should interpret values from this external field.
+                  </span>
+                </Callout>
+                {!selectedSourceId ? (
+                  <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
+                ) : fieldError ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">{fieldError}</p>
+                ) : fieldLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-slate-400">Loading mappings…</p>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                      <table className="min-w-[1200px] w-max max-w-none divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                        <thead className="bg-gray-50 dark:bg-slate-800/80">
+                          <tr>
+                            <th className="min-w-[220px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">External name</th>
+                            <th className="min-w-[220px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Key</th>
+                            <th className="min-w-[190px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Cortex field</th>
+                            <th className="w-[90px] min-w-[90px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Required</th>
+                            <th className="min-w-[280px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Mapping note</th>
+                            <th className="w-[100px] min-w-[100px] px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-300">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                          {fieldDraft.map((row, idx) => (
+                            <tr key={idx} className="bg-white dark:bg-slate-900">
+                              <td className="min-w-[220px] px-3 py-2 align-top">
+                                <input
+                                  className={configFieldClass}
+                                  value={row.externalFieldName}
+                                  title={row.externalFieldName || undefined}
+                                  onChange={(e) => {
+                                    const next = [...fieldDraft];
+                                    next[idx] = { ...row, externalFieldName: e.target.value };
+                                    setFieldDraft(next);
+                                  }}
+                                />
+                              </td>
+                              <td className="min-w-[220px] px-3 py-2 align-top">
+                                <input
+                                  className={configFieldClass}
+                                  value={row.externalFieldKey ?? ""}
+                                  title={row.externalFieldKey?.trim() ? row.externalFieldKey : undefined}
+                                  onChange={(e) => {
+                                    const next = [...fieldDraft];
+                                    next[idx] = { ...row, externalFieldKey: e.target.value };
+                                    setFieldDraft(next);
+                                  }}
+                                />
+                              </td>
+                              <td className="min-w-[190px] px-3 py-2 align-top">
+                                <select
+                                  className={`${configFieldClass} min-w-[190px]`}
+                                  value={row.cortexField}
+                                  title={humanizeCortexFieldDisplay(row.cortexField)}
+                                  onChange={(e) => {
+                                    const next = [...fieldDraft];
+                                    next[idx] = { ...row, cortexField: e.target.value as CortexField };
+                                    setFieldDraft(next);
+                                  }}
+                                >
+                                  {CORTEX_FIELDS.map((f) => (
+                                    <option key={f} value={f}>
+                                      {humanizeCortexFieldDisplay(f)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="w-[90px] min-w-[90px] px-3 py-2 align-top">
+                                <input
+                                  type="checkbox"
+                                  checked={row.isRequired}
+                                  onChange={(e) => {
+                                    const next = [...fieldDraft];
+                                    next[idx] = { ...row, isRequired: e.target.checked };
+                                    setFieldDraft(next);
+                                  }}
+                                  className="h-4 w-4 rounded border-gray-300 dark:border-slate-600"
+                                />
+                              </td>
+                              <td className="min-w-[280px] px-3 py-2 align-top">
+                                <input
+                                  className={`${configFieldClass} min-w-[260px]`}
+                                  value={row.transformHint ?? ""}
+                                  title={row.transformHint ?? ""}
+                                  placeholder="Example: Map P1 to Critical, P2 to High, P3 to Medium"
+                                  onChange={(e) => {
+                                    const next = [...fieldDraft];
+                                    next[idx] = { ...row, transformHint: e.target.value };
+                                    setFieldDraft(next);
+                                  }}
+                                />
+                              </td>
+                              <td className="w-[100px] min-w-[100px] whitespace-nowrap px-3 py-2 text-right align-top">
+                                <ConfigGhostButton
+                                  className="!py-1 text-red-600 dark:text-red-400"
+                                  onClick={() => setFieldDraft(fieldDraft.filter((_, i) => i !== idx))}
+                                >
+                                  Remove
+                                </ConfigGhostButton>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <ConfigSecondaryButton onClick={() => setFieldDraft([...fieldDraft, emptyFieldRow()])}>Add row</ConfigSecondaryButton>
+                      <ConfigPrimaryButton onClick={() => void saveFieldMappings()} disabled={fieldSaving}>
+                        {fieldSaving ? "Saving…" : "Save field mappings"}
+                      </ConfigPrimaryButton>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {tab === "boards" && (
+              <div className="space-y-4">
+                <Callout title="Board mapping tells Cortex where external work belongs conceptually.">
+                  Reference-only mapping does not create Cortex tickets automatically.
+                </Callout>
+                {!selectedSourceId ? (
+                  <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
+                ) : boardError ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">{boardError}</p>
+                ) : boardLoading || ticketBoardLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-slate-400">Loading…</p>
+                ) : ticketBoards.length === 0 ? (
+                  <p className="text-sm text-gray-600 dark:text-slate-400">
+                    No Cortex boards found. Define boards under Configuration → Boards first.
+                  </p>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                        <thead className="bg-gray-50 dark:bg-slate-800/80">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Cortex board</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Mapping mode</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Default</th>
+                            <th className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-300" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                          {boardDraft.map((row, idx) => (
+                            <tr key={idx} className="bg-white dark:bg-slate-900">
+                              <td className="px-3 py-2">
+                                <select
+                                  className={configFieldClass}
+                                  value={row.boardId || ticketBoards[0]?.id}
+                                  onChange={(e) => {
+                                    const next = [...boardDraft];
+                                    next[idx] = { ...row, boardId: Number(e.target.value) };
+                                    setBoardDraft(next);
+                                  }}
+                                >
+                                  {ticketBoards.filter((b) => b.isEnabled).map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                      {b.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-3 py-2">
+                                <select
+                                  className={configFieldClass}
+                                  value={row.mappingMode}
+                                  onChange={(e) => {
+                                    const next = [...boardDraft];
+                                    next[idx] = {
+                                      ...row,
+                                      mappingMode: e.target.value as ExternalBoardMappingMode,
+                                    };
+                                    setBoardDraft(next);
+                                  }}
+                                >
+                                  {BOARD_MAPPING_MODES.map((m) => (
+                                    <option key={m} value={m}>
+                                      {humanizeExternalBoardMappingMode(m)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={row.isDefault}
+                                  onChange={(e) => {
+                                    const next = [...boardDraft];
+                                    next[idx] = { ...row, isDefault: e.target.checked };
+                                    setBoardDraft(next);
+                                  }}
+                                  className="h-4 w-4 rounded border-gray-300 dark:border-slate-600"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <ConfigGhostButton
+                                  className="!py-1 text-red-600 dark:text-red-400"
+                                  onClick={() => setBoardDraft(boardDraft.filter((_, i) => i !== idx))}
+                                >
+                                  Remove
+                                </ConfigGhostButton>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <ConfigSecondaryButton
+                        onClick={() => {
+                          const b = ticketBoards.find((x) => x.isEnabled) ?? ticketBoards[0];
+                          setBoardDraft([
+                            ...boardDraft,
+                            { ...emptyBoardRow(), boardId: b?.id ?? 0 },
+                          ]);
+                        }}
+                        disabled={!ticketBoards.length}
+                      >
+                        Add row
+                      </ConfigSecondaryButton>
+                      <ConfigPrimaryButton onClick={() => void saveBoardMappings()} disabled={boardSaving}>
+                        {boardSaving ? "Saving…" : "Save board mappings"}
+                      </ConfigPrimaryButton>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {tab === "items" && (
+              <div className="min-w-0 max-w-full space-y-4">
+                <Callout title="External items are stored safely before becoming Cortex tickets.">
+                  No automatic import runs from this screen. Use a test item to validate mapping and structure.
+                </Callout>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <ConfigSecondaryButton
+                    onClick={() => selectedSourceId && void loadItems(selectedSourceId)}
+                    disabled={!selectedSourceId || itemsLoading}
+                  >
+                    Refresh list
+                  </ConfigSecondaryButton>
+                  <ConfigPrimaryButton onClick={() => setUpsertOpen(true)} disabled={!selectedSourceId}>
+                    Manual upsert test item
+                  </ConfigPrimaryButton>
+                </div>
+                {!selectedSourceId ? (
+                  <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
+                ) : itemsError ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">{itemsError}</p>
+                ) : itemsLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-slate-400">Loading items…</p>
+                ) : items.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
+                    No external work items found yet. Use manual upsert to test this source before enabling live sync.
+                  </p>
+                ) : (
+                  <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-gray-200 dark:border-slate-700">
+                    <div className="w-full max-w-full overflow-x-auto overscroll-x-contain">
+                      <table className="min-w-[1200px] w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                      <thead className="bg-gray-50 dark:bg-slate-800/80">
+                        <tr>
+                          <th className="min-w-[220px] max-w-[280px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Title</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Status</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Priority</th>
+                          <th className="min-w-[100px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Requester</th>
+                          <th className="min-w-[100px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Assigned</th>
+                          <th className="min-w-[80px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Dept</th>
+                          <th className="min-w-[80px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Category</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Due</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Modified</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Last seen</th>
+                          <th className="min-w-[160px] whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Linked Cortex ticket</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Link</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-300">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                        {items.map((it) => (
+                          <tr key={it.id} className="bg-white dark:bg-slate-900">
+                            <td className="max-w-[280px] min-w-[220px] px-3 py-2 font-medium text-gray-900 dark:text-slate-100">
+                              <span className="block truncate" title={it.title || undefined}>
+                                {it.title}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-700 dark:text-slate-300">{it.status ?? "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-700 dark:text-slate-300">{it.priority ?? "—"}</td>
+                            <td className="max-w-[160px] truncate px-3 py-2 text-gray-700 dark:text-slate-300" title={it.requester ?? undefined}>
+                              {it.requester ?? "—"}
+                            </td>
+                            <td className="max-w-[160px] truncate px-3 py-2 text-gray-700 dark:text-slate-300" title={it.assignedTo ?? undefined}>
+                              {it.assignedTo ?? "—"}
+                            </td>
+                            <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{it.department ?? "—"}</td>
+                            <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{it.category ?? "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-slate-400">{formatWhen(it.dueDateUtc)}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-slate-400">{formatWhen(it.lastModifiedUtc)}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-slate-400">{formatWhen(it.lastSeenUtc)}</td>
+                            <td className="min-w-[160px] whitespace-nowrap px-3 py-2 text-gray-700 dark:text-slate-300">
+                              {it.cortexTicketId ? it.cortexTicketId : "Not linked"}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              {it.externalUrl ? (
+                                <a href={it.externalUrl} target="_blank" rel="noreferrer" className="text-cortex-blue hover:underline dark:text-cortex-cyan">
+                                  Open
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right">
+                              <ConfigGhostButton className="!whitespace-nowrap !py-1.5" onClick={() => setItemDetail(it)}>
+                                View details
+                              </ConfigGhostButton>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </ConfigPageBody>
+      </ConfigPageShell>
+
+      {connectionModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+              {connectionModal.mode === "create" ? "Add connection" : "Edit connection"}
+            </h3>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Display name</label>
+                <input
+                  className={configFieldClass}
+                  value={connectionModal.draft.displayName}
+                  onChange={(e) => {
+                    if (connectionModal.mode === "create") {
+                      setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, displayName: e.target.value } });
+                    } else {
+                      setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, displayName: e.target.value } });
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Provider</label>
+                <select
+                  className={configFieldClass}
+                  value={connectionModal.draft.provider}
+                  onChange={(e) => {
+                    const v = e.target.value as IntegrationProvider;
+                    setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, provider: v } });
+                  }}
+                  disabled={connectionModal.mode === "edit"}
+                >
+                  {INTEGRATION_PROVIDERS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+                {connectionModal.mode === "edit" ? (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-500">Provider cannot be changed after creation.</p>
+                ) : null}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Auth mode</label>
+                  <select
+                    className={configFieldClass}
+                    value={connectionModal.draft.authMode ?? "Manual"}
+                    onChange={(e) => {
+                      const v = e.target.value as IntegrationAuthMode;
+                      setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, authMode: v } });
+                    }}
+                  >
+                    {AUTH_MODES.map((a) => (
+                      <option key={a} value={a}>
+                        {humanizeIntegrationAuthMode(a)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Sync mode</label>
+                  <select
+                    className={configFieldClass}
+                    value={connectionModal.draft.syncMode ?? "ReadOnly"}
+                    onChange={(e) => {
+                      const v = e.target.value as IntegrationSyncMode;
+                      setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, syncMode: v } });
+                    }}
+                  >
+                    {SYNC_MODES.map((s) => (
+                      <option key={s} value={s}>
+                        {humanizeIntegrationSyncMode(s)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Tenant ID</label>
+                <input
+                  className={configFieldClass}
+                  value={connectionModal.draft.tenantId ?? ""}
+                  onChange={(e) =>
+                    setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, tenantId: e.target.value } })
+                  }
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Organization ID</label>
+                <input
+                  className={configFieldClass}
+                  value={connectionModal.draft.organizationId ?? ""}
+                  onChange={(e) =>
+                    setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, organizationId: e.target.value } })
+                  }
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={connectionModal.draft.isEnabled ?? true}
+                  onChange={(e) =>
+                    setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, isEnabled: e.target.checked } })
+                  }
+                  className="h-4 w-4 rounded border-gray-300 dark:border-slate-600"
+                />
+                Enabled
+              </label>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <ConfigSecondaryButton onClick={() => setConnectionModal(null)}>Cancel</ConfigSecondaryButton>
+              <ConfigPrimaryButton onClick={() => void saveConnectionModal()}>
+                Save
+              </ConfigPrimaryButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {sourceModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+              {sourceModal.mode === "create" ? "Add external source" : "Edit external source"}
+            </h3>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Name</label>
+                <input
+                  className={configFieldClass}
+                  value={sourceModal.draft.name}
+                  onChange={(e) =>
+                    setSourceModal({ ...sourceModal, draft: { ...sourceModal.draft, name: e.target.value } })
+                  }
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Source type</label>
+                <select
+                  className={configFieldClass}
+                  value={sourceModal.draft.sourceType}
+                  onChange={(e) =>
+                    setSourceModal({
+                      ...sourceModal,
+                      draft: { ...sourceModal.draft, sourceType: e.target.value as ExternalSourceType },
+                    })
+                  }
+                >
+                  {SOURCE_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {humanizeExternalSourceType(t)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">External source ID</label>
+                <input
+                  className={configFieldClass}
+                  value={sourceModal.draft.externalSourceId}
+                  onChange={(e) =>
+                    setSourceModal({
+                      ...sourceModal,
+                      draft: { ...sourceModal.draft, externalSourceId: e.target.value },
+                    })
+                  }
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                  Identifier in the source system (for example list GUID, project key, or table name).
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">External URL</label>
+                <input
+                  className={configFieldClass}
+                  value={sourceModal.draft.externalUrl ?? ""}
+                  onChange={(e) =>
+                    setSourceModal({ ...sourceModal, draft: { ...sourceModal.draft, externalUrl: e.target.value } })
+                  }
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Provider</label>
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
+                  {sourceModal.draft.provider}
+                </div>
+                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                  Inherited from the connection to this source system. It cannot be changed here.
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={sourceModal.draft.isEnabled ?? true}
+                  onChange={(e) =>
+                    setSourceModal({ ...sourceModal, draft: { ...sourceModal.draft, isEnabled: e.target.checked } })
+                  }
+                  className="h-4 w-4 rounded border-gray-300 dark:border-slate-600"
+                />
+                Enabled
+              </label>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <ConfigSecondaryButton onClick={() => setSourceModal(null)}>Cancel</ConfigSecondaryButton>
+              <ConfigPrimaryButton onClick={() => void saveSourceModal()}>Save</ConfigPrimaryButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {itemDetail ? (
+        <div
+          className="fixed inset-0 z-[60] flex justify-end bg-black/40"
+          onClick={() => setItemDetail(null)}
+          role="presentation"
+        >
+          <div
+            className="flex h-full w-full max-w-md flex-col border-l border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="external-item-detail-title"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-100 px-5 py-4 dark:border-slate-800">
+              <h3 id="external-item-detail-title" className="pr-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
+                External work item
+              </h3>
+              <ConfigSecondaryButton onClick={() => setItemDetail(null)}>Close</ConfigSecondaryButton>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+              <div>
+                <DetailField label="Title">
+                  <span className="break-words">{itemDetail.title || "—"}</span>
+                </DetailField>
+                <DetailField label="Description">
+                  {itemDetail.description
+                    ? (
+                        <p className="whitespace-pre-wrap break-words text-gray-800 dark:text-slate-200">
+                          {itemDetail.description}
+                        </p>
+                      )
+                    : "—"}
+                </DetailField>
+                <DetailField label="Status">{itemDetail.status ?? "—"}</DetailField>
+                <DetailField label="Priority">{itemDetail.priority ?? "—"}</DetailField>
+                <DetailField label="Requester">{itemDetail.requester ?? "—"}</DetailField>
+                <DetailField label="Assigned">{itemDetail.assignedTo ?? "—"}</DetailField>
+                <DetailField label="Department">{itemDetail.department ?? "—"}</DetailField>
+                <DetailField label="Category">{itemDetail.category ?? "—"}</DetailField>
+                <DetailField label="Due date">{formatWhen(itemDetail.dueDateUtc)}</DetailField>
+                <DetailField label="Last modified">{formatWhen(itemDetail.lastModifiedUtc)}</DetailField>
+                <DetailField label="Last seen">{formatWhen(itemDetail.lastSeenUtc)}</DetailField>
+                <DetailField label="External source">{itemDetail.sourceName}</DetailField>
+                <DetailField label="External item ID">
+                  <span className="break-all font-mono text-xs">{itemDetail.externalItemId}</span>
+                </DetailField>
+                <DetailField label="Source system">{itemDetail.provider}</DetailField>
+                <DetailField label="External link">
+                  {itemDetail.externalUrl ? (
+                    <a
+                      href={itemDetail.externalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="break-all text-cortex-blue hover:underline dark:text-cortex-cyan"
+                    >
+                      {itemDetail.externalUrl}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </DetailField>
+                <DetailField label="Linked Cortex ticket">
+                  {itemDetail.cortexTicketId ? itemDetail.cortexTicketId : "Not linked"}
+                </DetailField>
+              </div>
+              <div className="mt-5 rounded-lg border border-sky-200 bg-sky-50/90 px-3 py-3 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+                Cortex insight over external work items will appear here after live sync and analysis are enabled.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {upsertOpen && selectedSourceId !== null ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Manual upsert test item</h3>
+            <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+              Source: <span className="font-medium">{selectedSource?.name ?? `#${selectedSourceId}`}</span>
+            </p>
+            <div className="mt-4 grid gap-3">
+              {(
+                [
+                  ["externalItemId", "External item ID", "text"],
+                  ["title", "Title", "text"],
+                  ["externalUrl", "External URL", "text"],
+                  ["description", "Description", "text"],
+                  ["status", "Status", "text"],
+                  ["priority", "Priority", "text"],
+                  ["requester", "Requester", "text"],
+                  ["assignedTo", "Assigned to", "text"],
+                  ["department", "Department", "text"],
+                  ["category", "Category", "text"],
+                  ["dueDateUtc", "Due (local)", "datetime-local"],
+                  ["lastModifiedUtc", "Last modified (local)", "datetime-local"],
+                  ["cortexTicketId", "Linked Cortex ticket ID", "text"],
+                ] as const
+              ).map(([key, label, type]) => (
+                <div key={key}>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">{label}</label>
+                  <input
+                    className={configFieldClass}
+                    type={type}
+                    value={String(upsertDraft[key] ?? "")}
+                    onChange={(e) =>
+                      setUpsertDraft({ ...upsertDraft, [key]: e.target.value })
+                    }
+                  />
+                </div>
+              ))}
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Extra data (JSON)</label>
+                <textarea
+                  className={configFieldClass}
+                  rows={4}
+                  placeholder="Optional. If empty, a small JSON object is generated from the fields above."
+                  value={upsertDraft.rawJson ?? ""}
+                  onChange={(e) => setUpsertDraft({ ...upsertDraft, rawJson: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <ConfigSecondaryButton onClick={() => setUpsertOpen(false)} disabled={upsertSaving}>
+                Cancel
+              </ConfigSecondaryButton>
+              <ConfigPrimaryButton onClick={() => void submitUpsert()} disabled={upsertSaving}>
+                {upsertSaving ? "Saving…" : "Save item"}
+              </ConfigPrimaryButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
