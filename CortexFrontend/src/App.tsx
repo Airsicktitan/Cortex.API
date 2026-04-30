@@ -3108,6 +3108,7 @@ function App() {
                     onCreateTicketBoard={createTicketBoard}
                     onUpdateTicketBoard={updateTicketBoard}
                     onDeleteTicketBoard={deleteTicketBoard}
+                    onOpenCortexTicketById={(id) => void openTicketById(id)}
                     ticketStatuses={ticketStatuses}
                     ticketStatusError={ticketStatusError}
                     ticketStatusLoading={ticketStatusLoading}

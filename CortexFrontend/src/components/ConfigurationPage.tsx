@@ -96,6 +96,8 @@ interface ConfigurationPageProps {
     definition: UpsertTicketBoardDefinitionInput,
   ) => Promise<void>;
   onDeleteTicketBoard: (id: number) => Promise<void>;
+  /** Open the main Cortex ticket modal by id (e.g. from integrations linked ticket). */
+  onOpenCortexTicketById?: (ticketId: string) => void | Promise<void>;
   ticketStatuses: TicketStatusDefinition[];
   ticketStatusError: string | null;
   ticketStatusLoading: boolean;
@@ -280,6 +282,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
     onCreateTicketBoard,
     onUpdateTicketBoard,
     onDeleteTicketBoard,
+    onOpenCortexTicketById,
     ticketStatuses,
     ticketStatusError,
     ticketStatusLoading,
@@ -638,6 +641,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                 onRefreshTicketBoards={() => {
                   onRefreshTicketBoards();
                 }}
+                onOpenCortexTicketById={onOpenCortexTicketById}
               />
             )}
 

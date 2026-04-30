@@ -102,6 +102,7 @@ builder.Services.AddHttpClient<IAuth0UserRoleSyncService, Auth0UserRoleSyncServi
     });
 builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
 builder.Services.AddScoped<IExternalIntegrationService, ExternalIntegrationService>();
+builder.Services.AddScoped<ITicketCreationApplicationService, TicketCreationApplicationService>();
 builder.Services.AddScoped<SharePointExternalWorkSourceAdapter>();
 builder.Services.AddScoped<IExternalWorkSourceAdapter>(sp => sp.GetRequiredService<SharePointExternalWorkSourceAdapter>());
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();

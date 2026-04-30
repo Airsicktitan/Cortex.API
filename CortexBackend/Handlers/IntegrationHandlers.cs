@@ -218,6 +218,34 @@ public static class IntegrationHandlers
         }
     }
 
+    public static async Task<IResult> CreateTicketFromExternalWorkItem(
+        int itemId,
+        CreateTicketFromExternalItemRequest? request,
+        IExternalIntegrationService integrationService)
+    {
+        try
+        {
+            var result = await integrationService.CreateTicketFromExternalItemAsync(
+                itemId,
+                request ?? new CreateTicketFromExternalItemRequest());
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        }
+        catch (ExternalWorkItemAlreadyLinkedException ex)
+        {
+            return Results.Json(
+                new { message = ex.Message, linkedCortexTicketId = ex.LinkedCortexTicketId },
+                statusCode: StatusCodes.Status409Conflict);
+        }
+        catch (IntegrationApiException ex)
+        {
+            return SafeErrorResponses.IntegrationApi(ex);
+        }
+        catch (ArgumentException)
+        {
+            return SafeErrorResponses.BadRequest();
+        }
+    }
+
     public static async Task<IResult> DiscoverSharePointFields(int sourceId, IExternalIntegrationService integrationService)
     {
         try

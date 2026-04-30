@@ -1,3 +1,4 @@
+using System.Text;
 using Cortex.API.Configuration;
 using Cortex.API.Database;
 using Cortex.API.DTO;
@@ -12,11 +13,15 @@ public sealed class ExternalIntegrationService(
     CortexDbContext db,
     ISharePointGraphClient sharePointGraphClient,
     IEnumerable<IExternalWorkSourceAdapter> workSourceAdapters,
-    IOptions<SharePointGraphOptions> sharePointGraphOptions) : IExternalIntegrationService
+    IOptions<SharePointGraphOptions> sharePointGraphOptions,
+    ITicketCreationApplicationService ticketCreationApplicationService,
+    ITicketBoardService ticketBoardService) : IExternalIntegrationService
 {
     private readonly CortexDbContext _db = db;
     private readonly ISharePointGraphClient _graph = sharePointGraphClient;
     private readonly SharePointGraphOptions _sharePointGraphOptions = sharePointGraphOptions.Value;
+    private readonly ITicketCreationApplicationService _ticketCreation = ticketCreationApplicationService;
+    private readonly ITicketBoardService _ticketBoardService = ticketBoardService;
     private readonly IExternalWorkSourceAdapter _sharePointWorkSourceAdapter = workSourceAdapters
             .FirstOrDefault(a => a.Provider == IntegrationProvider.SharePoint)
         ?? throw new InvalidOperationException(
@@ -569,12 +574,241 @@ public sealed class ExternalIntegrationService(
         existingItem.LastModifiedUtc = request.LastModifiedUtc ?? now;
         existingItem.RawJson = string.IsNullOrWhiteSpace(request.RawJson) ? "{}" : request.RawJson!;
         existingItem.SyncHash = request.SyncHash?.Trim();
-        existingItem.CortexTicketId = string.IsNullOrWhiteSpace(request.CortexTicketId) ? null : request.CortexTicketId.Trim();
+        // Only touch CortexTicketId when the client supplies a value (non-null in the deserialized model).
+        // Omitted JSON property deserializes as null and preserves an existing link for manual test upserts.
+        if (request.CortexTicketId is not null)
+        {
+            existingItem.CortexTicketId = string.IsNullOrWhiteSpace(request.CortexTicketId)
+                ? null
+                : request.CortexTicketId.Trim();
+        }
+
         existingItem.Provider = source.Provider;
 
         await _db.SaveChangesAsync(cancellationToken);
 
         return MapWorkItem(existingItem, source.Name);
+    }
+
+    public async Task<CreateTicketFromExternalItemResponse?> CreateTicketFromExternalItemAsync(
+        int itemId,
+        CreateTicketFromExternalItemRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.CreateAsPendingApproval == false)
+        {
+            throw new IntegrationApiException(
+                400,
+                "Creating a Cortex ticket from an external item always follows the standard approval process.");
+        }
+
+        var row = await _db.ExternalWorkItems
+            .Include(i => i.ExternalWorkSource)
+            .FirstOrDefaultAsync(i => i.Id == itemId, cancellationToken);
+
+        if (row is null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(row.CortexTicketId))
+        {
+            throw new ExternalWorkItemAlreadyLinkedException(row.CortexTicketId.Trim());
+        }
+
+        var source = row.ExternalWorkSource;
+        var defaultMap = await _db.ExternalBoardMappings.AsNoTracking()
+            .Where(m => m.ExternalWorkSourceId == source.Id && m.IsDefault)
+            .OrderBy(m => m.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var boardId = request.BoardId ?? defaultMap?.BoardId;
+        if (!boardId.HasValue)
+        {
+            throw new IntegrationApiException(
+                400,
+                "Choose a Cortex board or configure a default board mapping for this external source.");
+        }
+
+        var board = await _ticketBoardService.GetByIdAsync(boardId.Value);
+        if (board is null || !board.IsEnabled)
+        {
+            throw new IntegrationApiException(400, "The selected ticket board was not found or is not available.");
+        }
+
+        var title = string.IsNullOrWhiteSpace(request.Title) ? row.Title.Trim() : request.Title.Trim();
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            throw new IntegrationApiException(400, "Title is required.");
+        }
+
+        var priority = ResolvePriorityForExternalTicket(request.Priority, row.Priority);
+        var department = CoalesceTrim(request.Department, row.Department);
+
+        var userDescription = CoalesceTrim(request.Description, row.Description);
+        if (string.IsNullOrWhiteSpace(userDescription))
+        {
+            userDescription = title;
+        }
+
+        var preamble = new StringBuilder();
+        var due = request.DueDateUtc ?? row.DueDateUtc;
+        if (due.HasValue)
+        {
+            preamble.AppendLine($"Target due date: {due.Value:u}");
+        }
+
+        var category = CoalesceTrim(request.Category, row.Category);
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            preamble.AppendLine($"Category: {category}");
+        }
+
+        var externalRequester = CoalesceTrim(request.Requester, row.Requester);
+        if (!string.IsNullOrWhiteSpace(externalRequester))
+        {
+            preamble.AppendLine($"External requester: {externalRequester}");
+        }
+
+        var externalAssignee = CoalesceTrim(request.AssignedTo, row.AssignedTo);
+        if (!string.IsNullOrWhiteSpace(externalAssignee))
+        {
+            preamble.AppendLine($"External assignee: {externalAssignee}");
+        }
+
+        if (preamble.Length > 0)
+        {
+            userDescription = preamble.ToString().TrimEnd() + "\n\n" + userDescription;
+        }
+
+        var contextBlock = BuildExternalSourceContextBlock(row, source);
+        var fullDescription = CombineUserDescriptionAndContext(userDescription, contextBlock, MaxTicketDescriptionLength);
+
+        var createRequest = new CreateTicketRequest
+        {
+            Title = title,
+            Description = fullDescription,
+            BoardId = boardId,
+            Priority = priority,
+            Department = department,
+        };
+
+        var created = await _ticketCreation.CreateTicketAsync(createRequest, cancellationToken);
+
+        row.CortexTicketId = created.Id;
+        row.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var externalItem = await GetWorkItemAsync(itemId, cancellationToken)
+            ?? throw new InvalidOperationException("External work item could not be reloaded after linking.");
+
+        return new CreateTicketFromExternalItemResponse(
+            externalItem.Id,
+            created.Id,
+            created.Title,
+            created.BoardId,
+            created.BoardName,
+            created.ApprovalStatus,
+            "Cortex ticket created and linked to the external item.",
+            externalItem);
+    }
+
+    private const int MaxTicketDescriptionLength = 4000;
+
+    private static string? CoalesceTrim(string? a, string? b)
+    {
+        if (!string.IsNullOrWhiteSpace(a))
+        {
+            return a.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(b))
+        {
+            return b.Trim();
+        }
+
+        return null;
+    }
+
+    private static string ResolvePriorityForExternalTicket(string? requestPriority, string? itemPriority)
+    {
+        static bool TryCanon(string? p, out string canon)
+        {
+            canon = "";
+            if (string.IsNullOrWhiteSpace(p))
+            {
+                return false;
+            }
+
+            foreach (var a in new[] { "Critical", "High", "Medium", "Low" })
+            {
+                if (string.Equals(a, p.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    canon = a;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (TryCanon(requestPriority, out var rp))
+        {
+            return rp;
+        }
+
+        if (TryCanon(itemPriority, out var ip))
+        {
+            return ip;
+        }
+
+        return "Medium";
+    }
+
+    private static string BuildExternalSourceContextBlock(ExternalWorkItem row, ExternalWorkSource source)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("External source context:");
+        sb.AppendLine($"- Source: {source.Name}");
+        sb.AppendLine($"- Provider: {source.Provider}");
+        sb.AppendLine($"- External item ID: {row.ExternalItemId}");
+        sb.AppendLine(
+            !string.IsNullOrWhiteSpace(row.ExternalUrl)
+                ? $"- External link: {row.ExternalUrl}"
+                : "- External link: —");
+        if (!string.IsNullOrWhiteSpace(row.AssignedTo))
+        {
+            sb.AppendLine($"- External assignee (from source): {row.AssignedTo}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(row.Requester))
+        {
+            sb.AppendLine($"- External requester (from source): {row.Requester}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string CombineUserDescriptionAndContext(string userBody, string contextBlock, int maxLen)
+    {
+        var sep = "\n\n";
+        var trimmedUser = userBody.Trim();
+        var candidate = trimmedUser + sep + contextBlock;
+        if (candidate.Length <= maxLen)
+        {
+            return candidate;
+        }
+
+        var reserve = contextBlock.Length + sep.Length + 40;
+        var allow = Math.Max(40, maxLen - reserve);
+        var trimmed = trimmedUser;
+        if (trimmed.Length > allow)
+        {
+            trimmed = trimmed[..allow] + "\n…(truncated)";
+        }
+
+        var result = trimmed + sep + contextBlock;
+        return result.Length <= maxLen ? result : result[..maxLen];
     }
 
     public async Task<IReadOnlyList<SharePointDiscoveredFieldResponse>?> DiscoverSharePointFieldsAsync(

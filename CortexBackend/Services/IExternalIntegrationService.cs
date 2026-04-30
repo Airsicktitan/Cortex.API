@@ -40,6 +40,11 @@ public interface IExternalIntegrationService
     Task<ExternalWorkItemResponse?> GetWorkItemAsync(int itemId, CancellationToken cancellationToken = default);
     Task<ExternalWorkItemResponse?> ManualUpsertWorkItemAsync(int sourceId, ManualUpsertExternalWorkItemRequest request, CancellationToken cancellationToken = default);
 
+    Task<CreateTicketFromExternalItemResponse?> CreateTicketFromExternalItemAsync(
+        int itemId,
+        CreateTicketFromExternalItemRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<SharePointDiscoveredFieldResponse>?> DiscoverSharePointFieldsAsync(int sourceId, CancellationToken cancellationToken = default);
 
     Task<ExternalSourceSyncResponse?> SyncSharePointSourceAsync(int sourceId, CancellationToken cancellationToken = default);

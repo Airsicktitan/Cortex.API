@@ -120,5 +120,13 @@ public static class IntegrationEndpoints
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status400BadRequest);
+
+        integrations.MapPost("/items/{itemId:int}/create-ticket", IntegrationHandlers.CreateTicketFromExternalWorkItem)
+            .WithName("CreateCortexTicketFromExternalWorkItem")
+            .Accepts<CreateTicketFromExternalItemRequest>("application/json")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status409Conflict);
     }
 }

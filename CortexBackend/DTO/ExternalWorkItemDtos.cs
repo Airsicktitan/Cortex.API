@@ -22,6 +22,32 @@ public record ExternalWorkItemResponse(
     bool IsDeleted,
     string? CortexTicketId);
 
+public record CreateTicketFromExternalItemRequest
+{
+    public int? BoardId { get; init; }
+    public string? Title { get; init; }
+    public string? Description { get; init; }
+    public string? Priority { get; init; }
+    public string? Category { get; init; }
+    public string? Department { get; init; }
+    public DateTime? DueDateUtc { get; init; }
+    public string? Requester { get; init; }
+    public string? AssignedTo { get; init; }
+
+    /// <summary>Reserved for future use; creation always follows standard new-ticket approval rules.</summary>
+    public bool? CreateAsPendingApproval { get; init; }
+}
+
+public record CreateTicketFromExternalItemResponse(
+    int ExternalItemId,
+    string CortexTicketId,
+    string TicketTitle,
+    int BoardId,
+    string BoardName,
+    ApprovalStatus ApprovalStatus,
+    string Message,
+    ExternalWorkItemResponse ExternalItem);
+
 public record ManualUpsertExternalWorkItemRequest
 {
     public string ExternalItemId { get; init; } = string.Empty;

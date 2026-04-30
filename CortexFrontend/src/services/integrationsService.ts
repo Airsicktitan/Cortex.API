@@ -1,6 +1,8 @@
 import type {
   CreateExternalWorkSourceInput,
   CreateIntegrationConnectionInput,
+  CreateTicketFromExternalItemInput,
+  CreateTicketFromExternalItemResponse,
   ExternalBoardMappingItemInput,
   ExternalBoardMappingResponse,
   ExternalFieldMappingItemInput,
@@ -238,6 +240,20 @@ export const integrationsService = {
       },
     );
     await ensureSuccess(response, "Unable to save external work item");
+    return response.json();
+  },
+
+  async createTicketFromExternalItem(
+    token: string,
+    itemId: number,
+    body: CreateTicketFromExternalItemInput,
+  ): Promise<CreateTicketFromExternalItemResponse> {
+    const response = await fetch(`${integrationsBase}/items/${itemId}/create-ticket`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify(body),
+    });
+    await ensureSuccess(response, "Unable to create Cortex ticket from this external item.");
     return response.json();
   },
 

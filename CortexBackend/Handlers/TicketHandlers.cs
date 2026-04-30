@@ -1592,147 +1592,35 @@ public static class TicketHandlers
         [FromServices] ITicketOutcomeService? ticketOutcomeService = null,
         [FromServices] ICortexAutonomyService? cortexAutonomyService = null)
     {
+        _ = ticketStatusService;
+        _ = notificationService;
+        _ = cortexDecisionService;
+
         try
         {
-            ValidateCreateTicketRequest(request);
-
-            var nextTicketId = await repo.GetNextTicketIdAsync();
-            var currentUser = await userContext.GetCurrentUserAsync();
-            var createStatus = "New";
-            var normalizedPriority = NormalizePriority(request.Priority!);
-
-            var selectedBoard = await ResolveBoardForCreateAsync(ticketBoardService, request.BoardId);
-            var storyPoints = ResolveStoryPoints(
-                selectedBoard,
-                request.StoryPoints,
-                null);
-            var routingFactors = BuildRoutingFactors(
-                boardId: selectedBoard.Id,
-                priority: normalizedPriority,
-                requesterDepartment: currentUser.Department,
-                requesterRole: currentUser.Role,
-                legacyDepartment: request.Department ?? currentUser.Department,
-                legacyTitle: request.Title);
-            var routingDecision = await ticketRoutingRuleService.EvaluateAsync(routingFactors);
-            var manualSynitiOwner = NormalizeOptionalValue(request.SynitiOwner);
-            var manualBusinessOwner = NormalizeOptionalValue(request.BusinessOwner);
-            var resolvedSynitiOwner = manualSynitiOwner
-                ?? routingDecision.RecommendedSynitiOwner;
-            var resolvedBusinessOwner = manualBusinessOwner
-                ?? routingDecision.RecommendedBusinessOwner
-                ?? GetDefaultBusinessOwner(currentUser);
-
-            var normalizedOwners = await TicketOwnerAssignmentValidation.NormalizeAndValidateAsync(
+            var createdTicketResponse = await CreateTicketCoreAsync(
+                request,
+                repo,
+                serviceScopeFactory,
+                userContext,
                 userRepository,
-                resolvedSynitiOwner,
-                resolvedBusinessOwner);
-            resolvedSynitiOwner = normalizedOwners.SynitiOwner;
-            resolvedBusinessOwner = normalizedOwners.BusinessOwner;
-
-            var ticket = new Ticket
-            {
-                Id = nextTicketId,
-                Title = request.Title.Trim(),
-                Description = request.Description!.Trim(),
-                Priority = normalizedPriority,
-                BoardId = selectedBoard.Id,
-                StoryPoints = storyPoints,
-                SynitiOwner = resolvedSynitiOwner,
-                BusinessOwner = resolvedBusinessOwner,
-                Status = createStatus,
-                ApprovalStatus = ApprovalStatus.PendingApproval,
-                CreatedBy = currentUser.Id,
-                CreatedDate = DateTime.UtcNow
-            };
-
-            await repo.CreateTicketAsync(ticket);
-            await repo.SaveChangesAsync();
-
-            await ticketRoutingRuleService.RecordDecisionAsync(ticket.Id, routingDecision);
-            if (manualSynitiOwner is not null || manualBusinessOwner is not null)
-            {
-                await ticketRoutingRuleService.RecordOverrideAsync(
-                    ticketId: ticket.Id,
-                    overriddenByUserId: currentUser.Id,
-                    previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
-                    previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
-                    newSynitiOwner: resolvedSynitiOwner,
-                    newBusinessOwner: resolvedBusinessOwner,
-                    reasonType: RoutingOverrideReasonType.ManualAssignment,
-                    reasonText: "Ticket created with manual owner selection.");
-            }
-
-            if (ticketOutcomeService is not null)
-            {
-                await ticketOutcomeService.RecordInitialAssignmentAsync(
-                    ticket,
-                    routingDecision.MatchedRuleId,
-                    CancellationToken.None);
-                if (manualSynitiOwner is not null || manualBusinessOwner is not null)
-                {
-                    await ticketOutcomeService.RecordOverrideAsync(
-                        ticket.Id,
-                        resolvedSynitiOwner,
-                        resolvedBusinessOwner,
-                        CancellationToken.None);
-                }
-            }
-
-            var createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
-
-            if (createdTicket is null)
-                return Results.Problem("Ticket was created but could not be retrieved.");
-
-            var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
-            var mappingContext = await mappingContextFactory.CreateAsync(
-                [createdTicket.CreatedBy],
-                null,
-                [createdTicket.BoardId]);
-            var createdTicketResponse = await MapTicketResponseAsync(
-                createdTicket,
-                slaConfigurations,
-                mappingContext,
+                slaConfigurationService,
+                ticketBoardService,
+                ticketRoutingRuleService,
+                ticketAuditService,
                 operationalRiskService,
-                reassignmentRecommendationService);
-            var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(createdTicket);
-
-            await ticketAuditService.RecordTicketCreatedAsync(
-                createdTicket,
-                currentUser,
-                request.ChangeReason);
-            await realtimeEventService.PublishAsync(new RealtimeEventMessage
-            {
-                EventType = "ticket.created",
-                TicketId = createdTicket.Id,
-                EntityId = createdTicket.Id,
-                AudienceUserIds = audienceUserIds,
-                Ticket = createdTicketResponse
-            });
-
-            LogTicketCreated(
-                logger,
-                createdTicket.Id,
-                currentUser.Id,
-                createdTicket.BoardId,
-                createdTicket.Status);
-
-            await RecordIntakeAssistSaveMetricAsync(
+                reassignmentRecommendationService,
+                realtimeEventService,
+                realtimeAudienceResolver,
+                mappingContextFactory,
                 workflowMetrics,
-                request.IntakeAssistSave,
-                createdTicket.Id,
+                logger,
+                ticketOutcomeService,
+                cortexAutonomyService,
                 CancellationToken.None);
 
-            QueuePostSubmitEnrichment(
-                serviceScopeFactory,
-                createdTicket.Id,
-                runTriage: true,
-                runEmbedding: true,
-                logger);
-
-            await TryRunAutonomyEvaluationAsync(cortexAutonomyService, createdTicket, logger, CancellationToken.None);
-
             return Results.Created(
-                $"/api/tickets/{createdTicket.Id}",
+                $"/api/tickets/{createdTicketResponse.Id}",
                 createdTicketResponse);
         }
         catch (ArgumentException exception)
@@ -1743,6 +1631,176 @@ public static class TicketHandlers
         {
             return Results.BadRequest(new { message = exception.Message });
         }
+        catch (InvalidOperationException exception)
+        {
+            return Results.Problem(exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Shared ticket creation path for HTTP and internal callers (e.g. integrations).
+    /// </summary>
+    internal static async Task<TicketResponse> CreateTicketCoreAsync(
+        CreateTicketRequest request,
+        ITicketRepository repo,
+        IServiceScopeFactory serviceScopeFactory,
+        IUserContextService userContext,
+        IUserRepository userRepository,
+        ISlaConfigurationService slaConfigurationService,
+        ITicketBoardService ticketBoardService,
+        ITicketRoutingRuleService ticketRoutingRuleService,
+        ITicketAuditService ticketAuditService,
+        IOperationalRiskService operationalRiskService,
+        IReassignmentRecommendationService reassignmentRecommendationService,
+        IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
+        IResponseMappingContextFactory mappingContextFactory,
+        IWorkflowMetricsService workflowMetrics,
+        ILogger<TicketHandlersLogCategory> logger,
+        ITicketOutcomeService? ticketOutcomeService,
+        ICortexAutonomyService? cortexAutonomyService,
+        CancellationToken cancellationToken)
+    {
+        ValidateCreateTicketRequest(request);
+
+        var nextTicketId = await repo.GetNextTicketIdAsync();
+        var currentUser = await userContext.GetCurrentUserAsync();
+        var createStatus = "New";
+        var normalizedPriority = NormalizePriority(request.Priority!);
+
+        var selectedBoard = await ResolveBoardForCreateAsync(ticketBoardService, request.BoardId);
+        var storyPoints = ResolveStoryPoints(
+            selectedBoard,
+            request.StoryPoints,
+            null);
+        var routingFactors = BuildRoutingFactors(
+            boardId: selectedBoard.Id,
+            priority: normalizedPriority,
+            requesterDepartment: currentUser.Department,
+            requesterRole: currentUser.Role,
+            legacyDepartment: request.Department ?? currentUser.Department,
+            legacyTitle: request.Title);
+        var routingDecision = await ticketRoutingRuleService.EvaluateAsync(routingFactors);
+        var manualSynitiOwner = NormalizeOptionalValue(request.SynitiOwner);
+        var manualBusinessOwner = NormalizeOptionalValue(request.BusinessOwner);
+        var resolvedSynitiOwner = manualSynitiOwner
+            ?? routingDecision.RecommendedSynitiOwner;
+        var resolvedBusinessOwner = manualBusinessOwner
+            ?? routingDecision.RecommendedBusinessOwner
+            ?? GetDefaultBusinessOwner(currentUser);
+
+        var normalizedOwners = await TicketOwnerAssignmentValidation.NormalizeAndValidateAsync(
+            userRepository,
+            resolvedSynitiOwner,
+            resolvedBusinessOwner);
+        resolvedSynitiOwner = normalizedOwners.SynitiOwner;
+        resolvedBusinessOwner = normalizedOwners.BusinessOwner;
+
+        var ticket = new Ticket
+        {
+            Id = nextTicketId,
+            Title = request.Title.Trim(),
+            Description = request.Description!.Trim(),
+            Priority = normalizedPriority,
+            BoardId = selectedBoard.Id,
+            StoryPoints = storyPoints,
+            SynitiOwner = resolvedSynitiOwner,
+            BusinessOwner = resolvedBusinessOwner,
+            Status = createStatus,
+            ApprovalStatus = ApprovalStatus.PendingApproval,
+            CreatedBy = currentUser.Id,
+            CreatedDate = DateTime.UtcNow
+        };
+
+        await repo.CreateTicketAsync(ticket);
+        await repo.SaveChangesAsync();
+
+        await ticketRoutingRuleService.RecordDecisionAsync(ticket.Id, routingDecision);
+        if (manualSynitiOwner is not null || manualBusinessOwner is not null)
+        {
+            await ticketRoutingRuleService.RecordOverrideAsync(
+                ticketId: ticket.Id,
+                overriddenByUserId: currentUser.Id,
+                previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
+                previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
+                newSynitiOwner: resolvedSynitiOwner,
+                newBusinessOwner: resolvedBusinessOwner,
+                reasonType: RoutingOverrideReasonType.ManualAssignment,
+                reasonText: "Ticket created with manual owner selection.");
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            await ticketOutcomeService.RecordInitialAssignmentAsync(
+                ticket,
+                routingDecision.MatchedRuleId,
+                cancellationToken);
+            if (manualSynitiOwner is not null || manualBusinessOwner is not null)
+            {
+                await ticketOutcomeService.RecordOverrideAsync(
+                    ticket.Id,
+                    resolvedSynitiOwner,
+                    resolvedBusinessOwner,
+                    cancellationToken);
+            }
+        }
+
+        var createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
+
+        if (createdTicket is null)
+        {
+            throw new InvalidOperationException("Ticket was created but could not be retrieved.");
+        }
+
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            [createdTicket.CreatedBy],
+            null,
+            [createdTicket.BoardId]);
+        var createdTicketResponse = await MapTicketResponseAsync(
+            createdTicket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(createdTicket);
+
+        await ticketAuditService.RecordTicketCreatedAsync(
+            createdTicket,
+            currentUser,
+            request.ChangeReason);
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "ticket.created",
+            TicketId = createdTicket.Id,
+            EntityId = createdTicket.Id,
+            AudienceUserIds = audienceUserIds,
+            Ticket = createdTicketResponse
+        });
+
+        LogTicketCreated(
+            logger,
+            createdTicket.Id,
+            currentUser.Id,
+            createdTicket.BoardId,
+            createdTicket.Status);
+
+        await RecordIntakeAssistSaveMetricAsync(
+            workflowMetrics,
+            request.IntakeAssistSave,
+            createdTicket.Id,
+            cancellationToken);
+
+        QueuePostSubmitEnrichment(
+            serviceScopeFactory,
+            createdTicket.Id,
+            runTriage: true,
+            runEmbedding: true,
+            logger);
+
+        await TryRunAutonomyEvaluationAsync(cortexAutonomyService, createdTicket, logger, cancellationToken);
+
+        return createdTicketResponse;
     }
 
     private static async Task TryRunAutonomyEvaluationAsync(

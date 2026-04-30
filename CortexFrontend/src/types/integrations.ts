@@ -1,5 +1,6 @@
 /** Align with backend enums (JSON string values as emitted by System.Text.Json + JsonStringEnumConverter). */
 
+import type { ApprovalStatus } from "./ticket";
 export type IntegrationProvider = "SharePoint" | "Jira" | "ServiceNow";
 
 export type IntegrationAuthMode = "Manual" | "OAuth" | "AppRegistration";
@@ -195,6 +196,34 @@ export interface ExternalWorkItemResponse {
   lastSeenUtc: string;
   isDeleted: boolean;
   cortexTicketId?: string | null;
+}
+
+export const EXTERNAL_TICKET_PRIORITIES = ["Critical", "High", "Medium", "Low"] as const;
+
+export type ExternalTicketPriority = (typeof EXTERNAL_TICKET_PRIORITIES)[number];
+
+export interface CreateTicketFromExternalItemInput {
+  boardId?: number | null;
+  title?: string | null;
+  description?: string | null;
+  priority?: string | null;
+  category?: string | null;
+  department?: string | null;
+  dueDateUtc?: string | null;
+  requester?: string | null;
+  assignedTo?: string | null;
+  createAsPendingApproval?: boolean | null;
+}
+
+export interface CreateTicketFromExternalItemResponse {
+  externalItemId: number;
+  cortexTicketId: string;
+  ticketTitle: string;
+  boardId: number;
+  boardName: string;
+  approvalStatus: ApprovalStatus;
+  message: string;
+  externalItem: ExternalWorkItemResponse;
 }
 
 export interface ManualUpsertExternalWorkItemInput {

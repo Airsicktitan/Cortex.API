@@ -261,6 +261,57 @@ public class ExternalIntegrationServiceTests
         Assert.Equal(ticket.Id, row.CortexTicketId);
     }
 
+    [Fact]
+    public async Task ManualUpsert_WithoutCortexTicketId_PreservesExistingLink()
+    {
+        await using var context = CreateContext();
+        SeedBoard(context);
+        var user = new User
+        {
+            DisplayName = "U",
+            Email = "u@test",
+            Role = Auth0Roles.Admin,
+            CreatedDate = DateTime.UtcNow,
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+        var boardId = await context.TicketBoardDefinitions.Select(b => b.Id).FirstAsync();
+        var ticket = new Ticket
+        {
+            Id = "KEEP-LINK-1",
+            Title = "Cortex ticket",
+            Description = "D",
+            Status = "New",
+            Priority = "Medium",
+            BoardId = boardId,
+            CreatedBy = user.Id,
+            LastModifiedBy = user.Id,
+            CreatedDate = DateTime.UtcNow,
+        };
+        context.Tickets.Add(ticket);
+        await context.SaveChangesAsync();
+
+        var service = CreateIntegrationService(context);
+        var source = await CreateSharePointSourceAsync(service);
+
+        await service.ManualUpsertWorkItemAsync(source!.Id, new ManualUpsertExternalWorkItemRequest
+        {
+            ExternalItemId = "keep-link",
+            Title = "External",
+            CortexTicketId = ticket.Id,
+        });
+
+        await service.ManualUpsertWorkItemAsync(source.Id, new ManualUpsertExternalWorkItemRequest
+        {
+            ExternalItemId = "keep-link",
+            Title = "Updated external title",
+        });
+
+        var row = await context.ExternalWorkItems.SingleAsync();
+        Assert.Equal(ticket.Id, row.CortexTicketId);
+        Assert.Equal("Updated external title", row.Title);
+    }
+
     private static void SeedBoard(CortexDbContext context)
     {
         context.TicketBoardDefinitions.Add(new TicketBoardDefinition

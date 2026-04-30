@@ -4,6 +4,7 @@ import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type {
   CreateExternalWorkSourceInput,
   CreateIntegrationConnectionInput,
+  CreateTicketFromExternalItemInput,
   CortexField,
   ExternalBoardMappingItemInput,
   ExternalBoardMappingMode,
@@ -27,6 +28,7 @@ import {
   AUTH_MODES,
   BOARD_MAPPING_MODES,
   CORTEX_FIELDS,
+  EXTERNAL_TICKET_PRIORITIES,
   INTEGRATION_PROVIDERS,
   SOURCE_TYPES,
   SYNC_MODES,
@@ -75,6 +77,34 @@ function formatWhen(iso?: string | null): string {
   } catch {
     return iso;
   }
+}
+
+function toDatetimeLocalInput(iso?: string | null): string {
+  if (!iso?.trim()) {
+    return "";
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function normalizeExternalPriority(p?: string | null): string {
+  if (!p?.trim()) {
+    return "Medium";
+  }
+  const hit = EXTERNAL_TICKET_PRIORITIES.find(
+    (x) => x.toLowerCase() === p.trim().toLowerCase(),
+  );
+  return hit ?? "Medium";
+}
+
+/** Readable label for a linked Cortex ticket id in integrations UI. */
+function formatLinkedTicketDisplay(ticketId: string): string {
+  const id = ticketId.trim();
+  return id ? `Ticket #${id}` : "—";
 }
 
 /** Display labels only; API values stay as enum strings. */
@@ -229,12 +259,14 @@ export interface IntegrationsPageProps {
   ticketBoards: TicketBoardDefinition[];
   ticketBoardLoading: boolean;
   onRefreshTicketBoards: () => void;
+  onOpenCortexTicketById?: (ticketId: string) => void | Promise<void>;
 }
 
 export default function IntegrationsPage({
   ticketBoards,
   ticketBoardLoading,
   onRefreshTicketBoards,
+  onOpenCortexTicketById,
 }: IntegrationsPageProps) {
   const { getAccessTokenSilently } = useAuth0();
   const getToken = useCallback(async () => {
@@ -272,6 +304,22 @@ export default function IntegrationsPage({
   const [itemsError, setItemsError] = useState<string | null>(null);
   const [itemDetail, setItemDetail] = useState<ExternalWorkItemResponse | null>(null);
 
+  const [createTicketOpen, setCreateTicketOpen] = useState(false);
+  const [createTicketFor, setCreateTicketFor] = useState<ExternalWorkItemResponse | null>(null);
+  const [createTicketDraft, setCreateTicketDraft] = useState({
+    title: "",
+    description: "",
+    boardId: "" as number | "",
+    priority: "Medium",
+    dueDateUtc: "",
+    department: "",
+    category: "",
+    requester: "",
+    assignedTo: "",
+  });
+  const [createTicketSaving, setCreateTicketSaving] = useState(false);
+  const [createTicketError, setCreateTicketError] = useState<string | null>(null);
+
   const [connectionModal, setConnectionModal] = useState<
     | { mode: "create"; draft: CreateIntegrationConnectionInput }
     | { mode: "edit"; id: number; draft: UpdateIntegrationConnectionInput & { provider: IntegrationProvider } }
@@ -299,7 +347,6 @@ export default function IntegrationsPage({
     dueDateUtc: "",
     lastModifiedUtc: "",
     rawJson: "",
-    cortexTicketId: "",
   });
   const [upsertSaving, setUpsertSaving] = useState(false);
 
@@ -553,6 +600,97 @@ export default function IntegrationsPage({
     setBanner({ type, text });
     window.setTimeout(() => setBanner(null), 6000);
   };
+
+  const startCreateCortexTicket = useCallback(
+    async (item: ExternalWorkItemResponse) => {
+      if (selectedSourceId === null) {
+        showBanner("err", "Select an external source first.");
+        return;
+      }
+      setCreateTicketError(null);
+      let defaultBoard: number | undefined;
+      try {
+        const token = await getToken();
+        const maps = await integrationsService.getBoardMappings(token, selectedSourceId);
+        defaultBoard = maps.find((m) => m.isDefault)?.boardId ?? maps[0]?.boardId;
+      } catch {
+        /* board dropdown still populated from ticketBoards */
+      }
+      const enabledBoards = ticketBoards.filter((b) => b.isEnabled);
+      const boardId =
+        defaultBoard !== undefined && enabledBoards.some((b) => b.id === defaultBoard)
+          ? defaultBoard
+          : (enabledBoards[0]?.id ?? "");
+      setCreateTicketDraft({
+        title: item.title ?? "",
+        description: item.description ?? "",
+        boardId,
+        priority: normalizeExternalPriority(item.priority),
+        dueDateUtc: toDatetimeLocalInput(item.dueDateUtc),
+        department: item.department ?? "",
+        category: item.category ?? "",
+        requester: item.requester ?? "",
+        assignedTo: item.assignedTo ?? "",
+      });
+      setCreateTicketFor(item);
+      setCreateTicketOpen(true);
+    },
+    [getToken, selectedSourceId, ticketBoards],
+  );
+
+  const submitCreateCortexTicket = useCallback(async () => {
+    if (!createTicketFor || selectedSourceId === null) {
+      return;
+    }
+    if (createTicketDraft.boardId === "" || createTicketDraft.boardId === 0) {
+      setCreateTicketError("Select a Cortex board.");
+      return;
+    }
+    if (!createTicketDraft.title.trim()) {
+      setCreateTicketError("Title is required.");
+      return;
+    }
+    setCreateTicketSaving(true);
+    setCreateTicketError(null);
+    try {
+      const token = await getToken();
+      const body: CreateTicketFromExternalItemInput = {
+        boardId: createTicketDraft.boardId,
+        title: createTicketDraft.title.trim(),
+        description: createTicketDraft.description.trim() || null,
+        priority: createTicketDraft.priority,
+        department: createTicketDraft.department.trim() || null,
+        category: createTicketDraft.category.trim() || null,
+        requester: createTicketDraft.requester.trim() || null,
+        assignedTo: createTicketDraft.assignedTo.trim() || null,
+        dueDateUtc: createTicketDraft.dueDateUtc
+          ? new Date(createTicketDraft.dueDateUtc).toISOString()
+          : null,
+      };
+      const result = await integrationsService.createTicketFromExternalItem(
+        token,
+        createTicketFor.id,
+        body,
+      );
+      showBanner("ok", result.message);
+      setCreateTicketOpen(false);
+      setCreateTicketFor(null);
+      await loadItems(selectedSourceId);
+      setItemDetail(result.externalItem);
+    } catch (e) {
+      setCreateTicketError(
+        getUserFacingErrorMessage(e, "Unable to create Cortex ticket from this external item."),
+      );
+    } finally {
+      setCreateTicketSaving(false);
+    }
+  }, [
+    createTicketDraft,
+    createTicketFor,
+    getToken,
+    loadItems,
+    selectedSourceId,
+  ]);
 
   const openCreateConnection = () => {
     setConnectionModal({
@@ -839,7 +977,6 @@ export default function IntegrationsPage({
           ? new Date(upsertDraft.lastModifiedUtc).toISOString()
           : null,
         rawJson: raw,
-        cortexTicketId: upsertDraft.cortexTicketId?.trim() || null,
       };
       await integrationsService.manualUpsertWorkItem(token, selectedSourceId, body);
       setUpsertOpen(false);
@@ -859,7 +996,6 @@ export default function IntegrationsPage({
         dueDateUtc: "",
         lastModifiedUtc: "",
         rawJson: "",
-        cortexTicketId: "",
       });
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to save work item."));
@@ -1690,7 +1826,7 @@ export default function IntegrationsPage({
                             <td className="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-slate-400">{formatWhen(it.lastModifiedUtc)}</td>
                             <td className="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-slate-400">{formatWhen(it.lastSeenUtc)}</td>
                             <td className="min-w-[160px] whitespace-nowrap px-3 py-2 text-gray-700 dark:text-slate-300">
-                              {it.cortexTicketId ? it.cortexTicketId : "Not linked"}
+                              {it.cortexTicketId ? formatLinkedTicketDisplay(it.cortexTicketId) : "Not linked"}
                             </td>
                             <td className="whitespace-nowrap px-3 py-2">
                               {it.externalUrl ? (
@@ -1991,13 +2127,201 @@ export default function IntegrationsPage({
                     "—"
                   )}
                 </DetailField>
-                <DetailField label="Linked Cortex ticket">
-                  {itemDetail.cortexTicketId ? itemDetail.cortexTicketId : "Not linked"}
-                </DetailField>
+                <div className="border-b border-gray-100 py-3 last:border-b-0 dark:border-slate-800">
+                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    Linked Cortex ticket
+                  </div>
+                  {itemDetail.cortexTicketId ? (
+                    <div className="mt-2 space-y-2">
+                      <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
+                        {formatLinkedTicketDisplay(itemDetail.cortexTicketId)}
+                      </p>
+                      {onOpenCortexTicketById ? (
+                        <button
+                          type="button"
+                          onClick={() => void onOpenCortexTicketById(itemDetail.cortexTicketId!)}
+                          className="text-sm font-medium text-cortex-blue hover:underline dark:text-cortex-cyan"
+                        >
+                          Open ticket
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-2 space-y-2">
+                      <p className="text-sm text-gray-600 dark:text-slate-400">Not linked</p>
+                      <ConfigPrimaryButton
+                        className="!py-1.5"
+                        onClick={() => void startCreateCortexTicket(itemDetail)}
+                      >
+                        Create Cortex ticket
+                      </ConfigPrimaryButton>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="mt-5 rounded-lg border border-sky-200 bg-sky-50/90 px-3 py-3 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
                 Cortex insight over external work items will appear here after live sync and analysis are enabled.
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {createTicketOpen && createTicketFor ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-ticket-from-external-title"
+          >
+            <h3
+              id="create-ticket-from-external-title"
+              className="text-lg font-semibold text-gray-900 dark:text-slate-100"
+            >
+              Create Cortex ticket
+            </h3>
+            <p className="mt-2 text-sm text-gray-600 dark:text-slate-400">
+              Creating a Cortex ticket does not update the external source. The ticket will follow the normal Cortex
+              approval process.
+            </p>
+            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/90 px-3 py-3 text-xs text-gray-800 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+              <p className="font-medium text-gray-900 dark:text-slate-100">External source context</p>
+              <ul className="mt-2 list-inside list-disc space-y-0.5">
+                <li>
+                  Source: {createTicketFor.sourceName} ({createTicketFor.provider})
+                </li>
+                <li className="font-mono">External item ID: {createTicketFor.externalItemId}</li>
+                <li>
+                  {createTicketFor.externalUrl ? (
+                    <a
+                      href={createTicketFor.externalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-cortex-blue hover:underline dark:text-cortex-cyan"
+                    >
+                      External link
+                    </a>
+                  ) : (
+                    "No external link on this item"
+                  )}
+                </li>
+              </ul>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Title</label>
+                <input
+                  className={configFieldClass}
+                  value={createTicketDraft.title}
+                  onChange={(e) => setCreateTicketDraft({ ...createTicketDraft, title: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Description</label>
+                <textarea
+                  className={`${configFieldClass} min-h-[100px]`}
+                  value={createTicketDraft.description}
+                  onChange={(e) => setCreateTicketDraft({ ...createTicketDraft, description: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Board</label>
+                <select
+                  className={configFieldClass}
+                  value={createTicketDraft.boardId === "" ? "" : String(createTicketDraft.boardId)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCreateTicketDraft({
+                      ...createTicketDraft,
+                      boardId: v ? Number(v) : "",
+                    });
+                  }}
+                  disabled={ticketBoardLoading || ticketBoards.filter((b) => b.isEnabled).length === 0}
+                >
+                  <option value="">— Select board —</option>
+                  {ticketBoards
+                    .filter((b) => b.isEnabled)
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Priority</label>
+                <select
+                  className={configFieldClass}
+                  value={createTicketDraft.priority}
+                  onChange={(e) => setCreateTicketDraft({ ...createTicketDraft, priority: e.target.value })}
+                >
+                  {EXTERNAL_TICKET_PRIORITIES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Due date</label>
+                <input
+                  className={configFieldClass}
+                  type="datetime-local"
+                  value={createTicketDraft.dueDateUtc}
+                  onChange={(e) => setCreateTicketDraft({ ...createTicketDraft, dueDateUtc: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Department</label>
+                <input
+                  className={configFieldClass}
+                  value={createTicketDraft.department}
+                  onChange={(e) => setCreateTicketDraft({ ...createTicketDraft, department: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Category</label>
+                <input
+                  className={configFieldClass}
+                  value={createTicketDraft.category}
+                  onChange={(e) => setCreateTicketDraft({ ...createTicketDraft, category: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Requester</label>
+                <input
+                  className={configFieldClass}
+                  value={createTicketDraft.requester}
+                  onChange={(e) => setCreateTicketDraft({ ...createTicketDraft, requester: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Assigned to</label>
+                <input
+                  className={configFieldClass}
+                  value={createTicketDraft.assignedTo}
+                  onChange={(e) => setCreateTicketDraft({ ...createTicketDraft, assignedTo: e.target.value })}
+                />
+              </div>
+            </div>
+            {createTicketError ? (
+              <p className="mt-3 text-sm text-red-600 dark:text-red-400">{createTicketError}</p>
+            ) : null}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <ConfigSecondaryButton
+                onClick={() => {
+                  setCreateTicketOpen(false);
+                  setCreateTicketFor(null);
+                  setCreateTicketError(null);
+                }}
+                disabled={createTicketSaving}
+              >
+                Cancel
+              </ConfigSecondaryButton>
+              <ConfigPrimaryButton onClick={() => void submitCreateCortexTicket()} disabled={createTicketSaving}>
+                {createTicketSaving ? "Creating…" : "Create ticket"}
+              </ConfigPrimaryButton>
             </div>
           </div>
         </div>
@@ -2025,7 +2349,6 @@ export default function IntegrationsPage({
                   ["category", "Category", "text"],
                   ["dueDateUtc", "Due (local)", "datetime-local"],
                   ["lastModifiedUtc", "Last modified (local)", "datetime-local"],
-                  ["cortexTicketId", "Linked Cortex ticket ID", "text"],
                 ] as const
               ).map(([key, label, type]) => (
                 <div key={key}>
