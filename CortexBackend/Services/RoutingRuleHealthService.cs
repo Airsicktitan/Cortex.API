@@ -6,8 +6,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Cortex.API.Services;
 
 /// <summary>
-/// Tier 11 read-only aggregates. Reuses <see cref="ICortexLearningService.GetRoutingRuleEffectivenessAsync"/> for parity
-/// with Cortex learning signals, then supplements with explicit outcome counts aligned to those tickets.
+/// Tier 11 read-only aggregates. Effectiveness aggregates come from <see cref="ICortexLearningService.GetRoutingRuleEffectivenessAsync"/>
+/// with cache bypass so new routing matches are reflected immediately in match counts alongside <see cref="TicketRoutingDecision"/> queries.
 ///
 /// LIMITATION (documented): Outcomes keyed only to tickets surfaced through routing decisions for this rule; if
 /// TicketOutcome.MatchedRuleId diverges mid-lifecycle the ticket set still aligns with Tier 6 learning aggregates.
@@ -33,13 +33,17 @@ public sealed class RoutingRuleHealthService(
 
         foreach (var rule in ruleEntities.OrderBy(r => r.RulePriority).ThenBy(r => r.Id))
         {
-            var eff = await cortexLearningService.GetRoutingRuleEffectivenessAsync(rule.Id, cancellationToken);
-
             var ticketIds = await db.TicketRoutingDecisions.AsNoTracking()
                 .Where(d => d.MatchedRuleId == rule.Id)
                 .Select(d => d.TicketId)
                 .Distinct()
                 .ToListAsync(cancellationToken);
+
+            // Bypass learning cache — otherwise "empty first" caches hide new routing decisions and show MatchCount 0 while LastMatched exists.
+            var eff = await cortexLearningService.GetRoutingRuleEffectivenessAsync(
+                rule.Id,
+                cancellationToken,
+                bypassCache: true);
 
             var returnedForDetailCount = 0;
 
@@ -56,7 +60,8 @@ public sealed class RoutingRuleHealthService(
                     .CountAsync(cancellationToken);
             }
 
-            var matchCount = eff.TotalDecisions;
+            // Distinct tickets with a persisted decision row for this rule (not cached effectiveness totals alone).
+            var matchCount = ticketIds.Count;
             var terminalCount = eff.OutcomeSampleCount;
             var overridePct = matchCount == 0 ? 0 : eff.OverridePercent;
             var slaSuccessPct = eff.SlaSuccessPercent;

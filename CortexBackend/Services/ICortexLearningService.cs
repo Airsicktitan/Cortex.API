@@ -28,7 +28,8 @@ public interface ICortexLearningService
 
     Task<RoutingRuleEffectiveness> GetRoutingRuleEffectivenessAsync(
         int ruleId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool bypassCache = false);
 
     Task<List<CortexLearningSignalDto>> GetLearningSignalsAsync(
         string ticketId,

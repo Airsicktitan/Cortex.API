@@ -27,7 +27,8 @@ public sealed class RoutingRuleHealthRowDto
     public bool IsEnabled { get; init; }
 
     /// <summary>
-    /// Distinct tickets that have a persisted routing decision with this matched rule (same semantics as Cortex learning aggregates).
+    /// Distinct tickets with any persisted <see cref="TicketRoutingDecision"/> for this matched rule (fresh DB count —
+    /// not cached learning totals alone).
     /// </summary>
     public int MatchCount { get; init; }
 
