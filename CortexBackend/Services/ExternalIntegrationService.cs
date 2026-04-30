@@ -5,6 +5,7 @@ using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Services.Integrations;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Cortex.API.Services;
@@ -15,13 +16,19 @@ public sealed class ExternalIntegrationService(
     IEnumerable<IExternalWorkSourceAdapter> workSourceAdapters,
     IOptions<SharePointGraphOptions> sharePointGraphOptions,
     ITicketCreationApplicationService ticketCreationApplicationService,
-    ITicketBoardService ticketBoardService) : IExternalIntegrationService
+    ITicketBoardService ticketBoardService,
+    IUserContextService userContextService,
+    ITicketAuditService ticketAuditService,
+    ILogger<ExternalIntegrationService> logger) : IExternalIntegrationService
 {
     private readonly CortexDbContext _db = db;
     private readonly ISharePointGraphClient _graph = sharePointGraphClient;
     private readonly SharePointGraphOptions _sharePointGraphOptions = sharePointGraphOptions.Value;
     private readonly ITicketCreationApplicationService _ticketCreation = ticketCreationApplicationService;
     private readonly ITicketBoardService _ticketBoardService = ticketBoardService;
+    private readonly IUserContextService _userContext = userContextService;
+    private readonly ITicketAuditService _ticketAudit = ticketAuditService;
+    private readonly ILogger<ExternalIntegrationService> _logger = logger;
     private readonly IExternalWorkSourceAdapter _sharePointWorkSourceAdapter = workSourceAdapters
             .FirstOrDefault(a => a.Provider == IntegrationProvider.SharePoint)
         ?? throw new InvalidOperationException(
@@ -699,6 +706,27 @@ public sealed class ExternalIntegrationService(
         row.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Ticket + "Created" audit are already committed by CreateTicketAsync; linking is committed above.
+        // If audit recording fails, we log and continue so the integration response remains consistent with
+        // persisted ticket + link (same pattern as other best-effort telemetry).
+        try
+        {
+            var actor = await _userContext.GetCurrentUserAsync(null, cancellationToken);
+            await _ticketAudit.RecordExternalItemPromotedToTicketAsync(
+                created.Id,
+                row,
+                source,
+                actor);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to write ExternalItemPromotedToTicket audit for Cortex ticket {TicketId}, external work item {ExternalWorkItemId}.",
+                created.Id,
+                row.Id);
+        }
+
         var externalItem = await GetWorkItemAsync(itemId, cancellationToken)
             ?? throw new InvalidOperationException("External work item could not be reloaded after linking.");
 
@@ -985,6 +1013,50 @@ public sealed class ExternalIntegrationService(
             errors,
             items.Count,
             message);
+    }
+
+    public async Task<IReadOnlyList<TicketExternalSourceContextItemDto>> GetExternalSourceContextsForTicketAsync(
+        string ticketId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(ticketId))
+        {
+            return [];
+        }
+
+        var normalized = ticketId.Trim();
+        var rows = await _db.ExternalWorkItems.AsNoTracking()
+            .Include(i => i.ExternalWorkSource)
+            .Where(i => i.CortexTicketId == normalized && !i.IsDeleted)
+            .OrderByDescending(i => i.LastSeenUtc)
+            .ThenByDescending(i => i.Id)
+            .ToListAsync(cancellationToken);
+
+        List<TicketExternalSourceContextItemDto> list = new(rows.Count);
+        foreach (var i in rows)
+        {
+            var source = i.ExternalWorkSource;
+            list.Add(new TicketExternalSourceContextItemDto(
+                normalized,
+                i.Id,
+                i.ExternalItemId,
+                string.IsNullOrWhiteSpace(i.Title) ? null : i.Title.Trim(),
+                string.IsNullOrWhiteSpace(i.Status) ? null : i.Status.Trim(),
+                string.IsNullOrWhiteSpace(i.Priority) ? null : i.Priority.Trim(),
+                i.Provider,
+                source.Name.Trim(),
+                source.SourceType,
+                string.IsNullOrWhiteSpace(i.ExternalUrl) ? null : i.ExternalUrl.Trim(),
+                string.IsNullOrWhiteSpace(i.Requester) ? null : i.Requester.Trim(),
+                string.IsNullOrWhiteSpace(i.AssignedTo) ? null : i.AssignedTo.Trim(),
+                string.IsNullOrWhiteSpace(i.Department) ? null : i.Department.Trim(),
+                string.IsNullOrWhiteSpace(i.Category) ? null : i.Category.Trim(),
+                i.LastModifiedUtc,
+                i.LastSeenUtc,
+                null));
+        }
+
+        return list;
     }
 
     public async Task<ExternalSourceReadinessResponse?> GetSourceReadinessAsync(

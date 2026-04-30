@@ -23,6 +23,8 @@ function getActionBadgeClass(action: string) {
       return "bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200";
     case "Reactivated":
       return "bg-violet-100 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200";
+    case "ExternalItemPromotedToTicket":
+      return "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200";
     case "CommentAdded":
       return "bg-cyan-100 text-cyan-800 dark:bg-cyan-950/30 dark:text-cyan-200";
     case "AttachmentAdded":

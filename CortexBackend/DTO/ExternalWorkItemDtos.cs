@@ -48,6 +48,27 @@ public record CreateTicketFromExternalItemResponse(
     string Message,
     ExternalWorkItemResponse ExternalItem);
 
+/// <summary>Read model for ticket modal / audit: one row per linked <see cref="ExternalWorkItem"/>.</summary>
+/// <remarks>Intentionally excludes <c>RawJson</c> and integration secrets.</remarks>
+public record TicketExternalSourceContextItemDto(
+    string TicketId,
+    int ExternalWorkItemId,
+    string ExternalItemId,
+    string? ExternalTitle,
+    string? ExternalStatus,
+    string? ExternalPriority,
+    IntegrationProvider Provider,
+    string SourceName,
+    ExternalSourceType SourceType,
+    string? ExternalUrl,
+    string? Requester,
+    string? AssignedTo,
+    string? Department,
+    string? Category,
+    DateTime? LastModifiedUtc,
+    DateTime LastSeenUtc,
+    string? Message);
+
 public record ManualUpsertExternalWorkItemRequest
 {
     public string ExternalItemId { get; init; } = string.Empty;

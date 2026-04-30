@@ -49,6 +49,8 @@ export interface CortexTabbedPanelProps {
   reviewSlot?: ReactNode;
   intakeSlot?: ReactNode;
   evidenceSlot?: ReactNode;
+  /** External work-item provenance (read-only); shown under Cortex intro, above tabs. */
+  sourceContextSlot?: ReactNode;
 }
 
 export function CortexTabbedPanel({
@@ -63,6 +65,7 @@ export function CortexTabbedPanel({
   reviewSlot,
   intakeSlot,
   evidenceSlot,
+  sourceContextSlot,
 }: CortexTabbedPanelProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [activeTab, setActiveTab] = useState<CortexTab>("decision");
@@ -165,6 +168,9 @@ export function CortexTabbedPanel({
           Decision controls routing and reviewer actions. Risk, Intake, Evidence, and History
           provide advisory context.
         </p>
+        {sourceContextSlot ? (
+          <div className="mb-3">{sourceContextSlot}</div>
+        ) : null}
         <div
           className="-mb-px flex flex-wrap gap-y-1"
           role="tablist"

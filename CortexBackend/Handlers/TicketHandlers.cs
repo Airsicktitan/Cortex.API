@@ -339,6 +339,31 @@ public static class TicketHandlers
             decisionImpactService));
     }
 
+    public static async Task<IResult> GetTicketExternalSourceContext(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] IExternalIntegrationService externalIntegrationService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var contexts = await externalIntegrationService.GetExternalSourceContextsForTicketAsync(
+            ticket.Id,
+            cancellationToken);
+        return Results.Ok(contexts);
+    }
+
     public static async Task<IResult> GetTicketHistory(
         string id,
         ITicketRepository repo,

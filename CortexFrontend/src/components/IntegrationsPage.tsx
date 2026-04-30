@@ -2145,6 +2145,10 @@ export default function IntegrationsPage({
                           Open ticket
                         </button>
                       ) : null}
+                      <p className="text-[11px] leading-snug text-gray-500 dark:text-slate-500">
+                        Cortex ticket was created manually and linked to this external item. The external
+                        source was not updated.
+                      </p>
                     </div>
                   ) : (
                     <div className="mt-2 space-y-2">

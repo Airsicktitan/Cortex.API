@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -45,6 +46,7 @@ import AddComment from "./AddComment";
 import TicketHistoryModal from "./TicketHistoryModal";
 import UserCombobox from "./UserCombobox";
 import { CortexTabbedPanel } from "./CortexTabbedPanel";
+import { ExternalSourceContextCard } from "./ExternalSourceContextCard";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
@@ -83,6 +85,7 @@ import {
   getWaitingOnLabel,
 } from "../utils/ticketActivity";
 import type { CortexSlaRisk } from "../types/cortexRisk";
+import type { TicketExternalSourceContextItem } from "../types/integrations";
 
 const API_AUDIENCE = "https://cortex-api";
 const MAX_TITLE_LENGTH = 200;
@@ -397,6 +400,7 @@ export default function TicketModal({
   );
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [isTicketDetailsOpen, setIsTicketDetailsOpen] = useState(false);
+  const titleFieldId = useId();
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   // Intake-assist ("Improve for review") state. Stateless on the server;
@@ -464,6 +468,13 @@ export default function TicketModal({
   const lastServerTicketPriorityRef = useRef(ticket.priority);
   const [pendingNewCommentsCount, setPendingNewCommentsCount] = useState(0);
   const [latestRisk, setLatestRisk] = useState<CortexSlaRisk | null>(null);
+  const [externalSourceContexts, setExternalSourceContexts] = useState<
+    TicketExternalSourceContextItem[]
+  >([]);
+  const [externalSourceContextLoading, setExternalSourceContextLoading] =
+    useState(false);
+  const [externalSourceContextError, setExternalSourceContextError] =
+    useState(false);
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
     [currentUser?.roles, currentUser?.role],
@@ -602,6 +613,44 @@ export default function TicketModal({
     });
   }, [getAccessTokenSilently]);
 
+  useEffect(() => {
+    if (!isOpen || !ticket.id) {
+      setExternalSourceContexts([]);
+      setExternalSourceContextError(false);
+      setExternalSourceContextLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setExternalSourceContextLoading(true);
+    setExternalSourceContextError(false);
+
+    void (async () => {
+      try {
+        const token = await getApiToken();
+        const list = await ticketService.getExternalSourceContexts(
+          ticket.id,
+          token,
+          controller.signal,
+        );
+        if (!controller.signal.aborted) {
+          setExternalSourceContexts(list);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setExternalSourceContexts([]);
+          setExternalSourceContextError(true);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setExternalSourceContextLoading(false);
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [isOpen, ticket.id, getApiToken]);
+
   /** Merge a server ticket into modal form state after save (stay-open edit path). */
   const applyServerTicketToForm = useCallback(
     (saved: Ticket) => {
@@ -676,6 +725,21 @@ export default function TicketModal({
   const showAiTriageColumn = useMemo(
     () => approvalDisplayContext === "reviewer" && Boolean(ticket.id),
     [approvalDisplayContext, ticket.id],
+  );
+
+  const externalSourceContextSection = useMemo(
+    () => (
+      <ExternalSourceContextCard
+        contexts={externalSourceContexts}
+        loading={externalSourceContextLoading}
+        loadError={externalSourceContextError}
+      />
+    ),
+    [
+      externalSourceContexts,
+      externalSourceContextLoading,
+      externalSourceContextError,
+    ],
   );
 
   useEffect(() => {
@@ -2453,21 +2517,36 @@ export default function TicketModal({
                   {/* Header */}
                   <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
                     <div className="min-w-0 flex-1">
-                      <label className="block text-lg font-medium text-gray-700 dark:text-slate-300 mb-2">
-                        Enter Ticket Title
-                        {isCreateMode && (
-                          <span className="ml-1 text-red-600 dark:text-red-400">
-                            *
-                          </span>
-                        )}
-                      </label>
+                      {(isCreateMode || !title.trim()) && (
+                        <label
+                          htmlFor={titleFieldId}
+                          className="mb-2 block text-lg font-medium text-gray-700 dark:text-slate-300"
+                        >
+                          Enter Ticket Title
+                          {isCreateMode && (
+                            <span className="ml-1 text-red-600 dark:text-red-400">
+                              *
+                            </span>
+                          )}
+                        </label>
+                      )}
                       <input
+                        id={titleFieldId}
                         ref={titleInputRef}
                         type="text"
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                         readOnly={formReadOnly}
-                        placeholder="Enter ticket title..."
+                        placeholder={
+                          isCreateMode || !title.trim()
+                            ? "Enter ticket title..."
+                            : undefined
+                        }
+                        aria-label={
+                          !isCreateMode && title.trim()
+                            ? "Ticket title"
+                            : undefined
+                        }
                         className="mb-1 w-full min-w-0 truncate border-b border-gray-300 bg-transparent text-lg font-bold leading-tight text-gray-900 focus:border-cortex-blue focus:outline-none read-only:cursor-not-allowed read-only:opacity-80 dark:border-slate-700 dark:text-slate-100 sm:text-xl"
                       />
                       {isCreateMode && validationErrors.title && (
@@ -2643,6 +2722,10 @@ export default function TicketModal({
                       </div>
                     </div>
                   ) : null}
+
+                  {approvalDisplayContext !== "reviewer" && ticket.id
+                    ? externalSourceContextSection
+                    : null}
 
                   {/* Description */}
                   <div className="rounded-md border border-gray-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40">
@@ -3311,6 +3394,11 @@ export default function TicketModal({
                   riskLevel={latestRisk?.riskLevel ?? null}
                   onRiskReady={setLatestRisk}
                   onOpenSourceTicket={onOpenSourceTicket}
+                  sourceContextSlot={
+                    approvalDisplayContext === "reviewer"
+                      ? externalSourceContextSection
+                      : undefined
+                  }
                   onReassignmentApplied={(updatedTicket) => {
                     applyServerTicketToForm(updatedTicket);
                     onTriageApplySuccess?.(updatedTicket);

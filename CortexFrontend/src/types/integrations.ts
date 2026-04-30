@@ -226,6 +226,27 @@ export interface CreateTicketFromExternalItemResponse {
   externalItem: ExternalWorkItemResponse;
 }
 
+/** GET /api/tickets/{id}/external-source-context — safe fields only (no raw payload). */
+export interface TicketExternalSourceContextItem {
+  ticketId: string;
+  externalWorkItemId: number;
+  externalItemId: string;
+  externalTitle?: string | null;
+  externalStatus?: string | null;
+  externalPriority?: string | null;
+  provider: IntegrationProvider;
+  sourceName: string;
+  sourceType: ExternalSourceType;
+  externalUrl?: string | null;
+  requester?: string | null;
+  assignedTo?: string | null;
+  department?: string | null;
+  category?: string | null;
+  lastModifiedUtc?: string | null;
+  lastSeenUtc: string;
+  message?: string | null;
+}
+
 export interface ManualUpsertExternalWorkItemInput {
   externalItemId: string;
   title: string;

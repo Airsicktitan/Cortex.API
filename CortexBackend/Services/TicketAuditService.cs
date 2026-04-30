@@ -1,6 +1,7 @@
 using Cortex.API.Database;
 using Cortex.API.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace Cortex.API.Services;
 
@@ -104,6 +105,65 @@ public class TicketAuditService(CortexDbContext context) : ITicketAuditService
             fieldChanges);
     }
 
+    public Task RecordExternalItemPromotedToTicketAsync(
+        string cortexTicketId,
+        ExternalWorkItem externalWorkItem,
+        ExternalWorkSource externalWorkSource,
+        User changedByUser)
+    {
+        if (string.IsNullOrWhiteSpace(cortexTicketId))
+        {
+            throw new ArgumentException("Ticket id is required.", nameof(cortexTicketId));
+        }
+
+        ArgumentNullException.ThrowIfNull(externalWorkItem);
+        ArgumentNullException.ThrowIfNull(externalWorkSource);
+        ArgumentNullException.ThrowIfNull(changedByUser);
+
+        var extId = externalWorkItem.ExternalItemId.Trim();
+        var srcName = externalWorkSource.Name.Trim();
+        var providerName = externalWorkItem.Provider.ToString();
+        var summary = BuildExternalPromotionSummary(extId, srcName, providerName);
+        const string reason =
+            "Cortex ticket created from external work item. External source was not updated.";
+
+        var fieldChanges = new List<TicketAuditFieldChange>();
+        AddFieldChange(fieldChanges, "Cortex ticket ID", null, cortexTicketId.Trim());
+        AddFieldChange(
+            fieldChanges,
+            "External work item ID",
+            null,
+            externalWorkItem.Id.ToString(CultureInfo.InvariantCulture));
+        AddFieldChange(fieldChanges, "External item ID", null, extId);
+        AddFieldChange(fieldChanges, "Source", null, srcName);
+        AddFieldChange(fieldChanges, "Provider", null, providerName);
+        AddFieldChange(fieldChanges, "Source type", null, externalWorkSource.SourceType.ToString());
+        if (!string.IsNullOrWhiteSpace(externalWorkItem.ExternalUrl))
+        {
+            AddFieldChange(fieldChanges, "External link", null, externalWorkItem.ExternalUrl.Trim());
+        }
+
+        AddFieldChange(fieldChanges, "Manual promotion", null, "Yes");
+
+        return AddEntryAsync(
+            cortexTicketId.Trim(),
+            "ExternalItemPromotedToTicket",
+            summary,
+            reason,
+            changedByUser,
+            fieldChanges);
+    }
+
+    private static string BuildExternalPromotionSummary(
+        string externalItemId,
+        string sourceName,
+        string providerName)
+    {
+        var s = $"Created from external work item {externalItemId} in {sourceName} ({providerName}).";
+        const int maxLen = 250;
+        return s.Length <= maxLen ? s : string.Concat(s.AsSpan(0, maxLen - 3), "...");
+    }
+
     public async Task RecordCommentAddedAsync(Comment comment, User changedByUser)
     {
         await AddEntryAsync(
@@ -149,7 +209,7 @@ public class TicketAuditService(CortexDbContext context) : ITicketAuditService
             fieldChanges);
     }
 
-    private async Task AddEntryAsync(
+    private Task AddEntryAsync(
         string ticketId,
         string action,
         string summary,
@@ -168,6 +228,11 @@ public class TicketAuditService(CortexDbContext context) : ITicketAuditService
             FieldChanges = fieldChanges
         };
 
+        return PersistEntryAsync(auditEntry);
+    }
+
+    private async Task PersistEntryAsync(TicketAuditEntry auditEntry)
+    {
         await _context.TicketAuditEntries.AddAsync(auditEntry);
         await _context.SaveChangesAsync();
     }

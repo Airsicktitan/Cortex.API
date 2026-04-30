@@ -50,4 +50,9 @@ public interface IExternalIntegrationService
     Task<ExternalSourceSyncResponse?> SyncSharePointSourceAsync(int sourceId, CancellationToken cancellationToken = default);
 
     Task<ExternalSourceReadinessResponse?> GetSourceReadinessAsync(int sourceId, CancellationToken cancellationToken = default);
+
+    /// <summary>Returns linked external work items for a Cortex ticket, newest <see cref="ExternalWorkItem.LastSeenUtc"/> first.</summary>
+    Task<IReadOnlyList<TicketExternalSourceContextItemDto>> GetExternalSourceContextsForTicketAsync(
+        string ticketId,
+        CancellationToken cancellationToken = default);
 }

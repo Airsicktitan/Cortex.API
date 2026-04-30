@@ -43,6 +43,11 @@ public static class TicketEndpoints
             .Produces<TicketResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        tickets.MapGet("/{id}/external-source-context", TicketHandlers.GetTicketExternalSourceContext)
+            .WithName("GetTicketExternalSourceContext")
+            .Produces<TicketExternalSourceContextItemDto[]>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         tickets.MapPost("/{id}/triage", TicketHandlers.GenerateTicketTriage)
             .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
