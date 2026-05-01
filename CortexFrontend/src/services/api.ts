@@ -31,6 +31,7 @@ import type {
   RepeatIssueOverviewResponse,
 } from "../types/repeatIssues";
 import type { TicketExternalSourceContextItem } from "../types/integrations";
+import type { SapTicketReferenceContext } from "../types/sapTicketReference";
 import type {
   CortexDecisionResult,
   RebalanceSuggestion,
@@ -469,6 +470,25 @@ export const ticketService = {
       "Unable to load external source context",
     );
     return response.json() as Promise<TicketExternalSourceContextItem[]>;
+  },
+
+  async getSapReferenceContext(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<SapTicketReferenceContext | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/sap-reference-context`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    await ensureSuccess(response, "Unable to load SAP context");
+    return response.json() as Promise<SapTicketReferenceContext>;
   },
 
   async getInsight(

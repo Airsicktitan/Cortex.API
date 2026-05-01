@@ -13,6 +13,8 @@ type ScrollableViewportProps = {
   viewportClassName?: string;
   affordanceClassName?: string;
   affordanceAriaLabel?: string;
+  /** Pixel step for the floating scroll control; omit to jump to bottom. */
+  affordanceScrollStepPx?: number;
   showAffordance?: boolean;
   viewportProps?: Omit<
     ComponentPropsWithoutRef<"div">,
@@ -27,6 +29,7 @@ export function ScrollableViewport({
   viewportClassName = "",
   affordanceClassName = "",
   affordanceAriaLabel = "Scroll to bottom",
+  affordanceScrollStepPx,
   showAffordance = true,
   viewportProps,
 }: ScrollableViewportProps) {
@@ -37,7 +40,7 @@ export function ScrollableViewport({
     <div className={`relative min-h-0 overflow-hidden ${outerClassName}`.trim()}>
       <div
         ref={resolvedViewportRef}
-        className={`scroll-surface min-h-0 ${viewportClassName}`.trim()}
+        className={`scroll-surface min-h-0 overscroll-y-contain ${viewportClassName}`.trim()}
         {...viewportProps}
       >
         {children}
@@ -45,6 +48,7 @@ export function ScrollableViewport({
       {showAffordance ? (
         <ScrollToBottomButton
           containerRef={resolvedViewportRef}
+          scrollStepPx={affordanceScrollStepPx}
           className={affordanceClassName}
           aria-label={affordanceAriaLabel}
         />

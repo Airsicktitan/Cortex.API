@@ -47,6 +47,7 @@ import TicketHistoryModal from "./TicketHistoryModal";
 import UserCombobox from "./UserCombobox";
 import { CortexTabbedPanel } from "./CortexTabbedPanel";
 import { ExternalSourceContextCard } from "./ExternalSourceContextCard";
+import { SapTicketReferenceContextCard } from "./SapTicketReferenceContextCard";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
@@ -86,6 +87,7 @@ import {
 } from "../utils/ticketActivity";
 import type { CortexSlaRisk } from "../types/cortexRisk";
 import type { TicketExternalSourceContextItem } from "../types/integrations";
+import type { SapTicketReferenceContext } from "../types/sapTicketReference";
 
 const API_AUDIENCE = "https://cortex-api";
 const MAX_TITLE_LENGTH = 200;
@@ -475,6 +477,13 @@ export default function TicketModal({
     useState(false);
   const [externalSourceContextError, setExternalSourceContextError] =
     useState(false);
+  const [sapReferenceContext, setSapReferenceContext] = useState<
+    SapTicketReferenceContext | null
+  >(null);
+  const [sapReferenceContextLoading, setSapReferenceContextLoading] =
+    useState(false);
+  const [sapReferenceContextError, setSapReferenceContextError] =
+    useState(false);
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
     [currentUser?.roles, currentUser?.role],
@@ -618,6 +627,9 @@ export default function TicketModal({
       setExternalSourceContexts([]);
       setExternalSourceContextError(false);
       setExternalSourceContextLoading(false);
+      setSapReferenceContext(null);
+      setSapReferenceContextError(false);
+      setSapReferenceContextLoading(false);
       return;
     }
 
@@ -644,6 +656,45 @@ export default function TicketModal({
       } finally {
         if (!controller.signal.aborted) {
           setExternalSourceContextLoading(false);
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [isOpen, ticket.id, getApiToken]);
+
+  useEffect(() => {
+    if (!isOpen || !ticket.id) {
+      setSapReferenceContext(null);
+      setSapReferenceContextError(false);
+      setSapReferenceContextLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSapReferenceContext(null);
+    setSapReferenceContextLoading(true);
+    setSapReferenceContextError(false);
+
+    void (async () => {
+      try {
+        const token = await getApiToken();
+        const data = await ticketService.getSapReferenceContext(
+          ticket.id,
+          token,
+          controller.signal,
+        );
+        if (!controller.signal.aborted) {
+          setSapReferenceContext(data);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setSapReferenceContext(null);
+          setSapReferenceContextError(true);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setSapReferenceContextLoading(false);
         }
       }
     })();
@@ -740,6 +791,98 @@ export default function TicketModal({
       externalSourceContextLoading,
       externalSourceContextError,
     ],
+  );
+
+  const sapTicketReferenceContextSection = useMemo(
+    () => (
+      <SapTicketReferenceContextCard
+        context={sapReferenceContext}
+        loading={sapReferenceContextLoading}
+        loadError={sapReferenceContextError}
+      />
+    ),
+    [
+      sapReferenceContext,
+      sapReferenceContextLoading,
+      sapReferenceContextError,
+    ],
+  );
+
+  const sapReferenceMatchCount = sapReferenceContext?.matches?.length ?? 0;
+
+  const reviewerSourceContextTabSlot = useMemo(() => {
+    if (approvalDisplayContext !== "reviewer" || !ticket.id) {
+      return null;
+    }
+
+    const showExtSection =
+      externalSourceContextLoading ||
+      externalSourceContexts.length > 0 ||
+      externalSourceContextError;
+
+    if (!showExtSection) {
+      return null;
+    }
+
+    return (
+      <section aria-label="External source context">
+        <ExternalSourceContextCard
+          contexts={externalSourceContexts}
+          loading={externalSourceContextLoading}
+          loadError={externalSourceContextError}
+          variant="embedded"
+        />
+      </section>
+    );
+  }, [
+    approvalDisplayContext,
+    ticket.id,
+    externalSourceContexts,
+    externalSourceContextLoading,
+    externalSourceContextError,
+  ]);
+
+  const reviewerSapContextTabSlot = useMemo(() => {
+    if (approvalDisplayContext !== "reviewer" || !ticket.id) {
+      return null;
+    }
+
+    const showSapSection =
+      sapReferenceContextLoading ||
+      sapReferenceMatchCount > 0 ||
+      sapReferenceContextError;
+
+    if (!showSapSection) {
+      return null;
+    }
+
+    return (
+      <section className="space-y-2" aria-label="SAP reference context">
+        <SapTicketReferenceContextCard
+          context={sapReferenceContext}
+          loading={sapReferenceContextLoading}
+          loadError={sapReferenceContextError}
+          variant="embedded"
+        />
+      </section>
+    );
+  }, [
+    approvalDisplayContext,
+    ticket.id,
+    sapReferenceContext,
+    sapReferenceContextLoading,
+    sapReferenceContextError,
+    sapReferenceMatchCount,
+  ]);
+
+  const sourceContextBundleSection = useMemo(
+    () => (
+      <>
+        {externalSourceContextSection}
+        {sapTicketReferenceContextSection}
+      </>
+    ),
+    [externalSourceContextSection, sapTicketReferenceContextSection],
   );
 
   useEffect(() => {
@@ -2239,14 +2382,19 @@ export default function TicketModal({
     canOfferTriageRegenerate || !canRenderTriageRegenerate
       ? null
       : "Regenerate Analysis is available while the ticket is awaiting approval.";
-  const ticketModalGridClass =
-    showAiTriageColumn || showCommentsColumn
-      ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]"
-      : "grid-cols-1";
-  const ticketModalMaxWidthClass =
-    showAiTriageColumn || showCommentsColumn
-      ? "max-w-6xl"
-      : "max-w-5xl";
+  const ticketModalIsWorkspaceLayout =
+    showAiTriageColumn || showCommentsColumn;
+  const ticketModalGridClass = ticketModalIsWorkspaceLayout
+    ? "grid-cols-1 max-lg:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(360px,440px)] lg:grid-rows-1 xl:grid-cols-[minmax(0,1fr)_minmax(420px,480px)]"
+    : "grid-cols-1";
+  const ticketModalWidthClass = ticketModalIsWorkspaceLayout
+    ? "w-[min(96vw,1500px)] max-w-full"
+    : "w-full max-w-5xl";
+  const ticketModalHeightClass = ticketModalIsWorkspaceLayout
+    ? "h-[min(92vh,calc(100dvh-1.5rem))] sm:h-[min(92vh,calc(100dvh-2rem))]"
+    : "max-h-[min(92vh,calc(100dvh-1.5rem))] sm:max-h-[min(92vh,calc(100dvh-2rem))]";
+  /** Viewport-safe: workspace uses fixed height for split panes; simple modal sizes to content up to max-h. */
+  const ticketModalShellClass = `${ticketModalWidthClass} flex min-h-0 flex-col overflow-hidden overflow-x-hidden ${ticketModalHeightClass}`;
   const showRequesterRequestSummary = Boolean(ticket.id) && isRequesterContext;
   const activeTypingUsers = typingUsers.filter(
     (typingUser) => typingUser.expiresAt > Date.now(),
@@ -2490,29 +2638,34 @@ export default function TicketModal({
   );
 
   return (
-    <div className="scroll-surface fixed inset-0 z-50 overflow-y-auto">
+    <div className="scroll-surface fixed inset-0 z-50 overflow-x-hidden overflow-y-hidden overscroll-y-contain">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        className="fixed inset-0 z-0 bg-black bg-opacity-50 transition-opacity"
         onClick={onClose}
       />
 
-      {/* Modal */}
-      <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-4">
+      {/* Modal: wrapper is pointer-events-none so wheel/click pass through to backdrop outside the dialog */}
+      <div className="pointer-events-none flex min-h-full w-full items-start justify-center p-3 sm:items-center sm:p-4">
         <div
-          className={`relative max-h-[calc(100dvh-1.5rem)] w-full ${ticketModalMaxWidthClass} overflow-hidden rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100dvh-2rem)] sm:p-6`}
+          className={`pointer-events-auto relative z-10 ${ticketModalShellClass} rounded-lg border border-gray-200 bg-white p-4 text-gray-900 shadow-xl dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 sm:p-6`}
           tabIndex={-1}
         >
           <div
-            className={`grid h-[calc(100dvh-6rem)] min-h-0 gap-4 sm:gap-6 ${ticketModalGridClass}`}
+            className={
+              ticketModalIsWorkspaceLayout
+                ? `grid min-h-0 flex-1 gap-4 overflow-hidden sm:gap-6 ${ticketModalGridClass}`
+                : `grid h-[min(85vh,calc(100dvh-7.5rem))] min-h-0 gap-4 overflow-hidden sm:h-[min(88vh,calc(100dvh-8.5rem))] sm:gap-6 ${ticketModalGridClass}`
+            }
           >
             {/* ================= MAIN: ticket details / editing ================= */}
-            <div className="relative flex min-h-0 min-w-0 flex-col">
+            <div className="relative flex h-full max-h-full min-h-0 min-w-0 flex-col overflow-hidden">
               <ScrollableViewport
                 viewportRef={mainColumnScrollRef}
-                outerClassName="flex min-h-0 flex-1 flex-col"
-                viewportClassName="relative min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
-                affordanceAriaLabel="Scroll ticket details to bottom"
+                outerClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+                viewportClassName="relative max-h-full min-h-0 flex-1 basis-0 space-y-6 overflow-y-auto overflow-x-hidden overscroll-y-contain pr-1 touch-pan-y"
+                affordanceAriaLabel="Scroll ticket details down"
+                affordanceScrollStepPx={320}
               >
                   {/* Header */}
                   <div className="flex items-start justify-between gap-3 border-b border-gray-200 pb-5 dark:border-slate-800">
@@ -2724,7 +2877,7 @@ export default function TicketModal({
                   ) : null}
 
                   {approvalDisplayContext !== "reviewer" && ticket.id
-                    ? externalSourceContextSection
+                    ? sourceContextBundleSection
                     : null}
 
                   {/* Description */}
@@ -3384,7 +3537,7 @@ export default function TicketModal({
 
             {/* ================= REVIEWER: CORTEX TABBED PANEL (right rail) ================= */}
             {showAiTriageColumn ? (
-              <div className="relative flex min-h-0 flex-col">
+              <div className="relative flex h-full max-h-full min-h-0 min-w-0 flex-col overflow-hidden">
                 <CortexTabbedPanel
                   key={ticket.id || "new-ticket-cortex"}
                   ticket={triageDisplayTicket}
@@ -3394,11 +3547,8 @@ export default function TicketModal({
                   riskLevel={latestRisk?.riskLevel ?? null}
                   onRiskReady={setLatestRisk}
                   onOpenSourceTicket={onOpenSourceTicket}
-                  sourceContextSlot={
-                    approvalDisplayContext === "reviewer"
-                      ? externalSourceContextSection
-                      : undefined
-                  }
+                  sourceContextSlot={reviewerSourceContextTabSlot ?? undefined}
+                  sapContextSlot={reviewerSapContextTabSlot ?? undefined}
                   onReassignmentApplied={(updatedTicket) => {
                     applyServerTicketToForm(updatedTicket);
                     onTriageApplySuccess?.(updatedTicket);
@@ -3452,7 +3602,7 @@ export default function TicketModal({
 
             {/* ================= COMMENTS ================= */}
             {showCommentsColumn && (
-              <div className="relative flex min-h-0 flex-col rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30 xl:h-full">
+              <div className="relative flex h-full max-h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/30 lg:h-full">
                 <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-slate-800">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
                     Comments
@@ -3464,8 +3614,8 @@ export default function TicketModal({
 
                 <ScrollableViewport
                   viewportRef={commentThreadScrollRef}
-                  outerClassName="min-h-0 flex-1"
-                  viewportClassName="relative h-full min-h-0 overflow-y-auto pr-1"
+                  outerClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+                  viewportClassName="relative max-h-full min-h-0 flex-1 basis-0 overflow-y-auto overscroll-y-contain pr-1 touch-pan-y"
                   affordanceAriaLabel="Scroll comments to bottom"
                   viewportProps={{ onScroll: handleCommentThreadScroll }}
                 >

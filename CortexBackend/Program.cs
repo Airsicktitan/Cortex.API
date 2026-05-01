@@ -104,6 +104,7 @@ builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
 builder.Services.AddScoped<IIntegrationActivityService, IntegrationActivityService>();
 builder.Services.AddScoped<IExternalIntegrationService, ExternalIntegrationService>();
 builder.Services.AddScoped<ISapReferenceService, SapReferenceService>();
+builder.Services.AddScoped<ISapTicketReferenceDetectionService, SapTicketReferenceDetectionService>();
 builder.Services.AddScoped<ITicketCreationApplicationService, TicketCreationApplicationService>();
 builder.Services.AddScoped<SharePointExternalWorkSourceAdapter>();
 builder.Services.AddScoped<IExternalWorkSourceAdapter>(sp => sp.GetRequiredService<SharePointExternalWorkSourceAdapter>());

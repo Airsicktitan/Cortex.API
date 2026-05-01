@@ -48,6 +48,11 @@ public static class TicketEndpoints
             .Produces<TicketExternalSourceContextItemDto[]>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        tickets.MapGet("/{id}/sap-reference-context", TicketHandlers.GetTicketSapReferenceContext)
+            .WithName("GetTicketSapReferenceContext")
+            .Produces<SapTicketReferenceContextDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         tickets.MapPost("/{id}/triage", TicketHandlers.GenerateTicketTriage)
             .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)

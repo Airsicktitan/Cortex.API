@@ -364,6 +364,31 @@ public static class TicketHandlers
         return Results.Ok(contexts);
     }
 
+    public static async Task<IResult> GetTicketSapReferenceContext(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ISapTicketReferenceDetectionService sapTicketReferenceDetectionService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var dto = await sapTicketReferenceDetectionService.DetectSapReferencesForTicketAsync(
+            ticket,
+            cancellationToken);
+        return Results.Ok(dto);
+    }
+
     public static async Task<IResult> GetTicketHistory(
         string id,
         ITicketRepository repo,

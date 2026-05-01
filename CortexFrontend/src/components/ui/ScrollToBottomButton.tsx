@@ -27,6 +27,11 @@ function scrollElementToBottom(
 export type ScrollToBottomButtonProps = {
   containerRef: RefObject<HTMLElement | null>;
   threshold?: number;
+  /**
+   * When set, each click scrolls down by this many pixels (capped at the bottom).
+   * When omitted, click jumps to the bottom of the container.
+   */
+  scrollStepPx?: number;
   className?: string;
   "aria-label"?: string;
 };
@@ -46,6 +51,7 @@ export type ScrollToBottomButtonProps = {
 export function ScrollToBottomButton({
   containerRef,
   threshold = DEFAULT_BOTTOM_THRESHOLD_PX,
+  scrollStepPx,
   className = "",
   "aria-label": ariaLabel = "Jump to latest",
 }: ScrollToBottomButtonProps) {
@@ -60,7 +66,18 @@ export function ScrollToBottomButton({
       return;
     }
 
-    const { overflowY } = window.getComputedStyle(el);
+    const style = window.getComputedStyle(el);
+    let overflowY = style.overflowY;
+    if (
+      overflowY === "visible" ||
+      overflowY === "clip" ||
+      (overflowY === "" && style.overflow)
+    ) {
+      const o = style.overflow.split(" ")[0];
+      if (o) {
+        overflowY = o;
+      }
+    }
     if (!SCROLLABLE_OVERFLOW_VALUES.has(overflowY)) {
       setIsScrollable(false);
       setIsAtBottom(true);
@@ -72,7 +89,7 @@ export function ScrollToBottomButton({
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
     const atBottom = distanceFromBottom <= threshold;
     setIsScrollable(hasOverflow);
-    setIsAtBottom(atBottom);
+    setIsAtBottom(!hasOverflow || atBottom);
   }, [containerRef, threshold]);
 
   const visible = isScrollable && !isAtBottom;
@@ -122,9 +139,18 @@ export function ScrollToBottomButton({
       <button
         type="button"
         tabIndex={visible ? 0 : -1}
-        onClick={() => {
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
           const el = containerRef.current;
-          if (el) {
+          if (!el) {
+            return;
+          }
+          if (scrollStepPx != null && scrollStepPx > 0) {
+            const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+            const nextTop = Math.min(el.scrollTop + scrollStepPx, maxTop);
+            el.scrollTo({ top: nextTop, behavior: "smooth" });
+          } else {
             scrollElementToBottom(el, "smooth");
           }
         }}
