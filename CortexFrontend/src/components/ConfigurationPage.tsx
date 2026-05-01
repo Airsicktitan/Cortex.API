@@ -39,6 +39,7 @@ import TicketRoutingSection from "./TicketRoutingSection";
 import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
 import CortexAutonomyControlSection from "./CortexAutonomyControlSection";
 import IntegrationsPage from "./IntegrationsPage";
+import SapReferencePage from "./SapReferencePage";
 
 interface ConfigurationPageProps {
   slaConfigurations: SlaConfiguration[];
@@ -228,6 +229,7 @@ interface ConfigurationPageProps {
 type ConfigSection =
   | "general"
   | "integrations"
+  | "sapReference"
   | "boards"
   | "statuses"
   | "routing"
@@ -446,6 +448,11 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
         label: "Integrations",
         description: "External work sources, field and board mapping, and preview items",
       },
+      {
+        id: "sapReference",
+        label: "SAP reference",
+        description: "SAP table and field reference knowledge (metadata only—not a live SAP connector)",
+      },
       { id: "boards", label: "Boards", description: "Ticket board setup and behavior" },
       { id: "statuses", label: "Statuses", description: "Define workflow stages for tickets" },
       {
@@ -644,6 +651,8 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
                 onOpenCortexTicketById={onOpenCortexTicketById}
               />
             )}
+
+            {activeSection === "sapReference" && <SapReferencePage />}
 
             {activeSection === "boards" && (
               <div className="space-y-6">

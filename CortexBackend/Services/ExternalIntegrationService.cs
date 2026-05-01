@@ -19,6 +19,7 @@ public sealed class ExternalIntegrationService(
     ITicketBoardService ticketBoardService,
     IUserContextService userContextService,
     ITicketAuditService ticketAuditService,
+    IIntegrationActivityService integrationActivityService,
     ILogger<ExternalIntegrationService> logger) : IExternalIntegrationService
 {
     private readonly CortexDbContext _db = db;
@@ -28,6 +29,7 @@ public sealed class ExternalIntegrationService(
     private readonly ITicketBoardService _ticketBoardService = ticketBoardService;
     private readonly IUserContextService _userContext = userContextService;
     private readonly ITicketAuditService _ticketAudit = ticketAuditService;
+    private readonly IIntegrationActivityService _integrationActivity = integrationActivityService;
     private readonly ILogger<ExternalIntegrationService> _logger = logger;
     private readonly IExternalWorkSourceAdapter _sharePointWorkSourceAdapter = workSourceAdapters
             .FirstOrDefault(a => a.Provider == IntegrationProvider.SharePoint)
@@ -518,6 +520,7 @@ public sealed class ExternalIntegrationService(
         ManualUpsertExternalWorkItemRequest request,
         CancellationToken cancellationToken = default)
     {
+        var started = DateTime.UtcNow;
         var source = await _db.ExternalWorkSources.FirstOrDefaultAsync(s => s.Id == sourceId, cancellationToken);
         if (source is null)
         {
@@ -593,6 +596,23 @@ public sealed class ExternalIntegrationService(
         existingItem.Provider = source.Provider;
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        var actor = await TryGetActivityActorAsync(cancellationToken);
+        await TryRecordIntegrationActivityAsync(
+            new IntegrationActivityLogRecordRequest
+            {
+                ExternalWorkSourceId = sourceId,
+                IntegrationConnectionId = source.IntegrationConnectionId,
+                ActivityType = IntegrationActivityType.ManualUpsert,
+                Status = IntegrationActivityStatus.Success,
+                StartedAtUtc = started,
+                CompletedAtUtc = DateTime.UtcNow,
+                TriggeredByUserId = actor?.Id,
+                TriggeredByDisplayName = actor?.DisplayName,
+                TriggeredByEmail = actor?.Email,
+                Message = $"External item {extId} upserted.",
+            },
+            cancellationToken);
 
         return MapWorkItem(existingItem, source.Name);
     }
@@ -845,176 +865,268 @@ public sealed class ExternalIntegrationService(
         int sourceId,
         CancellationToken cancellationToken = default)
     {
-        var source = await _db.ExternalWorkSources.AsNoTracking()
-            .Include(s => s.IntegrationConnection)
-            .FirstOrDefaultAsync(s => s.Id == sourceId, cancellationToken);
-        if (source is null)
+        var started = DateTime.UtcNow;
+        var actor = await TryGetActivityActorAsync(cancellationToken);
+        try
         {
-            return null;
-        }
+            var source = await _db.ExternalWorkSources.AsNoTracking()
+                .Include(s => s.IntegrationConnection)
+                .FirstOrDefaultAsync(s => s.Id == sourceId, cancellationToken);
+            if (source is null)
+            {
+                return null;
+            }
 
-        if (source.Provider != IntegrationProvider.SharePoint || source.SourceType != ExternalSourceType.SharePointList)
+            if (source.Provider != IntegrationProvider.SharePoint || source.SourceType != ExternalSourceType.SharePointList)
+            {
+                throw new IntegrationApiException(400, "Field discovery supports SharePoint list sources only.");
+            }
+
+            var discovered = await _sharePointWorkSourceAdapter.DiscoverFieldsAsync(source, cancellationToken);
+            var list = discovered.Select(d => new SharePointDiscoveredFieldResponse(
+                d.FieldName,
+                d.FieldKey,
+                d.DisplayName,
+                d.TypeHint,
+                d.IsHidden,
+                d.IsReadOnly,
+                d.SuggestedCortexField)).ToList();
+
+            await TryRecordIntegrationActivityAsync(
+                new IntegrationActivityLogRecordRequest
+                {
+                    ExternalWorkSourceId = sourceId,
+                    IntegrationConnectionId = source.IntegrationConnectionId,
+                    ActivityType = IntegrationActivityType.DiscoverFields,
+                    Status = IntegrationActivityStatus.Success,
+                    StartedAtUtc = started,
+                    CompletedAtUtc = DateTime.UtcNow,
+                    TriggeredByUserId = actor?.Id,
+                    TriggeredByDisplayName = actor?.DisplayName,
+                    TriggeredByEmail = actor?.Email,
+                    Message = $"Fields discovered: {list.Count}.",
+                    MetadataJson = IntegrationActivityService.BuildFieldCountMetadata(list.Count),
+                },
+                cancellationToken);
+
+            return list;
+        }
+        catch (IntegrationApiException ex)
         {
-            throw new IntegrationApiException(400, "Field discovery supports SharePoint list sources only.");
+            await TryRecordIntegrationActivityAsync(
+                new IntegrationActivityLogRecordRequest
+                {
+                    ExternalWorkSourceId = sourceId,
+                    ActivityType = IntegrationActivityType.DiscoverFields,
+                    Status = IntegrationActivityStatus.Failed,
+                    StartedAtUtc = started,
+                    CompletedAtUtc = DateTime.UtcNow,
+                    TriggeredByUserId = actor?.Id,
+                    TriggeredByDisplayName = actor?.DisplayName,
+                    TriggeredByEmail = actor?.Email,
+                    ErrorMessage = ex.Message,
+                },
+                cancellationToken);
+            throw;
         }
-
-        var discovered = await _sharePointWorkSourceAdapter.DiscoverFieldsAsync(source, cancellationToken);
-        return discovered.Select(d => new SharePointDiscoveredFieldResponse(
-            d.FieldName,
-            d.FieldKey,
-            d.DisplayName,
-            d.TypeHint,
-            d.IsHidden,
-            d.IsReadOnly,
-            d.SuggestedCortexField)).ToList();
     }
 
     public async Task<ExternalSourceSyncResponse?> SyncSharePointSourceAsync(int sourceId, CancellationToken cancellationToken = default)
     {
         var started = DateTime.UtcNow;
-        var source = await _db.ExternalWorkSources
-            .Include(s => s.IntegrationConnection)
-            .Include(s => s.FieldMappings)
-            .FirstOrDefaultAsync(s => s.Id == sourceId, cancellationToken);
-
-        if (source is null)
-        {
-            return null;
-        }
-
-        if (source.Provider != IntegrationProvider.SharePoint || source.SourceType != ExternalSourceType.SharePointList)
-        {
-            throw new IntegrationApiException(400, "Sync supports SharePoint list sources only.");
-        }
-
-        if (!source.IsEnabled)
-        {
-            throw new IntegrationApiException(400, "External work source is disabled.");
-        }
-
-        var connection = source.IntegrationConnection;
-        if (!connection.IsEnabled)
-        {
-            throw new IntegrationApiException(400, "Integration connection is disabled.");
-        }
-
-        if (!SharePointSiteUrlParser.TryParseListPageUrl(source.ExternalUrl, out var hostname, out var sitePath, out var parseErr))
-        {
-            throw new IntegrationApiException(400, parseErr ?? "Invalid SharePoint ExternalUrl.");
-        }
-
-        if (string.IsNullOrWhiteSpace(source.ExternalSourceId))
-        {
-            throw new IntegrationApiException(400, "ExternalSourceId (SharePoint list id) is required.");
-        }
-
-        if (source.FieldMappings.Count == 0)
-        {
-            throw new IntegrationApiException(400, "Configure at least one field mapping before syncing.");
-        }
-
-        var tenant = connection.TenantId;
-        IReadOnlyList<System.Text.Json.JsonElement> items;
+        var actor = await TryGetActivityActorAsync(cancellationToken);
+        int? connectionIdHint = null;
         try
         {
-            var site = await _graph.GetSiteByPathAsync(hostname, sitePath, tenant, cancellationToken);
-            items = await _graph.GetListItemsAsync(site.Id, source.ExternalSourceId, tenant, cancellationToken);
+            var source = await _db.ExternalWorkSources
+                .Include(s => s.IntegrationConnection)
+                .Include(s => s.FieldMappings)
+                .FirstOrDefaultAsync(s => s.Id == sourceId, cancellationToken);
+
+            if (source is null)
+            {
+                return null;
+            }
+
+            connectionIdHint = source.IntegrationConnectionId;
+
+            if (source.Provider != IntegrationProvider.SharePoint || source.SourceType != ExternalSourceType.SharePointList)
+            {
+                throw new IntegrationApiException(400, "Sync supports SharePoint list sources only.");
+            }
+
+            if (!source.IsEnabled)
+            {
+                throw new IntegrationApiException(400, "External work source is disabled.");
+            }
+
+            var connection = source.IntegrationConnection;
+            if (!connection.IsEnabled)
+            {
+                throw new IntegrationApiException(400, "Integration connection is disabled.");
+            }
+
+            if (!SharePointSiteUrlParser.TryParseListPageUrl(source.ExternalUrl, out var hostname, out var sitePath, out var parseErr))
+            {
+                throw new IntegrationApiException(400, parseErr ?? "Invalid SharePoint ExternalUrl.");
+            }
+
+            if (string.IsNullOrWhiteSpace(source.ExternalSourceId))
+            {
+                throw new IntegrationApiException(400, "ExternalSourceId (SharePoint list id) is required.");
+            }
+
+            if (source.FieldMappings.Count == 0)
+            {
+                throw new IntegrationApiException(400, "Configure at least one field mapping before syncing.");
+            }
+
+            var tenant = connection.TenantId;
+            IReadOnlyList<System.Text.Json.JsonElement> items;
+            try
+            {
+                var site = await _graph.GetSiteByPathAsync(hostname, sitePath, tenant, cancellationToken);
+                items = await _graph.GetListItemsAsync(site.Id, source.ExternalSourceId, tenant, cancellationToken);
+            }
+            catch (IntegrationApiException ex)
+            {
+                ApplyConnectionSyncFields(connection, DateTime.UtcNow, "Failed", ex.Message);
+                await _db.SaveChangesAsync(cancellationToken);
+                throw;
+            }
+            catch (Exception)
+            {
+                ApplyConnectionSyncFields(connection, DateTime.UtcNow, "Failed", "Unexpected error calling Microsoft Graph.");
+                await _db.SaveChangesAsync(cancellationToken);
+                throw new IntegrationApiException(502, "SharePoint sync failed due to an unexpected error.");
+            }
+
+            var created = 0;
+            var updated = 0;
+            var unchanged = 0;
+            var skipped = 0;
+            var errors = 0;
+            var mappings = source.FieldMappings.ToList();
+
+            foreach (var item in items)
+            {
+                try
+                {
+                    if (!SharePointListItemNormalizer.TryNormalize(item, mappings, source.ExternalUrl, out var norm, out _))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    ArgumentNullException.ThrowIfNull(norm);
+
+                    var now = DateTime.UtcNow;
+                    var existingItem = await _db.ExternalWorkItems.FirstOrDefaultAsync(
+                        i => i.ExternalWorkSourceId == source.Id && i.ExternalItemId == norm.ExternalItemId,
+                        cancellationToken);
+
+                    if (existingItem is null)
+                    {
+                        existingItem = new ExternalWorkItem
+                        {
+                            ExternalWorkSourceId = source.Id,
+                            Provider = source.Provider,
+                            ExternalItemId = norm.ExternalItemId,
+                            CreatedAtUtc = now,
+                            LastSeenUtc = now,
+                        };
+                        _db.ExternalWorkItems.Add(existingItem);
+                        ApplySharePointNormalized(existingItem, norm, now, newItem: true);
+                        created++;
+                    }
+                    else if (IsSharePointNormalizedUnchanged(existingItem, norm))
+                    {
+                        existingItem.LastSeenUtc = now;
+                        existingItem.UpdatedAtUtc = now;
+                        unchanged++;
+                    }
+                    else
+                    {
+                        ApplySharePointNormalized(existingItem, norm, now, newItem: false);
+                        updated++;
+                    }
+                }
+                catch
+                {
+                    errors++;
+                }
+            }
+
+            var completed = DateTime.UtcNow;
+            var status = errors > 0 && created + updated + unchanged == 0
+                ? "Failed"
+                : errors > 0
+                    ? "Partial"
+                    : "Success";
+            var message = errors > 0
+                ? $"Synced with {errors} row error(s). Created {created}, updated {updated}, unchanged {unchanged}, skipped {skipped}."
+                : $"Created {created}, updated {updated}, unchanged {unchanged}, skipped {skipped}.";
+
+            ApplyConnectionSyncFields(connection, completed, status, message);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            var response = new ExternalSourceSyncResponse(
+                source.Id,
+                source.Name,
+                source.Provider,
+                started,
+                completed,
+                created,
+                updated,
+                unchanged,
+                skipped,
+                errors,
+                items.Count,
+                message);
+
+            await TryRecordIntegrationActivityAsync(
+                new IntegrationActivityLogRecordRequest
+                {
+                    ExternalWorkSourceId = sourceId,
+                    IntegrationConnectionId = connectionIdHint,
+                    ActivityType = IntegrationActivityType.SyncSource,
+                    Status = MapIntegrationSyncActivityStatus(response),
+                    StartedAtUtc = started,
+                    CompletedAtUtc = response.CompletedAtUtc ?? completed,
+                    TriggeredByUserId = actor?.Id,
+                    TriggeredByDisplayName = actor?.DisplayName,
+                    TriggeredByEmail = actor?.Email,
+                    CreatedCount = response.CreatedCount,
+                    UpdatedCount = response.UpdatedCount,
+                    UnchangedCount = response.UnchangedCount,
+                    SkippedCount = response.SkippedCount,
+                    ErrorCount = response.ErrorCount,
+                    ItemCount = response.ItemCount,
+                    Message = response.Message,
+                },
+                cancellationToken);
+
+            return response;
         }
         catch (IntegrationApiException ex)
         {
-            ApplyConnectionSyncFields(connection, DateTime.UtcNow, "Failed", ex.Message);
-            await _db.SaveChangesAsync(cancellationToken);
+            await TryRecordIntegrationActivityAsync(
+                new IntegrationActivityLogRecordRequest
+                {
+                    ExternalWorkSourceId = sourceId,
+                    IntegrationConnectionId = connectionIdHint,
+                    ActivityType = IntegrationActivityType.SyncSource,
+                    Status = IntegrationActivityStatus.Failed,
+                    StartedAtUtc = started,
+                    CompletedAtUtc = DateTime.UtcNow,
+                    TriggeredByUserId = actor?.Id,
+                    TriggeredByDisplayName = actor?.DisplayName,
+                    TriggeredByEmail = actor?.Email,
+                    ErrorMessage = ex.Message,
+                },
+                cancellationToken);
             throw;
         }
-        catch (Exception)
-        {
-            ApplyConnectionSyncFields(connection, DateTime.UtcNow, "Failed", "Unexpected error calling Microsoft Graph.");
-            await _db.SaveChangesAsync(cancellationToken);
-            throw new IntegrationApiException(502, "SharePoint sync failed due to an unexpected error.");
-        }
-
-        var created = 0;
-        var updated = 0;
-        var unchanged = 0;
-        var skipped = 0;
-        var errors = 0;
-        var mappings = source.FieldMappings.ToList();
-
-        foreach (var item in items)
-        {
-            try
-            {
-                if (!SharePointListItemNormalizer.TryNormalize(item, mappings, source.ExternalUrl, out var norm, out _))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                ArgumentNullException.ThrowIfNull(norm);
-
-                var now = DateTime.UtcNow;
-                var existingItem = await _db.ExternalWorkItems.FirstOrDefaultAsync(
-                    i => i.ExternalWorkSourceId == source.Id && i.ExternalItemId == norm.ExternalItemId,
-                    cancellationToken);
-
-                if (existingItem is null)
-                {
-                    existingItem = new ExternalWorkItem
-                    {
-                        ExternalWorkSourceId = source.Id,
-                        Provider = source.Provider,
-                        ExternalItemId = norm.ExternalItemId,
-                        CreatedAtUtc = now,
-                        LastSeenUtc = now,
-                    };
-                    _db.ExternalWorkItems.Add(existingItem);
-                    ApplySharePointNormalized(existingItem, norm, now, newItem: true);
-                    created++;
-                }
-                else if (IsSharePointNormalizedUnchanged(existingItem, norm))
-                {
-                    existingItem.LastSeenUtc = now;
-                    existingItem.UpdatedAtUtc = now;
-                    unchanged++;
-                }
-                else
-                {
-                    ApplySharePointNormalized(existingItem, norm, now, newItem: false);
-                    updated++;
-                }
-            }
-            catch
-            {
-                errors++;
-            }
-        }
-
-        var completed = DateTime.UtcNow;
-        var status = errors > 0 && created + updated + unchanged == 0
-            ? "Failed"
-            : errors > 0
-                ? "Partial"
-                : "Success";
-        var message = errors > 0
-            ? $"Synced with {errors} row error(s). Created {created}, updated {updated}, unchanged {unchanged}, skipped {skipped}."
-            : $"Created {created}, updated {updated}, unchanged {unchanged}, skipped {skipped}.";
-
-        ApplyConnectionSyncFields(connection, completed, status, message);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        return new ExternalSourceSyncResponse(
-            source.Id,
-            source.Name,
-            source.Provider,
-            started,
-            completed,
-            created,
-            updated,
-            unchanged,
-            skipped,
-            errors,
-            items.Count,
-            message);
     }
 
     public async Task<IReadOnlyList<TicketExternalSourceContextItemDto>> GetExternalSourceContextsForTicketAsync(
@@ -1307,6 +1419,53 @@ public sealed class ExternalIntegrationService(
         return !string.IsNullOrEmpty(tenant)
                && !string.IsNullOrEmpty(clientId)
                && !string.IsNullOrEmpty(clientSecret);
+    }
+
+    private async Task<(int Id, string DisplayName, string Email)?> TryGetActivityActorAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var u = await _userContext.GetCurrentUserAsync();
+            var email = u.Email ?? "";
+            return (u.Id, u.DisplayName ?? email, email);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task TryRecordIntegrationActivityAsync(
+        IntegrationActivityLogRecordRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _integrationActivity.RecordAsync(request, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to persist integration activity for source {SourceId}, type {ActivityType}.",
+                request.ExternalWorkSourceId,
+                request.ActivityType);
+        }
+    }
+
+    private static IntegrationActivityStatus MapIntegrationSyncActivityStatus(ExternalSourceSyncResponse response)
+    {
+        if (response.ErrorCount > 0 && response.CreatedCount + response.UpdatedCount + response.UnchangedCount == 0)
+        {
+            return IntegrationActivityStatus.Failed;
+        }
+
+        if (response.ErrorCount > 0)
+        {
+            return IntegrationActivityStatus.Partial;
+        }
+
+        return IntegrationActivityStatus.Success;
     }
 
     private static void ApplyConnectionSyncFields(IntegrationConnection connection, DateTime syncUtc, string status, string message)

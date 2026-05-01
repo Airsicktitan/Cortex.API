@@ -277,4 +277,19 @@ public static class IntegrationHandlers
         var readiness = await integrationService.GetSourceReadinessAsync(sourceId);
         return readiness is null ? Results.NotFound() : Results.Ok(readiness);
     }
+
+    public static async Task<IResult> GetSourceActivity(
+        int sourceId,
+        int? take,
+        string? activityType,
+        IIntegrationActivityService integrationActivityService,
+        CancellationToken cancellationToken)
+    {
+        var rows = await integrationActivityService.GetSourceActivityAsync(
+            sourceId,
+            take ?? 20,
+            activityType,
+            cancellationToken);
+        return rows is null ? Results.NotFound() : Results.Ok(rows);
+    }
 }

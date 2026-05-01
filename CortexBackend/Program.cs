@@ -101,7 +101,9 @@ builder.Services.AddHttpClient<IAuth0UserRoleSyncService, Auth0UserRoleSyncServi
         }
     });
 builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
+builder.Services.AddScoped<IIntegrationActivityService, IntegrationActivityService>();
 builder.Services.AddScoped<IExternalIntegrationService, ExternalIntegrationService>();
+builder.Services.AddScoped<ISapReferenceService, SapReferenceService>();
 builder.Services.AddScoped<ITicketCreationApplicationService, TicketCreationApplicationService>();
 builder.Services.AddScoped<SharePointExternalWorkSourceAdapter>();
 builder.Services.AddScoped<IExternalWorkSourceAdapter>(sp => sp.GetRequiredService<SharePointExternalWorkSourceAdapter>());
@@ -486,6 +488,7 @@ app.MapTicketStatusEndpoints();
 app.MapTicketRoutingRuleEndpoints();
 app.MapTicketBoardEndpoints();
 app.MapIntegrationEndpoints();
+app.MapSapReferenceEndpoints();
 app.MapScheduledJobEndpoints();
 app.MapNotificationEndpoints();
 app.MapSystemEndpoints();
@@ -514,6 +517,18 @@ using (var scope = app.Services.CreateScope())
             operation: "EF Core Migrate");
 
         throw; // CRITICAL: fail fast if schema is wrong
+    }
+
+    if (app.Environment.IsDevelopment())
+    {
+        try
+        {
+            await Cortex.API.Infrastructure.SapReferenceDevCatalogSeed.EnsureAsync(db);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "SAP reference dev catalog seed skipped or failed.");
+        }
     }
 }
 

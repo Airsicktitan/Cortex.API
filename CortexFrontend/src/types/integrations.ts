@@ -67,6 +67,30 @@ export interface ExternalSourceSyncResponse {
   message?: string | null;
 }
 
+export type IntegrationActivityType = "DiscoverFields" | "SyncSource" | "ManualUpsert";
+
+export type IntegrationActivityStatus = "Success" | "Failed" | "Partial";
+
+export interface IntegrationActivityLogEntry {
+  id: number;
+  sourceId: number;
+  connectionId?: number | null;
+  activityType: IntegrationActivityType;
+  status: IntegrationActivityStatus;
+  triggeredByDisplayName?: string | null;
+  startedAtUtc: string;
+  completedAtUtc?: string | null;
+  durationMs?: number | null;
+  createdCount?: number | null;
+  updatedCount?: number | null;
+  unchangedCount?: number | null;
+  skippedCount?: number | null;
+  errorCount?: number | null;
+  itemCount?: number | null;
+  message?: string | null;
+  errorMessage?: string | null;
+}
+
 export type IntegrationReadinessCheckStatus = "Passed" | "Warning" | "Failed";
 
 export interface IntegrationReadinessCheckDto {

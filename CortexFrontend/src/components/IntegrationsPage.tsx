@@ -14,6 +14,9 @@ import type {
   ExternalSourceType,
   ExternalWorkItemResponse,
   ExternalWorkSourceResponse,
+  IntegrationActivityLogEntry,
+  IntegrationActivityStatus,
+  IntegrationActivityType,
   IntegrationAuthMode,
   IntegrationConnectionResponse,
   IntegrationProvider,
@@ -48,7 +51,7 @@ import {
 
 const API_AUDIENCE = "https://cortex-api";
 
-type IntegrationsTab = "connections" | "sources" | "fields" | "boards" | "items";
+type IntegrationsTab = "connections" | "sources" | "fields" | "boards" | "items" | "activity";
 
 function Callout({
   title,
@@ -89,6 +92,76 @@ function toDatetimeLocalInput(iso?: string | null): string {
   }
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatDurationMs(ms: number | null | undefined): string {
+  if (ms == null || ms < 0 || Number.isNaN(ms)) {
+    return "—";
+  }
+  if (ms < 1000) {
+    return `${ms} ms`;
+  }
+  const s = ms / 1000;
+  if (s < 60) {
+    return `${s.toFixed(1)} s`;
+  }
+  const m = Math.floor(s / 60);
+  const rem = s - m * 60;
+  return `${m}m ${rem.toFixed(0)}s`;
+}
+
+function humanizeIntegrationActivityType(t: IntegrationActivityType): string {
+  switch (t) {
+    case "DiscoverFields":
+      return "Discovery";
+    case "SyncSource":
+      return "Sync history";
+    case "ManualUpsert":
+      return "Manual upsert";
+    default:
+      return t;
+  }
+}
+
+function humanizeIntegrationActivityStatus(s: IntegrationActivityStatus): string {
+  switch (s) {
+    case "Success":
+      return "Success";
+    case "Failed":
+      return "Failed";
+    case "Partial":
+      return "Partial";
+    default:
+      return s;
+  }
+}
+
+function activityStatusRowClass(s: IntegrationActivityStatus): string {
+  switch (s) {
+    case "Success":
+      return "text-green-800 dark:text-green-200/90";
+    case "Failed":
+      return "text-red-800 dark:text-red-200/90";
+    case "Partial":
+      return "text-amber-900 dark:text-amber-100/90";
+    default:
+      return "text-gray-800 dark:text-slate-200";
+  }
+}
+
+function integrationActivityResultSummary(row: IntegrationActivityLogEntry): string {
+  if (row.activityType === "DiscoverFields") {
+    return row.message?.trim() || "Discovery completed.";
+  }
+  if (row.activityType === "ManualUpsert") {
+    return row.message?.trim() || "Manual upsert completed.";
+  }
+  const c = row.createdCount ?? 0;
+  const u = row.updatedCount ?? 0;
+  const un = row.unchangedCount ?? 0;
+  const sk = row.skippedCount ?? 0;
+  const er = row.errorCount ?? 0;
+  return `Created ${c} · Updated ${u} · Unchanged ${un} · Skipped ${sk} · Errors ${er}`;
 }
 
 function normalizeExternalPriority(p?: string | null): string {
@@ -372,6 +445,10 @@ export default function IntegrationsPage({
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [readinessError, setReadinessError] = useState<string | null>(null);
 
+  const [activityRows, setActivityRows] = useState<IntegrationActivityLogEntry[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
+
   const selectedConnection = useMemo(
     () => connections.find((c) => c.id === selectedConnectionId) ?? null,
     [connections, selectedConnectionId],
@@ -580,6 +657,24 @@ export default function IntegrationsPage({
     [getToken],
   );
 
+  const loadActivity = useCallback(
+    async (sourceId: number) => {
+      setActivityLoading(true);
+      setActivityError(null);
+      try {
+        const token = await getToken();
+        const rows = await integrationsService.getSourceActivity(token, sourceId, { take: 50 });
+        setActivityRows(rows);
+      } catch {
+        setActivityError("Unable to load integration activity.");
+        setActivityRows([]);
+      } finally {
+        setActivityLoading(false);
+      }
+    },
+    [getToken],
+  );
+
   useEffect(() => {
     void loadConnections();
   }, [loadConnections]);
@@ -622,6 +717,12 @@ export default function IntegrationsPage({
       void loadItems(selectedSourceId);
     }
   }, [tab, selectedSourceId, loadItems]);
+
+  useEffect(() => {
+    if (tab === "activity" && selectedSourceId !== null) {
+      void loadActivity(selectedSourceId);
+    }
+  }, [tab, selectedSourceId, loadActivity]);
 
   useEffect(() => {
     setDiscoveredFields([]);
@@ -1067,6 +1168,9 @@ export default function IntegrationsPage({
       setUpsertOpen(false);
       showBanner("ok", "External work item saved.");
       await loadItems(selectedSourceId);
+      if (tab === "activity") {
+        void loadActivity(selectedSourceId);
+      }
       setUpsertDraft({
         externalItemId: "",
         title: "",
@@ -1114,6 +1218,9 @@ export default function IntegrationsPage({
     } finally {
       setDiscoverLoading(false);
       void loadSourceReadiness(selectedSourceId);
+      if (tab === "activity" && selectedSourceId !== null) {
+        void loadActivity(selectedSourceId);
+      }
     }
   };
 
@@ -1167,6 +1274,9 @@ export default function IntegrationsPage({
     } finally {
       setSyncLoading(false);
       void loadSourceReadiness(selectedSourceId);
+      if (tab === "activity" && selectedSourceId !== null) {
+        void loadActivity(selectedSourceId);
+      }
     }
   };
 
@@ -1181,6 +1291,7 @@ export default function IntegrationsPage({
     { id: "fields", label: "Field mapping" },
     { id: "boards", label: "Board mapping" },
     { id: "items", label: "External items" },
+    { id: "activity", label: "Activity" },
   ];
 
   return (
@@ -2075,6 +2186,108 @@ export default function IntegrationsPage({
                     </table>
                     </div>
                   </div>
+                )}
+              </div>
+            )}
+
+            {tab === "activity" && (
+              <div className="min-w-0 max-w-full space-y-4">
+                <Callout title="Activity">
+                  Sync history shows who ran discovery, read-only sync, and manual item updates for this source. Read-only
+                  sync does not change the external system and does not create Cortex tickets automatically.
+                </Callout>
+                {!selectedSourceId ? (
+                  <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <ConfigSecondaryButton
+                        onClick={() => void loadActivity(selectedSourceId)}
+                        disabled={activityLoading}
+                      >
+                        Refresh activity
+                      </ConfigSecondaryButton>
+                    </div>
+                    {activityError ? (
+                      <p className="text-sm text-amber-800 dark:text-amber-200/90">{activityError}</p>
+                    ) : null}
+                    {activityLoading ? (
+                      <p className="text-sm text-gray-500 dark:text-slate-400">Loading activity…</p>
+                    ) : activityRows.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
+                        <p className="font-medium text-gray-800 dark:text-slate-200">
+                          No integration activity has been recorded for this source yet.
+                        </p>
+                        <p className="mx-auto mt-2 max-w-lg text-gray-600 dark:text-slate-400">
+                          Run discovery, sync, or a manual upsert to build a trail. No source data was modified by Cortex
+                          beyond the actions you trigger from Integrations.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-gray-200 dark:border-slate-700">
+                        <div className="w-full max-w-full overflow-x-auto overscroll-x-contain">
+                          <table className="min-w-[900px] w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                            <thead className="bg-gray-50 dark:bg-slate-800/80">
+                              <tr>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
+                                  Activity
+                                </th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
+                                  Status
+                                </th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
+                                  Triggered by
+                                </th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
+                                  Started
+                                </th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
+                                  Duration
+                                </th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
+                                  Result
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                              {activityRows.map((row) => (
+                                <tr key={row.id} className="bg-white dark:bg-slate-900">
+                                  <td className="px-4 py-3 text-gray-900 dark:text-slate-100">
+                                    {humanizeIntegrationActivityType(row.activityType)}
+                                  </td>
+                                  <td className={`px-4 py-3 font-medium ${activityStatusRowClass(row.status)}`}>
+                                    {humanizeIntegrationActivityStatus(row.status)}
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
+                                    {row.triggeredByDisplayName?.trim() || "—"}
+                                  </td>
+                                  <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-slate-300">
+                                    {formatWhen(row.startedAtUtc)}
+                                  </td>
+                                  <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-slate-300">
+                                    {formatDurationMs(row.durationMs ?? undefined)}
+                                  </td>
+                                  <td className="min-w-[240px] px-4 py-3 text-gray-800 dark:text-slate-200">
+                                    <span className="block">{integrationActivityResultSummary(row)}</span>
+                                    {row.status === "Failed" && row.errorMessage?.trim() ? (
+                                      <span className="mt-1 block text-xs text-red-700 dark:text-red-300/90">
+                                        {row.errorMessage.trim()}
+                                      </span>
+                                    ) : null}
+                                    {row.status === "Partial" && row.message?.trim() ? (
+                                      <span className="mt-1 block text-xs text-amber-800 dark:text-amber-100/80">
+                                        {row.message.trim()}
+                                      </span>
+                                    ) : null}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

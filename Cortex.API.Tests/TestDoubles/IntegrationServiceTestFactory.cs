@@ -27,6 +27,7 @@ public static class IntegrationServiceTestFactory
         EnsureAtLeastOneUser(context);
         userContext ??= new FirstUserContextService(context);
         ticketAuditService ??= new TicketAuditService(context);
+        var activity = new IntegrationActivityService(context);
         return new ExternalIntegrationService(
             context,
             graph,
@@ -36,6 +37,7 @@ public static class IntegrationServiceTestFactory
             boards,
             userContext,
             ticketAuditService,
+            activity,
             NullLogger<ExternalIntegrationService>.Instance);
     }
 

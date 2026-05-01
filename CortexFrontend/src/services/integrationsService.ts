@@ -11,6 +11,8 @@ import type {
   ExternalSourceSyncResponse,
   ExternalWorkItemResponse,
   ExternalWorkSourceResponse,
+  IntegrationActivityLogEntry,
+  IntegrationActivityType,
   IntegrationConnectionResponse,
   ManualUpsertExternalWorkItemInput,
   SharePointDiscoveredFieldResponse,
@@ -201,6 +203,27 @@ export const integrationsService = {
       },
     );
     await ensureSuccess(response, "Unable to save board mappings");
+    return response.json();
+  },
+
+  async getSourceActivity(
+    token: string,
+    sourceId: number,
+    options?: { take?: number; activityType?: IntegrationActivityType },
+  ): Promise<IntegrationActivityLogEntry[]> {
+    const params = new URLSearchParams();
+    if (options?.take != null) {
+      params.set("take", String(options.take));
+    }
+    if (options?.activityType?.trim()) {
+      params.set("activityType", options.activityType.trim());
+    }
+    const qs = params.toString();
+    const url = `${integrationsBase}/sources/${sourceId}/activity${qs ? `?${qs}` : ""}`;
+    const response = await fetch(url, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load integration activity.");
     return response.json();
   },
 

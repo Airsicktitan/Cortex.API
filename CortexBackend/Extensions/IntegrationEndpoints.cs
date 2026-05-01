@@ -90,6 +90,11 @@ public static class IntegrationEndpoints
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        integrations.MapGet("/sources/{sourceId:int}/activity", IntegrationHandlers.GetSourceActivity)
+            .WithName("GetExternalSourceIntegrationActivity")
+            .Produces<IntegrationActivityLogResponse[]>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         integrations.MapPost("/sources/{sourceId:int}/discover-fields", IntegrationHandlers.DiscoverSharePointFields)
             .WithName("DiscoverSharePointListFields")
             .Produces(StatusCodes.Status200OK)
