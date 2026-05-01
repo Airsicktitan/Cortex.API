@@ -263,13 +263,11 @@ export function buildSapReviewerGuidance(
     dedupePush(ownershipHints, seenO, "Material Master / supply chain");
   }
 
-  // Caps — keep panel concise
-  const cap = (a: string[], n: number) => a.slice(0, n);
-
+  // Full lists; the SAP card trims what it shows by default (compact rail UX).
   return {
-    summaryLines: cap(summaryLines, 5),
-    questions: cap(questions, 8),
-    investigationPaths: cap(investigationPaths, 6),
-    ownershipHints: cap(ownershipHints, 4),
+    summaryLines,
+    questions,
+    investigationPaths,
+    ownershipHints,
   };
 }

@@ -11,10 +11,17 @@ import {
 
 const HELPER_COPY =
   "Detected from SAP reference metadata stored in Cortex.";
-const NO_LIVE_SAP_COPY =
-  "Cortex is using stored SAP reference metadata only. No live SAP lookup was performed.";
+const NO_LIVE_SAP_FOOTER =
+  "Cortex uses stored SAP reference catalog metadata only and does not perform a live SAP lookup.";
 
 const INITIAL_SHOW = 5;
+
+/** Default visible rows in embedded reviewer rail; rest behind “Show more guidance”. */
+const GUIDANCE_PREVIEW = {
+  summary: 2,
+  questions: 3,
+  paths: 3,
+} as const;
 
 function pillClass(kind: "table" | "field" | "custom" | "confidence") {
   switch (kind) {
@@ -77,7 +84,7 @@ function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
         : "Low confidence";
 
   return (
-    <div className="rounded-lg border border-gray-200/95 bg-white/95 px-3 py-2.5 shadow-sm dark:border-slate-700 dark:bg-slate-900/45">
+    <div className="rounded-lg border border-gray-300/90 bg-white px-3 py-2.5 shadow-sm dark:border-slate-600 dark:bg-slate-900/55">
       <p className="text-sm font-semibold leading-snug text-gray-900 dark:text-slate-100">
         {title}
       </p>
@@ -123,61 +130,99 @@ function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
   );
 }
 
-function ReviewerGuidanceBlock({ guidance }: { guidance: SapReviewerGuidance }) {
+function ReviewerGuidanceBlock({
+  guidance,
+  ticketId,
+}: {
+  guidance: SapReviewerGuidance;
+  ticketId: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [ticketId]);
+
   const list = (items: string[]) => (
-    <ul className="mt-1.5 list-outside list-disc space-y-1 pl-4 text-[11px] leading-snug text-gray-700 dark:text-slate-300">
-      {items.map((line) => (
-        <li key={line}>{line}</li>
+    <ul className="mt-1 list-outside list-disc space-y-0.5 pl-3.5 text-[11px] leading-snug text-gray-700 dark:text-slate-300">
+      {items.map((line, i) => (
+        <li key={`${i}-${line.slice(0, 48)}`}>{line}</li>
       ))}
     </ul>
   );
 
+  const sAll = guidance.summaryLines;
+  const qAll = guidance.questions;
+  const pAll = guidance.investigationPaths;
+  const oAll = guidance.ownershipHints;
+
+  const sVis = expanded ? sAll : sAll.slice(0, GUIDANCE_PREVIEW.summary);
+  const qVis = expanded ? qAll : qAll.slice(0, GUIDANCE_PREVIEW.questions);
+  const pVis = expanded ? pAll : pAll.slice(0, GUIDANCE_PREVIEW.paths);
+  const oVis = expanded ? oAll : [];
+
+  const hasMoreCollapsed =
+    sAll.length > GUIDANCE_PREVIEW.summary ||
+    qAll.length > GUIDANCE_PREVIEW.questions ||
+    pAll.length > GUIDANCE_PREVIEW.paths ||
+    oAll.length > 0;
+
   return (
     <section
-      className="border-t border-gray-200/90 pt-3 dark:border-slate-700"
+      className="rounded-md border border-gray-200/80 bg-gray-50/50 px-3 py-2.5 dark:border-slate-700/90 dark:bg-slate-900/30"
       aria-label="SAP reviewer guidance"
     >
-      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
         Reviewer guidance
       </h4>
       <p className="mt-1 text-[10px] leading-snug text-gray-500 dark:text-slate-500">
-        Suggested from stored SAP reference metadata. Cortex did not perform a live SAP lookup.
+        Suggested from stored reference metadata. No live SAP lookup.
       </p>
 
-      {guidance.summaryLines.length > 0 ? (
-        <div className="mt-3">
+      {sVis.length > 0 ? (
+        <div className="mt-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
             What Cortex inferred
           </p>
-          {list(guidance.summaryLines)}
+          {list(sVis)}
         </div>
       ) : null}
 
-      {guidance.questions.length > 0 ? (
-        <div className="mt-3">
+      {qVis.length > 0 ? (
+        <div className="mt-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
             Questions to confirm
           </p>
-          {list(guidance.questions)}
+          {list(qVis)}
         </div>
       ) : null}
 
-      {guidance.investigationPaths.length > 0 ? (
-        <div className="mt-3">
+      {pVis.length > 0 ? (
+        <div className="mt-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
             Suggested investigation path
           </p>
-          {list(guidance.investigationPaths)}
+          {list(pVis)}
         </div>
       ) : null}
 
-      {guidance.ownershipHints.length > 0 ? (
-        <div className="mt-3">
+      {oVis.length > 0 ? (
+        <div className="mt-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
             Ownership hints
           </p>
-          {list(guidance.ownershipHints)}
+          {list(oVis)}
         </div>
+      ) : null}
+
+      {hasMoreCollapsed ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="mt-2 text-[11px] font-semibold text-cortex-blue hover:underline dark:text-emerald-300"
+        >
+          {expanded ? "Show less guidance" : "Show more guidance"}
+        </button>
       ) : null}
     </section>
   );
@@ -289,7 +334,7 @@ export function SapTicketReferenceContextCard({
 
   const footer = (
     <p className="border-t border-gray-200/90 pt-2 text-[10px] leading-snug text-gray-500 dark:border-slate-700 dark:text-slate-500">
-      {NO_LIVE_SAP_COPY}
+      {NO_LIVE_SAP_FOOTER}
     </p>
   );
 
@@ -300,7 +345,10 @@ export function SapTicketReferenceContextCard({
         {matchList}
         {showAllControl}
         {reviewerGuidance ? (
-          <ReviewerGuidanceBlock guidance={reviewerGuidance} />
+          <ReviewerGuidanceBlock
+            guidance={reviewerGuidance}
+            ticketId={context.ticketId}
+          />
         ) : null}
         {footer}
       </div>
