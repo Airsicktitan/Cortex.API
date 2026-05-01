@@ -87,7 +87,7 @@ import {
 } from "../utils/ticketActivity";
 import type { CortexSlaRisk } from "../types/cortexRisk";
 import type { TicketExternalSourceContextItem } from "../types/integrations";
-import type { SapTicketReferenceContext } from "../types/sapTicketReference";
+import type { SapTicketReferenceContext, SapTicketReferenceMatch } from "../types/sapTicketReference";
 
 const API_AUDIENCE = "https://cortex-api";
 const MAX_TITLE_LENGTH = 200;
@@ -809,6 +809,29 @@ export default function TicketModal({
   );
 
   const sapReferenceMatchCount = sapReferenceContext?.matches?.length ?? 0;
+
+  /** Successful SAP context only — for Decision-tab assist; omit while loading/error. */
+  const sapDecisionAssistMatches = useMemo(():
+    | SapTicketReferenceMatch[]
+    | undefined => {
+    if (approvalDisplayContext !== "reviewer" || !ticket.id) {
+      return undefined;
+    }
+    if (sapReferenceContextLoading || sapReferenceContextError) {
+      return undefined;
+    }
+    const m = sapReferenceContext?.matches;
+    if (!m?.length) {
+      return undefined;
+    }
+    return m;
+  }, [
+    approvalDisplayContext,
+    ticket.id,
+    sapReferenceContextLoading,
+    sapReferenceContextError,
+    sapReferenceContext?.matches,
+  ]);
 
   const reviewerSourceContextTabSlot = useMemo(() => {
     if (approvalDisplayContext !== "reviewer" || !ticket.id) {
@@ -3549,6 +3572,7 @@ export default function TicketModal({
                   onOpenSourceTicket={onOpenSourceTicket}
                   sourceContextSlot={reviewerSourceContextTabSlot ?? undefined}
                   sapContextSlot={reviewerSapContextTabSlot ?? undefined}
+                  sapDecisionAssistMatches={sapDecisionAssistMatches}
                   onReassignmentApplied={(updatedTicket) => {
                     applyServerTicketToForm(updatedTicket);
                     onTriageApplySuccess?.(updatedTicket);

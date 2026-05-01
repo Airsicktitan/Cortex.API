@@ -16,11 +16,11 @@ const NO_LIVE_SAP_FOOTER =
 
 const INITIAL_SHOW = 5;
 
-/** Default visible rows in embedded reviewer rail; rest behind “Show more guidance”. */
+/** Default visible rows in embedded SAP tab; full lists + ownership require “Show more guidance”. */
 const GUIDANCE_PREVIEW = {
   summary: 2,
-  questions: 3,
-  paths: 3,
+  questions: 2,
+  paths: 2,
 } as const;
 
 function pillClass(kind: "table" | "field" | "custom" | "confidence") {
@@ -46,7 +46,7 @@ const Pill = ({
   kind: "table" | "field" | "custom" | "confidence";
 }) => (
   <span
-    className={`inline-flex max-w-full rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-tight ${pillClass(kind)}`}
+    className={`inline-flex max-w-full rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-snug ${pillClass(kind)}`}
   >
     {children}
   </span>
@@ -84,7 +84,7 @@ function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
         : "Low confidence";
 
   return (
-    <div className="rounded-lg border border-gray-300/90 bg-white px-3 py-2.5 shadow-sm dark:border-slate-600 dark:bg-slate-900/55">
+    <div className="rounded-lg border border-slate-400/55 bg-white px-3 py-2.5 shadow-md ring-1 ring-slate-900/[0.06] dark:border-slate-500/70 dark:bg-slate-900/60 dark:ring-white/[0.08]">
       <p className="text-sm font-semibold leading-snug text-gray-900 dark:text-slate-100">
         {title}
       </p>
@@ -123,7 +123,7 @@ function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
         </p>
       ) : null}
 
-      <p className="mt-2 text-[10px] leading-snug text-gray-500 dark:text-slate-500">
+      <p className="mt-2 text-[11px] leading-snug text-gray-500 dark:text-slate-500">
         Source: {formatDisplayValue(m.sourceName)}
       </p>
     </div>
@@ -144,7 +144,7 @@ function ReviewerGuidanceBlock({
   }, [ticketId]);
 
   const list = (items: string[]) => (
-    <ul className="mt-1 list-outside list-disc space-y-0.5 pl-3.5 text-[11px] leading-snug text-gray-700 dark:text-slate-300">
+    <ul className="mt-1 list-outside list-disc space-y-1 pl-3.5 text-xs leading-5 text-gray-700 dark:text-slate-300">
       {items.map((line, i) => (
         <li key={`${i}-${line.slice(0, 48)}`}>{line}</li>
       ))}
@@ -169,19 +169,19 @@ function ReviewerGuidanceBlock({
 
   return (
     <section
-      className="rounded-md border border-gray-200/80 bg-gray-50/50 px-3 py-2.5 dark:border-slate-700/90 dark:bg-slate-900/30"
+      className="rounded-md border border-dashed border-gray-300/90 bg-gray-50/40 px-3 py-3 dark:border-slate-600/70 dark:bg-slate-900/25"
       aria-label="SAP reviewer guidance"
     >
-      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
+      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
         Reviewer guidance
       </h4>
-      <p className="mt-1 text-[10px] leading-snug text-gray-500 dark:text-slate-500">
-        Suggested from stored reference metadata. No live SAP lookup.
+      <p className="mt-1 text-[11px] leading-4 text-gray-600 dark:text-slate-500">
+        Suggested from stored SAP reference metadata.
       </p>
 
       {sVis.length > 0 ? (
-        <div className="mt-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
             What Cortex inferred
           </p>
           {list(sVis)}
@@ -189,8 +189,8 @@ function ReviewerGuidanceBlock({
       ) : null}
 
       {qVis.length > 0 ? (
-        <div className="mt-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
             Questions to confirm
           </p>
           {list(qVis)}
@@ -198,8 +198,8 @@ function ReviewerGuidanceBlock({
       ) : null}
 
       {pVis.length > 0 ? (
-        <div className="mt-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
             Suggested investigation path
           </p>
           {list(pVis)}
@@ -207,8 +207,8 @@ function ReviewerGuidanceBlock({
       ) : null}
 
       {oVis.length > 0 ? (
-        <div className="mt-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-500">
+        <div className="mt-3 border-t border-gray-200/80 pt-3 dark:border-slate-600/60">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
             Ownership hints
           </p>
           {list(oVis)}
@@ -219,7 +219,7 @@ function ReviewerGuidanceBlock({
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
-          className="mt-2 text-[11px] font-semibold text-cortex-blue hover:underline dark:text-emerald-300"
+          className="mt-3 text-[11px] font-semibold leading-4 text-cortex-blue hover:underline dark:text-emerald-300"
         >
           {expanded ? "Show less guidance" : "Show more guidance"}
         </button>
@@ -333,7 +333,7 @@ export function SapTicketReferenceContextCard({
     ) : null;
 
   const footer = (
-    <p className="border-t border-gray-200/90 pt-2 text-[10px] leading-snug text-gray-500 dark:border-slate-700 dark:text-slate-500">
+    <p className="border-t border-gray-200/90 pt-2 text-[11px] leading-4 text-gray-500 dark:border-slate-700 dark:text-slate-500">
       {NO_LIVE_SAP_FOOTER}
     </p>
   );

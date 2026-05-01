@@ -12,11 +12,14 @@ import type { TicketBoardDefinition } from "../types/ticketBoard";
 import type { RoutingLivePreviewInput } from "./TicketRoutingInsight";
 import type { CortexInsight } from "../types/cortexInsight";
 import type { CortexSlaRisk } from "../types/cortexRisk";
+import type { SapTicketReferenceMatch } from "../types/sapTicketReference";
 import { ticketService } from "../services/api";
 import { deriveHistoricalContextFromInsight } from "../utils/cortexHistoricalContext";
+import { buildSapDecisionAssist } from "../utils/sapDecisionAssist";
 import TicketRoutingInsight from "./TicketRoutingInsight";
 import CortexRiskPanel from "./CortexRiskPanel";
 import CortexInsightPanel from "./CortexInsightPanel";
+import { SapDecisionAssistCard } from "./SapDecisionAssistCard";
 import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 
 const API_AUDIENCE = "https://cortex-api";
@@ -54,6 +57,10 @@ export interface CortexTabbedPanelProps {
    * SAP reference context (reviewer rail). When set, adds SAP tab after Source (or after Decision if no Source).
    */
   sapContextSlot?: ReactNode;
+  /**
+   * SAP reference matches for advisory Decision assist (successful load only; parent omits while loading/error).
+   */
+  sapDecisionAssistMatches?: SapTicketReferenceMatch[];
 }
 
 export function CortexTabbedPanel({
@@ -70,6 +77,7 @@ export function CortexTabbedPanel({
   evidenceSlot,
   sourceContextSlot,
   sapContextSlot,
+  sapDecisionAssistMatches,
 }: CortexTabbedPanelProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [activeTab, setActiveTab] = useState<CortexTab>("decision");
@@ -115,6 +123,14 @@ export function CortexTabbedPanel({
   const historicalContext = useMemo(
     () => deriveHistoricalContextFromInsight(loadedInsight),
     [loadedInsight],
+  );
+
+  const sapDecisionAssist = useMemo(
+    () =>
+      sapDecisionAssistMatches?.length
+        ? buildSapDecisionAssist(sapDecisionAssistMatches)
+        : null,
+    [sapDecisionAssistMatches],
   );
 
   const scrollRiskIntoView = useCallback(() => {
@@ -280,6 +296,13 @@ export function CortexTabbedPanel({
               )}
             </div>
           </div>
+          {ticket.id &&
+          visited.has("decision") &&
+          sapDecisionAssist ? (
+            <div className="mt-5 border-b border-slate-100 px-4 pb-4 pt-1 dark:border-slate-800/80">
+              <SapDecisionAssistCard assist={sapDecisionAssist} />
+            </div>
+          ) : null}
           {ticket.id && visited.has("decision") && (
             <div>
               <TicketRoutingInsight
