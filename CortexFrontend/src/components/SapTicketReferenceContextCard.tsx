@@ -5,14 +5,18 @@ import type {
 } from "../types/sapTicketReference";
 import { formatDisplayValue } from "../utils/presentation";
 import {
+  buildSapIntentOnlyReviewerGuidance,
   buildSapReviewerGuidance,
   type SapReviewerGuidance,
 } from "../utils/sapReviewerGuidance";
 
 const HELPER_COPY =
-  "Detected from SAP reference metadata stored in Cortex.";
+  "Guidance is derived from the Cortex SAP reference catalog (advisory). It reflects governance readiness, not a live SAP system check.";
 const NO_LIVE_SAP_FOOTER =
   "Cortex uses stored SAP reference catalog metadata only and does not perform a live SAP lookup.";
+
+const SAP_INTAKE_HELPER =
+  "SAP-related wording is present, but no table or field matched the SAP reference catalog for this ticket.";
 
 const INITIAL_SHOW = 5;
 
@@ -235,12 +239,17 @@ export function SapTicketReferenceContextCard({
   loading,
   loadError,
   variant = "standalone",
+  ticketTitle,
+  ticketDescription,
 }: {
   context: SapTicketReferenceContext | null;
   loading: boolean;
   loadError: boolean;
   /** `embedded`: no outer card border; for Cortex SAP tab. */
   variant?: SapTicketReferenceContextCardVariant;
+  /** Optional ticket text for key/required phrasing in catalog-matched guidance. */
+  ticketTitle?: string | null;
+  ticketDescription?: string | null;
 }) {
   const [showAll, setShowAll] = useState(false);
 
@@ -249,10 +258,31 @@ export function SapTicketReferenceContextCard({
   }, [context?.ticketId]);
 
   const matches = context?.matches ?? [];
-  const reviewerGuidance = useMemo(
-    () => (variant === "embedded" ? buildSapReviewerGuidance(matches) : null),
-    [matches, variant],
-  );
+  const isSapIntentOnly =
+    Boolean(context?.sapIntentOnly) && matches.length === 0;
+  const reviewerGuidance = useMemo((): SapReviewerGuidance | null => {
+    if (!context) {
+      return null;
+    }
+    if (isSapIntentOnly) {
+      const ticketBody = [ticketTitle, ticketDescription]
+        .filter((s) => Boolean(s?.trim()))
+        .join("\n");
+      return buildSapIntentOnlyReviewerGuidance(
+        ticketBody.length > 0 ? ticketBody : undefined,
+      );
+    }
+    if (!matches.length) {
+      return null;
+    }
+    const ticketBody = [ticketTitle, ticketDescription]
+      .filter((s) => Boolean(s?.trim()))
+      .join("\n");
+    return buildSapReviewerGuidance(
+      matches,
+      ticketBody.length > 0 ? ticketBody : undefined,
+    );
+  }, [context, isSapIntentOnly, matches, ticketTitle, ticketDescription]);
   const visible = useMemo(() => {
     if (showAll || matches.length <= INITIAL_SHOW) {
       return matches;
@@ -289,19 +319,30 @@ export function SapTicketReferenceContextCard({
     );
   }
 
-  if (!context || matches.length === 0) {
+  if (!context || (matches.length === 0 && !isSapIntentOnly)) {
     return null;
   }
 
   const remainder = matches.length - visible.length;
 
-  const header = (
+  const catalogHeader = (
     <header className="space-y-1">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
-        SAP context
+        SAP data & governance context
       </h3>
       <p className="text-[11px] leading-snug text-gray-600 dark:text-slate-400">
         {HELPER_COPY}
+      </p>
+    </header>
+  );
+
+  const intakeHeader = (
+    <header className="space-y-1">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900/85 dark:text-amber-200/85">
+        SAP intake detail needed
+      </h3>
+      <p className="text-[11px] leading-snug text-gray-600 dark:text-slate-400">
+        {SAP_INTAKE_HELPER}
       </p>
     </header>
   );
@@ -341,9 +382,9 @@ export function SapTicketReferenceContextCard({
   if (variant === "embedded") {
     return (
       <div className="space-y-3">
-        {header}
-        {matchList}
-        {showAllControl}
+        {isSapIntentOnly ? intakeHeader : catalogHeader}
+        {!isSapIntentOnly ? matchList : null}
+        {!isSapIntentOnly ? showAllControl : null}
         {reviewerGuidance ? (
           <ReviewerGuidanceBlock
             guidance={reviewerGuidance}
@@ -357,9 +398,19 @@ export function SapTicketReferenceContextCard({
 
   return (
     <section className="rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/50">
-      {header}
-      <div className="mt-2">{matchList}</div>
-      {showAllControl ? <div className="mt-2">{showAllControl}</div> : null}
+      {isSapIntentOnly ? intakeHeader : catalogHeader}
+      {isSapIntentOnly ? null : <div className="mt-2">{matchList}</div>}
+      {!isSapIntentOnly && showAllControl ? (
+        <div className="mt-2">{showAllControl}</div>
+      ) : null}
+      {reviewerGuidance ? (
+        <div className="mt-3">
+          <ReviewerGuidanceBlock
+            guidance={reviewerGuidance}
+            ticketId={context.ticketId}
+          />
+        </div>
+      ) : null}
       <div className="mt-3">{footer}</div>
     </section>
   );

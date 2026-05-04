@@ -186,6 +186,39 @@ public class SapTicketReferenceDetectorTests
     }
 
     [Fact]
+    public void EmptyCatalog_VagueSap_SapIntentOnly_NoMatches()
+    {
+        var text = "Need SAP field fixed\nThere is a problem with a field in SAP.";
+        var dto = SapTicketReferenceDetector.DetectForTicket("T1", text, [], []);
+        Assert.Empty(dto.Matches);
+        Assert.True(dto.SapIntentOnly);
+    }
+
+    [Fact]
+    public void EmptyCatalog_NonSap_NoIntent()
+    {
+        var dto = SapTicketReferenceDetector.DetectForTicket(
+            "T1",
+            "Fix field on intake form",
+            [],
+            []);
+        Assert.Empty(dto.Matches);
+        Assert.False(dto.SapIntentOnly);
+    }
+
+    [Fact]
+    public void CatalogMatch_DisablesSapIntentOnlyFlag()
+    {
+        var dto = SapTicketReferenceDetector.DetectForTicket(
+            "T1",
+            "Please check MARC for plant 1000.",
+            [DemoTable],
+            [YyngmField]);
+        Assert.Contains(dto.Matches, m => m.TableName == "MARC");
+        Assert.False(dto.SapIntentOnly);
+    }
+
+    [Fact]
     public void Dto_HasNoSecretLikeFields()
     {
         var dto = SapTicketReferenceDetector.DetectForTicket(

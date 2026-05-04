@@ -1,6 +1,8 @@
 import type { SapTicketReferenceMatch } from "../types/sapTicketReference";
 import {
   collectSapReferenceMetadataSignals,
+  hasMinimalSapReferenceDetails,
+  ticketBodySuggestsKeyOrRequired,
   type SapReferenceMetadataSignals,
 } from "./sapReferenceMetadataSignals";
 
@@ -10,6 +12,60 @@ export type SapReviewerGuidance = {
   investigationPaths: string[];
   ownershipHints: string[];
 };
+
+/** Intake-only guidance when ticket text suggests SAP but no catalog match exists. */
+export function buildSapIntentOnlyReviewerGuidance(
+  ticketBodyText?: string | null,
+): SapReviewerGuidance {
+  const keyHintFromTicketBody =
+    "The available information suggests required or key values may be needed to identify the affected records. Confirm those values before approval.";
+  const base: SapReviewerGuidance = {
+    summaryLines: [
+      "This request is not ready for approval because the SAP table, field, affected records, current value, requested value, and business reason are missing.",
+    ],
+    questions: [
+      "Provide the SAP table and field name.",
+      "Provide the affected record keys or example records.",
+      "Explain the current value, requested value, and business reason for the change.",
+      "Confirm whether this impacts reporting, integrations, compliance, or downstream processing.",
+    ],
+    investigationPaths: [
+      "Collect SAP identifiers (table, field, and keys) and values before approval.",
+      "Once details are confirmed, validate source extract coverage and mapping or validation rules.",
+    ],
+    ownershipHints: [
+      "Intake / data governance reviewer",
+      "SAP functional owner (after scope is documented)",
+    ],
+  };
+  if (ticketBodySuggestsKeyOrRequired(ticketBodyText)) {
+    return {
+      ...base,
+      questions: [...base.questions, keyHintFromTicketBody],
+    };
+  }
+  return base;
+}
+
+function tableGovernancePhrase(table: string): string | null {
+  switch (table) {
+    case "MARC":
+      return "Plant-level material master data may be in scope.";
+    case "MARA":
+      return "General material master data may be in scope.";
+    case "LFA1":
+      return "Vendor master data may be in scope.";
+    case "KNA1":
+      return "Customer master data may be in scope.";
+    case "EINA":
+    case "EINE":
+      return "Purchasing Info Record data may be in scope.";
+    case "QMAT":
+      return "Quality management material data may be in scope.";
+    default:
+      return null;
+  }
+}
 
 function dedupePush(arr: string[], seen: Set<string>, ...candidates: string[]) {
   for (const c of candidates) {
@@ -22,13 +78,41 @@ function dedupePush(arr: string[], seen: Set<string>, ...candidates: string[]) {
   }
 }
 
-/** Secondary scope questions and investigation paths for well-known tables. */
-function applyTableRefinements(
+function hasTableDrivenScope(sig: SapReferenceMetadataSignals): boolean {
+  const { tables } = sig;
+  for (const t of [
+    "MARC",
+    "MARA",
+    "LFA1",
+    "KNA1",
+    "EINA",
+    "EINE",
+    "QMAT",
+  ] as const) {
+    if (tables.has(t)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shouldOmitGenericWhichRecords(
+  sig: SapReferenceMetadataSignals,
+  matchCount: number,
+): boolean {
+  return (
+    sig.businessObjects.length > 0 ||
+    hasTableDrivenScope(sig) ||
+    sig.isPurchasingInfoRecordContext ||
+    sig.hasCustomField ||
+    hasMinimalSapReferenceDetails(sig, matchCount)
+  );
+}
+
+function appendTableRefinementQuestions(
   sig: SapReferenceMetadataSignals,
   questions: string[],
-  investigationPaths: string[],
   seenQ: Set<string>,
-  seenP: Set<string>,
 ) {
   const { tables, hasCustomField } = sig;
 
@@ -36,7 +120,12 @@ function applyTableRefinements(
     dedupePush(
       questions,
       seenQ,
-      "Which materials and plants are affected?",
+      "Confirm the affected material numbers and plants.",
+    );
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm the current and requested values when known.",
     );
     if (!hasCustomField) {
       dedupePush(
@@ -44,6 +133,77 @@ function applyTableRefinements(
         seenQ,
         "Is scope limited to specific material–plant combinations?",
       );
+    }
+  }
+
+  if (tables.has("MARA")) {
+    dedupePush(questions, seenQ, "Which material numbers are affected?");
+  }
+
+  if (tables.has("LFA1")) {
+    dedupePush(questions, seenQ, "Confirm the affected vendor account number.");
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm the exact field and the current versus requested value.",
+    );
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm whether this change affects purchasing, reporting, compliance, or integrations.",
+    );
+  }
+
+  if (tables.has("KNA1")) {
+    dedupePush(questions, seenQ, "Confirm the affected customer account number.");
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm the exact field and the current versus requested value.",
+    );
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm whether this change affects reporting, compliance, sales, billing, or integrations.",
+    );
+  }
+
+  if (tables.has("EINA") || tables.has("EINE")) {
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm the affected vendor, material, purchasing organization, and plant (when relevant).",
+    );
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm whether the change affects purchasing conditions, source determination, or reporting.",
+    );
+  }
+
+  if (tables.has("QMAT")) {
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm the affected material, plant, and inspection type (or relevant QM setup).",
+    );
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm whether the change affects inspection planning, release, or downstream quality processing.",
+    );
+  }
+}
+
+function appendTableRefinementInvestigation(
+  sig: SapReferenceMetadataSignals,
+  investigationPaths: string[],
+  seenP: Set<string>,
+) {
+  const { tables, hasCustomField } = sig;
+
+  if (tables.has("MARC")) {
+    if (!hasCustomField) {
       dedupePush(
         investigationPaths,
         seenP,
@@ -54,7 +214,6 @@ function applyTableRefinements(
   }
 
   if (tables.has("MARA")) {
-    dedupePush(questions, seenQ, "Which material numbers are affected?");
     dedupePush(
       investigationPaths,
       seenP,
@@ -63,7 +222,6 @@ function applyTableRefinements(
   }
 
   if (tables.has("LFA1")) {
-    dedupePush(questions, seenQ, "Which vendors or accounts are affected?");
     dedupePush(
       investigationPaths,
       seenP,
@@ -72,7 +230,6 @@ function applyTableRefinements(
   }
 
   if (tables.has("KNA1")) {
-    dedupePush(questions, seenQ, "Which customer numbers are affected?");
     dedupePush(
       investigationPaths,
       seenP,
@@ -82,11 +239,6 @@ function applyTableRefinements(
 
   if (tables.has("EINA") || tables.has("EINE")) {
     dedupePush(
-      questions,
-      seenQ,
-      "Confirm supplier, material, and purchasing organization scope (if applicable).",
-    );
-    dedupePush(
       investigationPaths,
       seenP,
       "Check purchasing info record mapping and org-level consistency.",
@@ -94,11 +246,6 @@ function applyTableRefinements(
   }
 
   if (tables.has("QMAT")) {
-    dedupePush(
-      questions,
-      seenQ,
-      "Confirm material, plant, and inspection type scope.",
-    );
     dedupePush(
       investigationPaths,
       seenP,
@@ -143,30 +290,75 @@ function buildMetadataSummaries(
     tableToDescription,
     modules,
     dataDomains,
+    tables,
   } = sig;
 
-  if (hasCustomField) {
+  if (tables.has("MARC") && hasCustomField) {
+    dedupePush(
+      summaryLines,
+      seenS,
+      "This request appears to involve plant-level material data and a custom SAP field.",
+    );
+  } else if (hasCustomField) {
     const name = customFieldNames[0];
     if (name) {
       dedupePush(
         summaryLines,
         seenS,
-        `${name} appears to be a custom SAP field.`,
+        `This request appears to reference a custom SAP extension field (for example, ${name}).`,
       );
     } else {
       dedupePush(
         summaryLines,
         seenS,
-        "A custom or extension SAP field is referenced.",
+        "This request appears to reference a custom or extension SAP field.",
       );
     }
+  }
+
+  if (
+    tables.has("EINA") ||
+    tables.has("EINE") ||
+    sig.isPurchasingInfoRecordContext
+  ) {
+    dedupePush(
+      summaryLines,
+      seenS,
+      "This request appears to involve Purchasing Info Record data for vendor, material, and purchasing-organization context.",
+    );
+  }
+
+  if (
+    tables.has("LFA1") &&
+    !tables.has("MARC") &&
+    !tables.has("MARA") &&
+    !tables.has("KNA1")
+  ) {
+    dedupePush(
+      summaryLines,
+      seenS,
+      "This request appears to involve vendor master data.",
+    );
+  }
+
+  if (
+    tables.has("KNA1") &&
+    !tables.has("MARC") &&
+    !tables.has("MARA") &&
+    !tables.has("LFA1")
+  ) {
+    dedupePush(
+      summaryLines,
+      seenS,
+      "This request appears to involve customer master data.",
+    );
   }
 
   if (businessObjects.length === 1) {
     dedupePush(
       summaryLines,
       seenS,
-      `This ticket references ${businessObjects[0]} data.`,
+      `This request appears to involve ${businessObjects[0]}.`,
     );
   } else if (businessObjects.length > 1) {
     const joined = businessObjects.slice(0, 4).join(", ");
@@ -175,7 +367,7 @@ function buildMetadataSummaries(
     dedupePush(
       summaryLines,
       seenS,
-      `This ticket references ${joined} data.${more}`,
+      `This request appears to involve: ${joined}.${more}`,
     );
   }
 
@@ -187,32 +379,50 @@ function buildMetadataSummaries(
     }
     const desc = tableToDescription.get(t);
     if (desc) {
-      dedupePush(summaryLines, seenS, `${t} — ${desc}.`);
+      dedupePush(
+        summaryLines,
+        seenS,
+        `Supporting catalog description for ${t}: ${desc}.`,
+      );
       tableDescLines++;
     }
   }
 
   const modPart =
-    modules.length > 0 ? `Module: ${modules.join(", ")}` : "";
+    modules.length > 0 ? `Process/module context: ${modules.join(", ")}` : "";
   const domPart =
-    dataDomains.length > 0 ? `domain: ${dataDomains.join(", ")}` : "";
+    dataDomains.length > 0 ? `Data domain: ${dataDomains.join(", ")}` : "";
   if (modPart && domPart) {
-    dedupePush(summaryLines, seenS, `${modPart}; ${domPart}.`);
+    dedupePush(summaryLines, seenS, `${modPart}. ${domPart}.`);
   } else if (modPart) {
     dedupePush(summaryLines, seenS, `${modPart}.`);
   } else if (domPart) {
-    dedupePush(summaryLines, seenS, `Data domain: ${dataDomains.join(", ")}.`);
+    dedupePush(summaryLines, seenS, `${domPart}.`);
   }
 
   const hasTableNamed = sortedTables.length > 0;
   if (summaryLines.length === 0 && hasTableNamed) {
     const t0 = sortedTables[0];
-    const tail = sortedTables.length > 1 ? ` (${sortedTables.length} tables)` : "";
-    dedupePush(
-      summaryLines,
-      seenS,
-      `SAP table ${t0}${tail} matched stored reference metadata.`,
-    );
+    const phrase = tableGovernancePhrase(t0);
+    const tail = sortedTables.length > 1 ? ` Additional tables may apply (${sortedTables.length} total).` : "";
+    if (phrase) {
+      dedupePush(summaryLines, seenS, `This request suggests ${phrase}${tail}`);
+    } else {
+      const desc = tableToDescription.get(t0);
+      if (desc) {
+        dedupePush(
+          summaryLines,
+          seenS,
+          `This request may involve data described in catalog context as: ${desc}.${tail}`,
+        );
+      } else {
+        dedupePush(
+          summaryLines,
+          seenS,
+          `SAP reference catalog context may apply; confirm the governing object with an SME.${tail}`,
+        );
+      }
+    }
   } else if (summaryLines.length > 0 && hasTableNamed) {
     let mentionedTable = false;
     const upperSummaries = summaryLines.join(" ").toUpperCase();
@@ -224,17 +434,57 @@ function buildMetadataSummaries(
     }
     if (!mentionedTable) {
       const t0 = sortedTables[0];
-      dedupePush(
-        summaryLines,
-        seenS,
-        `SAP table ${t0} matched stored reference metadata.`,
-      );
+      const phrase = tableGovernancePhrase(t0);
+      if (phrase) {
+        dedupePush(summaryLines, seenS, `This request suggests ${phrase}`);
+      } else {
+        const desc = tableToDescription.get(t0);
+        if (desc) {
+          dedupePush(
+            summaryLines,
+            seenS,
+            `Supporting catalog description for ${t0}: ${desc}.`,
+          );
+        }
+      }
     }
   }
 }
 
-function buildMetadataQuestions(
+function pushWeakMatchClarifiers(
   sig: SapReferenceMetadataSignals,
+  matchCount: number,
+  questions: string[],
+  seenQ: Set<string>,
+) {
+  if (!hasMinimalSapReferenceDetails(sig, matchCount)) {
+    return;
+  }
+  dedupePush(
+    questions,
+    seenQ,
+    "Provide the SAP table and field name if they are known.",
+  );
+  dedupePush(
+    questions,
+    seenQ,
+    "Provide affected record keys or representative examples.",
+  );
+  dedupePush(
+    questions,
+    seenQ,
+    "Describe the current value, requested value, and business reason for the change.",
+  );
+  dedupePush(
+    questions,
+    seenQ,
+    "Confirm whether this affects reporting, integrations, compliance, or downstream processing.",
+  );
+}
+
+function buildMetadataQuestionsOrdered(
+  sig: SapReferenceMetadataSignals,
+  matchCount: number,
   seenQ: Set<string>,
   questions: string[],
 ) {
@@ -245,9 +495,13 @@ function buildMetadataQuestions(
     hasCustomField,
     isPurchasingInfoRecordContext,
     hasKeyOrRequiredFieldHint,
+    keyOrRequiredHintFromTicketBodyOnly,
   } = sig;
 
+  pushWeakMatchClarifiers(sig, matchCount, questions, seenQ);
+
   if (hasCustomField) {
+    const cf = sig.customFieldNames[0];
     dedupePush(
       questions,
       seenQ,
@@ -257,6 +511,18 @@ function buildMetadataQuestions(
       questions,
       seenQ,
       "Should this field appear in the project mapping or specification?",
+    );
+    if (cf) {
+      dedupePush(
+        questions,
+        seenQ,
+        `Confirm the business meaning of custom field ${cf} with documentation or SMEs; avoid assuming meaning from the name alone.`,
+      );
+    }
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm whether this field matters for routing, reporting, or downstream processing.",
     );
     dedupePush(
       questions,
@@ -269,7 +535,40 @@ function buildMetadataQuestions(
     dedupePush(
       questions,
       seenQ,
-      "Confirm affected info record numbers.",
+      "Provide the purchasing info record number if available.",
+    );
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm affected info record numbers or how records are identified.",
+    );
+  }
+
+  appendTableRefinementQuestions(sig, questions, seenQ);
+
+  if (hasKeyOrRequiredFieldHint) {
+    if (keyOrRequiredHintFromTicketBodyOnly) {
+      dedupePush(
+        questions,
+        seenQ,
+        "The available information suggests required or key values may be needed to identify the affected records. Confirm those values before approval.",
+      );
+    } else {
+      dedupePush(
+        questions,
+        seenQ,
+        "The available metadata suggests this field may be required to identify or process the record. Confirm the required or key values before approval.",
+      );
+    }
+    dedupePush(
+      questions,
+      seenQ,
+      "Provide example records or source values so reviewers can confirm scope.",
+    );
+    dedupePush(
+      questions,
+      seenQ,
+      "Confirm whether missing required values block approval or downstream processing.",
     );
   }
 
@@ -285,7 +584,7 @@ function buildMetadataQuestions(
       seenQ,
       `Which records are affected for: ${businessObjects.slice(0, 3).join(", ")}?`,
     );
-  } else {
+  } else if (!shouldOmitGenericWhichRecords(sig, matchCount)) {
     dedupePush(questions, seenQ, "Which records are affected?");
   }
 
@@ -308,19 +607,6 @@ function buildMetadataQuestions(
       questions,
       seenQ,
       `Does this belong to the ${mod} process owner or data owner?`,
-    );
-  }
-
-  if (hasKeyOrRequiredFieldHint) {
-    dedupePush(
-      questions,
-      seenQ,
-      "Is the key or required field populated in source and target?",
-    );
-    dedupePush(
-      questions,
-      seenQ,
-      "Is validation failing because this field is blank or invalid?",
     );
   }
 
@@ -436,12 +722,13 @@ function buildMetadataOwnership(
  */
 export function buildSapReviewerGuidance(
   matches: SapTicketReferenceMatch[],
+  ticketBodyText?: string | null,
 ): SapReviewerGuidance | null {
   if (!matches.length) {
     return null;
   }
 
-  const sig = collectSapReferenceMetadataSignals(matches);
+  const sig = collectSapReferenceMetadataSignals(matches, ticketBodyText);
 
   const summaryLines: string[] = [];
   const questions: string[] = [];
@@ -454,11 +741,11 @@ export function buildSapReviewerGuidance(
 
   buildMetadataSummaries(sig, seenS, summaryLines);
 
-  buildMetadataQuestions(sig, seenQ, questions);
+  buildMetadataQuestionsOrdered(sig, matches.length, seenQ, questions);
 
   buildMetadataInvestigation(sig, seenP, investigationPaths);
 
-  applyTableRefinements(sig, questions, investigationPaths, seenQ, seenP);
+  appendTableRefinementInvestigation(sig, investigationPaths, seenP);
 
   applyMarcCustomFollowup(sig, questions, investigationPaths, seenQ, seenP);
 

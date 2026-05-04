@@ -26,7 +26,8 @@ public static class SapTicketReferenceDetector
         IReadOnlyList<SapTicketCatalogField> fields)
     {
         var matches = DetectMatches(combinedText, tables, fields);
-        return new SapTicketReferenceContextDto(ticketId, matches);
+        var sapIntentOnly = matches.Count == 0 && SapTicketSapIntentAnalyzer.HasSapIntent(combinedText);
+        return new SapTicketReferenceContextDto(ticketId, matches, sapIntentOnly);
     }
 
     public static IReadOnlyList<SapTicketReferenceMatchDto> DetectMatches(

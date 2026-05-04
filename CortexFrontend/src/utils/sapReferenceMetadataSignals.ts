@@ -13,6 +13,25 @@ export function isCustomFieldSignal(m: SapTicketReferenceMatch): boolean {
   return /^(YY|ZZ)/i.test(raw);
 }
 
+/** Scans free-form ticket title/body for key/required readiness language. */
+export function ticketBodySuggestsKeyOrRequired(text: string | null | undefined): boolean {
+  if (!text?.trim()) {
+    return false;
+  }
+  const t = text.toLowerCase();
+  const patterns: RegExp[] = [
+    /\bkey\b/,
+    /\bprimary key\b/,
+    /\brequired\b/,
+    /\bmandatory\b/,
+    /\brecord-identifying\b/,
+    /\bidentifying the record\b/,
+    /\brequired to identify\b/,
+    /\brequired for identifying\b/,
+  ];
+  return patterns.some((p) => p.test(t));
+}
+
 export type SapReferenceMetadataSignals = {
   tables: Set<string>;
   sortedTables: string[];
@@ -28,17 +47,22 @@ export type SapReferenceMetadataSignals = {
   hasCustomField: boolean;
   hasMaterialMasterBo: boolean;
   /**
-   * Heuristic when fieldDescription suggests key/required/mandatory (no DTO key flag today).
+   * Heuristic when match metadata or ticket body suggests key/required/mandatory language.
    */
   hasKeyOrRequiredFieldHint: boolean;
+  /**
+   * True when key/required hint comes only from ticket body, not from DTO metadata text.
+   */
+  keyOrRequiredHintFromTicketBodyOnly: boolean;
   isPurchasingInfoRecordContext: boolean;
 };
 
 /**
- * Collects deterministic signals from stored SAP reference matches only.
+ * Collects deterministic signals from stored SAP reference matches plus optional ticket body text.
  */
 export function collectSapReferenceMetadataSignals(
   matches: SapTicketReferenceMatch[],
+  ticketBodyText?: string | null,
 ): SapReferenceMetadataSignals {
   const tables = new Set<string>();
   const fieldNameSet = new Set<string>();
@@ -51,7 +75,7 @@ export function collectSapReferenceMetadataSignals(
   const fieldToDescription = new Map<string, string>();
   let hasCustomField = false;
   let hasMaterialMasterBo = false;
-  let hasKeyOrRequiredFieldHint = false;
+  let keyHintFromMetadata = false;
   let isPurchasingInfoRecordContext = false;
 
   for (const m of matches) {
@@ -70,10 +94,14 @@ export function collectSapReferenceMetadataSignals(
         if (!prev || fd.length > prev.length) {
           fieldToDescription.set(fk, fd);
         }
-        if (/\b(key|primary key|required|mandatory)\b/i.test(fd)) {
-          hasKeyOrRequiredFieldHint = true;
-        }
       }
+    }
+
+    const tracePieces = [m.reason, m.matchedText, m.fieldDescription, m.tableDescription]
+      .filter(Boolean)
+      .join(" ");
+    if (/\b(key|primary key|required|mandatory)\b/i.test(tracePieces)) {
+      keyHintFromMetadata = true;
     }
 
     if (isCustomFieldSignal(m)) {
@@ -119,6 +147,11 @@ export function collectSapReferenceMetadataSignals(
     }
   }
 
+  const keyHintFromTicketBody = ticketBodySuggestsKeyOrRequired(ticketBodyText);
+  const hasKeyOrRequiredFieldHint = keyHintFromMetadata || keyHintFromTicketBody;
+  const keyOrRequiredHintFromTicketBodyOnly =
+    keyHintFromTicketBody && !keyHintFromMetadata;
+
   return {
     tables,
     sortedTables: [...tables].sort(),
@@ -132,6 +165,26 @@ export function collectSapReferenceMetadataSignals(
     hasCustomField,
     hasMaterialMasterBo,
     hasKeyOrRequiredFieldHint,
+    keyOrRequiredHintFromTicketBodyOnly,
     isPurchasingInfoRecordContext,
   };
+}
+
+/** True when matches exist but catalog-linked metadata on the DTO is effectively empty. */
+export function hasMinimalSapReferenceDetails(
+  sig: SapReferenceMetadataSignals,
+  matchCount: number,
+): boolean {
+  if (matchCount === 0) {
+    return false;
+  }
+  return (
+    sig.sortedTables.length === 0 &&
+    sig.fieldNames.length === 0 &&
+    !sig.hasCustomField &&
+    sig.businessObjects.length === 0 &&
+    sig.modules.length === 0 &&
+    sig.dataDomains.length === 0 &&
+    sig.tableToDescription.size === 0
+  );
 }

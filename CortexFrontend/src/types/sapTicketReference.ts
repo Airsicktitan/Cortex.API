@@ -27,4 +27,9 @@ export interface SapTicketReferenceMatch {
 export interface SapTicketReferenceContext {
   ticketId: string;
   matches: SapTicketReferenceMatch[];
+  /**
+   * True when the ticket text suggests SAP work but no catalog table/field match was returned.
+   * Intake/readiness only — not a metadata detection claim.
+   */
+  sapIntentOnly?: boolean;
 }

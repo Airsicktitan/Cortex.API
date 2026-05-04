@@ -799,6 +799,8 @@ export default function TicketModal({
         context={sapReferenceContext}
         loading={sapReferenceContextLoading}
         loadError={sapReferenceContextError}
+        ticketTitle={ticket.title}
+        ticketDescription={ticket.description}
       />
     ),
     [
@@ -809,6 +811,7 @@ export default function TicketModal({
   );
 
   const sapReferenceMatchCount = sapReferenceContext?.matches?.length ?? 0;
+  const sapIntentOnlyFromApi = sapReferenceContext?.sapIntentOnly === true;
 
   /** Successful SAP context only — for Decision-tab assist; omit while loading/error. */
   const sapDecisionAssistMatches = useMemo(():
@@ -818,6 +821,9 @@ export default function TicketModal({
       return undefined;
     }
     if (sapReferenceContextLoading || sapReferenceContextError) {
+      return undefined;
+    }
+    if (sapIntentOnlyFromApi) {
       return undefined;
     }
     const m = sapReferenceContext?.matches;
@@ -830,7 +836,40 @@ export default function TicketModal({
     ticket.id,
     sapReferenceContextLoading,
     sapReferenceContextError,
+    sapIntentOnlyFromApi,
     sapReferenceContext?.matches,
+  ]);
+
+  const sapIntentOnlyForAssist = useMemo(() => {
+    if (approvalDisplayContext !== "reviewer" || !ticket.id) {
+      return false;
+    }
+    if (sapReferenceContextLoading || sapReferenceContextError) {
+      return false;
+    }
+    return sapIntentOnlyFromApi;
+  }, [
+    approvalDisplayContext,
+    ticket.id,
+    sapReferenceContextLoading,
+    sapReferenceContextError,
+    sapIntentOnlyFromApi,
+  ]);
+
+  const sapDecisionAssistTicketText = useMemo(() => {
+    if (approvalDisplayContext !== "reviewer" || !ticket.id) {
+      return undefined;
+    }
+    const joined = [ticket.title, ticket.description]
+      .filter((s) => Boolean(s?.trim()))
+      .join("\n")
+      .trim();
+    return joined.length > 0 ? joined : undefined;
+  }, [
+    approvalDisplayContext,
+    ticket.id,
+    ticket.title,
+    ticket.description,
   ]);
 
   const reviewerSourceContextTabSlot = useMemo(() => {
@@ -873,6 +912,7 @@ export default function TicketModal({
     const showSapSection =
       sapReferenceContextLoading ||
       sapReferenceMatchCount > 0 ||
+      sapIntentOnlyFromApi ||
       sapReferenceContextError;
 
     if (!showSapSection) {
@@ -886,6 +926,8 @@ export default function TicketModal({
           loading={sapReferenceContextLoading}
           loadError={sapReferenceContextError}
           variant="embedded"
+          ticketTitle={ticket.title}
+          ticketDescription={ticket.description}
         />
       </section>
     );
@@ -896,6 +938,7 @@ export default function TicketModal({
     sapReferenceContextLoading,
     sapReferenceContextError,
     sapReferenceMatchCount,
+    sapIntentOnlyFromApi,
   ]);
 
   const sourceContextBundleSection = useMemo(
@@ -3573,6 +3616,8 @@ export default function TicketModal({
                   sourceContextSlot={reviewerSourceContextTabSlot ?? undefined}
                   sapContextSlot={reviewerSapContextTabSlot ?? undefined}
                   sapDecisionAssistMatches={sapDecisionAssistMatches}
+                  sapIntentOnly={sapIntentOnlyForAssist}
+                  sapDecisionAssistTicketText={sapDecisionAssistTicketText}
                   onReassignmentApplied={(updatedTicket) => {
                     applyServerTicketToForm(updatedTicket);
                     onTriageApplySuccess?.(updatedTicket);

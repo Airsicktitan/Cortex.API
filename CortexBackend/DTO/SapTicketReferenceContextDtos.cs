@@ -17,7 +17,9 @@ public enum SapTicketReferenceMatchConfidence
 /// <summary>GET /api/tickets/{ticketId}/sap-reference-context — read-only matches from stored SAP reference catalogs.</summary>
 public sealed record SapTicketReferenceContextDto(
     string TicketId,
-    IReadOnlyList<SapTicketReferenceMatchDto> Matches);
+    IReadOnlyList<SapTicketReferenceMatchDto> Matches,
+    /// <summary>True when ticket text suggests SAP work but no catalog match was found — intake/readiness only.</summary>
+    bool SapIntentOnly = false);
 
 public sealed record SapTicketReferenceMatchDto(
     SapTicketReferenceMatchType MatchType,

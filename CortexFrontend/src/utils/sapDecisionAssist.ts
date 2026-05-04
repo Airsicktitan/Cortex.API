@@ -1,14 +1,23 @@
 import type { SapTicketReferenceMatch } from "../types/sapTicketReference";
 import {
   collectSapReferenceMetadataSignals,
+  hasMinimalSapReferenceDetails,
   isCustomFieldSignal,
+  ticketBodySuggestsKeyOrRequired,
   type SapReferenceMetadataSignals,
 } from "./sapReferenceMetadataSignals";
 
+/** Advisory SAP / data governance assist for the Decision tab. */
 export type SapDecisionAssist = {
-  impactLines: string[];
-  readinessChecks: string[];
-  reviewerFocus: string[];
+  /** Can this move forward, and at what confidence? */
+  reviewReadinessLines: string[];
+  /** Business-facing SAP scope (not raw “detection” wording). */
+  dataContextLines: string[];
+  /** Concrete checks before approval. */
+  beforeApprovalLines: string[];
+  /** Downstream / governance risk framing. */
+  governanceConcernLines: string[];
+  reviewerFocusLines: string[];
 };
 
 function pushDedupe(arr: string[], seen: Set<string>, ...items: string[]) {
@@ -38,68 +47,194 @@ function dedupeMerge(segments: string[][]): string[] {
   return out;
 }
 
-const CAP_IMPACT = 2;
-const CAP_READINESS = 3;
+const CAP_REVIEW = 2;
+const CAP_CONTEXT = 2;
+const CAP_BEFORE = 4;
+const CAP_GOV = 2;
 const CAP_FOCUS = 3;
 
-function addTableReadinessAndFocus(
+/** Decision assist when ticket suggests SAP but no catalog match exists. */
+export function buildSapIntentOnlyDecisionAssist(
+  ticketBodyText?: string | null,
+): SapDecisionAssist {
+  const beforeApprovalLines = [
+    "Provide SAP table, field, record keys, current and requested values, and business reason.",
+    "Confirm downstream impact (reporting, integrations, compliance) once scope is known.",
+  ];
+  if (ticketBodySuggestsKeyOrRequired(ticketBodyText)) {
+    beforeApprovalLines.push(
+      "If required or key values are mentioned, confirm what is needed to identify the affected records.",
+    );
+  }
+  return {
+    reviewReadinessLines: [
+      "This request is not ready for approval because the SAP table, field, affected records, current value, requested value, and business reason are missing.",
+    ],
+    dataContextLines: [
+      "SAP-related intake is present, but no catalog-linked table or field is available for reviewers yet.",
+    ],
+    beforeApprovalLines,
+    governanceConcernLines: [
+      "Missing record keys or unclear business meaning can delay approval, update the wrong records, or affect downstream reporting.",
+    ],
+    reviewerFocusLines: [
+      "Intake / data governance reviewer",
+      "SAP functional owner (after scope is documented)",
+    ],
+  };
+}
+
+function buildDataContextLines(sig: SapReferenceMetadataSignals): string[] {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  const { tables, hasCustomField, isPurchasingInfoRecordContext, sortedTables } =
+    sig;
+
+  if (tables.has("MARC") && hasCustomField) {
+    pushDedupe(
+      lines,
+      seen,
+      "Plant-level material data with a custom SAP field.",
+    );
+  } else if (tables.has("MARC")) {
+    pushDedupe(lines, seen, "Plant-level material data.");
+  }
+
+  if (tables.has("EINA") || tables.has("EINE") || isPurchasingInfoRecordContext) {
+    pushDedupe(
+      lines,
+      seen,
+      "Purchasing Info Record data for vendor, material, and purchasing-organization context.",
+    );
+  }
+
+  if (tables.has("LFA1")) {
+    pushDedupe(lines, seen, "Vendor master (general) data.");
+  }
+
+  if (tables.has("KNA1")) {
+    pushDedupe(lines, seen, "Customer master (general) data.");
+  }
+
+  if (tables.has("MARA") && !tables.has("MARC")) {
+    pushDedupe(lines, seen, "General material data.");
+  }
+
+  if (lines.length === 0 && sortedTables.length > 0) {
+    const t = sortedTables[0];
+    const desc = sig.tableToDescription.get(t);
+    if (desc) {
+      pushDedupe(
+        lines,
+        seen,
+        `This request may involve data described in catalog context as: ${desc}`,
+      );
+    } else {
+      pushDedupe(
+        lines,
+        seen,
+        "SAP master or configuration data may be in scope based on the Cortex reference catalog.",
+      );
+    }
+  } else if (lines.length === 0) {
+    pushDedupe(
+      lines,
+      seen,
+      "Catalog-linked SAP identifiers are limited; reviewers should confirm the exact object with the requester.",
+    );
+  }
+
+  const firstCustom = sig.customFieldNames[0] ?? null;
+  if (hasCustomField && firstCustom && !lines.some((l) => l.includes(firstCustom))) {
+    pushDedupe(
+      lines,
+      seen,
+      `Catalog context includes field ${firstCustom}; confirm business meaning before approval.`,
+    );
+  }
+
+  return lines.slice(0, CAP_CONTEXT);
+}
+
+function appendBeforeApprovalTableRules(
   sig: SapReferenceMetadataSignals,
-  readinessSegments: string[][],
-  focusSegments: string[][],
+  segments: string[][],
 ) {
   const { tables, hasCustomField } = sig;
 
-  if (tables.has("MARC")) {
-    readinessSegments.push([
-      "Confirm affected plant(s).",
-      "Confirm affected material numbers.",
+  if (tables.has("MARC") && hasCustomField) {
+    segments.push([
+      "Confirm affected material numbers, plants, current value, requested value, and business meaning of the custom field.",
+    ]);
+  } else if (tables.has("MARC")) {
+    segments.push([
+      "Confirm affected material numbers and plants.",
       "Confirm material/plant extension scope.",
     ]);
-    focusSegments.push([
+  }
+
+  if (tables.has("MARA")) {
+    segments.push([
+      "Confirm affected material numbers.",
+      "Confirm general material master scope.",
+    ]);
+  }
+
+  if (tables.has("LFA1")) {
+    segments.push([
+      "Confirm affected vendor account number, exact field, and current versus requested value.",
+      "Confirm downstream purchasing, reporting, compliance, or integration impact.",
+    ]);
+  }
+
+  if (tables.has("KNA1")) {
+    segments.push([
+      "Confirm affected customer account number, exact field, and current versus requested value.",
+      "Confirm downstream sales, billing, reporting, compliance, or integration impact.",
+    ]);
+  }
+
+  if (tables.has("EINA") || tables.has("EINE")) {
+    segments.push([
+      "Provide the purchasing info record number when available, or explain how the record is identified.",
+      "Confirm vendor, material, purchasing organization, and plant (when relevant).",
+      "Confirm whether purchasing conditions, source determination, or reporting could be affected.",
+    ]);
+  }
+
+  if (tables.has("QMAT")) {
+    segments.push([
+      "Confirm affected material, plant, and inspection type (or relevant QM setup).",
+    ]);
+  }
+}
+
+function appendReviewerFocus(sig: SapReferenceMetadataSignals, segments: string[][]) {
+  const { tables, hasCustomField } = sig;
+
+  if (tables.has("MARC")) {
+    segments.push([
       "Material Master / Supply Chain",
       "Plant-level material data owner",
     ]);
   }
 
   if (tables.has("MARA")) {
-    readinessSegments.push([
-      "Confirm affected material numbers.",
-      "Confirm general material master data scope.",
-    ]);
-    focusSegments.push(["Material Master owner"]);
+    segments.push(["Material Master owner"]);
   }
 
   if (tables.has("LFA1")) {
-    readinessSegments.push([
-      "Confirm affected vendor or account numbers.",
-      "Confirm vendor general data scope.",
-    ]);
-    focusSegments.push(["Vendor Master owner"]);
+    segments.push(["Vendor Master owner"]);
   }
 
   if (tables.has("KNA1")) {
-    readinessSegments.push([
-      "Confirm affected customer numbers.",
-      "Confirm customer general data scope.",
-    ]);
-    focusSegments.push(["Customer Master owner"]);
-  }
-
-  if (tables.has("EINA") || tables.has("EINE")) {
-    readinessSegments.push([
-      "Confirm supplier, material, and purchasing organization scope.",
-    ]);
-  }
-
-  if (tables.has("QMAT")) {
-    readinessSegments.push([
-      "Confirm material, plant, and inspection type scope.",
-    ]);
+    segments.push(["Customer Master owner"]);
   }
 
   if (tables.has("MARC") && hasCustomField) {
-    readinessSegments.push([
-      "Confirm whether plant/material scope is fully known before approval.",
+    segments.push([
+      "Mapping / transformation owner",
+      "Validation or load rule owner",
     ]);
   }
 }
@@ -109,17 +244,39 @@ function addTableReadinessAndFocus(
  */
 export function buildSapDecisionAssist(
   matches: SapTicketReferenceMatch[],
+  ticketBodyText?: string | null,
 ): SapDecisionAssist | null {
   if (!matches.length) {
     return null;
   }
 
-  const sig = collectSapReferenceMetadataSignals(matches);
+  const sig = collectSapReferenceMetadataSignals(matches, ticketBodyText);
 
-  const impact: string[] = [];
-  const seenI = new Set<string>();
-  const readinessSegments: string[][] = [];
+  const reviewReadinessLines: string[] = [];
+  const seenR = new Set<string>();
+  const beforeSegments: string[][] = [];
   const focusSegments: string[][] = [];
+  const governanceSegments: string[][] = [];
+
+  if (hasMinimalSapReferenceDetails(sig, matches.length)) {
+    pushDedupe(
+      reviewReadinessLines,
+      seenR,
+      "Not ready for approval — SAP table, field, or record detail is still too thin for a confident review.",
+    );
+    beforeSegments.push([
+      "Provide SAP table and field names, affected records, and the requested change.",
+    ]);
+    governanceSegments.push([
+      "Thin detail increases the risk of wrong scope or incorrect master data updates.",
+    ]);
+  } else {
+    pushDedupe(
+      reviewReadinessLines,
+      seenR,
+      "Ready for review with minor gaps — confirm the items below before approval.",
+    );
+  }
 
   let firstCustom = sig.customFieldNames[0] ?? null;
   if (!firstCustom) {
@@ -132,12 +289,7 @@ export function buildSapDecisionAssist(
   }
 
   if (firstCustom) {
-    pushDedupe(
-      impact,
-      seenI,
-      `Custom SAP field detected: ${firstCustom}.`,
-    );
-    readinessSegments.push([
+    beforeSegments.push([
       "Confirm the field exists in the project mapping or specification.",
       "Confirm whether the field is source-provided, transformed, defaulted, or SAP-maintained.",
     ]);
@@ -145,60 +297,42 @@ export function buildSapDecisionAssist(
       "Mapping / transformation owner",
       "Validation or load rule owner",
     ]);
+    governanceSegments.push([
+      "Custom field meaning should be confirmed before approval because downstream reporting or integrations may depend on it.",
+    ]);
   }
 
-  for (const bo of sig.businessObjects.slice(0, 2)) {
-    if (impact.length >= CAP_IMPACT) {
-      break;
-    }
-    pushDedupe(impact, seenI, `Ticket may reference ${bo} data.`);
+  if (sig.isPurchasingInfoRecordContext || sig.tables.has("EINA") || sig.tables.has("EINE")) {
+    governanceSegments.push([
+      "Purchasing Info Record changes may affect source determination, purchasing behavior, or reporting.",
+    ]);
   }
 
-  if (impact.length < CAP_IMPACT && sig.sortedTables.length > 0) {
-    const t = sig.sortedTables[0];
-    const desc = sig.tableToDescription.get(t);
-    if (desc) {
-      pushDedupe(impact, seenI, `Ticket may reference ${t} — ${desc}.`);
+  if (sig.hasKeyOrRequiredFieldHint) {
+    if (sig.keyOrRequiredHintFromTicketBodyOnly) {
+      governanceSegments.push([
+        "Unclear identifying values may delay approval or lead to updating the wrong records.",
+      ]);
+      beforeSegments.push([
+        "Ticket text suggests key or required values may matter for identifying records; confirm before approval.",
+      ]);
     } else {
-      pushDedupe(
-        impact,
-        seenI,
-        `SAP table ${t} matched stored reference metadata.`,
-      );
+      governanceSegments.push([
+        "Missing record keys may delay approval or cause the wrong records to be updated.",
+      ]);
+      beforeSegments.push([
+        "Available metadata suggests key or required values may matter; confirm identifying values before approval.",
+      ]);
     }
   }
 
-  if (impact.length < CAP_IMPACT) {
-    const modPart =
-      sig.modules.length > 0 ? `Module ${sig.modules.join(", ")}` : "";
-    const domPart =
-      sig.dataDomains.length > 0
-        ? `domain ${sig.dataDomains.join(", ")}`
-        : "";
-    if (modPart && domPart) {
-      pushDedupe(impact, seenI, `Ticket may reference ${modPart}; ${domPart}.`);
-    } else if (modPart) {
-      pushDedupe(impact, seenI, `Ticket may reference ${modPart} (SAP metadata).`);
-    } else if (domPart) {
-      pushDedupe(impact, seenI, `Ticket may reference ${domPart} scope (SAP metadata).`);
-    }
-  }
-
-  if (impact.length === 0) {
-    pushDedupe(
-      impact,
-      seenI,
-      "SAP reference metadata was detected on this ticket.",
-    );
-  }
-
-  readinessSegments.push([
+  beforeSegments.push([
     "Confirm affected records and organizational scope.",
     "Confirm mapping and validation/load rule coverage.",
   ]);
 
   if (!sig.hasCustomField) {
-    readinessSegments.push([
+    beforeSegments.push([
       "Confirm whether the issue may reflect missing source data, mapping, or failed validation.",
     ]);
   }
@@ -224,14 +358,23 @@ export function buildSapDecisionAssist(
     focusSegments.push([`${d} governance owner`]);
   }
 
-  addTableReadinessAndFocus(sig, readinessSegments, focusSegments);
+  appendBeforeApprovalTableRules(sig, beforeSegments);
+  appendReviewerFocus(sig, focusSegments);
 
-  const readiness = dedupeMerge(readinessSegments);
-  const reviewerFocus = dedupeMerge(focusSegments);
+  const dataContextLines = buildDataContextLines(sig);
+
+  const beforeApprovalLines = dedupeMerge(beforeSegments).slice(0, CAP_BEFORE);
+  const reviewerFocusLines = dedupeMerge(focusSegments).slice(0, CAP_FOCUS);
+  const governanceConcernLines = dedupeMerge(governanceSegments).slice(
+    0,
+    CAP_GOV,
+  );
 
   return {
-    impactLines: impact.slice(0, CAP_IMPACT),
-    readinessChecks: readiness.slice(0, CAP_READINESS),
-    reviewerFocus: reviewerFocus.slice(0, CAP_FOCUS),
+    reviewReadinessLines: reviewReadinessLines.slice(0, CAP_REVIEW),
+    dataContextLines,
+    beforeApprovalLines,
+    governanceConcernLines,
+    reviewerFocusLines,
   };
 }

@@ -15,7 +15,7 @@ import type { CortexSlaRisk } from "../types/cortexRisk";
 import type { SapTicketReferenceMatch } from "../types/sapTicketReference";
 import { ticketService } from "../services/api";
 import { deriveHistoricalContextFromInsight } from "../utils/cortexHistoricalContext";
-import { buildSapDecisionAssist } from "../utils/sapDecisionAssist";
+import { buildSapDecisionAssist, buildSapIntentOnlyDecisionAssist } from "../utils/sapDecisionAssist";
 import TicketRoutingInsight from "./TicketRoutingInsight";
 import CortexRiskPanel from "./CortexRiskPanel";
 import CortexInsightPanel from "./CortexInsightPanel";
@@ -61,6 +61,10 @@ export interface CortexTabbedPanelProps {
    * SAP reference matches for advisory Decision assist (successful load only; parent omits while loading/error).
    */
   sapDecisionAssistMatches?: SapTicketReferenceMatch[];
+  /** True when API returned SAP intent without catalog matches — intake-only Decision assist. */
+  sapIntentOnly?: boolean;
+  /** Title + description for ticket-body key/required hints in Decision assist. */
+  sapDecisionAssistTicketText?: string | null;
 }
 
 export function CortexTabbedPanel({
@@ -78,6 +82,8 @@ export function CortexTabbedPanel({
   sourceContextSlot,
   sapContextSlot,
   sapDecisionAssistMatches,
+  sapIntentOnly = false,
+  sapDecisionAssistTicketText,
 }: CortexTabbedPanelProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [activeTab, setActiveTab] = useState<CortexTab>("decision");
@@ -125,13 +131,22 @@ export function CortexTabbedPanel({
     [loadedInsight],
   );
 
-  const sapDecisionAssist = useMemo(
-    () =>
-      sapDecisionAssistMatches?.length
-        ? buildSapDecisionAssist(sapDecisionAssistMatches)
-        : null,
-    [sapDecisionAssistMatches],
-  );
+  const sapDecisionAssist = useMemo(() => {
+    if (sapIntentOnly) {
+      return buildSapIntentOnlyDecisionAssist(sapDecisionAssistTicketText);
+    }
+    if (sapDecisionAssistMatches?.length) {
+      return buildSapDecisionAssist(
+        sapDecisionAssistMatches,
+        sapDecisionAssistTicketText,
+      );
+    }
+    return null;
+  }, [
+    sapIntentOnly,
+    sapDecisionAssistMatches,
+    sapDecisionAssistTicketText,
+  ]);
 
   const scrollRiskIntoView = useCallback(() => {
     riskPanelAnchorRef.current?.scrollIntoView({

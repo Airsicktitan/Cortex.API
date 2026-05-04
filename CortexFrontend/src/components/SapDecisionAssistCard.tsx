@@ -15,9 +15,11 @@ function BulletList({ items }: { items: string[] }) {
 
 export function SapDecisionAssistCard({ assist }: { assist: SapDecisionAssist }) {
   const hasContent =
-    assist.impactLines.length > 0 ||
-    assist.readinessChecks.length > 0 ||
-    assist.reviewerFocus.length > 0;
+    assist.reviewReadinessLines.length > 0 ||
+    assist.dataContextLines.length > 0 ||
+    assist.beforeApprovalLines.length > 0 ||
+    assist.governanceConcernLines.length > 0 ||
+    assist.reviewerFocusLines.length > 0;
 
   if (!hasContent) {
     return null;
@@ -30,38 +32,56 @@ export function SapDecisionAssistCard({ assist }: { assist: SapDecisionAssist })
     >
       <div>
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/90 dark:text-amber-200/90">
-          SAP decision assist
+          SAP / data governance assist
         </h3>
         <p className="mt-1 text-[11px] leading-4 text-amber-950/85 dark:text-amber-100/75">
-          SAP reference metadata may affect review readiness. Cortex did not perform a live SAP
-          lookup.
+          Advisory context from the Cortex SAP reference catalog. Routing and approval rules are
+          unchanged; this is not a live SAP lookup.
         </p>
       </div>
 
-      {assist.impactLines.length > 0 ? (
+      {assist.reviewReadinessLines.length > 0 ? (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/80 dark:text-amber-200/85">
-            Decision impact
+            Review readiness
           </p>
-          <BulletList items={assist.impactLines} />
+          <BulletList items={assist.reviewReadinessLines} />
         </div>
       ) : null}
 
-      {assist.readinessChecks.length > 0 ? (
+      {assist.dataContextLines.length > 0 ? (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/80 dark:text-amber-200/85">
-            Review readiness checks
+            Data context
           </p>
-          <BulletList items={assist.readinessChecks} />
+          <BulletList items={assist.dataContextLines} />
         </div>
       ) : null}
 
-      {assist.reviewerFocus.length > 0 ? (
+      {assist.beforeApprovalLines.length > 0 ? (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/80 dark:text-amber-200/85">
-            Suggested reviewer focus
+            Before approval
           </p>
-          <BulletList items={assist.reviewerFocus} />
+          <BulletList items={assist.beforeApprovalLines} />
+        </div>
+      ) : null}
+
+      {assist.governanceConcernLines.length > 0 ? (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/80 dark:text-amber-200/85">
+            Governance concern
+          </p>
+          <BulletList items={assist.governanceConcernLines} />
+        </div>
+      ) : null}
+
+      {assist.reviewerFocusLines.length > 0 ? (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/80 dark:text-amber-200/85">
+            Suggested ownership / focus
+          </p>
+          <BulletList items={assist.reviewerFocusLines} />
         </div>
       ) : null}
     </div>
