@@ -24,11 +24,14 @@ import type {
   TicketRoutingLatestResponse,
 } from "../types/ticketRoutingInsight";
 import type { WorkflowMetricsSnapshot } from "../types/workflowMetrics";
+import type { IntakeLearningOverview } from "../types/intakeLearning";
 import type {
   RepeatIssueAiReviewResponse,
   RepeatIssueGroupDetailResponse,
   RepeatIssueOverviewResponse,
 } from "../types/repeatIssues";
+import type { TicketExternalSourceContextItem } from "../types/integrations";
+import type { SapTicketReferenceContext } from "../types/sapTicketReference";
 import type {
   CortexDecisionResult,
   RebalanceSuggestion,
@@ -36,6 +39,7 @@ import type {
 } from "../types/cortexDecision";
 import type { CortexInsight } from "../types/cortexInsight";
 import type { CortexAutonomyResult } from "../types/cortexAutonomy";
+import type { CortexSlaRisk } from "../types/cortexRisk";
 import type { CortexSystemRecommendation } from "../types/cortexSystemRecommendation";
 import type { CortexAiAssessment } from "../types/cortexAiAssessment";
 import type {
@@ -153,19 +157,19 @@ async function readErrorMessage(
       const code =
         typeof codeRaw === "string" && codeRaw.trim() ? codeRaw.trim() : undefined;
 
-      const detail = "detail" in data ? data.detail : undefined;
-      if (typeof detail === "string" && detail.trim()) {
-        return { message: detail, code };
-      }
-
-      const message = "message" in data ? data.message : undefined;
-      if (typeof message === "string" && message.trim()) {
-        return { message, code };
-      }
-
-      const title = "title" in data ? data.title : undefined;
+      const title = "title" in data ? (data as { title?: unknown }).title : undefined;
       if (typeof title === "string" && title.trim()) {
-        return { message: title, code };
+        return { message: title.trim(), code };
+      }
+
+      const detail = "detail" in data ? (data as { detail?: unknown }).detail : undefined;
+      if (typeof detail === "string" && detail.trim()) {
+        return { message: detail.trim(), code };
+      }
+
+      const message = "message" in data ? (data as { message?: unknown }).message : undefined;
+      if (typeof message === "string" && message.trim()) {
+        return { message: message.trim(), code };
       }
 
       if (code) {
@@ -427,6 +431,66 @@ export const ticketService = {
     return response.json() as Promise<CortexAutonomyResult>;
   },
 
+  async getRisk(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<CortexSlaRisk | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/risk`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    await ensureSuccess(response, "Unable to load Cortex risk");
+    return response.json() as Promise<CortexSlaRisk>;
+  },
+
+  async getExternalSourceContexts(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<TicketExternalSourceContextItem[]> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/external-source-context`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 404) {
+      return [];
+    }
+    await ensureSuccess(
+      response,
+      "Unable to load external source context",
+    );
+    return response.json() as Promise<TicketExternalSourceContextItem[]>;
+  },
+
+  async getSapReferenceContext(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<SapTicketReferenceContext | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/sap-reference-context`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    await ensureSuccess(response, "Unable to load SAP context");
+    return response.json() as Promise<SapTicketReferenceContext>;
+  },
+
   async getInsight(
     id: string,
     token: string,
@@ -440,6 +504,25 @@ export const ticketService = {
       },
     );
     await ensureSuccess(response, "Unable to load Cortex Insight");
+    return response.json() as Promise<CortexInsight>;
+  },
+
+  async getCachedInsight(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<CortexInsight | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/insight/cache`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 204 || response.status === 404) {
+      return null;
+    }
+    await ensureSuccess(response, "Unable to load cached Cortex Insight");
     return response.json() as Promise<CortexInsight>;
   },
 
@@ -848,6 +931,14 @@ export const metricsService = {
     await ensureSuccess(response, "Unable to load workflow metrics");
     return response.json() as Promise<WorkflowMetricsSnapshot>;
   },
+
+  async getIntakeLearningOverview(token: string): Promise<IntakeLearningOverview> {
+    const response = await fetch(`${API_BASE_URL}/reports/intake-learning`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load intake learning insights.");
+    return response.json() as Promise<IntakeLearningOverview>;
+  },
 };
 
 export const repeatIssuesService = {
@@ -916,7 +1007,9 @@ export const attachmentService = {
     });
 
     await ensureSuccess(response, "Unable to upload attachments");
-    return response.json();
+    const uploadedAttachments = (await response.json()) as TicketAttachment[];
+    notifyTicketAttachmentsChanged(ticketId);
+    return uploadedAttachments;
   },
 
   async download(ticketId: string, attachmentId: number, token: string): Promise<Blob> {
@@ -978,6 +1071,19 @@ export const attachmentService = {
     return response.json() as Promise<ScreenshotInsightResult>;
   },
 };
+
+export const TICKET_ATTACHMENTS_CHANGED_EVENT =
+  "cortex-ticket-attachments-changed";
+
+function notifyTicketAttachmentsChanged(ticketId: string) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(TICKET_ATTACHMENTS_CHANGED_EVENT, {
+        detail: { ticketId },
+      }),
+    );
+  }
+}
 
 let userDirectoryCache: UserDirectoryEntry[] | null = null;
 let userDirectoryRequest: Promise<UserDirectoryEntry[]> | null = null;

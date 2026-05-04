@@ -29,9 +29,12 @@ public static class TicketSlaCalculator
             return new TicketSlaSnapshot(createdDateUtc, null, label, 0, false);
         }
 
-        var createdDateUtcActive = EnsureUtc(ticket.CreatedDate);
+        // Active SLA clock begins when intake is complete (approval gate cleared).
+        var slaStartUtc = ticket.ApprovedAt.HasValue
+            ? EnsureUtc(ticket.ApprovedAt.Value)
+            : EnsureUtc(ticket.CreatedDate);
         var effectiveConfiguration = configuration ?? GetDefaultPolicy(ticket.Priority);
-        var targetDateUtc = createdDateUtcActive.Add(TimeSpan.FromHours(effectiveConfiguration.TargetHours));
+        var targetDateUtc = slaStartUtc.Add(TimeSpan.FromHours(effectiveConfiguration.TargetHours));
         var completedDateUtc = GetCompletedDate(ticket);
         var comparisonDateUtc = completedDateUtc ?? nowUtc ?? DateTime.UtcNow;
         var remainingMinutes = ToWholeMinutes(targetDateUtc - comparisonDateUtc);

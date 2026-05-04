@@ -43,23 +43,23 @@ export function getReviewerIntakeQualityCopy(kind: ReviewerIntakeQualityKind): {
   switch (kind) {
     case "needs_detail":
       return {
-        title: "Cortex improvement available",
-        body: "This request has gaps that would require reviewer follow-up. Fill in the missing details to submit review-ready.",
+        title: "Not ready for approval",
+        body: "Material gaps remain. Gather the missing intake detail before this request is truly review-ready.",
       };
     case "gaps":
       return {
         title: "Small gaps remain",
-        body: "Some details may need clarification during review.",
+        body: "The request identifies enough context to start review, but a few specifics should be confirmed before approval.",
       };
     case "ready":
       return {
         title: "Ready for review",
-        body: "This request appears actionable without follow-up.",
+        body: "This request appears to include enough context for ownership and impact review to proceed.",
       };
     default:
       return {
         title: "No intake analysis available",
-        body: "This ticket has not been analyzed for completeness.",
+        body: "Run reviewer analysis from Decision to evaluate completeness and missing details.",
       };
   }
 }

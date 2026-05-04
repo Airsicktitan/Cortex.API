@@ -96,14 +96,27 @@ public sealed class CortexInsightService : ICortexInsightService
         _learningService = learningService;
     }
 
+    public bool TryGetCachedInsight(
+        string ticketId,
+        TicketVisibilityContext visibilityContext,
+        out CortexInsightDto? insight)
+    {
+        insight = null;
+        return !string.IsNullOrWhiteSpace(ticketId)
+            && _cache.TryGetValue(BuildLatestCacheKey(ticketId, visibilityContext), out insight)
+            && insight is not null;
+    }
+
     public async Task<CortexInsightDto> GetInsightAsync(
         Ticket currentTicket,
         TicketVisibilityContext visibilityContext,
         CancellationToken cancellationToken = default)
     {
         var cacheKey = await BuildCacheKeyAsync(currentTicket, visibilityContext, cancellationToken);
+        var latestCacheKey = BuildLatestCacheKey(currentTicket.Id, visibilityContext);
         if (_cache.TryGetValue<CortexInsightDto>(cacheKey, out var cached) && cached is not null)
         {
+            CacheInsight(latestCacheKey, cached);
             return cached;
         }
 
@@ -120,7 +133,7 @@ public sealed class CortexInsightService : ICortexInsightService
                 currentTicket.Id,
                 Array.Empty<string>(),
                 cancellationToken);
-            _cache.Set(cacheKey, empty, CacheDuration);
+            CacheInsight(cacheKey, latestCacheKey, empty);
             return empty;
         }
 
@@ -195,7 +208,7 @@ public sealed class CortexInsightService : ICortexInsightService
                 currentTicket.Id,
                 Array.Empty<string>(),
                 cancellationToken);
-            _cache.Set(cacheKey, empty, CacheDuration);
+            CacheInsight(cacheKey, latestCacheKey, empty);
             return empty;
         }
 
@@ -218,7 +231,7 @@ public sealed class CortexInsightService : ICortexInsightService
             currentTicket.Id,
             displayedIds,
             cancellationToken);
-        _cache.Set(cacheKey, insight, CacheDuration);
+        CacheInsight(cacheKey, latestCacheKey, insight);
         return insight;
     }
 
@@ -449,6 +462,25 @@ public sealed class CortexInsightService : ICortexInsightService
             revisionTicks,
             currentFingerprint);
     }
+
+    private static string BuildLatestCacheKey(
+        string ticketId,
+        TicketVisibilityContext visibilityContext) =>
+        string.Join(
+            ':',
+            "cortex-insight-latest",
+            ticketId,
+            visibilityContext.UserId,
+            visibilityContext.Scope);
+
+    private void CacheInsight(string cacheKey, string latestCacheKey, CortexInsightDto insight)
+    {
+        _cache.Set(cacheKey, insight, CacheDuration);
+        CacheInsight(latestCacheKey, insight);
+    }
+
+    private void CacheInsight(string cacheKey, CortexInsightDto insight) =>
+        _cache.Set(cacheKey, insight, CacheDuration);
 
     private static string HashForCache(string value)
     {

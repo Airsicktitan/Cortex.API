@@ -16,7 +16,14 @@
       "Bash(dotnet ef *)",
       "Bash(echo \"exit=$?\")",
       "Bash(npx --prefix \"C:/Users/adamc/Documents/Cortex.API/CortexFrontend\" tsc -b \"C:/Users/adamc/Documents/Cortex.API/CortexFrontend\")",
-      "Bash(npx --prefix \"C:/Users/adamc/Documents/Cortex.API/CortexFrontend\" eslint \"C:/Users/adamc/Documents/Cortex.API/CortexFrontend/src/components/CortexInsightPanel.tsx\" \"C:/Users/adamc/Documents/Cortex.API/CortexFrontend/src/types/cortexInsight.ts\")"
+      "Bash(npx --prefix \"C:/Users/adamc/Documents/Cortex.API/CortexFrontend\" eslint \"C:/Users/adamc/Documents/Cortex.API/CortexFrontend/src/components/CortexInsightPanel.tsx\" \"C:/Users/adamc/Documents/Cortex.API/CortexFrontend/src/types/cortexInsight.ts\")",
+      "Bash(npx --no-install tsc -b)",
+      "Bash(tee /tmp/tsc.log)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(npx eslint *)",
+      "Bash(npx vite *)",
+      "Bash(echo \"TSC_EXIT=$?\")",
+      "Bash(echo \"VITE_EXIT=$?\")"
     ]
   }
 }

@@ -1,5 +1,5 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Ticket } from "../types/ticket";
 import type {
   CustomReportDefinition,
@@ -32,6 +32,7 @@ import {
   hasAnyCustomReportFilter,
   rowMatchesCustomReportFilters,
 } from "../utils/customReportFilters";
+import type { IntakeLearningOverview } from "../types/intakeLearning";
 import type { WorkflowMetricsSnapshot } from "../types/workflowMetrics";
 import type {
   RepeatIssueAiReviewResponse,
@@ -39,6 +40,7 @@ import type {
   RepeatIssueGroupSummary,
   RepeatIssueOverviewResponse,
 } from "../types/repeatIssues";
+import { IntakeLearningReportSection } from "./reports/IntakeLearningReportSection";
 import { metricsService, repeatIssuesService } from "../services/api";
 import { CortexTooltip } from "./ui/Tooltip";
 import { ScrollableViewport } from "./ui/ScrollableViewport";
@@ -50,7 +52,8 @@ type ReportSection =
   | "telemetry"
   | "recurring-issues"
   | "online-users"
-  | "custom";
+  | "custom"
+  | "intake-learning";
 
 function formatWorkflowAvg(value: number): string {
   if (!Number.isFinite(value)) {
@@ -1961,6 +1964,38 @@ export default function ReportsPage({
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const reportsScrollRef = useRef<HTMLDivElement | null>(null);
   const { getAccessTokenSilently } = useAuth0();
+  const [intakeLearningOverview, setIntakeLearningOverview] =
+    useState<IntakeLearningOverview | null>(null);
+  const [intakeLearningError, setIntakeLearningError] = useState<string | null>(
+    null,
+  );
+  const [intakeLearningLoading, setIntakeLearningLoading] = useState(false);
+
+  const loadIntakeLearning = useCallback(async () => {
+    setIntakeLearningLoading(true);
+    setIntakeLearningError(null);
+    try {
+      const token = await getAccessTokenSilently({
+        authorizationParams: { audience: API_AUDIENCE },
+      });
+      const data = await metricsService.getIntakeLearningOverview(token);
+      setIntakeLearningOverview(data);
+    } catch {
+      setIntakeLearningError("Unable to load intake learning insights.");
+      setIntakeLearningOverview(null);
+    } finally {
+      setIntakeLearningLoading(false);
+    }
+  }, [getAccessTokenSilently]);
+
+  useEffect(() => {
+    if (activeSection !== "intake-learning") {
+      return undefined;
+    }
+    void loadIntakeLearning();
+    return undefined;
+  }, [activeSection, loadIntakeLearning]);
+
   const [workflowMetrics, setWorkflowMetrics] =
     useState<WorkflowMetricsSnapshot | null>(null);
   const [workflowMetricsError, setWorkflowMetricsError] = useState<
@@ -2180,6 +2215,16 @@ export default function ReportsPage({
                 </>
               )}
 
+              {activeSection === "intake-learning" && (
+                <button
+                  type="button"
+                  onClick={() => void loadIntakeLearning()}
+                  className="rounded-md bg-cortex-blue px-4 py-2 text-white transition-colors hover:bg-cortex-blue-dark"
+                >
+                  Refresh
+                </button>
+              )}
+
               {activeSection === "online-users" && (
                 <button
                   onClick={onRefreshOnlineUsers}
@@ -2221,6 +2266,17 @@ export default function ReportsPage({
               }`}
             >
               Workflow Insights
+            </button>
+
+            <button
+              onClick={() => onChangeSection("intake-learning")}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                activeSection === "intake-learning"
+                  ? "bg-cortex-blue text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              }`}
+            >
+              Intake Learning
             </button>
 
             <button
@@ -2483,6 +2539,27 @@ export default function ReportsPage({
             ) : (
               <TelemetryEmptyState />
             )}
+          </div>
+        </section>
+      ) : activeSection === "intake-learning" ? (
+        <section className="rounded-lg border border-gray-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-gray-100 px-6 py-3.5 dark:border-slate-800">
+            <div className="min-w-0">
+              <h3 className="text-base font-semibold tracking-tight text-gray-900 dark:text-slate-100">
+                Intake Learning
+              </h3>
+              <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+                Follow-up friction patterns based on returned tickets, outcomes, and available triage signals.
+              </p>
+            </div>
+          </div>
+          <div className="px-6 py-4">
+            <IntakeLearningReportSection
+              loading={intakeLearningLoading}
+              error={intakeLearningError}
+              overview={intakeLearningOverview}
+              onRefresh={() => void loadIntakeLearning()}
+            />
           </div>
         </section>
       ) : activeSection === "online-users" ? (

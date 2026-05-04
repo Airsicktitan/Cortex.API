@@ -11,6 +11,10 @@ export interface TicketRoutingRule {
   synitiOwner: string;
   businessOwner: string;
   isEnabled: boolean;
+  /** True when the rule's owners resolve to currently eligible users. Defaults true for new drafts. */
+  isValidConfiguration?: boolean;
+  /** Reason the rule is invalid (e.g. "Syniti owner is not eligible"). Null/undefined when valid. */
+  invalidReason?: string | null;
   createdDateUtc: string;
   lastModifiedDateUtc?: string;
 }

@@ -5,6 +5,7 @@ using Cortex.API.Handlers;
 using Cortex.API.Models;
 using Cortex.API.Services;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using TicketHandlersLogCategory = Cortex.API.Handlers.TicketHandlersLogCategory;
@@ -224,18 +225,24 @@ public class TicketHandlersCreateRealtimeTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ResponseMappingContext.Empty);
 
+        var serviceScopeFactory = CreateBackgroundScopeFactory(
+            ticketRepository.Object,
+            userRepository.Object,
+            aiSettingsService.Object,
+            ticketBoardService.Object,
+            triageAi.Object,
+            triageVocabulary.Object);
+
         var result = await TicketHandlers.CreateTicket(
             request,
             ticketRepository.Object,
+            serviceScopeFactory,
             userContext.Object,
             userRepository.Object,
-            aiSettingsService.Object,
             slaConfigurationService.Object,
             Mock.Of<ITicketStatusService>(),
             ticketBoardService.Object,
             ticketRoutingRuleService.Object,
-            triageAi.Object,
-            triageVocabulary.Object,
             ticketAuditService.Object,
             operationalRiskService.Object,
             reassignmentRecommendationService.Object,
@@ -319,8 +326,17 @@ public class TicketHandlersCreateRealtimeTests
         ticketRepository
             .Setup(repository => repository.UpdateTicketAsync(It.IsAny<Ticket>()))
             .ReturnsAsync((Ticket ticket) => ticket);
+        var backgroundSaveCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var saveCount = 0;
         ticketRepository
             .Setup(repository => repository.SaveChangesAsync())
+            .Callback(() =>
+            {
+                if (Interlocked.Increment(ref saveCount) >= 2)
+                {
+                    backgroundSaveCompleted.TrySetResult();
+                }
+            })
             .Returns(Task.CompletedTask);
         ticketRepository
             .Setup(repository => repository.GetTicketByIdAsync(ticketId))
@@ -466,18 +482,24 @@ public class TicketHandlersCreateRealtimeTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ResponseMappingContext.Empty);
 
+        var serviceScopeFactory = CreateBackgroundScopeFactory(
+            ticketRepository.Object,
+            userRepository.Object,
+            aiSettingsService.Object,
+            ticketBoardService.Object,
+            triageAi.Object,
+            triageVocabulary.Object);
+
         var result = await TicketHandlers.CreateTicket(
             request,
             ticketRepository.Object,
+            serviceScopeFactory,
             userContext.Object,
             userRepository.Object,
-            aiSettingsService.Object,
             slaConfigurationService.Object,
             Mock.Of<ITicketStatusService>(),
             ticketBoardService.Object,
             ticketRoutingRuleService.Object,
-            triageAi.Object,
-            triageVocabulary.Object,
             ticketAuditService.Object,
             operationalRiskService.Object,
             reassignmentRecommendationService.Object,
@@ -490,10 +512,10 @@ public class TicketHandlersCreateRealtimeTests
             NullLogger<TicketHandlersLogCategory>.Instance);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status201Created);
+        await backgroundSaveCompleted.Task.WaitAsync(TimeSpan.FromSeconds(3));
 
         Assert.NotNull(createdTicket);
-        // Create path runs triage persistence: validated AI suggestions update canonical Priority/Status
-        // when they match vocabulary (TicketTriagePersistence.ApplyAiSuggestedPriorityToTicket / Status).
+        // Background enrichment runs triage persistence after the core create response returns.
         Assert.Equal("Low", createdTicket!.Priority);
         Assert.Equal("In Review", createdTicket.Status);
         Assert.Equal("Clarify the reviewer handoff and approval outcome.", createdTicket.AiTriageSummary);
@@ -511,11 +533,29 @@ public class TicketHandlersCreateRealtimeTests
             JsonSerializer.Deserialize<List<string>>(createdTicket.AiTriageMissingDetailsJson!) ?? []);
 
         Assert.Single(realtimeMessages);
-        Assert.Equal("Low", realtimeMessages[0].Ticket!.Priority);
-        Assert.Equal("In Review", realtimeMessages[0].Ticket!.Status);
+        Assert.Equal("High", realtimeMessages[0].Ticket!.Priority);
+        Assert.Equal("New", realtimeMessages[0].Ticket!.Status);
 
         ticketRepository.Verify(repository => repository.UpdateTicketAsync(It.IsAny<Ticket>()), Times.Once);
         ticketRepository.Verify(repository => repository.SaveChangesAsync(), Times.Exactly(2));
+    }
+
+    private static IServiceScopeFactory CreateBackgroundScopeFactory(
+        ITicketRepository ticketRepository,
+        IUserRepository userRepository,
+        IAiSettingsService aiSettingsService,
+        ITicketBoardService ticketBoardService,
+        ITicketTriageAiService triageAi,
+        ITicketTriageVocabularyProvider triageVocabulary)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(ticketRepository);
+        services.AddSingleton(userRepository);
+        services.AddSingleton(aiSettingsService);
+        services.AddSingleton(ticketBoardService);
+        services.AddSingleton(triageAi);
+        services.AddSingleton(triageVocabulary);
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
     private static AiSettingsConfiguration CreateDefaultAiSettings() =>

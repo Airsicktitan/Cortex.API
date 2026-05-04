@@ -15,6 +15,10 @@ public static class TicketRoutingRuleEndpoints
             .WithName("GetTicketRoutingRules")
             .Produces(StatusCodes.Status200OK);
 
+        routing.MapGet("/rule-health", TicketRoutingRuleHandlers.GetRoutingRuleHealth)
+            .WithName("GetRoutingRuleHealth")
+            .Produces(StatusCodes.Status200OK);
+
         routing.MapPost("/", TicketRoutingRuleHandlers.CreateTicketRoutingRule)
             .WithName("CreateTicketRoutingRule")
             .Produces(StatusCodes.Status201Created)

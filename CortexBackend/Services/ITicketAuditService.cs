@@ -11,4 +11,10 @@ public interface ITicketAuditService
     Task RecordTicketReactivatedAsync(ArchivedTicket archivedTicket, Ticket restoredTicket, User changedByUser, string? reason);
     Task RecordCommentAddedAsync(Comment comment, User changedByUser);
     Task RecordAttachmentsAddedAsync(string ticketId, IEnumerable<TicketAttachment> attachments, User changedByUser);
+    /// <summary>Manual promotion of an external work item to a Cortex ticket (integrations flow only).</summary>
+    Task RecordExternalItemPromotedToTicketAsync(
+        string cortexTicketId,
+        ExternalWorkItem externalWorkItem,
+        ExternalWorkSource externalWorkSource,
+        User changedByUser);
 }

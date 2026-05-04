@@ -1,3 +1,4 @@
+import type { RoutingRuleHealthOverview } from "../types/routingRuleHealth";
 import type {
   TicketRoutingRule,
   UpsertTicketRoutingRuleInput,
@@ -20,6 +21,20 @@ export const ticketRoutingService = {
     });
 
     await ensureSuccess(response, "Failed to load Cortex recommendation rules");
+    return response.json();
+  },
+
+  async getRuleHealth(token: string): Promise<RoutingRuleHealthOverview> {
+    const response = await fetch(
+      `${API_BASE_URL}/settings/ticket-routing/rule-health`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+
+    await ensureSuccess(response, "Failed to load routing rule health");
     return response.json();
   },
 

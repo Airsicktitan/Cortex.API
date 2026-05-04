@@ -556,6 +556,243 @@ namespace Cortex.API.Migrations
                     b.ToTable("CortexSystemRecommendationStates");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.ExternalBoardMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BoardId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ExternalWorkSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("MappingMode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BoardId");
+
+                    b.HasIndex("ExternalWorkSourceId");
+
+                    b.ToTable("ExternalBoardMappings");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.ExternalFieldMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CortexField")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ExternalFieldKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ExternalFieldName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("ExternalWorkSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("TransformHint")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalWorkSourceId");
+
+                    b.ToTable("ExternalFieldMappings");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.ExternalWorkItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AssignedTo")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("CortexTicketId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Department")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("DueDateUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ExternalItemId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("ExternalUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("ExternalWorkSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastModifiedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("LastSeenUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Priority")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("RawJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Requester")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SyncHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CortexTicketId");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("LastSeenUtc");
+
+                    b.HasIndex("ExternalWorkSourceId", "ExternalItemId")
+                        .IsUnique();
+
+                    b.ToTable("ExternalWorkItems");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.ExternalWorkSource", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ExternalSourceId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("ExternalUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("IntegrationConnectionId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IntegrationConnectionId");
+
+                    b.HasIndex("IntegrationConnectionId", "ExternalSourceId")
+                        .IsUnique();
+
+                    b.ToTable("ExternalWorkSources");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.HttpRequestLogEntry", b =>
                 {
                     b.Property<long>("Id")
@@ -596,6 +833,152 @@ namespace Cortex.API.Migrations
                     b.HasIndex("OccurredUtc");
 
                     b.ToTable("HttpRequestLogEntries");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.IntegrationActivityLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ActivityType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime>("CompletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("CreatedCount")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("DurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("ErrorCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("ExternalWorkSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("IntegrationConnectionId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ItemCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("MetadataJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int?>("SkippedCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("TriggeredByDisplayName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TriggeredByEmail")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("TriggeredByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UnchangedCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UpdatedCount")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IntegrationConnectionId");
+
+                    b.HasIndex("ExternalWorkSourceId", "StartedAtUtc");
+
+                    b.ToTable("IntegrationActivityLogs");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.IntegrationConnection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AuthMode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("LastSyncMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("LastSyncStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("LastSyncUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("OrganizationId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("SyncMode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("TenantId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Provider");
+
+                    b.ToTable("IntegrationConnections");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.NotificationChannelConfiguration", b =>
@@ -716,6 +1099,244 @@ namespace Cortex.API.Migrations
                         .IsUnique();
 
                     b.ToTable("RoleDefinitions");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapDomainValueMetadata", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("DomainName")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("SapReferenceSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SapReferenceSourceId");
+
+                    b.HasIndex("SapReferenceSourceId", "DomainName", "Value")
+                        .IsUnique();
+
+                    b.ToTable("SapDomainValues");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapFieldMetadata", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BusinessMeaning")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DataElement")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("DataType")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("DomainName")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("ExampleValue")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("FieldName")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<bool>("IsCustom")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsKey")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("Length")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("SapTableMetadataId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DataElement");
+
+                    b.HasIndex("DomainName");
+
+                    b.HasIndex("FieldName");
+
+                    b.HasIndex("IsCustom");
+
+                    b.HasIndex("SapTableMetadataId");
+
+                    b.HasIndex("SapTableMetadataId", "FieldName")
+                        .IsUnique();
+
+                    b.ToTable("SapFields");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapReferenceSource", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Client")
+                        .HasMaxLength(12)
+                        .HasColumnType("nvarchar(12)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Environment")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("SystemLabel")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name");
+
+                    b.ToTable("SapReferenceSources");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapTableMetadata", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BusinessObject")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DataDomain")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<bool>("IsCustom")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Module")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("SapReferenceSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessObject");
+
+                    b.HasIndex("IsCustom");
+
+                    b.HasIndex("Module");
+
+                    b.HasIndex("SapReferenceSourceId");
+
+                    b.HasIndex("TableName");
+
+                    b.HasIndex("SapReferenceSourceId", "TableName")
+                        .IsUnique();
+
+                    b.ToTable("SapTables");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.ScheduledJob", b =>
@@ -1264,6 +1885,9 @@ namespace Cortex.API.Migrations
                         .HasColumnType("bit");
 
                     b.Property<bool>("WasReopened")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("WasReturnedForDetail")
                         .HasColumnType("bit");
 
                     b.HasKey("Id");
@@ -1851,6 +2475,116 @@ namespace Cortex.API.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.ExternalBoardMapping", b =>
+                {
+                    b.HasOne("Cortex.API.Models.TicketBoardDefinition", "Board")
+                        .WithMany()
+                        .HasForeignKey("BoardId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Cortex.API.Models.ExternalWorkSource", "ExternalWorkSource")
+                        .WithMany("BoardMappings")
+                        .HasForeignKey("ExternalWorkSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Board");
+
+                    b.Navigation("ExternalWorkSource");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.ExternalFieldMapping", b =>
+                {
+                    b.HasOne("Cortex.API.Models.ExternalWorkSource", "ExternalWorkSource")
+                        .WithMany("FieldMappings")
+                        .HasForeignKey("ExternalWorkSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ExternalWorkSource");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.ExternalWorkItem", b =>
+                {
+                    b.HasOne("Cortex.API.Models.Ticket", "CortexTicket")
+                        .WithMany()
+                        .HasForeignKey("CortexTicketId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Cortex.API.Models.ExternalWorkSource", "ExternalWorkSource")
+                        .WithMany("WorkItems")
+                        .HasForeignKey("ExternalWorkSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CortexTicket");
+
+                    b.Navigation("ExternalWorkSource");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.ExternalWorkSource", b =>
+                {
+                    b.HasOne("Cortex.API.Models.IntegrationConnection", "IntegrationConnection")
+                        .WithMany("ExternalWorkSources")
+                        .HasForeignKey("IntegrationConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("IntegrationConnection");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.IntegrationActivityLog", b =>
+                {
+                    b.HasOne("Cortex.API.Models.ExternalWorkSource", "ExternalWorkSource")
+                        .WithMany()
+                        .HasForeignKey("ExternalWorkSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Cortex.API.Models.IntegrationConnection", "IntegrationConnection")
+                        .WithMany()
+                        .HasForeignKey("IntegrationConnectionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("ExternalWorkSource");
+
+                    b.Navigation("IntegrationConnection");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapDomainValueMetadata", b =>
+                {
+                    b.HasOne("Cortex.API.Models.SapReferenceSource", "SapReferenceSource")
+                        .WithMany("DomainValues")
+                        .HasForeignKey("SapReferenceSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SapReferenceSource");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapFieldMetadata", b =>
+                {
+                    b.HasOne("Cortex.API.Models.SapTableMetadata", "SapTableMetadata")
+                        .WithMany("Fields")
+                        .HasForeignKey("SapTableMetadataId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SapTableMetadata");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapTableMetadata", b =>
+                {
+                    b.HasOne("Cortex.API.Models.SapReferenceSource", "SapReferenceSource")
+                        .WithMany("Tables")
+                        .HasForeignKey("SapReferenceSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SapReferenceSource");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.ScheduledJob", b =>
                 {
                     b.HasOne("Cortex.API.Models.User", "RunAsUser")
@@ -1980,6 +2714,32 @@ namespace Cortex.API.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.ExternalWorkSource", b =>
+                {
+                    b.Navigation("BoardMappings");
+
+                    b.Navigation("FieldMappings");
+
+                    b.Navigation("WorkItems");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.IntegrationConnection", b =>
+                {
+                    b.Navigation("ExternalWorkSources");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapReferenceSource", b =>
+                {
+                    b.Navigation("DomainValues");
+
+                    b.Navigation("Tables");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SapTableMetadata", b =>
+                {
+                    b.Navigation("Fields");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.Ticket", b =>

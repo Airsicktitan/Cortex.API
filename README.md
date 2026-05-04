@@ -169,6 +169,12 @@ AI is used to improve clarity, not to control the system.
 
 ---
 
+## Operations / Pilot Setup
+
+**Documentation index:** [docs/README.md](docs/README.md). For local pilot setup, environment configuration, Auth0 access approval, Docker SQL, migrations, and smoke testing, see [docs/pilot-setup.md](docs/pilot-setup.md). After setup, validate a clean environment with [docs/fresh-install-validation-checklist.md](docs/fresh-install-validation-checklist.md).
+
+---
+
 ## Author
 
 Adam Hooper

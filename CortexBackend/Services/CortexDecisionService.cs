@@ -493,17 +493,19 @@ public sealed class CortexDecisionService(
 
         if (candidates.Count == 0)
         {
+            var (summary, reason, warning, ruleFactor) =
+                await BuildNoEligibleOwnerExplanationAsync().ConfigureAwait(false);
             return new CortexDecisionResult
             {
                 DecisionType = "NoEligibleOwner",
                 CurrentOwnerUserId = ticket.SynitiOwner,
-                Summary = "No valid owner could be determined for this ticket.",
+                Summary = summary,
                 ConfidenceScore = 0m,
-                Reasons = ["No active eligible owners matched routing criteria."],
-                Warnings = ["Assign manually and review eligibility setup."],
+                Reasons = [reason],
+                Warnings = [warning],
                 FactorBreakdown = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    ["routingRule"] = "no-eligible-candidates",
+                    ["routingRule"] = ruleFactor,
                     ["workloadComparison"] = "unavailable",
                     ["slaProtection"] = "unavailable"
                 }
@@ -725,6 +727,45 @@ public sealed class CortexDecisionService(
                 forRebalance,
                 aiAssessment)
         };
+    }
+
+    private async Task<(string Summary, string Reason, string Warning, string RuleFactor)>
+        BuildNoEligibleOwnerExplanationAsync()
+    {
+        IReadOnlyList<TicketRoutingRule> rules;
+        try
+        {
+            rules = await ticketRoutingRuleService.GetAllAsync().ConfigureAwait(false)
+                ?? Array.Empty<TicketRoutingRule>();
+        }
+        catch
+        {
+            rules = Array.Empty<TicketRoutingRule>();
+        }
+
+        if (rules.Count == 0)
+        {
+            return (
+                Summary: "No routing rules are configured. Add a routing rule so Cortex can recommend an owner.",
+                Reason: "No routing rules exist; Cortex cannot recommend an owner without one.",
+                Warning: "Add a routing rule under Configuration → Cortex recommendation rules, then assign manually for now.",
+                RuleFactor: "no-rules-configured");
+        }
+
+        if (!rules.Any(rule => rule.IsEnabled))
+        {
+            return (
+                Summary: "All routing rules are disabled. Enable a rule so Cortex can recommend an owner.",
+                Reason: "Routing rules exist but every rule is disabled.",
+                Warning: "Enable at least one routing rule, then assign manually for now.",
+                RuleFactor: "rules-disabled");
+        }
+
+        return (
+            Summary: "No routing rule matched this ticket. Add or adjust a routing rule to enable owner recommendations.",
+            Reason: "No enabled routing rule matched this ticket's board, priority, requester, or title signals.",
+            Warning: "Adjust an existing rule or add one targeting this ticket type, then assign manually for now.",
+            RuleFactor: "no-rule-matched");
     }
 
     private static Dictionary<string, string> BuildFactorBreakdown(

@@ -149,6 +149,8 @@ function createDraftTicketRoutingRule(): TicketRoutingRule {
     synitiOwner: "",
     businessOwner: "",
     isEnabled: true,
+    isValidConfiguration: true,
+    invalidReason: null,
     createdDateUtc: "",
   };
 }

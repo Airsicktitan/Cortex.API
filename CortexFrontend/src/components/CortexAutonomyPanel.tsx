@@ -67,7 +67,7 @@ function ConfidenceBar({ value }: { value: number }) {
   const clamped = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
   const percentLabel = `${Math.round(clamped * 100)}%`;
   return (
-    <div className="flex items-center gap-3" aria-label={`Confidence ${percentLabel}`}>
+    <div className="flex items-center gap-3" aria-label={`Signal strength ${percentLabel}`}>
       <div className="h-2 w-32 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
         <div
           className="h-full rounded-full bg-cortex-blue dark:bg-emerald-400"
@@ -286,7 +286,7 @@ export default function CortexAutonomyPanel({
           <div className="grid gap-4 rounded-md border border-slate-100 bg-slate-50 p-3 sm:grid-cols-2 dark:border-slate-800 dark:bg-slate-950/40">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Confidence
+                Signal Strength
               </p>
               <div className="mt-2">
                 <ConfidenceBar value={result.confidence} />

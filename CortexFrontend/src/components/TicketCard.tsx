@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { ApprovalStatus, Ticket } from "../types/ticket";
 import {
   buildSlaTooltip,
+  formatSlaSummary,
   getUrgencyChip,
   getSlaAccentClass,
   getSlaDisplayLabel,
@@ -249,6 +250,8 @@ function cardTimingTail(ticket: Ticket): string {
   const d = formatDurationShort(minutes);
 
   switch (label) {
+    case "Paused":
+      return "SLA not started";
     case "Resolved On Time":
       return "Resolved on time";
     case "Resolved Late":
@@ -267,6 +270,9 @@ function cardTimingTail(ticket: Ticket): string {
 }
 
 function mergedTimingLine(ticket: Ticket): string {
+  if (getSlaDisplayLabel(ticket) === "Paused") {
+    return formatSlaSummary(ticket);
+  }
   const duePhrase = formatDuePhrase(ticket.slaTargetDate);
   if (duePhrase === "No SLA target") {
     return `SLA target unavailable · ${cardTimingTail(ticket)}`;

@@ -20,6 +20,31 @@ public interface ITicketOutcomeService
         string? finalBusinessOwner,
         CancellationToken cancellationToken = default);
 
+    Task MarkReturnedForDetailAsync(
+        Ticket ticket,
+        CancellationToken cancellationToken = default);
+
+    Task MarkReassignedAsync(
+        Ticket ticket,
+        string? previousSynitiOwner,
+        CancellationToken cancellationToken = default);
+
+    Task MarkSlaBreachedAsync(
+        Ticket ticket,
+        CancellationToken cancellationToken = default);
+
+    Task MarkRoutingOverriddenAsync(
+        string ticketId,
+        string? finalSynitiOwner,
+        string? finalBusinessOwner,
+        CancellationToken cancellationToken = default);
+
+    Task MarkCompletedAsync(
+        Ticket ticket,
+        bool slaBreached,
+        int commentCount,
+        CancellationToken cancellationToken = default);
+
     Task RecordTerminalAsync(
         Ticket ticket,
         bool slaBreached,

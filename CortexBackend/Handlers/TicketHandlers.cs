@@ -9,8 +9,10 @@ using Cortex.API.Validation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
+using System.Text.Json;
 
 /// <summary>
 /// Defines all ticket-related API handlers for CORTEX.
@@ -337,6 +339,56 @@ public static class TicketHandlers
             decisionImpactService));
     }
 
+    public static async Task<IResult> GetTicketExternalSourceContext(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] IExternalIntegrationService externalIntegrationService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var contexts = await externalIntegrationService.GetExternalSourceContextsForTicketAsync(
+            ticket.Id,
+            cancellationToken);
+        return Results.Ok(contexts);
+    }
+
+    public static async Task<IResult> GetTicketSapReferenceContext(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ISapTicketReferenceDetectionService sapTicketReferenceDetectionService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var dto = await sapTicketReferenceDetectionService.DetectSapReferencesForTicketAsync(
+            ticket,
+            cancellationToken);
+        return Results.Ok(dto);
+    }
+
     public static async Task<IResult> GetTicketHistory(
         string id,
         ITicketRepository repo,
@@ -344,10 +396,11 @@ public static class TicketHandlers
         ITicketAuditService ticketAuditService,
         IResponseMappingContextFactory mappingContextFactory)
     {
-        var ticket = await repo.GetTicketByIdAsync(id);
+        var ticketId = id.Trim();
+        var ticket = await repo.GetTicketByIdAsync(ticketId);
         if (ticket is null)
         {
-            var archivedTicket = await repo.GetArchivedTicketByIdAsync(id);
+            var archivedTicket = await repo.GetArchivedTicketByIdAsync(ticketId);
             if (archivedTicket is null)
             {
                 return Results.NotFound();
@@ -371,7 +424,7 @@ public static class TicketHandlers
             }
         }
 
-        var history = (await ticketAuditService.GetTicketHistoryAsync(id)).ToList();
+        var history = (await ticketAuditService.GetTicketHistoryAsync(ticketId)).ToList();
         var mappingContext = await mappingContextFactory.CreateAsync(
             history.Select(entry => entry.ChangedBy));
         return Results.Ok(history.Select(entry => entry.ToResponse(mappingContext)));
@@ -513,6 +566,32 @@ public static class TicketHandlers
         return Results.Ok(insight);
     }
 
+    public static async Task<IResult> GetTicketCachedInsight(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ICortexInsightService cortexInsightService)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        return cortexInsightService.TryGetCachedInsight(
+            ticket.Id,
+            visibilityContext,
+            out var cachedInsight)
+            ? Results.Ok(cachedInsight)
+            : Results.NoContent();
+    }
+
     public static async Task<IResult> PostOwnerWorkloadPreview(
         OwnerWorkloadPreviewRequest? request,
         IOwnerWorkloadPreviewService workloadPreviewService)
@@ -521,6 +600,64 @@ public static class TicketHandlers
         var result = await workloadPreviewService.GetSummariesAsync(body);
         return Results.Ok(result);
     }
+
+    public static async Task<IResult> GetTicketRisk(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ICortexSlaRiskService cortexSlaRiskService,
+        [FromServices] ICortexInsightService cortexInsightService,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        cortexInsightService.TryGetCachedInsight(ticket.Id, visibilityContext, out var cachedInsight);
+        var assessment = await cortexSlaRiskService.EvaluateRiskAsync(
+            ticket,
+            cancellationToken,
+            cachedInsight);
+        if (ticketOutcomeService is not null && IsBreachedSlaStatus(assessment.SlaStatus))
+        {
+            await ticketOutcomeService.MarkSlaBreachedAsync(ticket, cancellationToken);
+        }
+
+        return Results.Ok(new CortexSlaRiskResponse
+        {
+            TicketId = ticket.Id,
+            RiskLevel = assessment.RiskLevel.ToString(),
+            RiskReasons = assessment.RiskReasons,
+            Recommendation = HumanizeRecommendation(assessment.Recommendation),
+            RecommendationReason = assessment.RecommendationReason,
+            Confidence = assessment.Confidence,
+            SlaStatus = assessment.SlaStatus,
+            EvaluatedAtUtc = DateTime.UtcNow
+        });
+    }
+
+    private static string HumanizeRecommendation(CortexRiskRecommendation recommendation) =>
+        recommendation switch
+        {
+            CortexRiskRecommendation.RequestMoreDetail => "Request more detail",
+            CortexRiskRecommendation.Reassign => "Reassign",
+            CortexRiskRecommendation.Escalate => "Escalate",
+            _ => "Keep on current path"
+        };
+
+    private static bool IsBreachedSlaStatus(string? slaStatus) =>
+        slaStatus is not null
+        && (slaStatus.Equals("Breached", StringComparison.OrdinalIgnoreCase)
+            || slaStatus.Equals("Resolved Late", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Evaluates routing rules from draft field values without persisting (ticket modal live preview).
@@ -605,7 +742,8 @@ public static class TicketHandlers
         [FromServices] IOperationalRiskService operationalRiskService,
         [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         [FromServices] IReassignmentExecutionService reassignmentExecutionService,
-        [FromServices] IDecisionImpactService decisionImpactService)
+        [FromServices] IDecisionImpactService decisionImpactService,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         var body = request ?? new ReassignmentApplyRequest();
         if (!string.IsNullOrWhiteSpace(body.TicketId)
@@ -725,6 +863,23 @@ public static class TicketHandlers
         if (refreshedTicket is null)
         {
             return Results.Problem("Ticket was updated but could not be retrieved.");
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            if (HasMeaningfulOwnerChange(originalTicket.SynitiOwner, refreshedTicket.SynitiOwner))
+            {
+                await ticketOutcomeService.MarkReassignedAsync(
+                    refreshedTicket,
+                    originalTicket.SynitiOwner,
+                    CancellationToken.None);
+            }
+
+            await ticketOutcomeService.RecordOverrideAsync(
+                refreshedTicket.Id,
+                refreshedTicket.SynitiOwner,
+                refreshedTicket.BusinessOwner,
+                CancellationToken.None);
         }
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
@@ -1061,25 +1216,50 @@ public static class TicketHandlers
         var requester = await userRepository.GetByIdAsync(ticket.CreatedBy);
         var requesterDepartment = requester?.Department;
         var requesterRole = requester?.Role;
+        var hadManualSynitiOwner = !string.IsNullOrWhiteSpace(ticket.SynitiOwner);
+        var hadManualBusinessOwner = !string.IsNullOrWhiteSpace(ticket.BusinessOwner);
+        var approvedPriority = ResolveApprovedPriority(ticket.Priority, ticket.AiTriageSuggestedPriority);
+        ticket.Priority = approvedPriority;
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} approval start. Priority={Priority}. ExistingSynitiOwner={ExistingSynitiOwner}. ExistingBusinessOwner={ExistingBusinessOwner}.",
+            ticket.Id,
+            approvedPriority,
+            ticket.SynitiOwner,
+            ticket.BusinessOwner);
         var routingDecision = await ticketRoutingRuleService.EvaluateAsync(
             BuildRoutingFactors(
                 ticket.BoardId,
-                NormalizePriority(ticket.Priority),
+                approvedPriority,
                 requesterDepartment,
                 requesterRole,
                 requesterDepartment,
                 ticket.Title),
             ticket.Id);
+        var latestDecision = await ticketRoutingRuleService.GetLatestDecisionAsync(ticket.Id);
+        var recommendedSynitiOwner = NormalizeOptionalValue(routingDecision.RecommendedSynitiOwner)
+            ?? TryExtractRecommendedOwnerFromDecisionExplanation(routingDecision.ExplanationJson, "synitiOwner")
+            ?? NormalizeOptionalValue(latestDecision?.ChosenSynitiOwner)
+            ?? TryExtractRecommendedOwnerFromDecisionExplanation(latestDecision?.ExplanationJson, "synitiOwner");
+        var recommendedBusinessOwner = NormalizeOptionalValue(routingDecision.RecommendedBusinessOwner)
+            ?? TryExtractRecommendedOwnerFromDecisionExplanation(routingDecision.ExplanationJson, "businessOwner")
+            ?? NormalizeOptionalValue(latestDecision?.ChosenBusinessOwner)
+            ?? TryExtractRecommendedOwnerFromDecisionExplanation(latestDecision?.ExplanationJson, "businessOwner");
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} recommendation resolved. RecommendedSynitiOwner={RecommendedSynitiOwner}. RecommendedBusinessOwner={RecommendedBusinessOwner}.",
+            ticket.Id,
+            recommendedSynitiOwner,
+            recommendedBusinessOwner);
 
         var originalForAssignment = CloneTicket(ticket);
-        var resolvedSynitiOwner = string.IsNullOrWhiteSpace(ticket.SynitiOwner)
-            ? routingDecision.RecommendedSynitiOwner ?? ticket.SynitiOwner
-            : ticket.SynitiOwner;
-        var resolvedBusinessOwner = string.IsNullOrWhiteSpace(ticket.BusinessOwner)
-            ? routingDecision.RecommendedBusinessOwner
+        var resolvedSynitiOwner = hadManualSynitiOwner
+            ? ticket.SynitiOwner
+            : recommendedSynitiOwner ?? ticket.SynitiOwner;
+        var resolvedBusinessOwner = hadManualBusinessOwner
+            ? ticket.BusinessOwner
+            : recommendedBusinessOwner
                 ?? ticket.BusinessOwner
                 ?? (requester is not null ? GetDefaultBusinessOwner(requester) : null)
-            : ticket.BusinessOwner;
+            ;
 
         try
         {
@@ -1097,6 +1277,7 @@ public static class TicketHandlers
 
         ticket.SynitiOwner = resolvedSynitiOwner;
         ticket.BusinessOwner = resolvedBusinessOwner;
+        ticket.Status = "In Progress";
         ticket.ApprovalStatus = ApprovalStatus.Approved;
         ticket.ApprovedAt = DateTime.UtcNow;
         ticket.ApprovedBy = currentUser.Id;
@@ -1110,18 +1291,24 @@ public static class TicketHandlers
         ticket.LastModifiedDate = DateTime.UtcNow;
 
         await ticketRoutingRuleService.RecordDecisionAsync(ticket.Id, routingDecision);
-        var approvalOwnerOverridden = HasOwnerOverride(
-                routingDecision.RecommendedSynitiOwner,
-                routingDecision.RecommendedBusinessOwner,
-                resolvedSynitiOwner,
-                resolvedBusinessOwner);
+        var synitiOwnerManuallyOverridden = hadManualSynitiOwner
+            && !OwnerFieldsEqual(recommendedSynitiOwner, resolvedSynitiOwner);
+        var businessOwnerManuallyOverridden = hadManualBusinessOwner
+            && !OwnerFieldsEqual(recommendedBusinessOwner, resolvedBusinessOwner);
+        var approvalOwnerOverridden = synitiOwnerManuallyOverridden || businessOwnerManuallyOverridden;
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} final owners. SynitiOwner={SynitiOwner}. BusinessOwner={BusinessOwner}. ManualOverride={ManualOverride}.",
+            ticket.Id,
+            resolvedSynitiOwner,
+            resolvedBusinessOwner,
+            approvalOwnerOverridden);
         if (approvalOwnerOverridden)
         {
             await ticketRoutingRuleService.RecordOverrideAsync(
                 ticketId: ticket.Id,
                 overriddenByUserId: currentUser.Id,
-                previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
-                previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
+                previousSynitiOwner: recommendedSynitiOwner,
+                previousBusinessOwner: recommendedBusinessOwner,
                 newSynitiOwner: resolvedSynitiOwner,
                 newBusinessOwner: resolvedBusinessOwner,
                 reasonType: RoutingOverrideReasonType.Other,
@@ -1147,6 +1334,12 @@ public static class TicketHandlers
         {
             return Results.Problem("Ticket was approved but could not be retrieved.");
         }
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} persisted owners. SynitiOwner={SynitiOwner}. BusinessOwner={BusinessOwner}. ApprovalStatus={ApprovalStatus}.",
+            updatedTicket.Id,
+            updatedTicket.SynitiOwner,
+            updatedTicket.BusinessOwner,
+            updatedTicket.ApprovalStatus);
 
         if (ticketOutcomeService is not null)
         {
@@ -1175,6 +1368,11 @@ public static class TicketHandlers
             mappingContext,
             operationalRiskService,
             reassignmentRecommendationService);
+        logger.LogInformation(
+            "[APPROVAL-ROUTING] Ticket {TicketId} response owners. SynitiOwner={SynitiOwner}. BusinessOwner={BusinessOwner}.",
+            response.Id,
+            response.SynitiOwner,
+            response.BusinessOwner);
         var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(updatedTicket);
 
         await notificationService.CreateAssignmentNotificationsAsync(
@@ -1214,7 +1412,8 @@ public static class TicketHandlers
         [FromServices] IOperationalRiskService operationalRiskService,
         [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
         IRealtimeEventService realtimeEventService,
-        IRealtimeAudienceResolver realtimeAudienceResolver)
+        IRealtimeAudienceResolver realtimeAudienceResolver,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         var reason = request?.Reason?.Trim() ?? string.Empty;
         if (string.IsNullOrEmpty(reason))
@@ -1276,6 +1475,13 @@ public static class TicketHandlers
         if (updatedTicket is null)
         {
             return Results.Problem("Ticket was updated but could not be retrieved.");
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            await ticketOutcomeService.MarkReturnedForDetailAsync(
+                updatedTicket,
+                CancellationToken.None);
         }
 
         var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
@@ -1417,15 +1623,13 @@ public static class TicketHandlers
     public static async Task<IResult> CreateTicket(
         CreateTicketRequest request,
         ITicketRepository repo,
+        IServiceScopeFactory serviceScopeFactory,
         IUserContextService userContext,
         IUserRepository userRepository,
-        IAiSettingsService aiSettingsService,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketBoardService ticketBoardService,
         ITicketRoutingRuleService ticketRoutingRuleService,
-        ITicketTriageAiService triageAi,
-        ITicketTriageVocabularyProvider triageVocabulary,
         ITicketAuditService ticketAuditService,
         [FromServices] IOperationalRiskService operationalRiskService,
         [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
@@ -1436,166 +1640,38 @@ public static class TicketHandlers
         IWorkflowMetricsService workflowMetrics,
         ICortexDecisionService? cortexDecisionService,
         ILogger<TicketHandlersLogCategory> logger,
-        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
         [FromServices] ITicketOutcomeService? ticketOutcomeService = null,
         [FromServices] ICortexAutonomyService? cortexAutonomyService = null)
     {
+        _ = ticketStatusService;
+        _ = notificationService;
+        _ = cortexDecisionService;
+
         try
         {
-            ValidateCreateTicketRequest(request);
-
-            var nextTicketId = await repo.GetNextTicketIdAsync();
-            var currentUser = await userContext.GetCurrentUserAsync();
-            var aiSettings = await aiSettingsService.GetAsync();
-            var createStatus = "New";
-            var normalizedPriority = NormalizePriority(request.Priority!);
-
-            var selectedBoard = await ResolveBoardForCreateAsync(ticketBoardService, request.BoardId);
-            var storyPoints = ResolveStoryPoints(
-                selectedBoard,
-                request.StoryPoints,
-                null);
-            var routingFactors = BuildRoutingFactors(
-                boardId: selectedBoard.Id,
-                priority: normalizedPriority,
-                requesterDepartment: currentUser.Department,
-                requesterRole: currentUser.Role,
-                legacyDepartment: request.Department ?? currentUser.Department,
-                legacyTitle: request.Title);
-            var routingDecision = await ticketRoutingRuleService.EvaluateAsync(routingFactors);
-            var manualSynitiOwner = NormalizeOptionalValue(request.SynitiOwner);
-            var manualBusinessOwner = NormalizeOptionalValue(request.BusinessOwner);
-            var resolvedSynitiOwner = manualSynitiOwner
-                ?? routingDecision.RecommendedSynitiOwner;
-            var resolvedBusinessOwner = manualBusinessOwner
-                ?? routingDecision.RecommendedBusinessOwner
-                ?? GetDefaultBusinessOwner(currentUser);
-
-            var normalizedOwners = await TicketOwnerAssignmentValidation.NormalizeAndValidateAsync(
-                userRepository,
-                resolvedSynitiOwner,
-                resolvedBusinessOwner);
-            resolvedSynitiOwner = normalizedOwners.SynitiOwner;
-            resolvedBusinessOwner = normalizedOwners.BusinessOwner;
-
-            var ticket = new Ticket
-            {
-                Id = nextTicketId,
-                Title = request.Title.Trim(),
-                Description = request.Description!.Trim(),
-                Priority = normalizedPriority,
-                BoardId = selectedBoard.Id,
-                StoryPoints = storyPoints,
-                SynitiOwner = resolvedSynitiOwner,
-                BusinessOwner = resolvedBusinessOwner,
-                Status = createStatus,
-                ApprovalStatus = ApprovalStatus.PendingApproval,
-                CreatedBy = currentUser.Id,
-                CreatedDate = DateTime.UtcNow
-            };
-
-            await repo.CreateTicketAsync(ticket);
-            await repo.SaveChangesAsync();
-
-            await ticketRoutingRuleService.RecordDecisionAsync(ticket.Id, routingDecision);
-            if (manualSynitiOwner is not null || manualBusinessOwner is not null)
-            {
-                await ticketRoutingRuleService.RecordOverrideAsync(
-                    ticketId: ticket.Id,
-                    overriddenByUserId: currentUser.Id,
-                    previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
-                    previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
-                    newSynitiOwner: resolvedSynitiOwner,
-                    newBusinessOwner: resolvedBusinessOwner,
-                    reasonType: RoutingOverrideReasonType.ManualAssignment,
-                    reasonText: "Ticket created with manual owner selection.");
-            }
-
-            if (ticketOutcomeService is not null)
-            {
-                await ticketOutcomeService.RecordInitialAssignmentAsync(
-                    ticket,
-                    routingDecision.MatchedRuleId,
-                    CancellationToken.None);
-                if (manualSynitiOwner is not null || manualBusinessOwner is not null)
-                {
-                    await ticketOutcomeService.RecordOverrideAsync(
-                        ticket.Id,
-                        resolvedSynitiOwner,
-                        resolvedBusinessOwner,
-                        CancellationToken.None);
-                }
-            }
-
-            var createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
-
-            if (createdTicket is null)
-                return Results.Problem("Ticket was created but could not be retrieved.");
-
-            await TicketTriagePersistence.TryGenerateAndPersistAsync(
-                createdTicket,
+            var createdTicketResponse = await CreateTicketCoreAsync(
+                request,
                 repo,
-                triageAi,
-                triageVocabulary,
+                serviceScopeFactory,
+                userContext,
                 userRepository,
+                slaConfigurationService,
                 ticketBoardService,
-                aiSettings,
-                logger,
-                CancellationToken.None);
-
-            createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
-            if (createdTicket is null)
-                return Results.Problem("Ticket was created but could not be retrieved.");
-
-            await TryEnsureEmbeddingAsync(
-                cortexEmbeddingService,
-                createdTicket.Id,
-                logger,
-                CancellationToken.None);
-
-            var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
-            var mappingContext = await mappingContextFactory.CreateAsync(
-                [createdTicket.CreatedBy],
-                null,
-                [createdTicket.BoardId]);
-            var createdTicketResponse = await MapTicketResponseAsync(
-                createdTicket,
-                slaConfigurations,
-                mappingContext,
+                ticketRoutingRuleService,
+                ticketAuditService,
                 operationalRiskService,
-                reassignmentRecommendationService);
-            var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(createdTicket);
-
-            await ticketAuditService.RecordTicketCreatedAsync(
-                createdTicket,
-                currentUser,
-                request.ChangeReason);
-            await realtimeEventService.PublishAsync(new RealtimeEventMessage
-            {
-                EventType = "ticket.created",
-                TicketId = createdTicket.Id,
-                EntityId = createdTicket.Id,
-                AudienceUserIds = audienceUserIds,
-                Ticket = createdTicketResponse
-            });
-
-            LogTicketCreated(
-                logger,
-                createdTicket.Id,
-                currentUser.Id,
-                createdTicket.BoardId,
-                createdTicket.Status);
-
-            await RecordIntakeAssistSaveMetricAsync(
+                reassignmentRecommendationService,
+                realtimeEventService,
+                realtimeAudienceResolver,
+                mappingContextFactory,
                 workflowMetrics,
-                request.IntakeAssistSave,
-                createdTicket.Id,
+                logger,
+                ticketOutcomeService,
+                cortexAutonomyService,
                 CancellationToken.None);
-
-            await TryRunAutonomyEvaluationAsync(cortexAutonomyService, createdTicket, logger, CancellationToken.None);
 
             return Results.Created(
-                $"/api/tickets/{createdTicket.Id}",
+                $"/api/tickets/{createdTicketResponse.Id}",
                 createdTicketResponse);
         }
         catch (ArgumentException exception)
@@ -1606,6 +1682,176 @@ public static class TicketHandlers
         {
             return Results.BadRequest(new { message = exception.Message });
         }
+        catch (InvalidOperationException exception)
+        {
+            return Results.Problem(exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Shared ticket creation path for HTTP and internal callers (e.g. integrations).
+    /// </summary>
+    internal static async Task<TicketResponse> CreateTicketCoreAsync(
+        CreateTicketRequest request,
+        ITicketRepository repo,
+        IServiceScopeFactory serviceScopeFactory,
+        IUserContextService userContext,
+        IUserRepository userRepository,
+        ISlaConfigurationService slaConfigurationService,
+        ITicketBoardService ticketBoardService,
+        ITicketRoutingRuleService ticketRoutingRuleService,
+        ITicketAuditService ticketAuditService,
+        IOperationalRiskService operationalRiskService,
+        IReassignmentRecommendationService reassignmentRecommendationService,
+        IRealtimeEventService realtimeEventService,
+        IRealtimeAudienceResolver realtimeAudienceResolver,
+        IResponseMappingContextFactory mappingContextFactory,
+        IWorkflowMetricsService workflowMetrics,
+        ILogger<TicketHandlersLogCategory> logger,
+        ITicketOutcomeService? ticketOutcomeService,
+        ICortexAutonomyService? cortexAutonomyService,
+        CancellationToken cancellationToken)
+    {
+        ValidateCreateTicketRequest(request);
+
+        var nextTicketId = await repo.GetNextTicketIdAsync();
+        var currentUser = await userContext.GetCurrentUserAsync();
+        var createStatus = "New";
+        var normalizedPriority = NormalizePriority(request.Priority!);
+
+        var selectedBoard = await ResolveBoardForCreateAsync(ticketBoardService, request.BoardId);
+        var storyPoints = ResolveStoryPoints(
+            selectedBoard,
+            request.StoryPoints,
+            null);
+        var routingFactors = BuildRoutingFactors(
+            boardId: selectedBoard.Id,
+            priority: normalizedPriority,
+            requesterDepartment: currentUser.Department,
+            requesterRole: currentUser.Role,
+            legacyDepartment: request.Department ?? currentUser.Department,
+            legacyTitle: request.Title);
+        var routingDecision = await ticketRoutingRuleService.EvaluateAsync(routingFactors);
+        var manualSynitiOwner = NormalizeOptionalValue(request.SynitiOwner);
+        var manualBusinessOwner = NormalizeOptionalValue(request.BusinessOwner);
+        var resolvedSynitiOwner = manualSynitiOwner
+            ?? routingDecision.RecommendedSynitiOwner;
+        var resolvedBusinessOwner = manualBusinessOwner
+            ?? routingDecision.RecommendedBusinessOwner
+            ?? GetDefaultBusinessOwner(currentUser);
+
+        var normalizedOwners = await TicketOwnerAssignmentValidation.NormalizeAndValidateAsync(
+            userRepository,
+            resolvedSynitiOwner,
+            resolvedBusinessOwner);
+        resolvedSynitiOwner = normalizedOwners.SynitiOwner;
+        resolvedBusinessOwner = normalizedOwners.BusinessOwner;
+
+        var ticket = new Ticket
+        {
+            Id = nextTicketId,
+            Title = request.Title.Trim(),
+            Description = request.Description!.Trim(),
+            Priority = normalizedPriority,
+            BoardId = selectedBoard.Id,
+            StoryPoints = storyPoints,
+            SynitiOwner = resolvedSynitiOwner,
+            BusinessOwner = resolvedBusinessOwner,
+            Status = createStatus,
+            ApprovalStatus = ApprovalStatus.PendingApproval,
+            CreatedBy = currentUser.Id,
+            CreatedDate = DateTime.UtcNow
+        };
+
+        await repo.CreateTicketAsync(ticket);
+        await repo.SaveChangesAsync();
+
+        await ticketRoutingRuleService.RecordDecisionAsync(ticket.Id, routingDecision);
+        if (manualSynitiOwner is not null || manualBusinessOwner is not null)
+        {
+            await ticketRoutingRuleService.RecordOverrideAsync(
+                ticketId: ticket.Id,
+                overriddenByUserId: currentUser.Id,
+                previousSynitiOwner: routingDecision.RecommendedSynitiOwner,
+                previousBusinessOwner: routingDecision.RecommendedBusinessOwner,
+                newSynitiOwner: resolvedSynitiOwner,
+                newBusinessOwner: resolvedBusinessOwner,
+                reasonType: RoutingOverrideReasonType.ManualAssignment,
+                reasonText: "Ticket created with manual owner selection.");
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            await ticketOutcomeService.RecordInitialAssignmentAsync(
+                ticket,
+                routingDecision.MatchedRuleId,
+                cancellationToken);
+            if (manualSynitiOwner is not null || manualBusinessOwner is not null)
+            {
+                await ticketOutcomeService.RecordOverrideAsync(
+                    ticket.Id,
+                    resolvedSynitiOwner,
+                    resolvedBusinessOwner,
+                    cancellationToken);
+            }
+        }
+
+        var createdTicket = await repo.GetTicketByIdAsync(ticket.Id);
+
+        if (createdTicket is null)
+        {
+            throw new InvalidOperationException("Ticket was created but could not be retrieved.");
+        }
+
+        var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
+        var mappingContext = await mappingContextFactory.CreateAsync(
+            [createdTicket.CreatedBy],
+            null,
+            [createdTicket.BoardId]);
+        var createdTicketResponse = await MapTicketResponseAsync(
+            createdTicket,
+            slaConfigurations,
+            mappingContext,
+            operationalRiskService,
+            reassignmentRecommendationService);
+        var audienceUserIds = await realtimeAudienceResolver.GetAudienceUserIdsAsync(createdTicket);
+
+        await ticketAuditService.RecordTicketCreatedAsync(
+            createdTicket,
+            currentUser,
+            request.ChangeReason);
+        await realtimeEventService.PublishAsync(new RealtimeEventMessage
+        {
+            EventType = "ticket.created",
+            TicketId = createdTicket.Id,
+            EntityId = createdTicket.Id,
+            AudienceUserIds = audienceUserIds,
+            Ticket = createdTicketResponse
+        });
+
+        LogTicketCreated(
+            logger,
+            createdTicket.Id,
+            currentUser.Id,
+            createdTicket.BoardId,
+            createdTicket.Status);
+
+        await RecordIntakeAssistSaveMetricAsync(
+            workflowMetrics,
+            request.IntakeAssistSave,
+            createdTicket.Id,
+            cancellationToken);
+
+        QueuePostSubmitEnrichment(
+            serviceScopeFactory,
+            createdTicket.Id,
+            runTriage: true,
+            runEmbedding: true,
+            logger);
+
+        await TryRunAutonomyEvaluationAsync(cortexAutonomyService, createdTicket, logger, cancellationToken);
+
+        return createdTicketResponse;
     }
 
     private static async Task TryRunAutonomyEvaluationAsync(
@@ -1638,15 +1884,13 @@ public static class TicketHandlers
         UpdateTicketRequest request,
         HttpContext httpContext,
         ITicketRepository repo,
+        IServiceScopeFactory serviceScopeFactory,
         IUserContextService userContext,
         IUserRepository userRepository,
-        IAiSettingsService aiSettingsService,
         ISlaConfigurationService slaConfigurationService,
         ITicketStatusService ticketStatusService,
         ITicketBoardService ticketBoardService,
         ITicketRoutingRuleService ticketRoutingRuleService,
-        ITicketTriageAiService triageAi,
-        ITicketTriageVocabularyProvider triageVocabulary,
         ITicketAuditService ticketAuditService,
         [FromServices] IOperationalRiskService operationalRiskService,
         [FromServices] IReassignmentRecommendationService reassignmentRecommendationService,
@@ -1656,7 +1900,6 @@ public static class TicketHandlers
         IResponseMappingContextFactory mappingContextFactory,
         IWorkflowMetricsService workflowMetrics,
         ILogger<TicketHandlersLogCategory> logger,
-        [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
         [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null,
         [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
@@ -1666,8 +1909,6 @@ public static class TicketHandlers
 
             var existing = await repo.GetTicketByIdAsync(id);
             var currentUser = await userContext.GetCurrentUserAsync();
-            var aiSettings = await aiSettingsService.GetAsync();
-
             if (existing is null)
                 return Results.NotFound();
 
@@ -1875,6 +2116,13 @@ public static class TicketHandlers
                         updatedTicket.BusinessOwner,
                         CancellationToken.None);
                 }
+                if (HasMeaningfulOwnerChange(originalTicket.SynitiOwner, updatedTicket.SynitiOwner))
+                {
+                    await ticketOutcomeService.MarkReassignedAsync(
+                        updatedTicket,
+                        originalTicket.SynitiOwner,
+                        CancellationToken.None);
+                }
 
                 var wasTerminalBefore = TicketOutcomeService.IsTerminalStatus(originalTicket.Status);
                 var isTerminalNow = TicketOutcomeService.IsTerminalStatus(updatedTicket.Status);
@@ -1891,29 +2139,6 @@ public static class TicketHandlers
                         CancellationToken.None);
                 }
             }
-
-            if (isRequesterNeedsMoreInfoRevision)
-            {
-                await TicketTriagePersistence.TryGenerateAndPersistAsync(
-                    updatedTicket,
-                    repo,
-                    triageAi,
-                    triageVocabulary,
-                    userRepository,
-                    ticketBoardService,
-                    aiSettings,
-                    logger,
-                    CancellationToken.None);
-                updatedTicket = await repo.GetTicketByIdAsync(id);
-                if (updatedTicket is null)
-                    return Results.Problem("Ticket was updated but could not be retrieved.");
-            }
-
-            await TryEnsureEmbeddingAsync(
-                cortexEmbeddingService,
-                updatedTicket.Id,
-                logger,
-                CancellationToken.None);
 
             var slaConfigurations = await slaConfigurationService.GetPriorityMapAsync();
             var mappingContext = await mappingContextFactory.CreateAsync(
@@ -1984,6 +2209,13 @@ public static class TicketHandlers
                 updatedTicket.Id,
                 CancellationToken.None);
 
+            QueuePostSubmitEnrichment(
+                serviceScopeFactory,
+                updatedTicket.Id,
+                runTriage: isRequesterNeedsMoreInfoRevision,
+                runEmbedding: true,
+                logger);
+
             return Results.Ok(updatedTicketResponse);
         }
         catch (ArgumentException exception)
@@ -2017,6 +2249,74 @@ public static class TicketHandlers
             },
             ticketId,
             cancellationToken);
+    }
+
+    private static void QueuePostSubmitEnrichment(
+        IServiceScopeFactory serviceScopeFactory,
+        string ticketId,
+        bool runTriage,
+        bool runEmbedding,
+        ILogger<TicketHandlersLogCategory> logger)
+    {
+        if (string.IsNullOrWhiteSpace(ticketId) || (!runTriage && !runEmbedding))
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = serviceScopeFactory.CreateScope();
+                var scopedRepo = scope.ServiceProvider.GetRequiredService<ITicketRepository>();
+                var ticket = await scopedRepo.GetTicketByIdAsync(ticketId);
+                if (ticket is null)
+                {
+                    logger.LogWarning(
+                        "Post-submit enrichment skipped because ticket {TicketId} could not be loaded.",
+                        ticketId);
+                    return;
+                }
+
+                if (runTriage)
+                {
+                    var triageAi = scope.ServiceProvider.GetRequiredService<ITicketTriageAiService>();
+                    var triageVocabulary = scope.ServiceProvider.GetRequiredService<ITicketTriageVocabularyProvider>();
+                    var userRepository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+                    var ticketBoardService = scope.ServiceProvider.GetRequiredService<ITicketBoardService>();
+                    var aiSettingsService = scope.ServiceProvider.GetRequiredService<IAiSettingsService>();
+                    var aiSettings = await aiSettingsService.GetAsync();
+
+                    await TicketTriagePersistence.TryGenerateAndPersistAsync(
+                        ticket,
+                        scopedRepo,
+                        triageAi,
+                        triageVocabulary,
+                        userRepository,
+                        ticketBoardService,
+                        aiSettings,
+                        logger,
+                        CancellationToken.None);
+                }
+
+                if (runEmbedding)
+                {
+                    var cortexEmbeddingService = scope.ServiceProvider.GetService<ICortexEmbeddingService>();
+                    await TryEnsureEmbeddingAsync(
+                        cortexEmbeddingService,
+                        ticketId,
+                        logger,
+                        CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Post-submit enrichment failed for ticket {TicketId}. Ticket save already completed.",
+                    ticketId);
+            }
+        });
     }
 
     public static async Task<IResult> ArchiveTicket(
@@ -2262,6 +2562,16 @@ public static class TicketHandlers
             StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool HasMeaningfulOwnerChange(string? previousOwner, string? currentOwner)
+    {
+        var previous = NormalizeOptionalValue(previousOwner);
+        var current = NormalizeOptionalValue(currentOwner);
+
+        return previous is not null
+            && current is not null
+            && !string.Equals(previous, current, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Ticket CloneTicket(Ticket ticket)
     {
         return new Ticket
@@ -2297,6 +2607,41 @@ public static class TicketHandlers
     private static string? NormalizeOptionalValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? TryExtractRecommendedOwnerFromDecisionExplanation(
+        string? explanationJson,
+        string slotKey)
+    {
+        if (string.IsNullOrWhiteSpace(explanationJson) || string.IsNullOrWhiteSpace(slotKey))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(explanationJson);
+            if (!document.RootElement.TryGetProperty("slots", out var slots))
+            {
+                return null;
+            }
+
+            if (!slots.TryGetProperty(slotKey, out var slot))
+            {
+                return null;
+            }
+
+            if (!slot.TryGetProperty("selectedOwnerKey", out var selectedOwner))
+            {
+                return null;
+            }
+
+            return NormalizeOptionalValue(selectedOwner.GetString());
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static RoutingFactors BuildRoutingFactors(
@@ -2438,6 +2783,23 @@ public static class TicketHandlers
         return normalizedPriority;
     }
 
+    private static string ResolveApprovedPriority(string currentPriority, string? triageSuggestedPriority)
+    {
+        if (!string.IsNullOrWhiteSpace(triageSuggestedPriority))
+        {
+            try
+            {
+                return NormalizePriority(triageSuggestedPriority);
+            }
+            catch (ArgumentException)
+            {
+                // Ignore unsupported AI suggestion and retain the persisted priority.
+            }
+        }
+
+        return NormalizePriority(currentPriority);
+    }
+
     private static string? GetDefaultBusinessOwner(User user)
     {
         return OwnerRoleAssignmentRules.IsValidBusinessOwnerAssignment(user)
@@ -2571,7 +2933,8 @@ public static class TicketHandlers
         ILogger<TicketHandlersLogCategory> logger,
         CancellationToken cancellationToken = default,
         [FromServices] ICortexEmbeddingService? cortexEmbeddingService = null,
-        [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null)
+        [FromServices] ICortexMemoryFeedbackService? cortexMemoryFeedbackService = null,
+        [FromServices] ITicketOutcomeService? ticketOutcomeService = null)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
         if (ticket is null)
@@ -2665,7 +3028,21 @@ public static class TicketHandlers
             {
                 message =
                     "This ticket was updated elsewhere. Refresh the page to load the latest version before trying again.",
-                });
+            });
+        }
+
+        if (ticketOutcomeService is not null)
+        {
+            var wasTerminalBefore = TicketOutcomeService.IsTerminalStatus(originalSnapshot.Status);
+            var isTerminalNow = TicketOutcomeService.IsTerminalStatus(ticket.Status);
+            if (!wasTerminalBefore && isTerminalNow)
+            {
+                await ticketOutcomeService.RecordTerminalAsync(ticket, cancellationToken);
+            }
+            else if (wasTerminalBefore && !isTerminalNow)
+            {
+                await ticketOutcomeService.RecordReopenAsync(ticket.Id, cancellationToken);
+            }
         }
 
         await TryEnsureEmbeddingAsync(

@@ -1,3 +1,5 @@
+using Cortex.API.Services.Integrations;
+
 namespace Cortex.API.Handlers;
 
 internal static class SafeErrorResponses
@@ -29,16 +31,21 @@ internal static class SafeErrorResponses
             statusCode: StatusCodes.Status502BadGateway);
     }
 
-    public static IResult UpstreamError(int? statusCode, string title = "Upstream service request failed")
+    /// <summary>Reports a dependency failure without forwarding the upstream HTTP status (always 502).</summary>
+    public static IResult UpstreamError(int statusCode, string title)
     {
-        if (statusCode is >= 400 and < 500)
-        {
-            return Results.Problem(
-                title: title,
-                detail: GenericDetail,
-                statusCode: statusCode);
-        }
+        // Do not forward arbitrary upstream status codes to API clients.
+        return Results.Problem(
+            title: title,
+            detail: GenericDetail,
+            statusCode: StatusCodes.Status502BadGateway);
+    }
 
-        return UpstreamError(title);
+    public static IResult IntegrationApi(IntegrationApiException exception)
+    {
+        return Results.Problem(
+            title: exception.Message,
+            detail: GenericDetail,
+            statusCode: exception.StatusCode);
     }
 }

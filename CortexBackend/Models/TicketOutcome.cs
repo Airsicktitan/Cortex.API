@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Cortex.API.Models;
 
 /// <summary>
@@ -20,6 +22,7 @@ public class TicketOutcome
 
     public bool WasOverridden { get; set; }
     public bool SlaBreached { get; set; }
+    public bool WasReturnedForDetail { get; set; }
     public bool WasReassigned { get; set; }
     public bool WasReopened { get; set; }
 
@@ -32,4 +35,46 @@ public class TicketOutcome
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? LastUpdatedAtUtc { get; set; }
     public DateTime? CompletedAtUtc { get; set; }
+
+    [NotMapped]
+    public bool WasRoutingOverridden
+    {
+        get => WasOverridden;
+        set => WasOverridden = value;
+    }
+
+    [NotMapped]
+    public bool WasSlaBreached
+    {
+        get => SlaBreached;
+        set => SlaBreached = value;
+    }
+
+    [NotMapped]
+    public string? FinalOwner
+    {
+        get => FinalSynitiOwner;
+        set => FinalSynitiOwner = value;
+    }
+
+    [NotMapped]
+    public DateTime RecordedAt
+    {
+        get => CreatedAtUtc;
+        set => CreatedAtUtc = value;
+    }
+
+    [NotMapped]
+    public DateTime? LastUpdatedAt
+    {
+        get => LastUpdatedAtUtc;
+        set => LastUpdatedAtUtc = value;
+    }
+
+    [NotMapped]
+    public DateTime? CompletedAt
+    {
+        get => CompletedAtUtc;
+        set => CompletedAtUtc = value;
+    }
 }

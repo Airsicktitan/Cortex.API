@@ -10,7 +10,8 @@ import {
  * overshoot the exact bottom by a pixel or two, which used to flip `visible`
  * and cause jitter / "freeze" feel right at the bottom edge.
  */
-const DEFAULT_BOTTOM_THRESHOLD_PX = 24;
+const DEFAULT_BOTTOM_THRESHOLD_PX = 8;
+const OVERFLOW_TOLERANCE_PX = 4;
 const SCROLLABLE_OVERFLOW_VALUES = new Set(["auto", "scroll", "overlay"]);
 
 function scrollElementToBottom(
@@ -26,6 +27,11 @@ function scrollElementToBottom(
 export type ScrollToBottomButtonProps = {
   containerRef: RefObject<HTMLElement | null>;
   threshold?: number;
+  /**
+   * When set, each click scrolls down by this many pixels (capped at the bottom).
+   * When omitted, click jumps to the bottom of the container.
+   */
+  scrollStepPx?: number;
   className?: string;
   "aria-label"?: string;
 };
@@ -45,30 +51,48 @@ export type ScrollToBottomButtonProps = {
 export function ScrollToBottomButton({
   containerRef,
   threshold = DEFAULT_BOTTOM_THRESHOLD_PX,
+  scrollStepPx,
   className = "",
   "aria-label": ariaLabel = "Jump to latest",
 }: ScrollToBottomButtonProps) {
-  const [visible, setVisible] = useState(false);
+  const [isScrollable, setIsScrollable] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   const updateVisibility = useCallback(() => {
     const el = containerRef.current;
     if (!el) {
-      setVisible(false);
+      setIsScrollable(false);
+      setIsAtBottom(true);
       return;
     }
 
-    const { overflowY } = window.getComputedStyle(el);
+    const style = window.getComputedStyle(el);
+    let overflowY = style.overflowY;
+    if (
+      overflowY === "visible" ||
+      overflowY === "clip" ||
+      (overflowY === "" && style.overflow)
+    ) {
+      const o = style.overflow.split(" ")[0];
+      if (o) {
+        overflowY = o;
+      }
+    }
     if (!SCROLLABLE_OVERFLOW_VALUES.has(overflowY)) {
-      setVisible(false);
+      setIsScrollable(false);
+      setIsAtBottom(true);
       return;
     }
 
     const { scrollTop, clientHeight, scrollHeight } = el;
-    const hasOverflow = scrollHeight > clientHeight;
+    const hasOverflow = scrollHeight > clientHeight + OVERFLOW_TOLERANCE_PX;
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
     const atBottom = distanceFromBottom <= threshold;
-    setVisible(hasOverflow && !atBottom);
+    setIsScrollable(hasOverflow);
+    setIsAtBottom(!hasOverflow || atBottom);
   }, [containerRef, threshold]);
+
+  const visible = isScrollable && !isAtBottom;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -105,30 +129,34 @@ export function ScrollToBottomButton({
     };
   }, [containerRef, updateVisibility]);
 
-  if (!visible) {
-    return null;
-  }
-
   return (
-    // Wrapper is strictly a positioning slot — `pointer-events-none` so no
-    // invisible area around the button can swallow scroll / wheel / hover
-    // interaction with the scrollable panel. `w-9 h-9` keeps the wrapper
-    // exactly button-sized so the hitbox can never grow larger than the icon.
-    <div className="pointer-events-none absolute bottom-4 right-4 z-20 h-9 w-9">
+    <div
+      className={`pointer-events-none absolute bottom-3 left-1/2 z-50 -translate-x-1/2 transition-opacity duration-200 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+      aria-hidden={!visible}
+    >
       <button
         type="button"
-        onClick={() => {
+        tabIndex={visible ? 0 : -1}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
           const el = containerRef.current;
-          if (el) {
+          if (!el) {
+            return;
+          }
+          if (scrollStepPx != null && scrollStepPx > 0) {
+            const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+            const nextTop = Math.min(el.scrollTop + scrollStepPx, maxTop);
+            el.scrollTo({ top: nextTop, behavior: "smooth" });
+          } else {
             scrollElementToBottom(el, "smooth");
           }
         }}
-        // Intentionally NO `backdrop-blur-*`, NO `transition`, NO
-        // `hover:shadow-*`: those force the compositor to repaint the button's
-        // layer on every scroll frame when the cursor is over it, which
-        // manifests as the panel "freezing" near the bottom until the cursor
-        // moves off the control. Solid background + static shadow only.
-        className={`pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-700 shadow-md hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-cortex-blue focus-visible:ring-offset-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white dark:focus-visible:ring-offset-slate-900 ${className}`}
+        className={`${
+          visible ? "pointer-events-auto" : "pointer-events-none"
+        } flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-gray-300/80 bg-white/90 text-gray-600 shadow-sm transition-colors hover:bg-white hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-cortex-blue focus-visible:ring-offset-2 dark:border-slate-600/80 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white dark:focus-visible:ring-offset-slate-900 ${className}`}
         aria-label={ariaLabel}
       >
         <svg
@@ -137,7 +165,7 @@ export function ScrollToBottomButton({
           fill="none"
           strokeWidth={2}
           stroke="currentColor"
-          className="h-5 w-5"
+          className="h-4 w-4"
           aria-hidden
         >
           <path

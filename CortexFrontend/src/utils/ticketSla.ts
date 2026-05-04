@@ -6,7 +6,9 @@ export type SlaDisplayLabel =
   | "At Risk"
   | "Overdue"
   | "Resolved On Time"
-  | "Resolved Late";
+  | "Resolved Late"
+  /** Intake gate or non-active work — SLA clock is not tracking resolution time yet. */
+  | "Paused";
 
 const SLA_DISPLAY_LABELS = new Set<SlaDisplayLabel>([
   "On Track",
@@ -14,6 +16,7 @@ const SLA_DISPLAY_LABELS = new Set<SlaDisplayLabel>([
   "Overdue",
   "Resolved On Time",
   "Resolved Late",
+  "Paused",
 ]);
 
 type SlaLabelInput = Pick<
@@ -31,6 +34,8 @@ const slaAccentClasses: Record<SlaDisplayLabel, string> = {
   "Resolved On Time":
     "border-l-emerald-600 dark:border-l-emerald-400",
   "Resolved Late": "border-l-rose-600 dark:border-l-rose-400",
+  Paused:
+    "border-l-slate-400 dark:border-l-slate-500",
 };
 
 const slaBadgeClasses: Record<SlaDisplayLabel, string> = {
@@ -40,11 +45,41 @@ const slaBadgeClasses: Record<SlaDisplayLabel, string> = {
   "Resolved On Time":
     "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
   "Resolved Late": "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200",
+  Paused:
+    "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
 };
+
+function isIntakeGateSlaStatus(raw: string): boolean {
+  const s = raw.trim().toLowerCase();
+  return (
+    s === "pending approval" ||
+    s === "needs more info" ||
+    s === "rejected" ||
+    s === "not active"
+  );
+}
+
+/** Summary line while SLA tracking is paused (intake gate or inactive work item). */
+function pausedSummaryLine(ticket: SlaLabelInput): string {
+  const s = (ticket.slaStatus ?? "").trim().toLowerCase();
+  if (s === "pending approval") {
+    return "SLA not started — Waiting for approval";
+  }
+  if (s === "needs more info") {
+    return "SLA paused — Returned for detail";
+  }
+  if (s === "rejected") {
+    return "SLA not applicable — intake closed";
+  }
+  return "SLA not active for this ticket yet";
+}
 
 /** Map API `slaStatus` bucket (report rows) to the label shown in the UI. */
 export function mapBackendSlaStatusToDisplayLabel(raw: string): SlaDisplayLabel {
   const status = raw.trim();
+  if (isIntakeGateSlaStatus(status)) {
+    return "Paused";
+  }
   switch (status) {
     case "Met":
       return "Resolved On Time";
@@ -69,6 +104,11 @@ export function getSlaDisplayLabel(ticket: SlaLabelInput): SlaDisplayLabel {
   const completedMs = ticket.slaCompletedDate
     ? new Date(ticket.slaCompletedDate).getTime()
     : null;
+
+  /** API sends placeholder target dates during intake — never infer Overdue here. */
+  if (isIntakeGateSlaStatus(raw)) {
+    return "Paused";
+  }
 
   if (completedMs !== null && !Number.isNaN(completedMs) && !Number.isNaN(targetMs)) {
     if (raw === "Met") return "Resolved On Time";
@@ -113,6 +153,8 @@ export function formatSlaSummary(ticket: SlaLabelInput) {
   const duration = formatDuration(minutes);
 
   switch (label) {
+    case "Paused":
+      return pausedSummaryLine(ticket);
     case "Resolved On Time":
       return minutes > 0
         ? `Resolved on time · ${duration} before deadline`
@@ -142,6 +184,8 @@ export function buildSlaTooltip(ticket: SlaLabelInput) {
     : null;
 
   switch (display) {
+    case "Paused":
+      return `${pausedSummaryLine(ticket)}. Resolution SLA timing starts after intake completes.`;
     case "Resolved On Time":
       return completed
         ? `Resolved on time at ${completed} — deadline was ${target}.`
@@ -172,6 +216,9 @@ export type UrgencyChip = {
  */
 export function getUrgencyChip(ticket: SlaLabelInput): UrgencyChip {
   const label = getSlaDisplayLabel(ticket);
+  if (label === "Paused") {
+    return null;
+  }
   if (label === "Overdue") {
     return {
       label: "Overdue",

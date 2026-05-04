@@ -5,6 +5,11 @@ namespace Cortex.API.Services;
 
 public interface ICortexInsightService
 {
+    bool TryGetCachedInsight(
+        string ticketId,
+        TicketVisibilityContext visibilityContext,
+        out CortexInsightDto? insight);
+
     Task<CortexInsightDto> GetInsightAsync(
         Ticket currentTicket,
         TicketVisibilityContext visibilityContext,

@@ -4,6 +4,7 @@ using Cortex.API.Handlers;
 using Cortex.API.Models;
 using Cortex.API.Services;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using TicketHandlersLogCategory = Cortex.API.Handlers.TicketHandlersLogCategory;
@@ -68,15 +69,13 @@ public class TicketHandlersUpdateConcurrencyTests
             request,
             httpContext,
             repo.Object,
+            Mock.Of<IServiceScopeFactory>(),
             userContext.Object,
             Mock.Of<IUserRepository>(),
-            Mock.Of<IAiSettingsService>(),
             Mock.Of<ISlaConfigurationService>(),
             Mock.Of<ITicketStatusService>(),
             Mock.Of<ITicketBoardService>(),
             Mock.Of<ITicketRoutingRuleService>(),
-            Mock.Of<ITicketTriageAiService>(),
-            Mock.Of<ITicketTriageVocabularyProvider>(),
             Mock.Of<ITicketAuditService>(),
             operationalRiskService.Object,
             reassignmentRecommendationService.Object,

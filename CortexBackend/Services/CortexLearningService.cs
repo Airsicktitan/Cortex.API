@@ -255,7 +255,8 @@ public sealed class CortexLearningService : ICortexLearningService
 
     public async Task<RoutingRuleEffectiveness> GetRoutingRuleEffectivenessAsync(
         int ruleId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool bypassCache = false)
     {
         var empty = new RoutingRuleEffectiveness { RuleId = ruleId };
         if (ruleId <= 0)
@@ -264,7 +265,7 @@ public sealed class CortexLearningService : ICortexLearningService
         }
 
         var key = $"learning:rule:{ruleId}";
-        if (_cache.TryGetValue<RoutingRuleEffectiveness>(key, out var cached) && cached is not null)
+        if (!bypassCache && _cache.TryGetValue<RoutingRuleEffectiveness>(key, out var cached) && cached is not null)
         {
             return cached;
         }

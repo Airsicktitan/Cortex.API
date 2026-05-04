@@ -15,6 +15,7 @@ import { ticketService } from "../services/api";
 import type { CortexDecisionResult } from "../types/cortexDecision";
 import { formatDisplayValue } from "../utils/presentation";
 import { formatOwnerFieldForDisplay } from "../utils/ownerIdentity";
+import { deriveColdStartSignal } from "../utils/cortexHistoricalContext";
 import { CortexTooltip } from "./ui/Tooltip";
 
 const API_AUDIENCE = "https://cortex-api";
@@ -74,7 +75,7 @@ function resolveBoardNameForDisplay(
   if (ticket.boardId === n && ticket.boardName?.trim()) {
     return ticket.boardName.trim();
   }
-  return "Unknown board";
+  return "—";
 }
 
 function normalizeOwnerToken(value: string | undefined | null): string {
@@ -336,94 +337,109 @@ function hasOwnerRecommendation(decision: TicketRoutingDecisionDto): boolean {
   );
 }
 
-type ConfidenceLevel = "High" | "Medium" | "Low";
-
-function resolveConfidenceLevel(
-  decision: TicketRoutingDecisionDto,
-  matchedFactorCount: number,
-): ConfidenceLevel {
-  const raw = decision.confidenceLevel?.trim();
-  if (raw === "High" || raw === "Medium" || raw === "Low") {
-    return raw;
+function buildSignalsSummary(context: {
+  priority?: string | null;
+  hasDepartmentSignal: boolean;
+  board?: string | null;
+}): string {
+  const signals: string[] = [];
+  if (context.priority?.trim()) {
+    signals.push("priority level");
   }
-  if (matchedFactorCount >= 3) {
-    return "High";
+  if (context.hasDepartmentSignal) {
+    signals.push("requester department");
   }
-  if (matchedFactorCount === 2) {
-    return "Medium";
+  if (context.board?.trim()) {
+    signals.push("ticket type");
   }
-  return "Low";
+  if (signals.length === 0) {
+    return "Decision based on current routing configuration and ticket details.";
+  }
+  return `Decision based on ${signals.join(", ")}.`;
 }
 
-function toHumanConfidenceLabel(
-  confidenceLevel: ConfidenceLevel,
-  slotClassifications: string[],
-): string {
-  if (slotClassifications.includes("Multiple viable candidates")) {
-    return "Multiple viable recommendations";
+function buildConfidenceNarrative(confidence: "High" | "Medium" | "Low"): string {
+  if (confidence === "High") {
+    return "Strong advisor confidence—ticket details line up cleanly with Cortex’s read. Routing rules still compute the recommendation.";
   }
-  if (slotClassifications.includes("Limited routing signals")) {
-    return "Limited routing signals";
+  if (confidence === "Medium") {
+    return "Moderate advisor confidence: several signals pulled in different directions. Prefer a quick reviewer check.";
   }
-  if (slotClassifications.includes("Strong match, low pressure")) {
-    return "Strong match, low pressure";
-  }
-  if (slotClassifications.includes("Strong match, moderate pressure")) {
-    return "Strong match, moderate pressure";
-  }
-  if (slotClassifications.includes("Moderate match")) {
-    return "Moderate match";
-  }
-  if (confidenceLevel === "High") {
-    return "Strong match, low pressure";
-  }
-  if (confidenceLevel === "Medium") {
-    return "Moderate match";
-  }
-  return "Limited routing signals";
+  return "Lower advisor confidence; confirm ownership or intake context before committing.";
 }
 
-function humanizeCriterion(criterion: string): string {
-  switch (criterion) {
-    case "BoardId":
-      return "board alignment";
-    case "Priority":
-      return "priority alignment";
-    case "RequesterDepartment":
-    case "Department":
-      return "department alignment";
-    case "RequesterRole":
-      return "requester role alignment";
-    case "TitleContains":
-      return "title signal alignment";
+/** Readable label for routing “alternative candidate” reasons (scores are illustrative only). */
+function humanizeAlternativeReason(reason: string | undefined): string {
+  const raw = (reason ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("not eligible") &&
+    lower.includes("unresolved")
+  ) {
+    return "Listed owner couldn’t be resolved from routing metadata";
+  }
+  switch (lower) {
+    case "weaker match":
+      return "Lower combined routing alignment";
+    case "higher workload":
+      return "Higher queue pressure than selected owner";
+    case "not eligible":
+      return "Did not qualify under current routing rules";
     default:
-      return criterion.replace(/([A-Z])/g, " $1").trim().toLowerCase();
+      if (!raw) {
+        return "Other routing consideration";
+      }
+      return raw.charAt(0).toUpperCase() + raw.slice(1);
   }
 }
 
-function extractSignalBullet(line: string): string | null {
-  const [labelRaw, valueRaw] = line.split(":");
-  const label = labelRaw?.trim().toLowerCase();
-  const value = valueRaw?.trim();
-  if (!label) {
-    return null;
+function humanizeLearningTargetType(label: string | undefined): string {
+  switch (label) {
+    case "Owner":
+      return "Similar owner history";
+    case "Rule":
+      return "Rule override patterns";
+    case "Decision":
+      return "Follow-up patterns";
+    case "Risk":
+      return "SLA risk signals";
+    default:
+      return label?.trim() || "Historical signal";
   }
-  if (label === "board" && value) {
-    return `Matches ${value} board decision factor`;
+}
+
+/** Backend populates adjustments + delta together when adaptive learning applies. */
+function hasLearningImpactTransparency(decision: CortexDecisionResult): boolean {
+  const list = decision.learningAdjustments;
+  if (list != null && list.length > 0) {
+    return true;
   }
-  if (label === "priority" && value) {
-    return `Matches ${value} priority decision factor`;
+  const delta = decision.learningConfidenceDelta;
+  if (delta == null || delta === undefined) {
+    return false;
   }
-  if (label === "requester department" && value) {
-    return `Matches ${value} requester department decision factor`;
+  return Math.abs(Number(delta)) >= 1e-4;
+}
+
+function pctPointsFromConfidenceDelta(unitDelta: number): number {
+  return Math.round(Math.abs(unitDelta) * 100);
+}
+
+/** Advisory headline — uses payload delta/reason paths only (no fabricated claims). */
+function summarizeLearningConfidenceLine(decision: CortexDecisionResult): string {
+  const delta = decision.learningConfidenceDelta;
+  if (delta == null || delta === undefined) {
+    return "Past outcomes influenced how Cortex frames reviewer confidence alongside routing.";
   }
-  if (label === "requester role" && value) {
-    return `Matches ${value} requester role decision factor`;
+  const d = Number(delta);
+  const pct = pctPointsFromConfidenceDelta(d);
+  if (d > 1e-9) {
+    return `Cortex adjusted advisor confidence by +${pct}% based on prior outcomes.`;
   }
-  if (label === "department" && value) {
-    return `Matches ${value} department decision factor`;
+  if (d < -1e-9) {
+    return `Cortex reduced advisor confidence by ${pct}% because similar routing patterns have mixed outcomes.`;
   }
-  return null;
+  return "Historic outcomes minimally shifted advisor framing; routing picks still follow deterministic rules.";
 }
 
 function collectWorkloadOwnerKeys(
@@ -494,41 +510,6 @@ function workloadSignalClassName(signal: WorkloadSignalLabel): string {
   return "bg-emerald-100 text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100";
 }
 
-function formatConfidencePercent(value: number | null | undefined): string {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "—";
-  }
-  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
-}
-
-function formatConfidenceDeltaPercent(value: number | null | undefined): string {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "—";
-  }
-  const rounded = Math.round(value * 100);
-  if (rounded > 0) {
-    return `+${rounded}%`;
-  }
-  return `${rounded}%`;
-}
-
-function getLearningImpactReason(adjustment: {
-  targetType: string;
-  reason: string;
-  supportingFacts?: string[];
-}): string {
-  if (adjustment.targetType?.toLowerCase() === "rule") {
-    const facts = adjustment.supportingFacts ?? [];
-    const overrideFact = facts.find((fact) => /%\s*override rate/i.test(fact));
-    const percentMatch = overrideFact?.match(/(\d{1,3})\s*%/);
-    if (percentMatch) {
-      return `Confidence reduced due to historical override rate (${percentMatch[1]}%).`;
-    }
-    return "Confidence reduced due to historical override rate.";
-  }
-  return adjustment.reason;
-}
-
 function aggregateWorkload(
   summaries: OwnerWorkloadSummaryDto[],
 ): {
@@ -590,7 +571,7 @@ function RecommendationWorkloadPill({
   if (!summary) {
     return (
       <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-        Workload data not available for comparison
+        —
       </span>
     );
   }
@@ -623,6 +604,10 @@ interface TicketRoutingInsightProps {
   livePreview?: RoutingLivePreviewInput | null;
   /** Called after guided reassignment apply when that flow is present on the ticket. */
   onReassignmentApplied?: (updatedTicket: Ticket) => void;
+  riskLevel?: "Low" | "Medium" | "High" | null;
+  historicalContext?: string[];
+  onRecommendedOwnerClick?: () => void;
+  highlightPanel?: boolean;
 }
 
 export default function TicketRoutingInsight({
@@ -630,6 +615,10 @@ export default function TicketRoutingInsight({
   isModalOpen,
   ticketBoards,
   livePreview,
+  riskLevel,
+  historicalContext = [],
+  onRecommendedOwnerClick,
+  highlightPanel = false,
 }: TicketRoutingInsightProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [data, setData] = useState<TicketRoutingLatestResponse | null>(null);
@@ -647,7 +636,6 @@ export default function TicketRoutingInsight({
   const [cortexDecision, setCortexDecision] = useState<CortexDecisionResult | null>(
     null,
   );
-  const [techExpanded, setTechExpanded] = useState(false);
   const [decisionPanelExpanded, setDecisionPanelExpanded] = useState(true);
   const [fullReasoningExpanded, setFullReasoningExpanded] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -665,7 +653,6 @@ export default function TicketRoutingInsight({
   const livePreviewPriority = livePreview?.priority;
 
   useEffect(() => {
-    setTechExpanded(false);
     setDecisionPanelExpanded(true);
     setFullReasoningExpanded(false);
   }, [ticket.id]);
@@ -862,33 +849,6 @@ export default function TicketRoutingInsight({
     return assignmentSummaryLine(decision, override, ticket);
   }, [decision, override, ticket]);
 
-  const confidenceLevel = useMemo((): ConfidenceLevel | null => {
-    if (!decision) {
-      return null;
-    }
-    return resolveConfidenceLevel(decision, matchedFactorLines.length);
-  }, [decision, matchedFactorLines.length]);
-
-  const confidencePresentation = useMemo(() => {
-    if (confidenceLevel === null) {
-      return null;
-    }
-    const hasMatchedCriteria = matchedFactorLines.length > 0;
-    if (confidenceLevel === "High" || confidenceLevel === "Medium") {
-      return {
-        kind: "standard" as const,
-        text: `${confidenceLevel} confidence`,
-      };
-    }
-    if (!hasMatchedCriteria) {
-      return {
-        kind: "soft" as const,
-        text: "Low — insufficient routing signals",
-      };
-    }
-    return { kind: "standard" as const, text: "Low confidence" };
-  }, [confidenceLevel, matchedFactorLines.length]);
-
   const slotReasoning = useMemo(() => {
     const slots = explanation?.slots;
     if (!slots) {
@@ -957,19 +917,27 @@ export default function TicketRoutingInsight({
 
   const selectedBecauseLines = useMemo(() => {
     const lines: string[] = [];
-    const signalBullets = matchedFactorLines
-      .map((line) => extractSignalBullet(line))
-      .filter((line): line is string => Boolean(line))
-      .slice(0, 2);
-    lines.push(...signalBullets);
+    const selectedOwner =
+      slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerDisplayName?.trim() ||
+      slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerKey?.trim() ||
+      null;
+    const priority = ticket.priority?.trim() ?? "";
+    const departmentMatch = matchedFactorLines.find((line) =>
+      line.toLowerCase().startsWith("requester department:") ||
+      line.toLowerCase().startsWith("department:"),
+    );
+    const departmentValue = departmentMatch?.split(":")[1]?.trim();
 
-    if (lines.length === 0 && explanation?.matchedCriteria?.length) {
+    if ((priority === "High" || priority === "Critical") && selectedOwner) {
       lines.push(
-        `Recommendation matched ${explanation.matchedCriteria
-          .slice(0, 2)
-          .map((criterion) => humanizeCriterion(criterion))
-          .join(" and ")}.`,
+        `Selected because this is a ${priority.toLowerCase()}-priority ticket requiring timely handling, and ${selectedOwner} is aligned for urgent work.`,
       );
+    } else if (departmentValue && selectedOwner && departmentValue !== "—") {
+      lines.push(
+        `Selected because this request aligns with ${departmentValue} work, which is typically handled by ${selectedOwner}.`,
+      );
+    } else {
+      lines.push("Selected based on the closest match between ticket details and current routing rules.");
     }
 
     for (const slot of slotReasoning) {
@@ -978,7 +946,7 @@ export default function TicketRoutingInsight({
         continue;
       }
       if (slot.candidates.length <= 1) {
-        lines.push("No competing eligible recommendations met decision criteria");
+        lines.push("No other eligible owner showed a stronger routing and workload alignment.");
         continue;
       }
       const sorted = [...slot.candidates].sort(
@@ -997,18 +965,14 @@ export default function TicketRoutingInsight({
       }
 
       if (winner.workloadPenalty < nextBest.workloadPenalty) {
-        lines.push("Lower workload than other eligible recommendations");
+        lines.push("The selected owner currently has lower workload pressure than other eligible options.");
       } else if (winner.matchScore > nextBest.matchScore) {
-        lines.push("Stronger decision factor match than alternatives");
+        lines.push("The selected owner had the strongest overall match across routing signals.");
       }
     }
-    if (!slotReasoning.some((slot) => slot.candidates.length > 1)) {
-      lines.push(
-        "No better eligible alternative was identified based on current workload and routing signals",
-      );
-    }
+    /** Routing factors appear under “Signals matched”; avoid repeating generic summary here. */
     return lines.slice(0, 3);
-  }, [matchedFactorLines, explanation?.matchedCriteria, slotReasoning]);
+  }, [matchedFactorLines, slotReasoning, ticket.boardName, ticket.priority]);
 
   const alternativesConsidered = useMemo(() => {
     return slotReasoning.flatMap((slot) => {
@@ -1061,6 +1025,27 @@ export default function TicketRoutingInsight({
       return [...alternatives, ...skipped];
     });
   }, [slotReasoning]);
+  const alternativesNarrative = useMemo(() => {
+    if (alternativesConsidered.length <= 0) {
+      return null;
+    }
+    const selectedOwner =
+      slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerDisplayName?.trim() ||
+      slotReasoning.find((slot) => slot.selectedOwnerKey?.trim())?.selectedOwnerKey?.trim() ||
+      "the recommended assignment";
+    return `Eligible owners were evaluated in order. Routing placed “${selectedOwner}” ahead based on matched rules and workload cues (these workload cues are advisory and do not change rule outcomes).`;
+  }, [alternativesConsidered.length, slotReasoning]);
+  const signalsUsedSentence = useMemo(() => {
+    const hasDepartmentSignal = matchedFactorLines.some((line) =>
+      line.toLowerCase().startsWith("requester department:") ||
+      line.toLowerCase().startsWith("department:"),
+    );
+    return buildSignalsSummary({
+      priority: ticket.priority,
+      hasDepartmentSignal,
+      board: ticket.boardName,
+    });
+  }, [matchedFactorLines, ticket.boardName, ticket.priority]);
 
   const synitiOwnerDisplay = useMemo(() => {
     const slot = explanation?.slots?.synitiOwner;
@@ -1080,7 +1065,7 @@ export default function TicketRoutingInsight({
     );
     return hasSynitiRuleEvidence
       ? "No clear owner identified"
-      : "No Syniti owner rule applied";
+      : "No matching routing rule";
   }, [
     decision?.chosenSynitiOwner,
     explanation?.slots?.synitiOwner,
@@ -1107,7 +1092,7 @@ export default function TicketRoutingInsight({
     );
     return hasBusinessRuleEvidence
       ? "No clear business owner identified"
-      : "No business owner rule applied";
+      : "No matching routing rule";
   }, [
     decision?.chosenBusinessOwner,
     explanation?.slots?.businessOwner,
@@ -1131,25 +1116,20 @@ export default function TicketRoutingInsight({
     () => buildOwnerLabel(ticket.businessOwner, ticket.businessOwnerDisplayName),
     [ticket.businessOwner, ticket.businessOwnerDisplayName],
   );
-  const synitiOwnerOverridden = Boolean(recommendedSynitiOwnerKey) &&
+  const hasFinalSynitiOwner = Boolean(ticket.synitiOwner?.trim());
+  const hasRecommendedSynitiOwner = Boolean(recommendedSynitiOwnerKey);
+  const synitiOwnerOverridden =
+    hasFinalSynitiOwner &&
+    hasRecommendedSynitiOwner &&
     !ownersMatch(ticket.synitiOwner, recommendedSynitiOwnerKey);
-  const businessOwnerOverridden = Boolean(recommendedBusinessOwnerKey) &&
+  const hasFinalBusinessOwner = Boolean(ticket.businessOwner?.trim());
+  const hasRecommendedBusinessOwner = Boolean(recommendedBusinessOwnerKey);
+  const businessOwnerOverridden =
+    hasFinalBusinessOwner &&
+    hasRecommendedBusinessOwner &&
     !ownersMatch(ticket.businessOwner, recommendedBusinessOwnerKey);
-  const hasManualOverride =
-    Boolean(override) || synitiOwnerOverridden || businessOwnerOverridden;
+  const hasManualOverride = synitiOwnerOverridden || businessOwnerOverridden;
 
-  const confidenceLabel = useMemo(() => {
-    if (!confidenceLevel) {
-      return null;
-    }
-    if (explanation?.confidenceClassification?.trim()) {
-      return explanation.confidenceClassification.trim();
-    }
-    const classifications = slotReasoning
-      .map((slot) => slot.classification)
-      .filter((value) => value.length > 0);
-    return toHumanConfidenceLabel(confidenceLevel, classifications);
-  }, [confidenceLevel, explanation?.confidenceClassification, slotReasoning]);
   const workloadKeys = useMemo(
     () => (decision ? collectWorkloadOwnerKeys(decision, ticket, explanation) : []),
     [decision, ticket, explanation],
@@ -1229,9 +1209,76 @@ export default function TicketRoutingInsight({
     !hasOwnerRecommendation(decision) &&
     decision.outcomeType === "Fallback";
 
+  const noRuleGuidanceCopy = useMemo(() => {
+    const reason = decision?.noMatchReason?.trim();
+    switch (reason) {
+      case "NoRulesDefined":
+        return "No routing rules are configured. Add a routing rule so Cortex can recommend an owner.";
+      case "NoEnabledRules":
+        return "All routing rules are disabled. Enable a rule so Cortex can recommend an owner.";
+      case "MissingRequiredFactors":
+        return "Required routing inputs are missing. Add a routing rule that matches the available ticket factors.";
+      case "NoCriteriaMatched":
+      default:
+        return "No routing rule matched this ticket. Add or adjust a routing rule to enable owner recommendations.";
+    }
+  }, [decision?.noMatchReason]);
+
   const routingReasoningEmptyCopy = isLightweightNoRec
-    ? "No clear owner could be confidently determined for this ticket."
+    ? noRuleGuidanceCopy
     : "No routing signals were applied for this recommendation.";
+  const hasRoutingRecommendation = decision ? hasOwnerRecommendation(decision) : false;
+  const hasRoutingRules = decision
+    ? decision.noMatchReason !== "NoRulesDefined" &&
+      decision.noMatchReason !== "NoEnabledRules"
+    : true;
+  const hasEligibleOwners = useMemo(() => {
+    if (!decision || hasRoutingRecommendation) {
+      return true;
+    }
+    const slots = [
+      explanation?.slots?.synitiOwner,
+      explanation?.slots?.businessOwner,
+    ].filter(Boolean);
+    if (slots.length === 0) {
+      return true;
+    }
+    const hasAnyCandidates = slots.some(
+      (slot) => (slot?.candidates?.length ?? 0) > 0,
+    );
+    if (hasAnyCandidates) {
+      return true;
+    }
+    const hasEligibilityBlocks = slots.some((slot) =>
+      (slot?.skippedReasons ?? []).some((reason) =>
+        `${reason.reason ?? ""} ${reason.message ?? ""}`
+          .toLowerCase()
+          .includes("eligible"),
+      ),
+    );
+    return !hasEligibilityBlocks ? true : false;
+  }, [decision, explanation?.slots, hasRoutingRecommendation]);
+  const coldStartSignal = useMemo(
+    () =>
+      deriveColdStartSignal({
+        historicalContextBullets: historicalContext,
+        hasRoutingRecommendation,
+        hasRoutingRules,
+        hasEligibleOwners,
+        approvalStatus: ticket.approvalStatus,
+        priority: ticket.priority,
+        board: ticket.boardName,
+      }),
+    [
+      hasEligibleOwners,
+      hasRoutingRecommendation,
+      hasRoutingRules,
+      historicalContext,
+      ticket.approvalStatus,
+      ticket.boardName,
+      ticket.priority,
+    ],
+  );
   const decisionImpact = ticket.decisionImpact?.hasImpact
     ? ticket.decisionImpact
     : null;
@@ -1251,7 +1298,7 @@ export default function TicketRoutingInsight({
       : null;
   const workloadComparisonLabel =
     workloadDifference == null
-      ? "Workload data not available for comparison"
+      ? "—"
       : workloadDifference <= 0
         ? "Recommended owner has equal or lower workload"
         : "Recommended owner has higher workload; routing signals still ranked this owner first";
@@ -1262,6 +1309,12 @@ export default function TicketRoutingInsight({
         ? "Medium"
         : "Low"
     : "—";
+  const confidenceNarrative =
+    recommendationStrength === "High" ||
+    recommendationStrength === "Medium" ||
+    recommendationStrength === "Low"
+      ? buildConfidenceNarrative(recommendationStrength)
+      : "Confidence details will appear once a recommendation is available.";
   const expectedImpactSummary = decisionImpact?.summary ??
     (workloadDifference != null && workloadDifference <= 0
       ? "Clearer ownership with lower workload pressure."
@@ -1284,22 +1337,21 @@ export default function TicketRoutingInsight({
     cortexDecision?.summary ??
     expectedImpactSummary ??
     routingReasoningEmptyCopy;
-  const learningAdjustments = cortexDecision?.learningAdjustments ?? [];
-  const hasLearningAdjustments = learningAdjustments.length > 0;
-  const hasLearningDelta = typeof cortexDecision?.learningConfidenceDelta === "number";
-  const showLearningConfidenceBreakdown =
-    hasLearningDelta && typeof cortexDecision?.baseConfidenceScore === "number";
-  const learningDeltaClassName =
-    (cortexDecision?.learningConfidenceDelta ?? 0) < 0
-      ? "text-red-700 dark:text-red-300"
-      : "text-emerald-700 dark:text-emerald-300";
+  const isHighRisk = riskLevel === "High";
 
   if (!ticket.id) {
     return null;
   }
 
   return (
-    <div className="mb-6 rounded-xl border border-slate-200/95 bg-white p-4 shadow-sm dark:border-slate-600/80 dark:bg-slate-950/40 dark:shadow-none">
+    <div
+      id="cortex-decision-panel"
+      className={`px-4 py-4 transition-colors ${
+        highlightPanel
+          ? "rounded-md border border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/25"
+          : ""
+      }`}
+    >
       <button
         type="button"
         onClick={() => setDecisionPanelExpanded((open) => !open)}
@@ -1310,14 +1362,19 @@ export default function TicketRoutingInsight({
           <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-50">
             Cortex Decision
           </h3>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Recommended ownership, action state, and concise reasoning
+          <p className="mt-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
+            Owners follow configured routing rules; workload and history are advisory only—they never override outcomes.
             {isLiveRoutingPreview && previewLoading && decision ? (
               <span className="ml-1.5 font-medium text-slate-400 dark:text-slate-500">
-                · Updating…
+                Updating…
               </span>
             ) : null}
           </p>
+          {isHighRisk ? (
+            <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-200">
+              ⚠️ This ticket is at risk - review recommended action below.
+            </p>
+          ) : null}
         </div>
         <span
           className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500"
@@ -1382,61 +1439,121 @@ export default function TicketRoutingInsight({
           >
             <div className="rounded-xl border border-cortex-blue/20 bg-sky-50/70 px-4 py-3.5 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/20">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-sm font-semibold tracking-wide text-cortex-blue dark:text-sky-300">
-                  Cortex Recommendation
-                </p>
+                <div>
+                  <p className="text-sm font-semibold tracking-wide text-cortex-blue dark:text-sky-300">
+                    Recommended assignment
+                  </p>
+                  <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                    Scores reflect rule-based routing only; they do not bypass configured assignment rules.
+                  </p>
+                </div>
                 <span
                   className={`rounded-md px-2.5 py-1 text-xs font-semibold ${compactDecisionStateClass}`}
                 >
                   {compactDecisionState}
                 </span>
               </div>
-              <div className="mt-3 space-y-2 text-sm text-slate-800 dark:text-slate-100">
-                <p>
+              <div className="mt-3 space-y-3 text-sm text-slate-800 dark:text-slate-100">
+                <div>
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    Recommended Ownership
+                    Recommendation
                   </span>
-                  <span className="block mt-0.5 text-slate-500 dark:text-slate-400">
-                    Syniti Owner:{" "}
-                    <span className="text-slate-900 dark:text-slate-100">
-                      {synitiOwnerDisplay}
-                    </span>
+                  {isHighRisk ? (
+                    <button
+                      type="button"
+                      onClick={onRecommendedOwnerClick}
+                      className="ml-2 text-xs font-semibold text-cortex-blue underline-offset-2 hover:underline dark:text-cortex-cyan"
+                    >
+                      Check SLA risk context
+                    </button>
+                  ) : null}
+                  <span className="mt-1 block text-slate-600 dark:text-slate-300">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      Syniti owner:
+                    </span>{" "}
+                    <span className="text-slate-900 dark:text-slate-100">{synitiOwnerDisplay}</span>
                   </span>
-                  <span className="block text-slate-500 dark:text-slate-400">
-                    Business Owner:{" "}
-                    <span className="text-slate-900 dark:text-slate-100">
-                      {businessOwnerDisplay}
-                    </span>
+                  <span className="block text-slate-600 dark:text-slate-300">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      Business owner:
+                    </span>{" "}
+                    <span className="text-slate-900 dark:text-slate-100">{businessOwnerDisplay}</span>
                   </span>
-                </p>
-                <p>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    Decision Rationale
-                  </span>
-                  <span className="block mt-0.5 text-slate-900 dark:text-slate-100">
-                    {compactWhyLine}
-                  </span>
-                </p>
-                <p>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    Suggested Action State
-                  </span>
-                  <span className="block mt-0.5 text-slate-900 dark:text-slate-100">
-                    {compactDecisionState}
-                  </span>
-                </p>
+                </div>
+
+                {(selectedBecauseLines.length > 0 || compactWhyLine) && (
+                  <div>
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">
+                      Selected because
+                    </p>
+                    {selectedBecauseLines.length > 0 ? (
+                      <ul className="mt-2 list-disc space-y-1.5 pl-4 text-[13px] leading-relaxed text-slate-700 dark:text-slate-200">
+                        {selectedBecauseLines.map((line, index) => (
+                          <li key={`hero-${index}-${line.slice(0, 40)}`}>{line}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1.5 text-[13px] leading-relaxed text-slate-700 dark:text-slate-200">
+                        {compactWhyLine}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="rounded-md border border-slate-200/80 bg-white/60 px-3 py-2 text-[13px] leading-snug text-slate-600 dark:border-slate-600/70 dark:bg-slate-900/35 dark:text-slate-300">
+                  <span className="font-semibold text-slate-800 dark:text-slate-100">
+                    What Cortex considered —
+                  </span>{" "}
+                  {signalsUsedSentence}
+                </div>
               </div>
               {hasManualOverride ? (
                 <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 dark:border-amber-800/60 dark:bg-amber-950/30">
                   <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
-                    ⚠️ Manual Override Detected
+                    Manual override detected
                   </p>
                   <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
-                    Cortex recommendation was not applied. Current assignment reflects user-selected values.
+                    Ticket fields were changed after routing ran—the saved assignment may
+                    no longer mirror the routing recommendation shown here.
                   </p>
                 </div>
               ) : null}
             </div>
+
+            {historicalContext.length > 0 ? (
+              <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Historical notes (Decision snapshot)
+                </p>
+                <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
+                  {historicalContext.map((line, index) => (
+                    <li key={`${index}-${line}`}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : coldStartSignal ? (
+              <div
+                className={`space-y-2 rounded-lg border px-3 py-3 ${
+                  coldStartSignal.type === "starter-setup-needed"
+                    ? "border-amber-200 bg-amber-50/80 dark:border-amber-800/60 dark:bg-amber-950/20"
+                    : "border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/50"
+                }`}
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {coldStartSignal.title}
+                </p>
+                {coldStartSignal.body ? (
+                  <p className="text-sm text-slate-700 dark:text-slate-200">
+                    {coldStartSignal.body}
+                  </p>
+                ) : null}
+                <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
+                  {coldStartSignal.bullets.map((line, index) => (
+                    <li key={`${index}-${line}`}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
             <button
               type="button"
@@ -1445,7 +1562,7 @@ export default function TicketRoutingInsight({
               aria-controls="cortex-decision-full-reasoning"
               className="text-xs font-semibold text-cortex-blue underline-offset-2 hover:text-cortex-blue-dark hover:underline dark:text-cortex-cyan"
             >
-              {fullReasoningExpanded ? "Hide full reasoning" : "Show full reasoning"}
+              {fullReasoningExpanded ? "Hide technical detail & routing breakdown" : "Show technical detail & routing breakdown"}
             </button>
 
             <div id="cortex-decision-full-reasoning" hidden={!fullReasoningExpanded}>
@@ -1473,107 +1590,27 @@ export default function TicketRoutingInsight({
           {cortexDecision ? (
             <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Cortex Decision Context
+                Advisory readable summary
               </p>
-              <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+              <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                Readable routing context for reviewers. Final assignment follows routing outputs, workload cues, and your manual saves—not this text alone.
+              </p>
+              <p className="mt-2 text-sm font-medium text-slate-900 dark:text-slate-100">
                 {cortexDecision.summary}
               </p>
-              <div className="mt-2 rounded-md border border-slate-200/80 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950/40">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Confidence Analysis
-                </p>
-                {showLearningConfidenceBreakdown ? (
-                  <div className="mt-1.5 space-y-1 text-sm">
-                    <p className="text-slate-600 dark:text-slate-300">
-                      Base Confidence:{" "}
-                      <span className="font-medium">
-                        {formatConfidencePercent(cortexDecision.baseConfidenceScore)}
-                      </span>
-                    </p>
-                    <p className={learningDeltaClassName}>
-                      Learning Adjustment:{" "}
-                      <span className="font-semibold">
-                        {formatConfidenceDeltaPercent(cortexDecision.learningConfidenceDelta)}
-                      </span>
-                      <span className="text-slate-500 dark:text-slate-400 font-normal">
-                        {" "}
-                        (historical override pattern)
-                      </span>
-                    </p>
-                    <p className="font-semibold text-slate-900 dark:text-slate-100">
-                      Final Confidence:{" "}
-                      {formatConfidencePercent(cortexDecision.confidenceScore)}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="mt-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    Final Confidence: {formatConfidencePercent(cortexDecision.confidenceScore)}
-                  </p>
-                )}
-              </div>
-              <div className="mt-2 grid gap-1 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2">
+              <div className="mt-2 grid gap-1.5 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-2">
                 <p>
-                  Recommended owner: {synitiOwnerDisplay}
+                  Recommendation target (Syniti): {synitiOwnerDisplay}
                 </p>
                 <p>
-                  Final owner: {finalSynitiOwnerDisplay}
+                  Currently assigned (Syniti): {finalSynitiOwnerDisplay}
                 </p>
                 <p>
-                  Decision strength: {recommendationStrength}
+                  Advisor confidence: {recommendationStrength}
                 </p>
                 <p>
-                  Manual override status: {hasManualOverride ? "Yes" : "No"}
+                  Manual divergence: {hasManualOverride ? "Yes" : "No"}
                 </p>
-              </div>
-            </div>
-          ) : null}
-          {hasLearningAdjustments ? (
-            <div className="rounded-lg border border-slate-200/90 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Learning Impact
-              </p>
-              <div className="mt-2 space-y-2">
-                {learningAdjustments.map((adjustment, index) => {
-                  const adjustmentIsNegative = adjustment.scoreDelta < 0;
-                  return (
-                    <div
-                      key={`${adjustment.targetType}-${adjustment.reason.slice(0, 30)}-${index}`}
-                      className="rounded-md border border-slate-200/80 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950/40"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {adjustmentIsNegative ? "⚠️ " : null}
-                          {adjustment.targetType} impact
-                        </p>
-                        <p
-                          className={`text-sm font-semibold ${
-                            adjustmentIsNegative
-                              ? "text-red-700 dark:text-red-300"
-                              : "text-emerald-700 dark:text-emerald-300"
-                          }`}
-                        >
-                          {adjustment.scoreDelta > 0 ? "+" : ""}
-                          {adjustment.scoreDelta}% confidence
-                        </p>
-                      </div>
-                      <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                        {getLearningImpactReason(adjustment)}
-                      </p>
-                      {adjustment.supportingFacts.length > 0 ? (
-                        <details className="mt-1.5 rounded-md border border-slate-100 bg-slate-50/70 px-2.5 py-1.5 dark:border-slate-800 dark:bg-slate-950/30">
-                          <summary className="cursor-pointer text-xs font-semibold text-cortex-blue-dark hover:text-cortex-blue dark:text-cortex-cyan">
-                            Supporting facts
-                          </summary>
-                          <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-xs text-slate-600 dark:text-slate-300">
-                            {adjustment.supportingFacts.map((fact, factIndex) => (
-                              <li key={`${factIndex}-${fact.slice(0, 24)}`}>{fact}</li>
-                            ))}
-                          </ul>
-                        </details>
-                      ) : null}
-                    </div>
-                  );
-                })}
               </div>
             </div>
           ) : null}
@@ -1581,13 +1618,13 @@ export default function TicketRoutingInsight({
           <div className="rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-50 to-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200/60 dark:border-slate-600/70 dark:from-slate-900/80 dark:to-slate-950/60 dark:ring-slate-700/50">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                Workload Signal
+                Workload outlook
               </span>
               <CortexTooltip content={WORKLOAD_SIGNAL_ABOUT_TOOLTIP}>
                 <button
                   type="button"
                   className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400/60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:focus:ring-slate-500/50"
-                  aria-label="About Workload Signal"
+                  aria-label="About workload outlook"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -1620,7 +1657,7 @@ export default function TicketRoutingInsight({
                 </CortexTooltip>
               ) : (
                 <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                  Workload data not available for comparison
+                  No workload data
                 </span>
               )}
             </div>
@@ -1629,9 +1666,14 @@ export default function TicketRoutingInsight({
                 Estimating workload…
               </p>
             ) : workloadPreview ? (
-              <p className="mt-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
-                {workloadPreview.sentence}
-              </p>
+              <>
+                <p className="mt-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
+                  {workloadPreview.sentence}
+                </p>
+                <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                  Headline load band is directional only; workload does not veto routing rules on its own.
+                </p>
+              </>
             ) : workloadKeys.length === 0 ? (
               <p className="mt-2 text-sm leading-snug text-slate-600 dark:text-slate-300">
                 Add owners to see workload context.
@@ -1654,7 +1696,7 @@ export default function TicketRoutingInsight({
             >
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Cortex Impact
+                  Operational impact
                 </p>
                 <span
                   className={
@@ -1694,7 +1736,7 @@ export default function TicketRoutingInsight({
           <div className="space-y-3">
             <div className="rounded-lg border border-slate-100 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Cortex Decision Context
+                Ticket snapshot (operational cues)
               </p>
               <div className="mt-1 grid gap-1 text-sm text-slate-700 dark:text-slate-200 sm:grid-cols-2">
                 <p>Priority: {ticket.priority || "—"}</p>
@@ -1703,13 +1745,13 @@ export default function TicketRoutingInsight({
                   Current owner workload:{" "}
                   {currentOwnerWorkloadScore != null
                     ? Math.max(0, currentOwnerWorkloadScore)
-                    : "Workload data not available for comparison"}
+                    : "—"}
                 </p>
                 <p>
                   Recommended owner workload:{" "}
                   {recommendedOwnerWorkloadScore != null
                     ? Math.max(0, recommendedOwnerWorkloadScore)
-                    : "Workload data not available for comparison"}
+                    : "—"}
                 </p>
                 <p>Workload comparison: {workloadComparisonLabel}</p>
                 <p>Action state: {actionState}</p>
@@ -1777,7 +1819,7 @@ export default function TicketRoutingInsight({
               </div>
             ) : (
               <p className="text-sm text-slate-700 dark:text-slate-200">
-                No clear owner could be confidently determined for this ticket.
+                {noRuleGuidanceCopy}
               </p>
             )}
 
@@ -1805,7 +1847,7 @@ export default function TicketRoutingInsight({
           {/* C. Decision reasoning */}
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Decision Factors
+              Routing rule signals matched
             </p>
             {displayedFactorLines.length > 0 ? (
               <>
@@ -1835,7 +1877,7 @@ export default function TicketRoutingInsight({
 
           <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Selected because
+              Selected because (expanded)
             </p>
             {selectedBecauseLines.length > 0 ? (
               <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-200">
@@ -1843,9 +1885,13 @@ export default function TicketRoutingInsight({
                   <li key={`${index}-${line}`}>{line}</li>
                 ))}
               </ul>
+            ) : isLightweightNoRec ? (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                {noRuleGuidanceCopy}
+              </p>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                No better eligible alternative was identified based on current workload and routing signals.
+                Current ticket context and workload checks support this recommendation.
               </p>
             )}
           </div>
@@ -1854,49 +1900,90 @@ export default function TicketRoutingInsight({
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Alternatives considered
             </p>
+            {alternativesNarrative ? (
+              <p className="text-sm text-slate-700 dark:text-slate-200">
+                {alternativesNarrative}
+              </p>
+            ) : isLightweightNoRec ? (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                {noRuleGuidanceCopy}
+              </p>
+            ) : (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Only one eligible owner was surfaced for this request.
+              </p>
+            )}
             {alternativesConsidered.length > 0 ? (
-              <ul className="space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
-                {alternativesConsidered.map((entry, index) => (
-                  <li key={`${entry.slotLabel}-${entry.ownerLabel}-${index}`}>
-                    <span className="font-medium">{entry.ownerLabel}</span>
-                    <span className="text-slate-500 dark:text-slate-400">
-                      {" "}
-                      ({entry.slotLabel}) - Not selected because {entry.reason}
+              <ul className="mt-2 list-none space-y-2 pl-0 text-sm">
+                {alternativesConsidered.map((alt, idx) => (
+                  <li
+                    key={`alt-${idx}-${alt.slotLabel}-${alt.ownerLabel}`}
+                    className="flex flex-wrap items-baseline gap-x-2 rounded-md border border-slate-100 bg-white/80 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-950/40"
+                  >
+                    <span className="font-medium text-slate-900 dark:text-slate-50">
+                      {alt.ownerLabel}
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      ({alt.slotLabel})
+                    </span>
+                    <span className="w-full pt-1 text-xs text-slate-600 dark:text-slate-400 sm:w-auto sm:pt-0">
+                      {humanizeAlternativeReason(alt.reason)}
                     </span>
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                No better eligible alternatives were identified based on current workload and routing signals.
-              </p>
-            )}
+            ) : null}
           </div>
 
-          {confidencePresentation ? (
-            <div className="border-t border-slate-100 pt-3 dark:border-slate-800/80">
-              {confidencePresentation.kind === "soft" ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {confidencePresentation.text}
-                </p>
-              ) : (
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Confidence
-                  </span>
-                  <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                    {(confidenceLabel ?? confidencePresentation.text).replaceAll(
-                      " - ",
-                      " — ",
+          {cortexDecision &&
+          hasLearningImpactTransparency(cortexDecision) ? (
+            <div className="rounded-lg border border-sky-200/70 bg-sky-50/60 px-3 py-3 dark:border-sky-900/50 dark:bg-sky-950/25">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-300">
+                Learning impact
+              </p>
+              <p className="mt-1 text-[11px] leading-snug text-slate-600 dark:text-slate-400">
+                {summarizeLearningConfidenceLine(cortexDecision)}
+              </p>
+              {(cortexDecision.learningAdjustments ?? []).length > 0 ? (
+                <div className="mt-2">
+                  <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    Signals considered
+                  </p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[13px] leading-snug text-slate-700 dark:text-slate-200">
+                    {(cortexDecision.learningAdjustments ?? []).map(
+                      (adjustment, index) => (
+                        <li key={`lrn-${adjustment.targetType}-${index}`}>
+                          {adjustment.reason?.trim()
+                            ? adjustment.reason.trim()
+                            : `${humanizeLearningTargetType(
+                                adjustment.targetType,
+                              )} influenced confidence.`}
+                        </li>
+                      ),
                     )}
-                  </span>
+                  </ul>
                 </div>
-              )}
+              ) : null}
+              <p className="mt-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                Learning supports reviewer judgment about confidence; routing rules still determine the recommended owners.
+              </p>
             </div>
           ) : null}
 
-          {/* D. Override + technical */}
-          {override ? (
+          <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/50">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Advisor confidence
+            </p>
+            <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+              Reflects advisory similarity scoring only; routing rules compute the deterministic assignment separately.
+            </p>
+            <p className="text-sm text-slate-700 dark:text-slate-200">
+              {confidenceNarrative}
+            </p>
+          </div>
+
+          {/* D. Override */}
+          {hasManualOverride && override ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/60">
               <p className="font-semibold text-slate-800 dark:text-slate-100">
                 ⚠️ Manual Override Detected
@@ -1916,50 +2003,6 @@ export default function TicketRoutingInsight({
             </div>
           ) : null}
 
-          <div>
-            <button
-              type="button"
-              onClick={() => setTechExpanded((open) => !open)}
-              aria-expanded={techExpanded ? "true" : "false"}
-              aria-controls="cortex-decision-technical-details"
-              className="text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline dark:text-slate-400 dark:hover:text-slate-200"
-            >
-              {techExpanded ? "Hide technical details" : "Show technical details"}
-            </button>
-            <div
-              id="cortex-decision-technical-details"
-              className="mt-2 rounded-md border border-dashed border-slate-200/90 bg-slate-50/50 p-3 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400"
-              hidden={!techExpanded}
-            >
-              {techExpanded ? (
-                <>
-                  {decision.explanationText ? (
-                    <p className="mb-2 text-slate-600 dark:text-slate-300">
-                      {decision.explanationText}
-                    </p>
-                  ) : null}
-                  {decision.matchedRuleId != null ? (
-                    <p className="mb-1">
-                      Matched decision rule for Board{" "}
-                      {formatDisplayValue(ticket.boardName)}
-                    </p>
-                  ) : null}
-                  {explanation?.candidateCount != null ? (
-                    <p className="mb-1">
-                      Candidate decision rules evaluated: {explanation.candidateCount}
-                    </p>
-                  ) : null}
-                  <p>
-                    Recommendation recorded{" "}
-                    {new Date(decision.createdDateUtc).toLocaleString(undefined, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </p>
-                </>
-              ) : null}
-            </div>
-          </div>
                 </div>
               ) : null}
             </div>

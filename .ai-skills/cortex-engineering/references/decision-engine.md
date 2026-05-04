@@ -1,170 +1,68 @@
-# Decision Engine (How Cortex Thinks)
+# Decision Engine Reference
 
-## Purpose
+## 1. Purpose
 
-The Decision Engine defines how Cortex makes decisions end-to-end.
+The Decision Engine chooses the best owner for each ticket using deterministic policy-first logic augmented by advisory AI context. It exists to keep assignment outcomes consistent, explainable, and operationally balanced. In Cortex tier context, it is a core cross-tier engine that supports deterministic routing today and controlled evolution later.
 
-It unifies:
+## 2. How It Works (High Level)
 
-- AI Intake
-- Routing
-- Workload Evaluation
-- Rebalance
-- Execution
+Inputs include normalized ticket attributes, rule eligibility/match data, current owner workload, and bounded learning adjustments. The engine outputs a selected owner, ranked alternatives, and explicit decision reasons with confidence context. Core logic applies a deterministic order (rules -> eligibility -> workload -> approved learning adjustment), then uses AI only to enrich explanation or highlight ambiguity. It depends on routing rules, eligibility checks, workload metrics, and override history.
 
----
+## 3. Signals / Inputs
 
-## Core Principle
+- Ticket signals: priority, board/department scope, SLA posture, ticket attributes used by rules.
+- User signals: explicit overrides, historical manual correction patterns, assignee availability indicators.
+- System signals: rule match strength, candidate pool size, eligibility flags, workload distribution, tie-break metadata.
+- AI signals: advisory tie-context explanations and weak-signal ambiguity notes.
 
-Cortex is a **deterministic decision system with AI augmentation**
+## 4. Output / Behavior
 
-Rules > Workload > AI
+The engine produces one selected owner, alternatives, confidence context, and transparent rationale. Outputs are presented as deterministic reasoning first, with AI commentary clearly marked as supporting context. The result influences assignment, rebalance consideration, and audit trace quality.
 
----
+## 5. Constraints (NON-NEGOTIABLE)
 
-## Decision Pipeline
+- Deterministic first: rules and eligibility always lead.
+- Must remain explainable and auditable.
+- Must not allow AI to directly pick owners.
+- Must not bypass routing rules, approvals, or policy constraints.
+- Must not mutate unrelated fields as a side effect of owner selection.
+- Must not expose sensitive internal data.
+- If a system already exists, extend it - do not recreate it.
 
-### 1. Intake
+## 6. UX Language Rules
 
-Input:
-- raw ticket data
+Use:
+- "Cortex selected this owner based on routing rules and current workload."
+- "Based on current signals, this was the strongest eligible match."
 
-Output:
-- structured ticket
+Avoid:
+- "The model chose this owner."
+- "AI overrode routing."
 
----
+## 7. Tier Alignment
 
-### 2. AI Analysis (Advisory Only)
+Belongs to core deterministic decisioning across tiers with AI augmentation bounded to advisory roles. It must not overlap with Tier 11 autonomous intervention behavior or Tier 12 orchestration authority. Tier expansion must preserve deterministic precedence.
 
-Generates:
-- summary
-- suggested priority
-- missing details
-- risk signal
+## 8. Extension Guidelines (CRITICAL)
 
-Rules:
-- must use system vocabulary
-- must NOT mutate system fields
+- Safe extensions: new deterministic signals, refined tie-breakers, calibrated learning adjustments, improved reasoning text.
+- Extend existing routing and workload services instead of creating alternate decision paths.
+- Add new signals behind observable, testable adapters.
+- Must not introduce opaque scoring that hides decision lineage.
+- Must not promote AI from advisory to authority without explicit spec and governance approval.
 
----
+## 9. Common Failure Modes
 
-### 3. Routing (Deterministic)
+- No candidate pool after eligibility filtering.
+- Conflicting rules with unclear precedence handling.
+- Over-reliance on AI commentary when deterministic signals are weak.
+- Silent drift from workload weighting changes without audit coverage.
+- Override feedback loops that unintentionally bias future decisions.
 
-Uses:
-- rules
-- eligibility
-- workload scoring
+## 10. Example Scenario
 
-Outputs:
-- selected owner
-- alternatives
-- reasoning
+Sample input: ticket matches two routing rules, both candidates are eligible, Owner A has significantly lower active high-priority load, and learning adjustment slightly favors Owner B based on prior overrides.
 
----
+Expected output: select Owner A with alternatives listing Owner B; rationale prioritizes stronger deterministic workload balance despite minor learning signal.
 
-### 4. Evaluation Layer
-
-Combines:
-
-- rule match strength
-- workload impact
-- SLA risk
-- optional AI signals (advisory)
-
-Produces:
-- decision confidence
-- impact assessment
-
----
-
-### 5. Rebalance Engine
-
-Evaluates system-wide state:
-
-- identifies imbalance
-- proposes improvements
-- validates candidates
-
----
-
-### 6. Execution
-
-Applies:
-
-- explicit routing decisions
-- explicit rebalance actions
-- explicit user overrides
-
----
-
-## Signal Weighting
-
-Priority:
-
-1. Rule match
-2. Eligibility
-3. Workload balance
-4. SLA risk
-5. AI signals (supporting only)
-
----
-
-## Confidence Scoring
-
-Confidence reflects:
-
-- strength of rule match
-- difference between candidates
-- workload clarity
-
----
-
-### Example
-
-High:
-- clear rule match + better workload
-
-Low:
-- weak rule + similar candidates
-
----
-
-## Override Behavior
-
-If user overrides:
-
-- persist override
-- mark decision as overridden
-- retain original recommendation
-
----
-
-## Explainability Structure
-
-Every decision must include:
-
-- selected owner
-- why selected
-- alternatives
-- why alternatives rejected
-- confidence
-- impact
-
----
-
-## Anti-Patterns
-
-- ❌ AI selecting owners
-- ❌ hidden decision logic
-- ❌ recomputing silently
-- ❌ non-deterministic outcomes
-
----
-
-## Golden Rule
-
-A human must be able to answer:
-
-"Why did this happen?"
-
-within 5 seconds.
+Reasoning: rule and eligibility narrow candidates, workload differential decides, learning adjustment remains bounded and non-authoritative.

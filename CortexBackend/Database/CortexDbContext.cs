@@ -43,6 +43,16 @@ public class CortexDbContext : DbContext
     public DbSet<CortexSystemRecommendationState> CortexSystemRecommendationStates => Set<CortexSystemRecommendationState>();
     public DbSet<CortexAutonomyDecision> CortexAutonomyDecisions => Set<CortexAutonomyDecision>();
     public DbSet<CortexAutonomyConfiguration> CortexAutonomyConfigurations => Set<CortexAutonomyConfiguration>();
+    public DbSet<IntegrationConnection> IntegrationConnections => Set<IntegrationConnection>();
+    public DbSet<ExternalWorkSource> ExternalWorkSources => Set<ExternalWorkSource>();
+    public DbSet<ExternalBoardMapping> ExternalBoardMappings => Set<ExternalBoardMapping>();
+    public DbSet<ExternalFieldMapping> ExternalFieldMappings => Set<ExternalFieldMapping>();
+    public DbSet<ExternalWorkItem> ExternalWorkItems => Set<ExternalWorkItem>();
+    public DbSet<IntegrationActivityLog> IntegrationActivityLogs => Set<IntegrationActivityLog>();
+    public DbSet<SapReferenceSource> SapReferenceSources => Set<SapReferenceSource>();
+    public DbSet<SapTableMetadata> SapTables => Set<SapTableMetadata>();
+    public DbSet<SapFieldMetadata> SapFields => Set<SapFieldMetadata>();
+    public DbSet<SapDomainValueMetadata> SapDomainValues => Set<SapDomainValueMetadata>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -976,6 +986,258 @@ public class CortexDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(d => d.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<IntegrationConnection>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Provider)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(c => c.DisplayName)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(c => c.TenantId).HasMaxLength(200);
+            entity.Property(c => c.OrganizationId).HasMaxLength(200);
+            entity.Property(c => c.AuthMode)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(c => c.SyncMode)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(c => c.LastSyncStatus).HasMaxLength(50);
+            entity.Property(c => c.LastSyncMessage).HasMaxLength(2000);
+            entity.Property(c => c.CreatedAtUtc).IsRequired();
+            entity.HasIndex(c => c.Provider);
+            entity.HasMany(c => c.ExternalWorkSources)
+                .WithOne(s => s.IntegrationConnection)
+                .HasForeignKey(s => s.IntegrationConnectionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExternalWorkSource>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.Provider)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(s => s.SourceType)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(s => s.ExternalSourceId)
+                .IsRequired()
+                .HasMaxLength(450);
+            entity.Property(s => s.Name)
+                .IsRequired()
+                .HasMaxLength(500);
+            entity.Property(s => s.ExternalUrl).HasMaxLength(2000);
+            entity.Property(s => s.CreatedAtUtc).IsRequired();
+            entity.HasIndex(s => s.IntegrationConnectionId);
+            entity.HasIndex(s => new { s.IntegrationConnectionId, s.ExternalSourceId })
+                .IsUnique();
+            entity.HasMany(s => s.BoardMappings)
+                .WithOne(m => m.ExternalWorkSource)
+                .HasForeignKey(m => m.ExternalWorkSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(s => s.FieldMappings)
+                .WithOne(m => m.ExternalWorkSource)
+                .HasForeignKey(m => m.ExternalWorkSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(s => s.WorkItems)
+                .WithOne(i => i.ExternalWorkSource)
+                .HasForeignKey(i => i.ExternalWorkSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExternalBoardMapping>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.MappingMode)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(m => m.CreatedAtUtc).IsRequired();
+            entity.HasOne(m => m.Board)
+                .WithMany()
+                .HasForeignKey(m => m.BoardId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ExternalFieldMapping>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.ExternalFieldName)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(m => m.ExternalFieldKey).HasMaxLength(200);
+            entity.Property(m => m.CortexField)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(m => m.TransformHint).HasMaxLength(500);
+            entity.Property(m => m.CreatedAtUtc).IsRequired();
+        });
+
+        modelBuilder.Entity<ExternalWorkItem>(entity =>
+        {
+            entity.HasKey(i => i.Id);
+            entity.Property(i => i.Provider)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(i => i.ExternalItemId)
+                .IsRequired()
+                .HasMaxLength(450);
+            entity.Property(i => i.ExternalUrl).HasMaxLength(2000);
+            entity.Property(i => i.Title)
+                .IsRequired()
+                .HasMaxLength(500);
+            entity.Property(i => i.Status).HasMaxLength(200);
+            entity.Property(i => i.Priority).HasMaxLength(100);
+            entity.Property(i => i.Requester).HasMaxLength(500);
+            entity.Property(i => i.AssignedTo).HasMaxLength(500);
+            entity.Property(i => i.Department).HasMaxLength(200);
+            entity.Property(i => i.Category).HasMaxLength(200);
+            entity.Property(i => i.RawJson)
+                .IsRequired();
+            entity.Property(i => i.SyncHash).HasMaxLength(64);
+            entity.Property(i => i.CortexTicketId).HasMaxLength(450);
+            entity.Property(i => i.LastSeenUtc).IsRequired();
+            entity.Property(i => i.CreatedAtUtc).IsRequired();
+            entity.HasIndex(i => new { i.ExternalWorkSourceId, i.ExternalItemId })
+                .IsUnique();
+            entity.HasIndex(i => i.CortexTicketId);
+            entity.HasIndex(i => i.LastSeenUtc);
+            entity.HasIndex(i => i.IsDeleted);
+            entity.HasOne(i => i.CortexTicket)
+                .WithMany()
+                .HasForeignKey(i => i.CortexTicketId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<IntegrationActivityLog>(entity =>
+        {
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.ActivityType)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(a => a.Status)
+                .HasConversion<string>()
+                .HasMaxLength(16)
+                .IsRequired();
+            entity.Property(a => a.TriggeredByDisplayName).HasMaxLength(200);
+            entity.Property(a => a.TriggeredByEmail).HasMaxLength(200);
+            entity.Property(a => a.StartedAtUtc).IsRequired();
+            entity.Property(a => a.CompletedAtUtc).IsRequired();
+            entity.Property(a => a.Message).HasMaxLength(2000);
+            entity.Property(a => a.ErrorMessage).HasMaxLength(2000);
+            entity.Property(a => a.MetadataJson).HasMaxLength(2000);
+            entity.HasIndex(a => new { a.ExternalWorkSourceId, a.StartedAtUtc });
+            entity.HasOne(a => a.ExternalWorkSource)
+                .WithMany()
+                .HasForeignKey(a => a.ExternalWorkSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(a => a.IntegrationConnection)
+                .WithMany()
+                .HasForeignKey(a => a.IntegrationConnectionId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<SapReferenceSource>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.Name)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(s => s.Description).HasMaxLength(2000);
+            entity.Property(s => s.SourceType)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(s => s.SystemLabel).HasMaxLength(120);
+            entity.Property(s => s.Client).HasMaxLength(12);
+            entity.Property(s => s.Environment).HasMaxLength(80);
+            entity.Property(s => s.CreatedAtUtc).IsRequired();
+            entity.HasIndex(s => s.Name);
+            entity.HasMany(s => s.Tables)
+                .WithOne(t => t.SapReferenceSource)
+                .HasForeignKey(t => t.SapReferenceSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(s => s.DomainValues)
+                .WithOne(d => d.SapReferenceSource)
+                .HasForeignKey(d => d.SapReferenceSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SapTableMetadata>(entity =>
+        {
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.TableName)
+                .IsRequired()
+                .HasMaxLength(30);
+            entity.Property(t => t.Description).HasMaxLength(2000);
+            entity.Property(t => t.Module).HasMaxLength(20);
+            entity.Property(t => t.BusinessObject).HasMaxLength(120);
+            entity.Property(t => t.DataDomain).HasMaxLength(120);
+            entity.Property(t => t.Notes).HasMaxLength(4000);
+            entity.Property(t => t.CreatedAtUtc).IsRequired();
+            entity.HasIndex(t => t.SapReferenceSourceId);
+            entity.HasIndex(t => t.TableName);
+            entity.HasIndex(t => t.Module);
+            entity.HasIndex(t => t.BusinessObject);
+            entity.HasIndex(t => t.IsCustom);
+            entity.HasIndex(t => new { t.SapReferenceSourceId, t.TableName })
+                .IsUnique();
+            entity.HasMany(t => t.Fields)
+                .WithOne(f => f.SapTableMetadata)
+                .HasForeignKey(f => f.SapTableMetadataId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SapFieldMetadata>(entity =>
+        {
+            entity.HasKey(f => f.Id);
+            entity.Property(f => f.FieldName)
+                .IsRequired()
+                .HasMaxLength(30);
+            entity.Property(f => f.Description).HasMaxLength(2000);
+            entity.Property(f => f.DataElement).HasMaxLength(30);
+            entity.Property(f => f.DomainName).HasMaxLength(30);
+            entity.Property(f => f.DataType).HasMaxLength(40);
+            entity.Property(f => f.BusinessMeaning).HasMaxLength(2000);
+            entity.Property(f => f.ExampleValue).HasMaxLength(500);
+            entity.Property(f => f.Notes).HasMaxLength(4000);
+            entity.Property(f => f.CreatedAtUtc).IsRequired();
+            entity.HasIndex(f => f.SapTableMetadataId);
+            entity.HasIndex(f => f.FieldName);
+            entity.HasIndex(f => f.DataElement);
+            entity.HasIndex(f => f.DomainName);
+            entity.HasIndex(f => f.IsCustom);
+            entity.HasIndex(f => new { f.SapTableMetadataId, f.FieldName })
+                .IsUnique();
+        });
+
+        modelBuilder.Entity<SapDomainValueMetadata>(entity =>
+        {
+            entity.HasKey(d => d.Id);
+            entity.Property(d => d.DomainName)
+                .IsRequired()
+                .HasMaxLength(30);
+            entity.Property(d => d.Value)
+                .IsRequired()
+                .HasMaxLength(60);
+            entity.Property(d => d.Description).HasMaxLength(2000);
+            entity.Property(d => d.Notes).HasMaxLength(2000);
+            entity.Property(d => d.CreatedAtUtc).IsRequired();
+            entity.HasIndex(d => d.SapReferenceSourceId);
+            entity.HasIndex(d => new { d.SapReferenceSourceId, d.DomainName, d.Value })
+                .IsUnique();
         });
     }
 }

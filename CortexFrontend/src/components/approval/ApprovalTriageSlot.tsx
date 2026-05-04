@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import {
   type ScreenshotInsightPersisted,
   screenshotInsightPersistedHasContent,
@@ -9,7 +8,6 @@ import {
 } from "../../utils/approvalTriage";
 import { filterScreenshotInsightNoise } from "../../utils/screenshotInsightDisplay";
 import { getTriageClarityIndicator } from "../../utils/triageClarity";
-import { ScrollableViewport } from "../ui/ScrollableViewport";
 
 function priorityBadgeClass(priorityRaw: string): string {
   const p = priorityRaw.trim().toLowerCase();
@@ -439,7 +437,6 @@ export function ApprovalTriageModalColumn({
   regenerateLoading?: boolean;
   applyControls?: ApprovalTriageApplyControls;
 }) {
-  const triageScrollRef = useRef<HTMLDivElement | null>(null);
   const canRegenerate =
     Boolean(onRegenerateAnalysis) &&
     (canRegenerateAnalysis ?? Boolean(onRegenerateAnalysis));
@@ -448,11 +445,10 @@ export function ApprovalTriageModalColumn({
 
   return (
     <aside
-      className="flex min-h-0 min-w-0 flex-col border-t border-gray-200 pt-4 dark:border-slate-800 xl:min-h-0 xl:flex-1 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0"
+      className="flex min-h-0 min-w-0 flex-col"
       aria-label="Intake insight"
     >
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/45">
-        <div className="shrink-0 border-b border-gray-100 px-3 py-2.5 dark:border-slate-800">
+      <div className="shrink-0 border-b border-gray-200 px-4 py-3 dark:border-slate-800">
           <div className="flex justify-end">
             <button
               type="button"
@@ -473,28 +469,23 @@ export function ApprovalTriageModalColumn({
             </p>
           ) : null}
         </div>
-        <ScrollableViewport
-          viewportRef={triageScrollRef}
-          outerClassName="flex-1"
-          viewportClassName="h-full overflow-y-auto px-3 py-3 sm:px-4 sm:py-4"
-          affordanceAriaLabel="Scroll intake insight to bottom"
-        >
-            <ApprovalTriagePanel
-              triage={ticket.approvalTriagePreview}
-              presentation="modalColumn"
-              ticketTitle={ticket.title}
-              ticketDescription={ticket.description}
-            />
-            {screenshotInsightPersistedHasContent(ticket.screenshotInsight) ? (
-              <div className="mt-6 border-t border-gray-200/90 pt-6 dark:border-slate-700/90">
-                <ScreenshotInsightTriagePanel
-                  insight={ticket.screenshotInsight!}
-                />
-              </div>
-            ) : null}
-        </ScrollableViewport>
+        <div className="px-4 py-4">
+          <ApprovalTriagePanel
+            triage={ticket.approvalTriagePreview}
+            presentation="modalColumn"
+            ticketTitle={ticket.title}
+            ticketDescription={ticket.description}
+          />
+          {screenshotInsightPersistedHasContent(ticket.screenshotInsight) ? (
+            <div className="mt-6 border-t border-gray-200/90 pt-6 dark:border-slate-700/90">
+              <ScreenshotInsightTriagePanel
+                insight={ticket.screenshotInsight!}
+              />
+            </div>
+          ) : null}
+        </div>
         {applyControls ? (
-          <div className="shrink-0 border-t border-gray-100 px-3 py-3 dark:border-slate-800 sm:px-4">
+          <div className="shrink-0 border-t border-gray-200 px-4 py-3 dark:border-slate-800">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
               Apply Suggestions
             </p>
@@ -545,7 +536,6 @@ export function ApprovalTriageModalColumn({
             </div>
           </div>
         ) : null}
-      </div>
     </aside>
   );
 }

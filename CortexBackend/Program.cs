@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.SignalR;
 using Microsoft.AspNetCore.RateLimiting;
 using Cortex.API.Services;
+using Cortex.API.Services.Integrations;
 using Cortex.API.Configuration;
 using Cortex.API.Authorization;
 using Cortex.API.Hubs;
@@ -54,6 +55,14 @@ builder.Services.AddHealthChecks()
     .AddDbContextCheck<CortexDbContext>(tags: ["ready"]);
 
 builder.Services.Configure<Auth0ManagementOptions>(builder.Configuration.GetSection("Auth0"));
+builder.Services.Configure<SharePointGraphOptions>(builder.Configuration.GetSection("SharePointGraph"));
+builder.Services.AddHttpClient(
+    "SharePointGraph",
+    client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(2);
+    });
+builder.Services.AddScoped<ISharePointGraphClient, SharePointGraphClient>();
 
 
 // Add services
@@ -92,6 +101,13 @@ builder.Services.AddHttpClient<IAuth0UserRoleSyncService, Auth0UserRoleSyncServi
         }
     });
 builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
+builder.Services.AddScoped<IIntegrationActivityService, IntegrationActivityService>();
+builder.Services.AddScoped<IExternalIntegrationService, ExternalIntegrationService>();
+builder.Services.AddScoped<ISapReferenceService, SapReferenceService>();
+builder.Services.AddScoped<ISapTicketReferenceDetectionService, SapTicketReferenceDetectionService>();
+builder.Services.AddScoped<ITicketCreationApplicationService, TicketCreationApplicationService>();
+builder.Services.AddScoped<SharePointExternalWorkSourceAdapter>();
+builder.Services.AddScoped<IExternalWorkSourceAdapter>(sp => sp.GetRequiredService<SharePointExternalWorkSourceAdapter>());
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketAttachmentRepository, TicketAttachmentRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -125,6 +141,8 @@ builder.Services.AddScoped<IReportDefinitionService, ReportDefinitionService>();
 builder.Services.AddScoped<IStoredProcedureDefinitionService, StoredProcedureDefinitionService>();
 builder.Services.AddScoped<ITicketStatusService, TicketStatusService>();
 builder.Services.AddScoped<ITicketRoutingRuleService, TicketRoutingRuleService>();
+builder.Services.AddScoped<IRoutingRuleHealthService, RoutingRuleHealthService>();
+builder.Services.AddScoped<IIntakeLearningService, IntakeLearningService>();
 builder.Services.AddScoped<ITicketBoardService, TicketBoardService>();
 builder.Services.AddScoped<IScheduledJobService, ScheduledJobService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
@@ -155,6 +173,7 @@ builder.Services.AddScoped<IDecisionImpactService, DecisionImpactService>();
 builder.Services.Configure<CortexAutonomyOptions>(builder.Configuration.GetSection(CortexAutonomyOptions.SectionName));
 builder.Services.AddScoped<ICortexAutonomySettingsService, CortexAutonomySettingsService>();
 builder.Services.AddScoped<ICortexAutonomyService, CortexAutonomyService>();
+builder.Services.AddScoped<ICortexSlaRiskService, CortexSlaRiskService>();
 builder.Services.AddScoped<IRebalanceOverviewService, RebalanceOverviewService>();
 builder.Services.AddScoped<ITicketAuditService, TicketAuditService>();
 builder.Services.AddScoped<IDatabaseProgrammabilityService, DatabaseProgrammabilityService>();
@@ -469,6 +488,8 @@ app.MapStoredProcedureDefinitionEndpoints();
 app.MapTicketStatusEndpoints();
 app.MapTicketRoutingRuleEndpoints();
 app.MapTicketBoardEndpoints();
+app.MapIntegrationEndpoints();
+app.MapSapReferenceEndpoints();
 app.MapScheduledJobEndpoints();
 app.MapNotificationEndpoints();
 app.MapSystemEndpoints();
@@ -497,6 +518,18 @@ using (var scope = app.Services.CreateScope())
             operation: "EF Core Migrate");
 
         throw; // CRITICAL: fail fast if schema is wrong
+    }
+
+    if (app.Environment.IsDevelopment())
+    {
+        try
+        {
+            await Cortex.API.Infrastructure.SapReferenceDevCatalogSeed.EnsureAsync(db);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "SAP reference dev catalog seed skipped or failed.");
+        }
     }
 }
 

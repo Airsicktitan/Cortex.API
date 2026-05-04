@@ -1,4 +1,5 @@
 using Cortex.API.Authorization;
+using Cortex.API.DTO;
 using Cortex.API.Handlers;
 using Cortex.API.Services;
 
@@ -63,5 +64,9 @@ public static class ReportDefinitionEndpoints
             .WithName("ExportReport")
             .Produces(StatusCodes.Status200OK, contentType: "text/csv")
             .Produces(StatusCodes.Status400BadRequest);
+
+        reports.MapGet("/intake-learning", IntakeLearningHandlers.GetIntakeLearningOverview)
+            .WithName("GetIntakeLearningOverview")
+            .Produces<IntakeLearningOverviewDto>(StatusCodes.Status200OK);
     }
 }

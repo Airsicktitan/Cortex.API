@@ -43,6 +43,16 @@ public static class TicketEndpoints
             .Produces<TicketResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        tickets.MapGet("/{id}/external-source-context", TicketHandlers.GetTicketExternalSourceContext)
+            .WithName("GetTicketExternalSourceContext")
+            .Produces<TicketExternalSourceContextItemDto[]>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
+        tickets.MapGet("/{id}/sap-reference-context", TicketHandlers.GetTicketSapReferenceContext)
+            .WithName("GetTicketSapReferenceContext")
+            .Produces<SapTicketReferenceContextDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         tickets.MapPost("/{id}/triage", TicketHandlers.GenerateTicketTriage)
             .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
             .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
@@ -112,6 +122,17 @@ public static class TicketEndpoints
             .Produces<CortexInsightDto>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status429TooManyRequests);
+
+        tickets.MapGet("/{id}/insight/cache", TicketHandlers.GetTicketCachedInsight)
+            .WithName("GetTicketCachedInsight")
+            .Produces<CortexInsightDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status404NotFound);
+
+        tickets.MapGet("/{id}/risk", TicketHandlers.GetTicketRisk)
+            .WithName("GetTicketRisk")
+            .Produces<CortexSlaRiskResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
 
         tickets.MapPost("/routing/workload-preview", TicketHandlers.PostOwnerWorkloadPreview)
             .WithName("PostOwnerWorkloadPreview")

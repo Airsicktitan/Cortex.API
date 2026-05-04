@@ -7,6 +7,8 @@ import type {
   PressureLevel,
   RebalanceCandidateResponse,
   RebalanceOverviewResponse,
+  SlaRiskLevel,
+  OperationalRiskLevel,
 } from "../types/rebalance";
 import type {
   ExecuteRebalanceResponse,
@@ -41,9 +43,9 @@ const PRESSURE_LABEL: Record<PressureLevel, string> = {
 };
 
 const MANUAL_OVERRIDE_BLOCKED_COPY =
-  "Manual override blocks move — Cortex defers to human judgment";
+  "Blocked by safety guard — manual assignment protection";
 const RECENT_MOVE_BLOCKED_COPY =
-  "Blocked to prevent churn — this ticket moved recently";
+  "Blocked by safety guard — recent-move / ping-pong protection";
 
 function resolveSuggestionStrength(suggestion: RebalanceSuggestion) {
   const explicitStrength = suggestion.recommendationStrength?.trim();
@@ -110,6 +112,122 @@ function getSuggestionTicketMeta(suggestion: RebalanceSuggestion) {
 function getOwnerDisplayName(displayName: string | undefined | null) {
   const clean = displayName?.trim();
   return clean || "Unassigned owner";
+}
+
+function describeOperationalRiskLine(
+  level: OperationalRiskLevel,
+): string | null {
+  switch (level) {
+    case "critical":
+      return "This lane shows critical operational strain—rebalancing trims visible risk concentrated on one owner.";
+    case "high":
+      return "Ownership load on this lane is high; moving work toward more capacity lowers exposure.";
+    case "moderate":
+      return "Operational risk sits between healthy and strained—balancing helps stabilize throughput.";
+    default:
+      return null;
+  }
+}
+
+function describeSlaRiskLine(level: SlaRiskLevel): string | null {
+  switch (level) {
+    case "breached":
+      return "SLA timers show breached or overdue posture for this workload slice.";
+    case "at_risk":
+      return "SLA is at-risk for this workload slice.";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Compose a short rationale using API fields already on the suggestion and (when matched) overview candidate signals.
+ */
+function buildWhyCortexSuggestsThisLines(
+  suggestion: RebalanceSuggestion,
+  candidate: RebalanceCandidateResponse | undefined,
+): string[] {
+  const sentences: string[] = [];
+
+  if (candidate) {
+    const ops = describeOperationalRiskLine(candidate.operationalRiskLevel);
+    if (ops) {
+      sentences.push(ops);
+    }
+    const sla = describeSlaRiskLine(candidate.slaRiskLevel);
+    if (sla) {
+      sentences.push(sla);
+    }
+    sentences.push(
+      `${getOwnerDisplayName(candidate.currentOwnerName)} carries ${PRESSURE_LABEL[candidate.currentOwnerPressureLevel]} with Cortex workload score ${candidate.currentOwnerWorkloadScore}.`,
+    );
+    const target = candidate.topSuggestedTarget;
+    if (target) {
+      sentences.push(
+        `${getOwnerDisplayName(target.displayName)} surfaced as lower-pressure capacity (${PRESSURE_LABEL[target.pressureLevel]}), which helps offload the overloaded lane.`,
+      );
+    }
+    const summary = candidate.potentialImpactSummary?.trim();
+    if (
+      summary &&
+      !sentences.some((existing) =>
+        existing.toLowerCase().includes(summary.slice(0, Math.min(summary.length, 24)).toLowerCase()),
+      )
+    ) {
+      sentences.push(summary);
+    }
+
+    const deduped = sentences.filter(Boolean);
+    return deduped.slice(0, 5);
+  }
+
+  const primary =
+    suggestion.selectionReason?.trim() ||
+    suggestion.reason?.trim() ||
+    "";
+
+  if (primary) {
+    sentences.push(primary);
+  }
+
+  const impact = suggestion.expectedImpact?.trim();
+  if (
+    impact &&
+    (!primary ||
+      impact.trim().toLowerCase() !== primary.trim().toLowerCase())
+  ) {
+    sentences.push(`Expected impact: ${impact}`);
+  }
+
+  const firstWhy =
+    suggestion.whyTicketBullets?.find((item) => item.trim()) ??
+    suggestion.rationale?.find((item) => item.trim());
+  if (firstWhy?.trim()) {
+    sentences.push(firstWhy.trim());
+  }
+
+  if (sentences.length === 0 && suggestion.reason?.trim()) {
+    sentences.push(suggestion.reason.trim());
+  }
+
+  return sentences.slice(0, 4);
+}
+
+function formatExecutionSkipFriendly(rawReason: string): string {
+  const lower = rawReason.trim().toLowerCase();
+  if (lower.includes("manual override")) {
+    return "Manual assignment protection vetoed automated routing.";
+  }
+  if (lower.includes("ping") || lower.includes("previous owner")) {
+    return "Recent-move churn guard blocked the transfer.";
+  }
+  if (lower.includes("eligible")) {
+    return "Suggested owner eligibility checks did not succeed.";
+  }
+  if (lower.includes("stale")) {
+    return "Ticket changed since Cortex generated suggestions—refresh workload optimization.";
+  }
+  return rawReason.trim() || "Safety checks prevented this queued move.";
 }
 
 function resolveCandidateStrength(
@@ -243,40 +361,46 @@ function resolveBlockedState(reason: string) {
     return MANUAL_OVERRIDE_BLOCKED_COPY;
   }
   if (normalized.includes("owner no longer eligible")) {
-    return "Owner no longer eligible";
+    return "Blocked by safety guard — eligibility check";
   }
   if (normalized.includes("rule conflict")) {
     return MANUAL_OVERRIDE_BLOCKED_COPY;
   }
   if (normalized.includes("missing required data")) {
-    return "Missing required data";
+    return "Blocked by safety guard — incomplete ticket inputs";
   }
   if (normalized.includes("previous owner") || normalized.includes("ping-pong")) {
     return RECENT_MOVE_BLOCKED_COPY;
   }
   if (normalized.includes("stale") || normalized.includes("changed")) {
-    return "Stale";
+    return "Blocked by safety guard — stale suggestion";
   }
-  return "Blocked";
+  return "Blocked by safety guard";
 }
 
 function resolveBlockedConstraintExplanation(blockedState: string): string {
-  if (blockedState === MANUAL_OVERRIDE_BLOCKED_COPY) {
-    return "Current ownership controls this ticket, so Cortex will not apply a different move silently.";
+  if (
+    blockedState === MANUAL_OVERRIDE_BLOCKED_COPY ||
+    blockedState.includes("manual assignment protection")
+  ) {
+    return "Manual override protection is active. Cortex will not queue reassignment silently; confirm intentionally before applying.";
   }
-  if (blockedState === "Owner no longer eligible") {
-    return "Blocked: Owner no longer eligible. Refresh workload optimization to review a new recommendation.";
+  if (blockedState.includes("eligibility")) {
+    return "The suggested destination no longer meets eligibility safeguards—refresh and review ticket fields.";
   }
-  if (blockedState === "Missing required data") {
-    return "Blocked: Missing required data. Review the ticket before applying a workload optimization move.";
+  if (
+    blockedState.includes("incomplete") ||
+    blockedState.includes("Incomplete")
+  ) {
+    return "Required ticket routing fields are incomplete; finish intake before Cortex can apply the move.";
   }
-  if (blockedState === RECENT_MOVE_BLOCKED_COPY) {
-    return "Cortex will not move this ticket back to its previous owner.";
+  if (blockedState.includes("Stale")) {
+    return "Ticket routing changed since suggestions were computed—refresh Workload Optimization to rebuild the queue.";
   }
-  if (blockedState === "Stale") {
-    return "Stale: Ticket changed since suggestion was generated. Cortex will not choose a different owner silently.";
+  if (blockedState === RECENT_MOVE_BLOCKED_COPY || blockedState.includes("ping-pong")) {
+    return "Churn safeguards prevent snapping this ticket back toward a destination it recently rotated through.";
   }
-  return "Blocked: Cortex could not safely apply this recommendation.";
+  return "Safety checks halted this recommendation so ownership is not reshuffled blindly.";
 }
 
 export default function RebalanceOverviewPanel({
@@ -296,6 +420,7 @@ export default function RebalanceOverviewPanel({
     [],
   );
   const [executionAppliedCount, setExecutionAppliedCount] = useState(0);
+  const [executionSkippedCount, setExecutionSkippedCount] = useState(0);
   const [executionEvaluatedCount, setExecutionEvaluatedCount] = useState(0);
   const [executionSkipSummary, setExecutionSkipSummary] = useState<
     Array<[string, number]>
@@ -340,7 +465,7 @@ export default function RebalanceOverviewPanel({
       setError(
         getUserFacingErrorMessage(
           caughtError,
-          "Unable to load workload optimization overview",
+          "Unable to load workload optimization guidance. Refresh and try again.",
         ),
       );
     } finally {
@@ -382,6 +507,7 @@ export default function RebalanceOverviewPanel({
     setExecutionSummary(null);
     setExecutionImpactDetails([]);
     setExecutionAppliedCount(0);
+    setExecutionSkippedCount(0);
     setExecutionEvaluatedCount(0);
     setExecutionSkipSummary([]);
     try {
@@ -393,10 +519,13 @@ export default function RebalanceOverviewPanel({
       setExecutionSummary(result.summary);
       setExecutionImpactDetails(result.impactDetails ?? []);
       setExecutionAppliedCount(result.totalApplied ?? 0);
+      setExecutionSkippedCount(result.skipped?.length ?? 0);
       setExecutionEvaluatedCount(result.totalEvaluated ?? 0);
       setExecutionSkipSummary(getSkipReasonSummary(result.skipped ?? []));
       if (result.totalApplied === 0 && result.skipped.length > 0) {
-        setExecutionSummary("No executable actions were available.");
+        setExecutionSummary(
+          "Safety guards withheld every queued move — review skipped reasons below.",
+        );
       }
       await onRebalanceApplied?.(result);
       await load();
@@ -404,7 +533,7 @@ export default function RebalanceOverviewPanel({
       setError(
         getUserFacingErrorMessage(
           caughtError,
-          "Unable to apply workload optimization actions",
+          "Unable to execute workload optimization — no ownership changes applied.",
         ),
       );
     } finally {
@@ -429,6 +558,7 @@ export default function RebalanceOverviewPanel({
       setExecutionSummary(result.summary);
       setExecutionImpactDetails(result.impactDetails ?? []);
       setExecutionAppliedCount(result.totalApplied ?? 0);
+      setExecutionSkippedCount(result.skipped?.length ?? 0);
       setExecutionEvaluatedCount(result.totalEvaluated ?? 0);
       setExecutionSkipSummary(getSkipReasonSummary(result.skipped ?? []));
       setOverrideTarget(null);
@@ -459,9 +589,13 @@ export default function RebalanceOverviewPanel({
               Workload Optimization
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-              Prioritized view of overloaded owners, recommended corrections,
-              and expected operational impact. Each move is grounded in
-              workload, risk, and routing signals.
+              Operational summary of overloaded owners, prioritized ticket hops, and
+              projected workload relief — grounded in Cortex scoring, SLA posture, and eligibility checks.
+              <span className="mt-1 block text-xs">
+                Nothing here reassigns work automatically; suggestions stay advisory until you press{" "}
+                <span className="font-semibold">Apply Optimization</span>{" "}
+                or open a ticket to complete the existing review workflow.
+              </span>
             </p>
           </div>
 
@@ -487,10 +621,10 @@ export default function RebalanceOverviewPanel({
           </div>
         </div>
         {blockedSuggestionCount > 0 ? (
-          <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
-            {blockedSuggestionCount} item
-            {blockedSuggestionCount === 1 ? " requires" : "s require"} review
-            and will not be included in bulk apply.
+          <p className="mt-3 text-xs text-amber-800 dark:text-amber-200">
+            {blockedSuggestionCount} recommendation
+            {blockedSuggestionCount === 1 ? " is blocked" : "s are blocked"} by safety guards and will{" "}
+            <span className="font-semibold">not</span> bulk-apply resolve each item individually.
           </p>
         ) : null}
         </section>
@@ -498,36 +632,84 @@ export default function RebalanceOverviewPanel({
         <CortexSystemInsights getApiToken={getApiToken} />
 
         {executionSummary && (
-          <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-            <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
-              Workload Optimization Result
+          <section className={`rounded-lg border p-4 ${
+            executionAppliedCount === 0 && executionSkippedCount > 0
+              ? "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/25"
+              : "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+          }`}
+          >
+            <p
+              className={`text-sm font-semibold ${
+                executionAppliedCount === 0 && executionSkippedCount > 0
+                  ? "text-amber-900 dark:text-amber-100"
+                  : "text-emerald-800 dark:text-emerald-200"
+              }`}
+            >
+              {executionAppliedCount > 0
+                ? "Moves applied safely"
+                : executionSkippedCount > 0 && executionAppliedCount === 0
+                  ? "No ownership transfers applied automatically"
+                  : "Workload optimization result"}
             </p>
-            <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
-              Applied {executionAppliedCount} of {executionEvaluatedCount} ready
-              recommendation
-              {executionEvaluatedCount === 1 ? "" : "s"}.
+            <p
+              className={`mt-1 text-sm ${
+                executionAppliedCount === 0 && executionSkippedCount > 0
+                  ? "text-amber-800 dark:text-amber-200"
+                  : "text-emerald-700 dark:text-emerald-300"
+              }`}
+            >
+              {executionAppliedCount > 0
+                ? `Cortex executed ${executionAppliedCount} queued move${executionAppliedCount === 1 ? "" : "s"} out of ${executionEvaluatedCount} evaluated readiness checks. Ownership only changes because you triggered Apply—it is never silent.`
+                : executionSkippedCount > 0
+                  ? `${executionSkippedCount} queued move${executionSkippedCount === 1 ? "" : "s"} were skipped after safety guards. No ownership changes occurred for those tickets until you remediate issues or rerun optimization.`
+                  : `Applied ${executionAppliedCount} change${executionAppliedCount === 1 ? "" : "s"} from evaluated recommendations.`}
             </p>
             {executionSkipSummary.length > 0 ? (
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-emerald-700 dark:text-emerald-300">
+              <ul
+                className={`mt-2 list-disc space-y-1 pl-4 text-xs ${
+                  executionAppliedCount === 0 && executionSkippedCount > 0
+                    ? "text-amber-800 dark:text-amber-200"
+                    : "text-emerald-700 dark:text-emerald-300"
+                }`}
+              >
                 {executionSkipSummary.map(([reason, count]) => (
                   <li key={`${reason}-${count}`}>
-                    {count} skipped - {reason}
+                    {count} move{count === 1 ? "" : "s"} skipped •{" "}
+                    {formatExecutionSkipFriendly(reason)}
                   </li>
                 ))}
               </ul>
             ) : null}
-            <p className="mt-2 text-xs text-emerald-700/90 dark:text-emerald-300/90">
+            <p
+              className={`mt-2 text-xs ${
+                executionAppliedCount === 0 && executionSkippedCount > 0
+                  ? "text-amber-800/90 dark:text-amber-200/90"
+                  : "text-emerald-700/90 dark:text-emerald-300/90"
+              }`}
+            >
               {executionSummary}
             </p>
-            <p className="mt-1 text-xs text-emerald-700/90 dark:text-emerald-300/90">
-              {`${
-                executionImpactDetails.length > 0
-                  ? executionImpactDetails.length
-                  : 0
-              } impact signals captured`}
+            <p
+              className={`mt-1 text-xs ${
+                executionAppliedCount === 0 && executionSkippedCount > 0
+                  ? "text-amber-800/90 dark:text-amber-200/90"
+                  : "text-emerald-700/90 dark:text-emerald-300/90"
+              }`}
+            >
+              Impact detail lines captured •{" "}
+              {executionImpactDetails.length > 0
+                ? executionImpactDetails.length
+                : "none"}
+              <span className="sr-only"> operational detail entries</span>
             </p>
             {executionImpactDetails.length > 0 ? (
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-emerald-700 dark:text-emerald-300">
+              <ul
+                className={`mt-2 list-disc space-y-1 pl-4 text-xs ${
+                  executionAppliedCount === 0 && executionSkippedCount > 0
+                    ? "text-amber-800 dark:text-amber-200"
+                    : "text-emerald-700 dark:text-emerald-300"
+                }`}
+              >
                 {executionImpactDetails.map((detail, idx) => (
                   <li key={`${idx}-${detail}`}>{detail}</li>
                 ))}
@@ -560,8 +742,8 @@ export default function RebalanceOverviewPanel({
         {!loading && !error && overview && !hasAnyData && (
           <section className="rounded-lg border border-gray-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900">
             <p className="text-sm text-gray-600 dark:text-slate-400">
-              No overloaded owners or workload optimization opportunities right
-              now. Check back as the queue evolves.
+              Cortex did not find overloaded owners or safe workload moves in this pass. Refresh when the ticket mix
+              changes to see updated guidance.
             </p>
           </section>
         )}
@@ -721,7 +903,7 @@ function SuggestionDetail({
       {advisory.length > 0 ? (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
-            Cortex advisory
+            Operational risk wording (optional, advisory only)
           </p>
           <ul className="mt-1 space-y-0.5">
             {advisory.map((item, i) => (
@@ -963,7 +1145,7 @@ function RebalanceCandidatesSection({
 
       {loading ? (
         <p className="mt-6 text-sm text-gray-500 dark:text-slate-400">
-          Loading recommendations...
+          Loading rebalance guidance...
         </p>
       ) : actionableSuggestions.length > 0 || blockedSuggestions.length > 0 ? (
         <div className="mt-5 space-y-6">
@@ -973,7 +1155,7 @@ function RebalanceCandidatesSection({
             </h4>
             {actionableSuggestions.length === 0 ? (
               <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
-                No safe improvements available at this time.
+                No moves are ready here yet—blocked reasons for other hops are listed below when guards apply.
               </p>
             ) : (
               <ul className="mt-3 space-y-3">
@@ -1011,6 +1193,19 @@ function RebalanceCandidatesSection({
                     suggestion.aiTradeoffSummary ?? "",
                     suggestion.aiConfidenceWording ?? "",
                   ]);
+                  const candidateProfile = candidates.find(
+                    (candidateItem) =>
+                      candidateItem.ticketId === suggestion.ticketId,
+                  );
+                  const cortexNarrative = buildWhyCortexSuggestsThisLines(
+                    suggestion,
+                    candidateProfile,
+                  );
+                  const hasRiskWording =
+                    Boolean(suggestion.aiAdvisorySummary?.trim()) ||
+                    Boolean(suggestion.aiRiskSummary?.trim()) ||
+                    Boolean(suggestion.aiTradeoffSummary?.trim()) ||
+                    Boolean(suggestion.aiConfidenceWording?.trim());
                   return (
                     <li
                       key={`${suggestion.ticketId}-${suggestion.toUserId}`}
@@ -1042,8 +1237,12 @@ function RebalanceCandidatesSection({
                               {ticketMeta}
                             </p>
                           ) : null}
-                          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                            Confidence: {Math.round((suggestion.confidenceScore ?? 0) * 100)}%
+                          <p
+                            className="mt-1 text-xs text-gray-500 dark:text-slate-400"
+                            title="How closely Cortex’s scoring aligns this queued move with surfaced owners"
+                          >
+                            Recommendation alignment •{" "}
+                            {Math.round((suggestion.confidenceScore ?? 0) * 100)}%
                           </p>
                         </div>
                         <span
@@ -1052,6 +1251,30 @@ function RebalanceCandidatesSection({
                           {strength}
                         </span>
                       </div>
+                      {cortexNarrative.length > 0 ? (
+                        <div className="mt-3 rounded-md border border-sky-200/70 bg-sky-50/70 px-3 py-2.5 dark:border-sky-900/40 dark:bg-sky-950/35">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+                            Why Cortex suggests this
+                          </p>
+                          <ul className="mt-1.5 space-y-1 text-xs leading-snug text-sky-950 dark:text-sky-50">
+                            {cortexNarrative.map((line, narrativeIndex) => (
+                              <li
+                                key={`${suggestion.ticketId}-why-${narrativeIndex}`}
+                                className="flex gap-1.5"
+                              >
+                                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
+                                <span>{line}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {hasRiskWording ? (
+                        <p className="mt-2 text-[11px] text-gray-500 dark:text-slate-400">
+                          Learning informs risk context only when shown below—it does not move tickets automatically.
+                          Rebalance execution remains user-controlled.
+                        </p>
+                      ) : null}
                       <SuggestionDetail
                         whyTicket={whyTicketItems}
                         whyOwner={whyOwnerItems}
@@ -1093,7 +1316,7 @@ function RebalanceCandidatesSection({
             </h4>
             {blockedSuggestions.length === 0 ? (
               <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
-                No blocked recommendations.
+                No suggestions are withheld by guards in this snapshot—eligible moves appear under Ready above.
               </p>
             ) : (
               <ul className="mt-3 space-y-3">
@@ -1137,6 +1360,22 @@ function RebalanceCandidatesSection({
                     suggestion.aiTradeoffSummary ?? "",
                     suggestion.aiConfidenceWording ?? "",
                   ]);
+                  const candidateProfileBlocked = candidates.find(
+                    (candidateItem) =>
+                      candidateItem.ticketId === suggestion.ticketId,
+                  );
+                  const cortexNarrativeBlocked = buildWhyCortexSuggestsThisLines(
+                    suggestion,
+                    candidateProfileBlocked,
+                  );
+                  const hasRiskWordingBlocked =
+                    Boolean(suggestion.aiAdvisorySummary?.trim()) ||
+                    Boolean(suggestion.aiRiskSummary?.trim()) ||
+                    Boolean(suggestion.aiTradeoffSummary?.trim()) ||
+                    Boolean(suggestion.aiConfidenceWording?.trim());
+                  const showBlockedManualOverrideRoute =
+                    blockedState === MANUAL_OVERRIDE_BLOCKED_COPY ||
+                    isSuggestionBlockedByManualOverride(suggestion);
                   return (
                     <li
                       key={`${suggestion.ticketId}-${suggestion.toUserId}-blocked`}
@@ -1167,10 +1406,38 @@ function RebalanceCandidatesSection({
                             {ticketMeta}
                           </p>
                         ) : null}
-                        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                          Confidence: {Math.round((suggestion.confidenceScore ?? 0) * 100)}%
+                        <p
+                          className="mt-1 text-xs text-gray-500 dark:text-slate-400"
+                          title="How closely Cortex’s scoring aligns this queued move with surfaced owners"
+                        >
+                          Recommendation alignment •{" "}
+                          {Math.round((suggestion.confidenceScore ?? 0) * 100)}%
                         </p>
                       </div>
+                      {cortexNarrativeBlocked.length > 0 ? (
+                        <div className="mt-3 rounded-md border border-sky-200/70 bg-sky-50/70 px-3 py-2.5 dark:border-sky-900/40 dark:bg-sky-950/35">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+                            Why Cortex suggests this
+                          </p>
+                          <ul className="mt-1.5 space-y-1 text-xs leading-snug text-sky-950 dark:text-sky-50">
+                            {cortexNarrativeBlocked.map((line, narrativeIndex) => (
+                              <li
+                                key={`${suggestion.ticketId}-why-blocked-${narrativeIndex}`}
+                                className="flex gap-1.5"
+                              >
+                                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
+                                <span>{line}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {hasRiskWordingBlocked ? (
+                        <p className="mt-2 text-[11px] text-gray-500 dark:text-slate-400">
+                          Learning informs risk context only when shown below—it does not move tickets automatically.
+                          Rebalance execution remains user-controlled.
+                        </p>
+                      ) : null}
                       <SuggestionDetail
                         whyTicket={whyTicketItems}
                         whyOwner={whyOwnerItems}
@@ -1182,16 +1449,21 @@ function RebalanceCandidatesSection({
                       <AlternativesSection alternatives={suggestion.alternativeOwners ?? []} />
                       <div className="mt-3 rounded border border-rose-200 bg-rose-50/50 px-3 py-2 dark:border-rose-900/30 dark:bg-rose-950/10">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex shrink-0 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
-                            {blockedState}
+                          <span className="inline-flex shrink-0 rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-rose-900 dark:bg-rose-950/35 dark:text-rose-100">
+                            Blocked by safety guard
                           </span>
+                          {blockedState.includes("—") ? (
+                            <span className="inline-flex shrink-0 rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-medium text-rose-800 dark:bg-rose-950/45 dark:text-rose-200">
+                              {blockedState.split("—").slice(1).join("—").trim()}
+                            </span>
+                          ) : null}
                           <span className="text-xs text-rose-700 dark:text-rose-300">
                             {constraintExplanation}
                           </span>
                         </div>
                       </div>
                       <div className="mt-3 flex gap-2">
-                        {blockedState === MANUAL_OVERRIDE_BLOCKED_COPY ? (
+                        {showBlockedManualOverrideRoute ? (
                           <button
                             type="button"
                             onClick={() => onOverrideAndApply(suggestion)}
@@ -1218,7 +1490,8 @@ function RebalanceCandidatesSection({
         </div>
       ) : candidates.length === 0 ? (
         <p className="mt-6 text-sm text-gray-500 dark:text-slate-400">
-          No workload optimization recommendations right now.
+          No rebalance opportunities right now — Cortex did not surface tickets with safe hops that cut workload or SLA
+          risk given current queues.
         </p>
       ) : (
         <ul className="mt-5 space-y-3">
