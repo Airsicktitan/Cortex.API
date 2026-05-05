@@ -32,6 +32,7 @@ import type {
 } from "../types/repeatIssues";
 import type { TicketExternalSourceContextItem } from "../types/integrations";
 import type { SapTicketReferenceContext } from "../types/sapTicketReference";
+import type { SynitiKnowledgeContext } from "../types/synitiKnowledgeContext";
 import type {
   CortexDecisionResult,
   RebalanceSuggestion,
@@ -44,11 +45,13 @@ import type { CortexSystemRecommendation } from "../types/cortexSystemRecommenda
 import type { CortexAiAssessment } from "../types/cortexAiAssessment";
 import type {
   AdminUpdateUserInput,
+  AdminUpdateUserResult,
   Auth0RoleOption,
   CreateUserInput,
   OnlineUser,
   SyncUsersFromAuth0Result,
   UpdateUserProfileInput,
+  UpdateUserProfileResult,
   UserAuth0RolesResponse,
   UserDirectoryEntry,
   UserProfile,
@@ -489,6 +492,25 @@ export const ticketService = {
     }
     await ensureSuccess(response, "Unable to load SAP context");
     return response.json() as Promise<SapTicketReferenceContext>;
+  },
+
+  async getSynitiKnowledgeContext(
+    id: string,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<SynitiKnowledgeContext | null> {
+    const response = await fetch(
+      `${API_BASE_URL}/tickets/${encodeURIComponent(id)}/syniti-knowledge-context`,
+      {
+        headers: authHeaders(token),
+        signal,
+      },
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    await ensureSuccess(response, "Unable to load Syniti knowledge context");
+    return response.json() as Promise<SynitiKnowledgeContext>;
   },
 
   async getInsight(
@@ -1174,7 +1196,7 @@ export const userService = {
   async updateProfile(
     profile: UpdateUserProfileInput,
     token: string,
-  ): Promise<UserProfile> {
+  ): Promise<UpdateUserProfileResult> {
     const response = await fetch(`${API_BASE_URL}/users/profile`, {
       method: "PUT",
       headers: authHeaders(token, true),
@@ -1198,7 +1220,7 @@ export const userService = {
     id: number,
     user: AdminUpdateUserInput,
     token: string,
-  ): Promise<UserRecord> {
+  ): Promise<AdminUpdateUserResult> {
     const response = await fetch(`${API_BASE_URL}/users/${id}`, {
       method: "PUT",
       headers: authHeaders(token, true),

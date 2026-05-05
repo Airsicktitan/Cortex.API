@@ -6,6 +6,7 @@ using Cortex.API.Models;
 using Cortex.API.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Cortex.API.Tests;
@@ -41,6 +42,7 @@ public class UserHandlersAccessControlTests
             userContext: UserContextReturning(developerCaller: true),
             httpContextAccessor: AuthedHttpContextAccessor(isAdmin: false, sub: "auth0|dev"),
             loggerFactory: NullLoggerFactory.Instance,
+            managementOptionsAccessor: Options.Create(new Auth0ManagementOptions()),
             cancellationToken: CancellationToken.None);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status403Forbidden);
@@ -60,6 +62,7 @@ public class UserHandlersAccessControlTests
             userContext: UserContextReturning(developerCaller: true),
             httpContextAccessor: AuthedHttpContextAccessor(isAdmin: false, sub: "auth0|dev"),
             loggerFactory: NullLoggerFactory.Instance,
+            managementOptionsAccessor: Options.Create(new Auth0ManagementOptions()),
             cancellationToken: CancellationToken.None);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status403Forbidden);
@@ -82,6 +85,7 @@ public class UserHandlersAccessControlTests
             userContext: UserContextReturningUser(self),
             httpContextAccessor: AuthedHttpContextAccessor(isAdmin: true, sub: "auth0|admin"),
             loggerFactory: NullLoggerFactory.Instance,
+            managementOptionsAccessor: Options.Create(new Auth0ManagementOptions()),
             cancellationToken: CancellationToken.None);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status200OK);
@@ -108,6 +112,7 @@ public class UserHandlersAccessControlTests
             userContext: UserContextReturningUser(self),
             httpContextAccessor: AuthedHttpContextAccessor(isAdmin: true, sub: "auth0|admin"),
             loggerFactory: NullLoggerFactory.Instance,
+            managementOptionsAccessor: Options.Create(new Auth0ManagementOptions()),
             cancellationToken: CancellationToken.None);
 
         await ResultAssertions.AssertStatusCodeAsync(result, StatusCodes.Status403Forbidden);
@@ -475,6 +480,7 @@ public class UserHandlersAccessControlTests
         Auth0Role(Auth0Roles.Admin),
         Auth0Role(Auth0Roles.Developer),
         Auth0Role(Auth0Roles.BusinessManager),
+        Auth0Role(Auth0Roles.Approver),
         Auth0Role(Auth0Roles.User),
         Auth0Role(Auth0Roles.Guest),
         Auth0Role(ReportingRole),
@@ -491,6 +497,7 @@ public class UserHandlersAccessControlTests
                 Auth0Roles.Admin => "role-admin",
                 Auth0Roles.Developer => "role-developer",
                 Auth0Roles.BusinessManager => "role-business-manager",
+                Auth0Roles.Approver => "role-approver",
                 Auth0Roles.User => "role-user",
                 Auth0Roles.Guest => "role-guest",
                 _ => $"role-{name.ToLowerInvariant().Replace(' ', '-')}",

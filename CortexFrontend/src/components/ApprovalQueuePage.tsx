@@ -5,7 +5,7 @@ import type { ThemeMode } from "../theme";
 import type { Ticket } from "../types/ticket";
 import { formatApprovalQueueLastUpdatedLabel } from "../utils/approvalQueueLastUpdated";
 import toast from "react-hot-toast";
-import { canEditTickets } from "../utils/role";
+import { canReviewApprovalQueue } from "../utils/role";
 
 const MAX_REASON = 2000;
 
@@ -58,7 +58,7 @@ export default function ApprovalQueuePage({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [relativeTimeTick, setRelativeTimeTick] = useState(0);
 
-  const canReview = canEditTickets(authRoles);
+  const canReview = canReviewApprovalQueue(authRoles);
 
   useEffect(() => {
     if (loading || lastSuccessfulRefreshAt === null) {

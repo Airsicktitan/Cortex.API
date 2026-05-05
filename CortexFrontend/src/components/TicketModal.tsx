@@ -48,6 +48,8 @@ import UserCombobox from "./UserCombobox";
 import { CortexTabbedPanel } from "./CortexTabbedPanel";
 import { ExternalSourceContextCard } from "./ExternalSourceContextCard";
 import { SapTicketReferenceContextCard } from "./SapTicketReferenceContextCard";
+import { SynitiKnowledgeContextCard } from "./SynitiKnowledgeContextCard";
+import { GovernanceContextSummaryCard } from "./GovernanceContextSummaryCard";
 import { ApprovalOutcomeMessage } from "./approval/ApprovalOutcomeMessage";
 import { ApprovalTriageModalColumn } from "./approval/ApprovalTriageSlot";
 import { CortexTooltip } from "./ui/Tooltip";
@@ -79,6 +81,7 @@ import {
   normalizeRoles,
   canCreateTickets,
   canEditTickets,
+  canReviewApprovalQueue,
 } from "../utils/role";
 import { readOnlyOwnerDetailDisplay, USER_ID_TOKEN_PREFIX } from "../utils/ownerIdentity";
 import {
@@ -88,6 +91,7 @@ import {
 import type { CortexSlaRisk } from "../types/cortexRisk";
 import type { TicketExternalSourceContextItem } from "../types/integrations";
 import type { SapTicketReferenceContext, SapTicketReferenceMatch } from "../types/sapTicketReference";
+import type { SynitiKnowledgeContext } from "../types/synitiKnowledgeContext";
 
 const API_AUDIENCE = "https://cortex-api";
 const MAX_TITLE_LENGTH = 200;
@@ -484,6 +488,13 @@ export default function TicketModal({
     useState(false);
   const [sapReferenceContextError, setSapReferenceContextError] =
     useState(false);
+  const [synitiKnowledgeContext, setSynitiKnowledgeContext] = useState<
+    SynitiKnowledgeContext | null
+  >(null);
+  const [synitiKnowledgeContextLoading, setSynitiKnowledgeContextLoading] =
+    useState(false);
+  const [synitiKnowledgeContextError, setSynitiKnowledgeContextError] =
+    useState(false);
   const authRoles = useMemo(
     () => normalizeRoles(currentUser?.roles, currentUser?.role),
     [currentUser?.roles, currentUser?.role],
@@ -513,6 +524,11 @@ export default function TicketModal({
   const isCreateMode = !ticket.id;
   const canCreateTicket = isCreateMode && canCreateTickets(authRoles);
   const approvalStatusForEdit = getTicketApprovalStatus(ticket);
+  const canReviewerEditPendingApproval =
+    Boolean(ticket.id) &&
+    approvalDisplayContext === "reviewer" &&
+    approvalStatusForEdit === "PendingApproval" &&
+    canReviewApprovalQueue(authRoles);
   const isCurrentUserCreator =
     currentUser?.id != null &&
     String(currentUser.id) === String(ticket.createdBy).trim();
@@ -523,6 +539,7 @@ export default function TicketModal({
   const canUpdateTicket =
     Boolean(ticket.id) &&
     (canEditNeedsMoreInfoAsRequester ||
+      canReviewerEditPendingApproval ||
       (canEditTickets(authRoles) && approvalStatusForEdit !== "NeedsMoreInfo"));
   const canSaveTicket = canCreateTicket || canUpdateTicket;
   const canDeleteTicket = Boolean(ticket.id) && canEditTickets(authRoles);
@@ -627,9 +644,6 @@ export default function TicketModal({
       setExternalSourceContexts([]);
       setExternalSourceContextError(false);
       setExternalSourceContextLoading(false);
-      setSapReferenceContext(null);
-      setSapReferenceContextError(false);
-      setSapReferenceContextLoading(false);
       return;
     }
 
@@ -695,6 +709,45 @@ export default function TicketModal({
       } finally {
         if (!controller.signal.aborted) {
           setSapReferenceContextLoading(false);
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [isOpen, ticket.id, getApiToken]);
+
+  useEffect(() => {
+    if (!isOpen || !ticket.id) {
+      setSynitiKnowledgeContext(null);
+      setSynitiKnowledgeContextError(false);
+      setSynitiKnowledgeContextLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSynitiKnowledgeContext(null);
+    setSynitiKnowledgeContextLoading(true);
+    setSynitiKnowledgeContextError(false);
+
+    void (async () => {
+      try {
+        const token = await getApiToken();
+        const data = await ticketService.getSynitiKnowledgeContext(
+          ticket.id,
+          token,
+          controller.signal,
+        );
+        if (!controller.signal.aborted) {
+          setSynitiKnowledgeContext(data);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setSynitiKnowledgeContext(null);
+          setSynitiKnowledgeContextError(true);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setSynitiKnowledgeContextLoading(false);
         }
       }
     })();
@@ -810,7 +863,6 @@ export default function TicketModal({
     ],
   );
 
-  const sapReferenceMatchCount = sapReferenceContext?.matches?.length ?? 0;
   const sapIntentOnlyFromApi = sapReferenceContext?.sapIntentOnly === true;
 
   /** Successful SAP context only — for Decision-tab assist; omit while loading/error. */
@@ -904,32 +956,21 @@ export default function TicketModal({
     externalSourceContextError,
   ]);
 
-  const reviewerSapContextTabSlot = useMemo(() => {
+  const reviewerSapEvidenceSlot = useMemo(() => {
     if (approvalDisplayContext !== "reviewer" || !ticket.id) {
       return null;
     }
 
-    const showSapSection =
-      sapReferenceContextLoading ||
-      sapReferenceMatchCount > 0 ||
-      sapIntentOnlyFromApi ||
-      sapReferenceContextError;
-
-    if (!showSapSection) {
-      return null;
-    }
-
     return (
-      <section className="space-y-2" aria-label="SAP reference context">
-        <SapTicketReferenceContextCard
-          context={sapReferenceContext}
-          loading={sapReferenceContextLoading}
-          loadError={sapReferenceContextError}
-          variant="embedded"
-          ticketTitle={ticket.title}
-          ticketDescription={ticket.description}
-        />
-      </section>
+      <SapTicketReferenceContextCard
+        purpose="evidence"
+        variant="embedded"
+        context={sapReferenceContext}
+        loading={sapReferenceContextLoading}
+        loadError={sapReferenceContextError}
+        ticketTitle={ticket.title}
+        ticketDescription={ticket.description}
+      />
     );
   }, [
     approvalDisplayContext,
@@ -937,8 +978,56 @@ export default function TicketModal({
     sapReferenceContext,
     sapReferenceContextLoading,
     sapReferenceContextError,
-    sapReferenceMatchCount,
-    sapIntentOnlyFromApi,
+    ticket.title,
+    ticket.description,
+  ]);
+
+  const reviewerGovernanceSummarySlot = useMemo(() => {
+    if (approvalDisplayContext !== "reviewer" || !ticket.id) {
+      return null;
+    }
+
+    const sapMatches = sapReferenceContextError
+      ? []
+      : (sapReferenceContext?.matches ?? []);
+
+    const synitiMatches = synitiKnowledgeContextError
+      ? []
+      : (synitiKnowledgeContext?.matches ?? []);
+
+    return (
+      <GovernanceContextSummaryCard
+        sapMatches={sapMatches}
+        synitiMatches={synitiMatches}
+      />
+    );
+  }, [
+    approvalDisplayContext,
+    ticket.id,
+    sapReferenceContext?.matches,
+    sapReferenceContextError,
+    synitiKnowledgeContext?.matches,
+    synitiKnowledgeContextError,
+  ]);
+
+  const reviewerSynitiEvidenceSlot = useMemo(() => {
+    if (approvalDisplayContext !== "reviewer" || !ticket.id) {
+      return null;
+    }
+
+    return (
+      <SynitiKnowledgeContextCard
+        context={synitiKnowledgeContext}
+        loading={synitiKnowledgeContextLoading}
+        loadError={synitiKnowledgeContextError}
+      />
+    );
+  }, [
+    approvalDisplayContext,
+    ticket.id,
+    synitiKnowledgeContext,
+    synitiKnowledgeContextLoading,
+    synitiKnowledgeContextError,
   ]);
 
   const sourceContextBundleSection = useMemo(
@@ -3614,7 +3703,15 @@ export default function TicketModal({
                   onRiskReady={setLatestRisk}
                   onOpenSourceTicket={onOpenSourceTicket}
                   sourceContextSlot={reviewerSourceContextTabSlot ?? undefined}
-                  sapContextSlot={reviewerSapContextTabSlot ?? undefined}
+                  governanceContextEvidenceSlot={
+                    reviewerGovernanceSummarySlot ?? undefined
+                  }
+                  sapReferenceEvidenceSlot={
+                    reviewerSapEvidenceSlot ?? undefined
+                  }
+                  synitiKnowledgeEvidenceSlot={
+                    reviewerSynitiEvidenceSlot ?? undefined
+                  }
                   sapDecisionAssistMatches={sapDecisionAssistMatches}
                   sapIntentOnly={sapIntentOnlyForAssist}
                   sapDecisionAssistTicketText={sapDecisionAssistTicketText}

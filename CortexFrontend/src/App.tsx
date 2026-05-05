@@ -57,6 +57,7 @@ import {
   canCreateTickets,
   canEditTickets,
   hasElevatedAccess,
+  canReviewApprovalQueue,
 } from "./utils/role";
 import type { AttentionFilterValue } from "./utils/ticketAttention";
 
@@ -521,6 +522,8 @@ function App() {
   const canCreateTicketsCap =
     sessionUnlocked && canCreateTickets(effectiveAuthRoles);
   const canEditTicketsCap = sessionUnlocked && canEditTickets(effectiveAuthRoles);
+  const canReviewApprovalQueueCap =
+    sessionUnlocked && canReviewApprovalQueue(effectiveAuthRoles);
   const canViewTicketSections = sessionUnlocked;
   const canViewDashboard = canViewTicketSections;
   const canViewReportsNav = sessionUnlocked && canViewReports(effectiveAuthRoles);
@@ -551,7 +554,7 @@ function App() {
     const isEnabledByView: Record<AppView, boolean> = {
       dashboard: canViewDashboard,
       tickets: canViewTicketSections,
-      approval: canEditTicketsCap,
+      approval: canReviewApprovalQueueCap,
       archived: canViewArchived,
       reports: canViewReportsNav,
       rebalance: canViewRebalanceNav,
@@ -566,7 +569,7 @@ function App() {
   }, [
     canViewDashboard,
     canViewTicketSections,
-    canEditTicketsCap,
+    canReviewApprovalQueueCap,
     canViewArchived,
     canViewReportsNav,
     canViewRebalanceNav,
@@ -581,7 +584,7 @@ function App() {
     (view: AppView) =>
       view === "dashboard" ||
       view === "tickets" ||
-      (view === "approval" && canEditTicketsCap) ||
+      (view === "approval" && canReviewApprovalQueueCap) ||
       view === "archived" ||
       (view === "reports" && canViewReportsNav) ||
       (view === "rebalance" && canViewRebalanceNav) ||
@@ -589,7 +592,7 @@ function App() {
       (view === "sla" && canManageConfiguration) ||
       (view === "users" && canViewUsers),
     [
-      canEditTicketsCap,
+      canReviewApprovalQueueCap,
       canManageConfiguration,
       canViewJobActivityNav,
       canViewReportsNav,
@@ -761,7 +764,7 @@ function App() {
     isAuthenticated,
     bootstrapComplete,
     needsConsent,
-    enabled: activeView === "approval" && canEditTicketsCap,
+    enabled: activeView === "approval" && canReviewApprovalQueueCap,
     getApiToken,
   });
 
@@ -797,7 +800,7 @@ function App() {
   const handleIntakeApprove = useCallback(
     async (ticketId?: string): Promise<Ticket | null> => {
       const targetId = ticketId ?? selectedTicket?.id;
-      if (!targetId || !canEditTicketsCap) {
+      if (!targetId || !canReviewApprovalQueueCap) {
         return null;
       }
 
@@ -814,7 +817,7 @@ function App() {
     },
     [
       applyReviewedTicketLocally,
-      canEditTicketsCap,
+      canReviewApprovalQueueCap,
       getApiToken,
       selectedTicket?.id,
     ],
@@ -833,7 +836,7 @@ function App() {
         reasonWhenTicketIdProvided !== undefined
           ? reasonWhenTicketIdProvided
           : reasonOrTicketId;
-      if (!ticketId || !canEditTicketsCap) {
+      if (!ticketId || !canReviewApprovalQueueCap) {
         return null;
       }
 
@@ -854,7 +857,7 @@ function App() {
     },
     [
       applyReviewedTicketLocally,
-      canEditTicketsCap,
+      canReviewApprovalQueueCap,
       getApiToken,
       selectedTicket?.id,
     ],
@@ -873,7 +876,7 @@ function App() {
         reasonWhenTicketIdProvided !== undefined
           ? reasonWhenTicketIdProvided
           : reasonOrTicketId;
-      if (!ticketId || !canEditTicketsCap) {
+      if (!ticketId || !canReviewApprovalQueueCap) {
         return null;
       }
 
@@ -890,7 +893,7 @@ function App() {
     },
     [
       applyReviewedTicketLocally,
-      canEditTicketsCap,
+      canReviewApprovalQueueCap,
       getApiToken,
       selectedTicket?.id,
     ],
@@ -2679,13 +2682,21 @@ function App() {
     try {
       setProfileSaving(true);
       const token = await getApiToken();
-      const updatedUser = await userService.updateProfile(profileDraft, token);
+      const result = await userService.updateProfile(profileDraft, token);
 
-      setCurrentUser(updatedUser);
-      updateUserRecord(updatedUser);
+      setCurrentUser(result.user);
+      updateUserRecord(result.user);
       userService.clearDirectoryCache();
       setIsProfileModalOpen(false);
-      toast.success("Profile updated");
+      toast.success("Profile updated.");
+      const syncMsg = result.auth0ProfileSyncMessage?.trim();
+      if (syncMsg) {
+        if (result.auth0ProfileSyncStatus === "Failed") {
+          toast.error(syncMsg);
+        } else {
+          toast(syncMsg, { duration: 6500 });
+        }
+      }
     } catch (error) {
       console.error("Failed to update profile", error);
       toast.error(getUserFacingErrorMessage(error, "Unable to update profile"));
@@ -2955,7 +2966,7 @@ function App() {
                   syncTicketChangesSilently={syncTicketChangesSilently}
                   openTicket={openTicket}
                 />
-              ) : activeView === "approval" && canEditTicketsCap ? (
+              ) : activeView === "approval" && canReviewApprovalQueueCap ? (
                 <ApprovalQueuePage
                   theme={theme}
                   isAuthenticated={isAuthenticated}
@@ -3307,7 +3318,7 @@ function App() {
             await openTicketById(sourceTicketId);
           }}
           intakeApprovalHandlers={
-            canEditTicketsCap &&
+            canReviewApprovalQueueCap &&
             selectedTicket.id &&
             selectedTicket.approvalStatus === "PendingApproval"
               ? {

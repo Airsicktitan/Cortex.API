@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Cortex.API.DTO;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,6 +17,10 @@ public class Auth0ManagementService(
     private readonly HttpClient _httpClient = httpClient;
     private readonly Auth0ManagementOptions _options = options.Value;
     private readonly ILogger<Auth0ManagementService> _logger = logger;
+    private static readonly JsonSerializerOptions PatchJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 
     public async Task<string> CreateUserAsync(
         CreateUserRequest request,
@@ -99,6 +104,57 @@ public class Auth0ManagementService(
         {
             throw await CreateExceptionAsync(response, "Failed to delete Auth0 user.", cancellationToken);
         }
+    }
+
+    /// <inheritdoc />
+    public async Task PatchUserRootProfileAsync(
+        string auth0UserId,
+        string? name,
+        string? nickname,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureManagementApiConfigured();
+        ArgumentException.ThrowIfNullOrWhiteSpace(auth0UserId);
+
+        var accessToken = await GetManagementTokenAsync(cancellationToken);
+
+        var body = new Auth0UserPatchBody
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim(),
+            Nickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim(),
+        };
+
+        if (body.Name is null && body.Nickname is null)
+        {
+            return;
+        }
+
+        using var httpRequest = new HttpRequestMessage(
+            HttpMethod.Patch,
+            BuildPath($"/api/v2/users/{Uri.EscapeDataString(auth0UserId)}"))
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(body, PatchJsonOptions),
+                Encoding.UTF8,
+                "application/json"),
+        };
+
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await CreateExceptionAsync(response, "Failed to update Auth0 user profile.", cancellationToken);
+        }
+    }
+
+    private sealed class Auth0UserPatchBody
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        [JsonPropertyName("nickname")]
+        public string? Nickname { get; init; }
     }
 
     public async Task<IReadOnlyList<Auth0RoleDto>> GetAllRolesAsync(CancellationToken cancellationToken = default)

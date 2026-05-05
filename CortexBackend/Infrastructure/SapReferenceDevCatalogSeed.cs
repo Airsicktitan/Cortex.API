@@ -53,6 +53,22 @@ public static class SapReferenceDevCatalogSeed
             T(src.Id, "LFA1", "Vendor Master (General Section)", "FI", "Vendor Master", false, now),
             T(src.Id, "KNA1", "Customer Master (General Data)", "SD", "Customer Master", false, now),
             T(src.Id, "QMAT", "Inspection Type - Material Parameters", "QM", "Quality Management", false, now),
+            T(
+                src.Id,
+                "EINA",
+                "Purchasing Info Record: General Data",
+                "MM",
+                "Purchasing Info Record",
+                false,
+                now),
+            T(
+                src.Id,
+                "EINE",
+                "Purchasing Info Record: Organization Data",
+                "MM",
+                "Purchasing Info Record",
+                false,
+                now),
         };
         foreach (var t in tables)
         {

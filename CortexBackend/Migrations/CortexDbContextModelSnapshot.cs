@@ -1489,6 +1489,106 @@ namespace Cortex.API.Migrations
                     b.ToTable("StoredProcedureDefinitions");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.SynitiKnowledgeEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BusinessMeaning")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("CommonSignals")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ExamplePhrases")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RelatedTerms")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ShortDefinition")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SynitiKnowledgeSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TechnicalMeaning")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Term")
+                        .IsRequired()
+                        .HasMaxLength(240)
+                        .HasColumnType("nvarchar(240)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SynitiKnowledgeSourceId");
+
+                    b.HasIndex("SynitiKnowledgeSourceId", "Term")
+                        .IsUnique();
+
+                    b.ToTable("SynitiKnowledgeEntries");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SynitiKnowledgeSource", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name");
+
+                    b.ToTable("SynitiKnowledgeSources");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.Ticket", b =>
                 {
                     b.Property<string>("Id")
@@ -2603,6 +2703,17 @@ namespace Cortex.API.Migrations
                     b.Navigation("StoredProcedureDefinition");
                 });
 
+            modelBuilder.Entity("Cortex.API.Models.SynitiKnowledgeEntry", b =>
+                {
+                    b.HasOne("Cortex.API.Models.SynitiKnowledgeSource", "SynitiKnowledgeSource")
+                        .WithMany("Entries")
+                        .HasForeignKey("SynitiKnowledgeSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SynitiKnowledgeSource");
+                });
+
             modelBuilder.Entity("Cortex.API.Models.Ticket", b =>
                 {
                     b.HasOne("Cortex.API.Models.TicketBoardDefinition", "BoardDefinition")
@@ -2740,6 +2851,11 @@ namespace Cortex.API.Migrations
             modelBuilder.Entity("Cortex.API.Models.SapTableMetadata", b =>
                 {
                     b.Navigation("Fields");
+                });
+
+            modelBuilder.Entity("Cortex.API.Models.SynitiKnowledgeSource", b =>
+                {
+                    b.Navigation("Entries");
                 });
 
             modelBuilder.Entity("Cortex.API.Models.Ticket", b =>

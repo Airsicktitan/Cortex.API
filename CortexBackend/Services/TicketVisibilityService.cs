@@ -47,6 +47,12 @@ public class TicketVisibilityService(
             return TicketVisibilityScope.AssignedToCurrentUser;
         }
 
+        if (set.Contains(Auth0Roles.Approver) ||
+            string.Equals(persistedRole, Auth0Roles.Approver, StringComparison.OrdinalIgnoreCase))
+        {
+            return TicketVisibilityScope.PendingApprover;
+        }
+
         return TicketVisibilityScope.CreatedByCurrentUser;
     }
 }

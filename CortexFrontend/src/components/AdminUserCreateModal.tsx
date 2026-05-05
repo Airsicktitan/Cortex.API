@@ -21,6 +21,7 @@ const BASE_ROLE_OPTIONS = [
   AUTH0_ROLES.User,
   AUTH0_ROLES.Guest,
   AUTH0_ROLES.BusinessManager,
+  AUTH0_ROLES.Approver,
   AUTH0_ROLES.Developer,
 ] as const;
 
@@ -54,6 +55,7 @@ export default function AdminUserCreateModal({
         AUTH0_ROLES.Admin,
         AUTH0_ROLES.Developer,
         AUTH0_ROLES.BusinessManager,
+        AUTH0_ROLES.Approver,
         AUTH0_ROLES.User,
         AUTH0_ROLES.Guest,
       ] as const)

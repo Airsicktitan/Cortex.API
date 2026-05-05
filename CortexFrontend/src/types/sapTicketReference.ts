@@ -12,16 +12,20 @@ export interface SapTicketReferenceMatch {
   fieldDescription: string | null;
   domainName: string | null;
   domainValue: string | null;
+  /** Short preview when domain-fixed values exist in the catalog */
+  domainValuesPreview?: string | null;
   sourceName: string;
   module: string | null;
   businessObject: string | null;
   dataDomain: string | null;
   isCustom: boolean;
+  likelyCustomerExtensionField?: boolean;
   confidence: SapTicketReferenceMatchConfidence;
+  /** Technical / deterministic rationale from the catalogue matcher */
   reason: string;
-  tableId?: number | null;
-  fieldId?: number | null;
-  sourceId?: number | null;
+  matchStrengthLabel: string;
+  /** Reviewer-facing provenance narrative */
+  sourceReason: string;
 }
 
 export interface SapTicketReferenceContext {

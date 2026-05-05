@@ -63,7 +63,7 @@ public static class UserEndpoints
             .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
             .WithName("UpdateUser")
             .Accepts<AdminUpdateUserRequest>("application/json")
-            .Produces<AdminUserResponse>(StatusCodes.Status200OK);
+            .Produces<AdminUpdateUserResponse>(StatusCodes.Status200OK);
 
         users.MapDelete("/{id:int}", UserHandlers.DeleteUser)
             .RequireAuthorization(CortexAuthorizationExtensions.ElevatedAccess)
@@ -83,6 +83,6 @@ public static class UserEndpoints
         users.MapPut("/profile", UserHandlers.UpdateUserProfile)
             .WithName("UpdateUserProfile")
             .Accepts<UpdateUserProfileRequest>("application/json")
-            .Produces<UserResponse>(StatusCodes.Status200OK);
+            .Produces<UpdateUserProfileResponse>(StatusCodes.Status200OK);
     }
 }

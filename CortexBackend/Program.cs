@@ -104,7 +104,9 @@ builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
 builder.Services.AddScoped<IIntegrationActivityService, IntegrationActivityService>();
 builder.Services.AddScoped<IExternalIntegrationService, ExternalIntegrationService>();
 builder.Services.AddScoped<ISapReferenceService, SapReferenceService>();
-builder.Services.AddScoped<ISapTicketReferenceDetectionService, SapTicketReferenceDetectionService>();
+builder.Services.AddScoped<ReviewerTicketContextAssembler>();
+builder.Services.AddScoped<ISapReferenceContextService, SapReferenceContextService>();
+builder.Services.AddScoped<ISynitiKnowledgeContextService, SynitiKnowledgeContextService>();
 builder.Services.AddScoped<ITicketCreationApplicationService, TicketCreationApplicationService>();
 builder.Services.AddScoped<SharePointExternalWorkSourceAdapter>();
 builder.Services.AddScoped<IExternalWorkSourceAdapter>(sp => sp.GetRequiredService<SharePointExternalWorkSourceAdapter>());
@@ -525,10 +527,11 @@ using (var scope = app.Services.CreateScope())
         try
         {
             await Cortex.API.Infrastructure.SapReferenceDevCatalogSeed.EnsureAsync(db);
+            await Cortex.API.Infrastructure.SynitiKnowledgeDevCatalogSeed.EnsureAsync(db);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "SAP reference dev catalog seed skipped or failed.");
+            logger.LogWarning(ex, "Development reference catalog seeds (SAP / Syniti) skipped or failed.");
         }
     }
 }

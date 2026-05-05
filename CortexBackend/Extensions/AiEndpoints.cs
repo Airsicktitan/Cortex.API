@@ -15,7 +15,7 @@ public static class AiEndpoints
             .WithTags("AI");
 
         ai.MapPost("/assess", AiHandlers.PostAssessTicket)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.ReviewerApprovalAccess)
             .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
             .WithName("PostCortexAiAssess")
             .Accepts<AiAssessRequest>("application/json")

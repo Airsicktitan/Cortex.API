@@ -53,6 +53,8 @@ public class CortexDbContext : DbContext
     public DbSet<SapTableMetadata> SapTables => Set<SapTableMetadata>();
     public DbSet<SapFieldMetadata> SapFields => Set<SapFieldMetadata>();
     public DbSet<SapDomainValueMetadata> SapDomainValues => Set<SapDomainValueMetadata>();
+    public DbSet<SynitiKnowledgeSource> SynitiKnowledgeSources => Set<SynitiKnowledgeSource>();
+    public DbSet<SynitiKnowledgeEntry> SynitiKnowledgeEntries => Set<SynitiKnowledgeEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -1237,6 +1239,49 @@ public class CortexDbContext : DbContext
             entity.Property(d => d.CreatedAtUtc).IsRequired();
             entity.HasIndex(d => d.SapReferenceSourceId);
             entity.HasIndex(d => new { d.SapReferenceSourceId, d.DomainName, d.Value })
+                .IsUnique();
+        });
+
+        modelBuilder.Entity<SynitiKnowledgeSource>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.Name)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(s => s.SourceType)
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .IsRequired();
+            entity.Property(s => s.Version).HasMaxLength(80);
+            entity.Property(s => s.CreatedAtUtc).IsRequired();
+            entity.HasIndex(s => s.Name);
+            entity.HasMany(s => s.Entries)
+                .WithOne(e => e.SynitiKnowledgeSource)
+                .HasForeignKey(e => e.SynitiKnowledgeSourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SynitiKnowledgeEntry>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Term)
+                .IsRequired()
+                .HasMaxLength(240);
+            entity.Property(e => e.Category)
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .IsRequired();
+            entity.Property(e => e.ShortDefinition)
+                .IsRequired()
+                .HasMaxLength(8000);
+            entity.Property(e => e.BusinessMeaning).HasMaxLength(8000);
+            entity.Property(e => e.TechnicalMeaning).HasMaxLength(8000);
+            entity.Property(e => e.CommonSignals).HasMaxLength(8000);
+            entity.Property(e => e.RelatedTerms).HasMaxLength(8000);
+            entity.Property(e => e.ExamplePhrases).HasMaxLength(8000);
+            entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.HasIndex(e => e.SynitiKnowledgeSourceId);
+            entity.HasIndex(e => new { e.SynitiKnowledgeSourceId, e.Term })
                 .IsUnique();
         });
     }

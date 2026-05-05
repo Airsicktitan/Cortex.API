@@ -5,7 +5,10 @@ using Cortex.API.DTO;
 using Cortex.API.Data;
 using Cortex.API.Database;
 using Cortex.API.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 /// <summary>
 /// User-related API handlers. Authorization uses Auth0 roles via ASP.NET policies.
@@ -57,6 +60,76 @@ public static class UserHandlers
         throw new ArgumentException(
             $"{fieldName} must be one of Neither, Email, Teams, Both, or left blank to use the system default.",
             fieldName);
+    }
+
+    /// <summary>Mirrors nickname/display to Auth0 when enabled; local user is already saved.</summary>
+    private static async Task<(Auth0ProfileSyncStatus SyncStatus, string? SyncMessage)> TryResolveAuth0ProfileWriteBackAsync(
+        User user,
+        bool considerPatchingAuth0NameFields,
+        Auth0ManagementOptions mgmtOpts,
+        IAuth0ManagementService auth0Management,
+        string traceId,
+        ILogger logger,
+        string skippedNoRelevantNameFieldsMessage,
+        CancellationToken cancellationToken)
+    {
+        if (!mgmtOpts.EnableProfileWriteBack)
+        {
+            return (
+                Auth0ProfileSyncStatus.NotConfigured,
+                "Saved in Cortex. Auth0 profile sync is not enabled.");
+        }
+
+        if (!mgmtOpts.IsManagementApiClientConfigured)
+        {
+            return (
+                Auth0ProfileSyncStatus.NotConfigured,
+                "Saved in Cortex. Auth0 profile sync requires Management API credentials; configuration is incomplete.");
+        }
+
+        if (!considerPatchingAuth0NameFields)
+        {
+            return (Auth0ProfileSyncStatus.Skipped, skippedNoRelevantNameFieldsMessage);
+        }
+
+        if (string.IsNullOrWhiteSpace(user.Auth0Id))
+        {
+            return (
+                Auth0ProfileSyncStatus.Skipped,
+                "Saved in Cortex. This account is not linked to an Auth0 user id, so profile sync was skipped.");
+        }
+
+        try
+        {
+            await auth0Management
+                .PatchUserRootProfileAsync(
+                    user.Auth0Id!,
+                    user.DisplayName,
+                    user.NickName,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return (
+                Auth0ProfileSyncStatus.Synced,
+                "Display updates were mirrored to Auth0 (subject to tenant connection and identity-provider rules).");
+        }
+        catch (Auth0ManagementException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Auth0 profile PATCH failed TraceId={TraceId} HttpStatus={Status}",
+                traceId,
+                ex.StatusCode);
+            return (
+                Auth0ProfileSyncStatus.Failed,
+                "Saved in Cortex. Auth0 could not apply the profile update from this deployment (check administrator configuration or connection behavior).");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Auth0 profile PATCH unexpected error TraceId={TraceId}", traceId);
+            return (
+                Auth0ProfileSyncStatus.Failed,
+                "Saved in Cortex. Auth0 profile sync failed due to an unexpected error.");
+        }
     }
 
     public static async Task<IResult> GetUsers(
@@ -378,15 +451,42 @@ public static class UserHandlers
         return Results.NoContent();
     }
 
-    public static async Task<IResult> UpdateUserProfile(IUserContextService userContext, UpdateUserProfileRequest request)
+    public static async Task<IResult> UpdateUserProfile(
+        UpdateUserProfileRequest request,
+        IUserContextService userContext,
+        IAuth0ManagementService auth0Management,
+        IOptions<Auth0ManagementOptions> managementOptionsAccessor,
+        IHttpContextAccessor httpContextAccessor,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
     {
         try
         {
+            var mgmtOpts = managementOptionsAccessor.Value;
+            var logger = loggerFactory.CreateLogger("Cortex.Auth0.ProfileSync");
+            var traceId = httpContextAccessor.HttpContext?.TraceIdentifier ?? string.Empty;
+
             var user = await userContext.GetCurrentUserAsync();
 
             await userContext.UpdateProfileAsync(user, request);
 
-            return Results.Ok(user.ToResponse());
+            var dto = user.ToResponse();
+            var touchedNames =
+                !string.IsNullOrWhiteSpace(request.DisplayName) ||
+                request.NickName is not null;
+
+            var (syncStatus, syncMessage) = await TryResolveAuth0ProfileWriteBackAsync(
+                user,
+                touchedNames,
+                mgmtOpts,
+                auth0Management,
+                traceId,
+                logger,
+                "Saved in Cortex. No display name or nickname fields were supplied, so Auth0 profile sync was skipped.",
+                cancellationToken);
+
+            return Results.Ok(
+                new UpdateUserProfileResponse(dto, syncStatus, syncMessage, traceId));
         }
         catch (ArgumentException exception)
         {
@@ -403,6 +503,7 @@ public static class UserHandlers
         IUserContextService userContext,
         IHttpContextAccessor httpContextAccessor,
         ILoggerFactory loggerFactory,
+        IOptions<Auth0ManagementOptions> managementOptionsAccessor,
         CancellationToken cancellationToken)
     {
         var accessControlLogger = loggerFactory.CreateLogger("Cortex.Api.Security.UserAccessControl");
@@ -421,7 +522,7 @@ public static class UserHandlers
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["role"] = ["Role must be one of: Admin, Developer, Business Manager, User, Guest."]
+                    ["role"] = ["Role must be one of: Admin, Developer, Business Manager, Approver, User, Guest."]
                 });
             }
 
@@ -482,6 +583,12 @@ public static class UserHandlers
 
         try
         {
+            var traceId = httpContextAccessor.HttpContext?.TraceIdentifier ?? string.Empty;
+            var profileLogger = loggerFactory.CreateLogger("Cortex.Auth0.ProfileSync");
+            var mgmtOpts = managementOptionsAccessor.Value;
+            var previousNickName = user.NickName;
+            var previousDisplayName = user.DisplayName;
+
             user.NickName = NormalizeOptionalValue(request.NickName);
             user.PhoneNumber = NormalizeOptionalValue(request.PhoneNumber);
             user.Department = UserDepartmentPolicy.ApplyDeveloperDepartmentDefault(
@@ -500,6 +607,10 @@ public static class UserHandlers
             user.ExpiryDate = request.ExpiryDate;
             user.LastModifiedDate = DateTime.UtcNow;
 
+            var profileNamesTouched =
+                !string.Equals(previousNickName ?? "", user.NickName ?? "", StringComparison.Ordinal) ||
+                !string.Equals(previousDisplayName ?? "", user.DisplayName ?? "", StringComparison.Ordinal);
+
             await repo.SaveChangesAsync();
             if (roleExplicitlyChanged)
             {
@@ -511,7 +622,23 @@ public static class UserHandlers
                 auth0Management,
                 fallbackToLocalRole: true,
                 cancellationToken);
-            return Results.Ok(user.ToAdminResponse(freshNames));
+
+            var (syncStatus, syncMessage) = await TryResolveAuth0ProfileWriteBackAsync(
+                user,
+                profileNamesTouched,
+                mgmtOpts,
+                auth0Management,
+                traceId,
+                profileLogger,
+                "Saved in Cortex. Display name and nickname were unchanged, so Auth0 profile sync was skipped.",
+                cancellationToken);
+
+            return Results.Ok(
+                new AdminUpdateUserResponse(
+                    user.ToAdminResponse(freshNames),
+                    syncStatus,
+                    syncMessage,
+                    traceId));
         }
         catch (ArgumentException exception)
         {
@@ -551,7 +678,7 @@ public static class UserHandlers
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["role"] = ["Role must be one of: Admin, Developer, Business Manager, User, Guest."]
+                ["role"] = ["Role must be one of: Admin, Developer, Business Manager, Approver, User, Guest."]
             });
         }
 

@@ -5,6 +5,7 @@ export const AUTH0_ROLES = {
   Admin: "Admin",
   Developer: "Developer",
   BusinessManager: "Business Manager",
+  Approver: "Approver",
   User: "User",
   Guest: "Guest",
 } as const;
@@ -15,6 +16,7 @@ const ALL_CANONICAL: readonly string[] = [
   AUTH0_ROLES.Admin,
   AUTH0_ROLES.Developer,
   AUTH0_ROLES.BusinessManager,
+  AUTH0_ROLES.Approver,
   AUTH0_ROLES.User,
   AUTH0_ROLES.Guest,
 ];
@@ -96,6 +98,15 @@ export function isStandardUser(roles: string[] | undefined): boolean {
 
 export function isGuest(roles: string[] | undefined): boolean {
   return hasRole(roles, AUTH0_ROLES.Guest);
+}
+
+export function isApprover(roles: string[] | undefined): boolean {
+  return hasRole(roles, AUTH0_ROLES.Approver);
+}
+
+/** Queue + reviewer actions (Business Manager+ or dedicated Approver). */
+export function canReviewApprovalQueue(roles: string[] | undefined): boolean {
+  return hasBusinessAccess(roles) || isApprover(roles);
 }
 
 /** Admin or Developer — technical / elevated app access. */

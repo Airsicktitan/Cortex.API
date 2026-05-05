@@ -10,8 +10,13 @@ public interface ITicketVisibilityService
 public enum TicketVisibilityScope
 {
     All,
+    /// <summary>
+    /// Reviewer-facing intake visibility: stranger tickets remain limited to PendingApproval /
+    /// NeedsMoreInfo queues; creators always see own tickets regardless of lifecycle.
+    /// </summary>
+    PendingApprover,
     AssignedToCurrentUser,
-    CreatedByCurrentUser
+    CreatedByCurrentUser,
 }
 
 public sealed record TicketVisibilityContext(
@@ -22,6 +27,14 @@ public sealed record TicketVisibilityContext(
 {
     public bool CanView(Ticket ticket)
     {
+        if (Scope == TicketVisibilityScope.PendingApprover &&
+            (ticket.ApprovalStatus == ApprovalStatus.PendingApproval ||
+             ticket.ApprovalStatus == ApprovalStatus.NeedsMoreInfo ||
+             ticket.CreatedBy == UserId))
+        {
+            return true;
+        }
+
         return CanView(ticket.CreatedBy, ticket.SynitiOwner, ticket.BusinessOwner);
     }
 
@@ -30,6 +43,7 @@ public sealed record TicketVisibilityContext(
         return Scope switch
         {
             TicketVisibilityScope.All => true,
+            TicketVisibilityScope.PendingApprover => createdBy == UserId,
             TicketVisibilityScope.AssignedToCurrentUser => IsAssignedToCurrentUser(synitiOwner, businessOwner),
             _ => createdBy == UserId
         };

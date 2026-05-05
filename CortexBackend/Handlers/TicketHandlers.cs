@@ -368,7 +368,7 @@ public static class TicketHandlers
         string id,
         [FromServices] ITicketRepository repo,
         [FromServices] ITicketVisibilityService ticketVisibilityService,
-        [FromServices] ISapTicketReferenceDetectionService sapTicketReferenceDetectionService,
+        [FromServices] ISapReferenceContextService sapReferenceContextService,
         CancellationToken cancellationToken)
     {
         var ticket = await repo.GetTicketByIdAsync(id.Trim());
@@ -383,7 +383,32 @@ public static class TicketHandlers
             return Results.NotFound();
         }
 
-        var dto = await sapTicketReferenceDetectionService.DetectSapReferencesForTicketAsync(
+        var dto = await sapReferenceContextService.DetectSapReferencesForTicketAsync(
+            ticket,
+            cancellationToken);
+        return Results.Ok(dto);
+    }
+
+    public static async Task<IResult> GetTicketSynitiKnowledgeContext(
+        string id,
+        [FromServices] ITicketRepository repo,
+        [FromServices] ITicketVisibilityService ticketVisibilityService,
+        [FromServices] ISynitiKnowledgeContextService synitiKnowledgeContextService,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await repo.GetTicketByIdAsync(id.Trim());
+        if (ticket is null)
+        {
+            return Results.NotFound();
+        }
+
+        var visibilityContext = await ticketVisibilityService.GetCurrentVisibilityAsync();
+        if (!visibilityContext.CanView(ticket))
+        {
+            return Results.NotFound();
+        }
+
+        var dto = await synitiKnowledgeContextService.GetContextForTicketAsync(
             ticket,
             cancellationToken);
         return Results.Ok(dto);

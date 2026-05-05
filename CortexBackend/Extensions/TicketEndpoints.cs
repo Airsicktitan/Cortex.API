@@ -30,7 +30,7 @@ public static class TicketEndpoints
             .Produces<List<TicketResponse>>(StatusCodes.Status200OK);
 
         tickets.MapGet("/pending-approval", TicketHandlers.GetTicketsPendingApproval)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.ReviewerApprovalAccess)
             .WithName("GetTicketsPendingApproval")
             .Produces<PagedTicketListResponse>(StatusCodes.Status200OK);
 
@@ -53,8 +53,13 @@ public static class TicketEndpoints
             .Produces<SapTicketReferenceContextDto>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        tickets.MapGet("/{id}/syniti-knowledge-context", TicketHandlers.GetTicketSynitiKnowledgeContext)
+            .WithName("GetTicketSynitiKnowledgeContext")
+            .Produces<SynitiKnowledgeContextDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         tickets.MapPost("/{id}/triage", TicketHandlers.GenerateTicketTriage)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.ReviewerApprovalAccess)
             .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
             .WithName("GenerateTicketTriage")
             .Produces<TicketTriageGenerateResponse>(StatusCodes.Status200OK)
@@ -62,7 +67,7 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status409Conflict);
 
         tickets.MapPost("/{id}/triage/apply", TicketHandlers.ApplyTicketTriageSuggestions)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.ReviewerApprovalAccess)
             .RequireRateLimiting(AiRateLimitPolicies.StandardPolicyName)
             .WithName("ApplyTicketTriageSuggestions")
             .Accepts<TicketTriageApplyRequest>("application/json")
@@ -139,7 +144,7 @@ public static class TicketEndpoints
             .Produces<OwnerWorkloadPreviewResponse>(StatusCodes.Status200OK);
 
         tickets.MapPost("/{id}/reassignment/apply", TicketHandlers.ApplyGuidedReassignment)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.ReviewerApprovalAccess)
             .WithName("ApplyGuidedReassignment")
             .Accepts<ReassignmentApplyRequest>("application/json")
             .Produces<ReassignmentApplyResponse>(StatusCodes.Status200OK)
@@ -149,7 +154,7 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status409Conflict);
 
         tickets.MapPost("/{id}/approve", TicketHandlers.ApproveTicket)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.ReviewerApprovalAccess)
             .WithName("ApproveTicket")
             .Accepts<TicketApprovalActionRequest>("application/json")
             .Produces<TicketResponse>(StatusCodes.Status200OK)
@@ -157,7 +162,7 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status409Conflict);
 
         tickets.MapPost("/{id}/return", TicketHandlers.ReturnTicketForDetail)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.ReviewerApprovalAccess)
             .WithName("ReturnTicketForDetail")
             .Accepts<TicketApprovalActionRequest>("application/json")
             .Produces<TicketResponse>(StatusCodes.Status200OK)
@@ -166,7 +171,7 @@ public static class TicketEndpoints
             .Produces(StatusCodes.Status409Conflict);
 
         tickets.MapPost("/{id}/reject", TicketHandlers.RejectTicket)
-            .RequireAuthorization(CortexAuthorizationExtensions.BusinessDataAccess)
+            .RequireAuthorization(CortexAuthorizationExtensions.ReviewerApprovalAccess)
             .WithName("RejectTicket")
             .Accepts<TicketApprovalActionRequest>("application/json")
             .Produces<TicketResponse>(StatusCodes.Status200OK)

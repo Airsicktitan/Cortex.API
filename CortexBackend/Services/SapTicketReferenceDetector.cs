@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Cortex.API.DTO;
 
@@ -13,11 +14,15 @@ public static class SapTicketReferenceDetector
         "ID", "TYPE", "STATUS", "NAME", "TEXT",
     };
 
+    private static readonly Regex ExtensionFieldRegex = new(
+        @"^(YY|ZZ)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     private static readonly Regex TableFieldPattern = new(
         @"\b([A-Z][A-Z0-9]{2,})\s*[-. ]\s*([A-Z][A-Z0-9_]{0,})\b",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    public const int MaxMatches = 10;
+    public const int MaxMatches = 5;
 
     public static SapTicketReferenceContextDto DetectForTicket(
         string ticketId,
@@ -234,8 +239,10 @@ public static class SapTicketReferenceDetector
         var best = new Dictionary<string, SapTicketReferenceMatchDto>(StringComparer.Ordinal);
         foreach (var m in raw)
         {
-            var key = $"{(int)m.MatchType}|{m.TableName ?? ""}|{m.FieldName ?? ""}|{m.SourceId?.ToString() ?? ""}";
-            if (!best.TryGetValue(key, out var existing) || ConfidenceRank(m.Confidence) < ConfidenceRank(existing.Confidence))
+            var key =
+                $"{(int)m.MatchType}|{m.TableName ?? ""}|{m.FieldName ?? ""}|{m.SourceId?.ToString(CultureInfo.InvariantCulture) ?? ""}";
+            if (!best.TryGetValue(key, out var existing) ||
+                ConfidenceRank(m.Confidence) < ConfidenceRank(existing.Confidence))
             {
                 best[key] = m;
             }
@@ -283,57 +290,90 @@ public static class SapTicketReferenceDetector
         _ => 2,
     };
 
+    internal static bool IsLikelyCustomerExtension(string fieldName, bool catalogIsCustom) =>
+        catalogIsCustom || ExtensionFieldRegex.IsMatch(fieldName.Trim());
+
     private static SapTicketReferenceMatchDto CreateTableMatch(
         string matchedText,
         SapTicketCatalogTable row,
         SapTicketReferenceMatchConfidence confidence,
-        string reason) =>
-        new(
-            SapTicketReferenceMatchType.Table,
-            MatchedText: matchedText,
-            TableName: row.TableName,
-            TableDescription: row.Description,
-            FieldName: null,
-            FieldDescription: null,
-            DomainName: null,
-            DomainValue: null,
-            SourceName: row.SourceName,
-            Module: row.Module,
-            BusinessObject: row.BusinessObject,
-            DataDomain: row.DataDomain,
-            IsCustom: row.IsCustom,
-            confidence,
-            Reason: reason,
-            TableId: row.Id,
-            FieldId: null,
-            SourceId: row.SourceId);
+        string reason)
+    {
+        var strength = ConfidenceToLabel(confidence);
+        var m = new SapTicketReferenceMatchDto
+        {
+            MatchType = SapTicketReferenceMatchType.Table,
+            MatchedText = matchedText,
+            TableName = row.TableName,
+            TableDescription = row.Description,
+            FieldName = null,
+            FieldDescription = null,
+            DomainName = null,
+            DomainValue = null,
+            DomainValuesPreview = null,
+            SourceName = row.SourceName,
+            Module = row.Module,
+            BusinessObject = row.BusinessObject,
+            DataDomain = row.DataDomain,
+            IsCustom = row.IsCustom,
+            LikelyCustomerExtensionField = false,
+            Confidence = confidence,
+            Reason = reason,
+            MatchStrengthLabel = strength,
+            SourceReason = string.Empty,
+            TableId = row.Id,
+            FieldId = null,
+            SourceId = row.SourceId,
+        };
+
+        return m;
+    }
 
     private static SapTicketReferenceMatchDto CreateFieldMatchFromCatalog(
         string matchedText,
         SapTicketCatalogField f,
         SapTicketReferenceMatchConfidence confidence,
-        string reason) =>
-        new(
-            SapTicketReferenceMatchType.Field,
-            MatchedText: matchedText,
-            TableName: f.TableName,
-            TableDescription: f.TableDescription,
-            FieldName: f.FieldName,
-            FieldDescription: f.FieldDescription,
-            DomainName: null,
-            DomainValue: null,
-            SourceName: f.SourceName,
-            Module: f.Module,
-            BusinessObject: f.BusinessObject,
-            DataDomain: f.DataDomain,
-            IsCustom: f.FieldIsCustom,
-            confidence,
-            Reason: reason,
-            TableId: f.TableMetadataId,
-            FieldId: f.Id,
-            SourceId: f.SourceId);
+        string reason)
+    {
+        var strength = ConfidenceToLabel(confidence);
+        var likelyExt = IsLikelyCustomerExtension(f.FieldName, f.FieldIsCustom);
+        var m = new SapTicketReferenceMatchDto
+        {
+            MatchType = SapTicketReferenceMatchType.Field,
+            MatchedText = matchedText,
+            TableName = f.TableName,
+            TableDescription = f.TableDescription,
+            FieldName = f.FieldName,
+            FieldDescription = f.FieldDescription,
+            DomainName = f.DomainName?.Trim(),
+            DomainValue = null,
+            DomainValuesPreview = null,
+            SourceName = f.SourceName,
+            Module = f.Module,
+            BusinessObject = f.BusinessObject,
+            DataDomain = f.DataDomain,
+            IsCustom = f.FieldIsCustom,
+            LikelyCustomerExtensionField = likelyExt,
+            Confidence = confidence,
+            Reason = reason,
+            MatchStrengthLabel = strength,
+            SourceReason = string.Empty,
+            TableId = f.TableMetadataId,
+            FieldId = f.Id,
+            SourceId = f.SourceId,
+        };
 
-    private static IEnumerable<string> ExtractTokens(string upperTextWithSpaces)
+        return m;
+    }
+
+    private static string ConfidenceToLabel(SapTicketReferenceMatchConfidence c) => c switch
+    {
+        SapTicketReferenceMatchConfidence.High => "Strong match",
+        SapTicketReferenceMatchConfidence.Medium => "Moderate match",
+        _ => "Tentative match",
+    };
+
+    internal static IEnumerable<string> ExtractTokens(string upperTextWithSpaces)
     {
         var normalized = Regex.Replace(upperTextWithSpaces, @"[-.]+", " ");
         foreach (var part in Regex.Split(normalized, @"[^A-Z0-9_]+"))

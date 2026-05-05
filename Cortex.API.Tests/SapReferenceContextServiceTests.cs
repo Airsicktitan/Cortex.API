@@ -5,12 +5,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Tests;
 
-public class SapTicketReferenceDetectionServiceTests
+public class SapReferenceContextServiceTests
 {
     private static CortexDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CortexDbContext>()
-            .UseInMemoryDatabase($"sap-ticket-detect-{Guid.NewGuid():N}")
+            .UseInMemoryDatabase($"sap-ref-ctx-{Guid.NewGuid():N}")
             .Options;
         return new CortexDbContext(options);
     }
@@ -54,7 +54,7 @@ public class SapTicketReferenceDetectionServiceTests
         ctx.SapTables.AddRange(offTable, onTable);
         await ctx.SaveChangesAsync();
 
-        var svc = new SapTicketReferenceDetectionService(ctx);
+        var svc = new SapReferenceContextService(ctx, new ReviewerTicketContextAssembler(ctx));
         var ticket = new Ticket
         {
             Id = "T-1",

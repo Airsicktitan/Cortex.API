@@ -29,6 +29,7 @@ public class SapTicketReferenceDetectorTests
         TableIsCustom: false,
         FieldName: "YYNGM_ACTIVE",
         FieldDescription: "Custom active flag (example)",
+        DomainName: null,
         FieldIsCustom: true);
 
     [Fact]
@@ -56,6 +57,7 @@ public class SapTicketReferenceDetectorTests
         var field = Assert.Single(matches.Where(m => m.MatchType == SapTicketReferenceMatchType.Field));
         Assert.Equal("YYNGM_ACTIVE", field.FieldName);
         Assert.True(field.IsCustom);
+        Assert.True(field.LikelyCustomerExtensionField);
         Assert.Equal("MARC", field.TableName);
     }
 
@@ -105,6 +107,7 @@ public class SapTicketReferenceDetectorTests
             TableIsCustom: false,
             FieldName: "STATUS",
             FieldDescription: "Status",
+            DomainName: null,
             FieldIsCustom: false);
         var text = "Something about STATUS in the description.";
         var matches = SapTicketReferenceDetector.DetectMatches(
@@ -130,6 +133,7 @@ public class SapTicketReferenceDetectorTests
             TableIsCustom: false,
             FieldName: "WER",
             FieldDescription: "Too short sample",
+            DomainName: null,
             FieldIsCustom: false);
         var text = "Field WER needs review without table name.";
         var matches = SapTicketReferenceDetector.DetectMatches(
@@ -229,5 +233,8 @@ public class SapTicketReferenceDetectorTests
         var json = System.Text.Json.JsonSerializer.Serialize(dto);
         Assert.DoesNotContain("password", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("secret", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("tableId", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("fieldId", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sourceId", json, StringComparison.OrdinalIgnoreCase);
     }
 }

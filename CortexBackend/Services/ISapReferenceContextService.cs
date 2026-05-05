@@ -3,11 +3,9 @@ using Cortex.API.Models;
 
 namespace Cortex.API.Services;
 
-public interface ISapTicketReferenceDetectionService
+/// <summary>Resolves SAP reference context for reviewer display from ticket content and linked integrations.</summary>
+public interface ISapReferenceContextService
 {
-    /// <summary>
-    /// Detects SAP table/field references in ticket text using enabled SAP reference sources only.
-    /// </summary>
     Task<SapTicketReferenceContextDto> DetectSapReferencesForTicketAsync(
         Ticket ticket,
         CancellationToken cancellationToken = default);

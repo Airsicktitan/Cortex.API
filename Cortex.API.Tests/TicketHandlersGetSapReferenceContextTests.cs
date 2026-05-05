@@ -35,7 +35,7 @@ public class TicketHandlersGetSapReferenceContextTests
         visibility.Setup(s => s.GetCurrentVisibilityAsync())
             .ReturnsAsync(new TicketVisibilityContext(1, "U", "u@example.com", TicketVisibilityScope.CreatedByCurrentUser));
 
-        var detection = new Mock<ISapTicketReferenceDetectionService>(MockBehavior.Strict);
+        var detection = new Mock<ISapReferenceContextService>(MockBehavior.Strict);
 
         var result = await TicketHandlers.GetTicketSapReferenceContext(
             "T-99",
@@ -76,7 +76,7 @@ public class TicketHandlersGetSapReferenceContextTests
             .ReturnsAsync(new TicketVisibilityContext(1, "R", "r@example.com", TicketVisibilityScope.All));
 
         var dto = new SapTicketReferenceContextDto("T-1", []);
-        var detection = new Mock<ISapTicketReferenceDetectionService>(MockBehavior.Strict);
+        var detection = new Mock<ISapReferenceContextService>(MockBehavior.Strict);
         detection
             .Setup(s => s.DetectSapReferencesForTicketAsync(ticket, It.IsAny<CancellationToken>()))
             .ReturnsAsync(dto);

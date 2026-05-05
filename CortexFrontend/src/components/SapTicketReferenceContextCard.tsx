@@ -4,6 +4,7 @@ import type {
   SapTicketReferenceMatch,
 } from "../types/sapTicketReference";
 import { formatDisplayValue } from "../utils/presentation";
+import { isCustomFieldSignal } from "../utils/sapReferenceMetadataSignals";
 import {
   buildSapIntentOnlyReviewerGuidance,
   buildSapReviewerGuidance,
@@ -12,11 +13,16 @@ import {
 
 const HELPER_COPY =
   "Guidance is derived from the Cortex SAP reference catalog (advisory). It reflects governance readiness, not a live SAP system check.";
+const EVIDENCE_HELPER =
+  "Deterministic SAP catalog references only — advisory and not connected to live SAP.";
 const NO_LIVE_SAP_FOOTER =
   "Cortex uses stored SAP reference catalog metadata only and does not perform a live SAP lookup.";
 
 const SAP_INTAKE_HELPER =
   "SAP-related wording is present, but no table or field matched the SAP reference catalog for this ticket.";
+
+const SAP_REFERENCE_EMPTY_COPY =
+  "No SAP reference metadata was found for this ticket yet.";
 
 const INITIAL_SHOW = 5;
 
@@ -56,24 +62,47 @@ const Pill = ({
   </span>
 );
 
-function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
+function MatchBlock({
+  m,
+  layout,
+}: {
+  m: SapTicketReferenceMatch;
+  layout: "default" | "evidence";
+}) {
   const isTable = m.matchType === "Table";
   const title = isTable
     ? formatDisplayValue(m.tableName)
-    : formatDisplayValue(m.fieldName);
+    : [m.tableName, m.fieldName].filter(Boolean).join(" / ") ||
+      formatDisplayValue(m.fieldName);
 
-  const secondaryLine = isTable
-    ? m.tableDescription?.trim() || null
-    : m.tableName
-      ? `Field on ${m.tableName}`
-      : "Field";
+  const secondaryLine =
+    layout === "default"
+      ? isTable
+        ? m.tableDescription?.trim() || null
+        : m.tableName
+          ? `Field on ${m.tableName}`
+          : "Field"
+      : null;
 
   const fieldDetailLine =
-    !isTable && m.fieldDescription?.trim()
+    layout === "default" && !isTable && m.fieldDescription?.trim()
       ? m.fieldDescription
-      : !isTable && !m.fieldDescription && m.tableDescription?.trim()
+      : layout === "default" &&
+          !isTable &&
+          !m.fieldDescription &&
+          m.tableDescription?.trim()
         ? m.tableDescription
         : null;
+
+  const meaningLine =
+    layout === "evidence"
+      ? isTable
+        ? m.tableDescription?.trim() || m.businessObject?.trim() || null
+        : m.fieldDescription?.trim() ||
+          m.tableDescription?.trim() ||
+          m.businessObject?.trim() ||
+          null
+      : fieldDetailLine;
 
   const moduleLineParts = [
     m.module ? `Module: ${m.module}` : null,
@@ -81,17 +110,29 @@ function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
   ].filter(Boolean);
 
   const confidenceLabel =
-    m.confidence === "High"
+    (m.matchStrengthLabel && m.matchStrengthLabel.trim()) ||
+    (m.confidence === "High"
       ? "High confidence"
       : m.confidence === "Medium"
         ? "Medium confidence"
-        : "Low confidence";
+        : "Low confidence");
+
+  const extensionHint =
+    Boolean(m.likelyCustomerExtensionField) || isCustomFieldSignal(m);
+
+  const whyText =
+    (m.sourceReason?.trim() && m.sourceReason.trim()) || m.reason?.trim();
 
   return (
     <div className="rounded-lg border border-slate-400/55 bg-white px-3 py-2.5 shadow-md ring-1 ring-slate-900/[0.06] dark:border-slate-500/70 dark:bg-slate-900/60 dark:ring-white/[0.08]">
       <p className="text-sm font-semibold leading-snug text-gray-900 dark:text-slate-100">
         {title}
       </p>
+
+      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Table / field
+      </p>
+
       {secondaryLine ? (
         <p className="mt-1 text-[11px] leading-snug text-gray-600 dark:text-slate-400">
           {secondaryLine}
@@ -104,13 +145,26 @@ function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
         ) : (
           <>
             <Pill kind="field">Field</Pill>
-            {m.isCustom ? <Pill kind="custom">Custom field</Pill> : null}
+            {extensionHint ? (
+              <Pill kind="custom">Likely extension / custom</Pill>
+            ) : null}
           </>
         )}
         <Pill kind="confidence">{confidenceLabel}</Pill>
       </div>
 
-      {!isTable &&
+      {meaningLine && layout === "evidence" ? (
+        <>
+          <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Meaning
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-gray-700 dark:text-slate-300">
+            {meaningLine}
+          </p>
+        </>
+      ) : null}
+
+      {layout === "default" &&
       fieldDetailLine &&
       fieldDetailLine !== secondaryLine ? (
         <p className="mt-2 text-[11px] leading-snug text-gray-600 dark:text-slate-400">
@@ -118,7 +172,7 @@ function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
         </p>
       ) : null}
 
-      {isTable && moduleLineParts.length > 0 ? (
+      {layout === "default" && isTable && moduleLineParts.length > 0 ? (
         <p className="mt-2 text-[11px] leading-snug text-gray-600 dark:text-slate-400">
           <span className="font-medium text-gray-500 dark:text-slate-500">
             Metadata:{" "}
@@ -127,9 +181,37 @@ function MatchBlock({ m }: { m: SapTicketReferenceMatch }) {
         </p>
       ) : null}
 
-      <p className="mt-2 text-[11px] leading-snug text-gray-500 dark:text-slate-500">
-        Source: {formatDisplayValue(m.sourceName)}
-      </p>
+      {whyText ? (
+        <>
+          <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Why Cortex surfaced it
+          </p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-gray-700 dark:text-slate-300">
+            {whyText}
+          </p>
+        </>
+      ) : null}
+
+      {m.domainValuesPreview?.trim() ? (
+        <>
+          <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Domain values (catalog preview)
+          </p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-gray-700 dark:text-slate-300">
+            {m.domainValuesPreview.trim()}
+          </p>
+        </>
+      ) : null}
+
+      {layout === "default" ? (
+        <p className="mt-2 text-[11px] leading-snug text-gray-500 dark:text-slate-500">
+          Imported catalog source: {formatDisplayValue(m.sourceName)}
+        </p>
+      ) : (
+        <p className="mt-2 text-[10px] text-gray-500 dark:text-slate-500">
+          Source: {formatDisplayValue(m.sourceName)}
+        </p>
+      )}
     </div>
   );
 }
@@ -239,18 +321,23 @@ export function SapTicketReferenceContextCard({
   loading,
   loadError,
   variant = "standalone",
+  purpose = "default",
   ticketTitle,
   ticketDescription,
 }: {
   context: SapTicketReferenceContext | null;
   loading: boolean;
   loadError: boolean;
-  /** `embedded`: no outer card border; for Cortex SAP tab. */
+  /** `embedded`: no outer card border; for Cortex tab panels. */
   variant?: SapTicketReferenceContextCardVariant;
+  /** `evidence`: concise Evidence-tab reviewer layout. */
+  purpose?: "default" | "evidence";
   /** Optional ticket text for key/required phrasing in catalog-matched guidance. */
   ticketTitle?: string | null;
   ticketDescription?: string | null;
 }) {
+  const isEvidencePurpose = purpose === "evidence";
+  const matchLayout = isEvidencePurpose ? "evidence" : "default";
   const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
@@ -291,23 +378,48 @@ export function SapTicketReferenceContextCard({
   }, [matches, showAll]);
 
   if (loading) {
-    if (variant === "embedded") {
+    const body = (
+      <p className="text-[11px] text-gray-500 dark:text-slate-500">
+        Loading SAP reference context…
+      </p>
+    );
+    if (isEvidencePurpose) {
       return (
-        <p className="text-[11px] text-gray-500 dark:text-slate-500">
-          Loading SAP reference context…
-        </p>
+        <section className="rounded-md border border-gray-200/90 bg-gray-50/70 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/40">
+          <header className="space-y-1">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
+              SAP Reference Context
+            </h3>
+          </header>
+          <div className="mt-2">{body}</div>
+        </section>
       );
+    }
+    if (variant === "embedded") {
+      return body;
     }
     return null;
   }
 
   const errorBlock = (
     <p className="text-[11px] text-gray-600 dark:text-slate-400">
-      Unable to load SAP context.
+      Unable to load SAP reference context.
     </p>
   );
 
   if (loadError) {
+    if (isEvidencePurpose) {
+      return (
+        <section className="rounded-md border border-amber-200/90 bg-amber-50/60 px-3 py-2.5 dark:border-amber-800/55 dark:bg-amber-950/25">
+          <header className="space-y-1">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
+              SAP Reference Context
+            </h3>
+          </header>
+          <div className="mt-2">{errorBlock}</div>
+        </section>
+      );
+    }
     return variant === "standalone" ? (
       <section className="rounded-md border border-gray-200/90 bg-gray-50/70 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/40">
         {errorBlock}
@@ -319,19 +431,49 @@ export function SapTicketReferenceContextCard({
     );
   }
 
-  if (!context || (matches.length === 0 && !isSapIntentOnly)) {
+  if (
+    purpose !== "evidence" &&
+    (!context || (matches.length === 0 && !isSapIntentOnly))
+  ) {
+    return null;
+  }
+
+  if (
+    purpose === "evidence" &&
+    context &&
+    matches.length === 0 &&
+    !isSapIntentOnly
+  ) {
+    return (
+      <section className="rounded-md border border-gray-200/90 bg-gray-50/70 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/40">
+        <header className="space-y-1">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
+            SAP Reference Context
+          </h3>
+          <p className="text-[11px] leading-snug text-gray-600 dark:text-slate-400">
+            {SAP_REFERENCE_EMPTY_COPY}
+          </p>
+        </header>
+        <p className="mt-2 border-t border-gray-200/90 pt-2 text-[10px] leading-4 text-gray-500 dark:border-slate-700 dark:text-slate-500">
+          Stored catalog references only — advisory and not a live SAP lookup.
+        </p>
+      </section>
+    );
+  }
+
+  if (!context) {
     return null;
   }
 
   const remainder = matches.length - visible.length;
 
-  const catalogHeader = (
+  const governanceHeader = (
     <header className="space-y-1">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
-        SAP data & governance context
+        {isEvidencePurpose ? "SAP Reference Context" : "SAP data & governance context"}
       </h3>
       <p className="text-[11px] leading-snug text-gray-600 dark:text-slate-400">
-        {HELPER_COPY}
+        {isEvidencePurpose ? EVIDENCE_HELPER : HELPER_COPY}
       </p>
     </header>
   );
@@ -339,7 +481,7 @@ export function SapTicketReferenceContextCard({
   const intakeHeader = (
     <header className="space-y-1">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900/85 dark:text-amber-200/85">
-        SAP intake detail needed
+        {isEvidencePurpose ? "SAP intake signals" : "SAP intake detail needed"}
       </h3>
       <p className="text-[11px] leading-snug text-gray-600 dark:text-slate-400">
         {SAP_INTAKE_HELPER}
@@ -351,7 +493,8 @@ export function SapTicketReferenceContextCard({
     <div className="space-y-2.5">
       {visible.map((m, i) => (
         <MatchBlock
-          key={`${m.matchType}-${m.tableName ?? ""}-${m.fieldName ?? ""}-${m.sourceId ?? ""}-${i}`}
+          key={`${m.matchType}-${i}-${m.matchedText?.slice(0, 72) ?? ""}`}
+          layout={matchLayout}
           m={m}
         />
       ))}
@@ -375,17 +518,21 @@ export function SapTicketReferenceContextCard({
 
   const footer = (
     <p className="border-t border-gray-200/90 pt-2 text-[11px] leading-4 text-gray-500 dark:border-slate-700 dark:text-slate-500">
-      {NO_LIVE_SAP_FOOTER}
+      {isEvidencePurpose
+        ? "Stored catalog references only — advisory and not a live SAP lookup."
+        : NO_LIVE_SAP_FOOTER}
     </p>
   );
 
-  if (variant === "embedded") {
+  const useRailChrome = variant === "embedded" || isEvidencePurpose;
+
+  if (useRailChrome) {
     return (
       <div className="space-y-3">
-        {isSapIntentOnly ? intakeHeader : catalogHeader}
+        {isSapIntentOnly ? intakeHeader : governanceHeader}
         {!isSapIntentOnly ? matchList : null}
         {!isSapIntentOnly ? showAllControl : null}
-        {reviewerGuidance ? (
+        {!isEvidencePurpose && reviewerGuidance ? (
           <ReviewerGuidanceBlock
             guidance={reviewerGuidance}
             ticketId={context.ticketId}
@@ -398,7 +545,7 @@ export function SapTicketReferenceContextCard({
 
   return (
     <section className="rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/50">
-      {isSapIntentOnly ? intakeHeader : catalogHeader}
+      {isSapIntentOnly ? intakeHeader : governanceHeader}
       {isSapIntentOnly ? null : <div className="mt-2">{matchList}</div>}
       {!isSapIntentOnly && showAllControl ? (
         <div className="mt-2">{showAllControl}</div>

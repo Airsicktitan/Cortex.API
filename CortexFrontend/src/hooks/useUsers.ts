@@ -533,7 +533,7 @@ export function useUsers({
           ? adminUserDraft.expiryDate
           : null,
       };
-      const updatedUser = await userService.updateUser(
+      const result = await userService.updateUser(
         editingAdminUser.id,
         payload,
         token,
@@ -541,21 +541,29 @@ export function useUsers({
 
       setUsers((currentUsers) =>
         currentUsers.map((userRecord) =>
-          userRecord.id === updatedUser.id
-            ? { ...userRecord, ...updatedUser }
+          userRecord.id === result.user.id
+            ? { ...userRecord, ...result.user }
             : userRecord,
         ),
       );
       setCurrentUser((existingUser) =>
-        existingUser && existingUser.id === updatedUser.id
-          ? { ...existingUser, ...updatedUser }
+        existingUser && existingUser.id === result.user.id
+          ? { ...existingUser, ...result.user }
           : existingUser,
       );
       userService.clearDirectoryCache();
 
       setAdminAccessFeedback("User saved.");
       closeAdminUserModal();
-      toast.success("User updated");
+      toast.success("User updated.");
+      const syncMsg = result.auth0ProfileSyncMessage?.trim();
+      if (syncMsg) {
+        if (result.auth0ProfileSyncStatus === "Failed") {
+          toast.error(syncMsg);
+        } else {
+          toast(syncMsg, { duration: 6500 });
+        }
+      }
     } catch (error) {
       console.error("Failed to update user", error);
       const message = getUserFacingErrorMessage(

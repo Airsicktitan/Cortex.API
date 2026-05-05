@@ -111,3 +111,25 @@ export interface UpdateUserProfileInput {
   assignmentNotificationChannel?: NotificationChannelMode | "";
   slaRiskNotificationChannel?: NotificationChannelMode | "";
 }
+
+/** Mirrors backend PUT /api/users/profile envelope (camelCase JSON). */
+export type Auth0ProfileSyncStatus =
+  | "NotConfigured"
+  | "Synced"
+  | "Skipped"
+  | "Failed";
+
+export interface UpdateUserProfileResult {
+  user: UserProfile;
+  auth0ProfileSyncStatus: Auth0ProfileSyncStatus;
+  auth0ProfileSyncMessage?: string | null;
+  diagnosticsTraceId: string;
+}
+
+/** PUT /api/users/{id} — admin update envelope (camelCase JSON). */
+export interface AdminUpdateUserResult {
+  user: UserRecord;
+  auth0ProfileSyncStatus: Auth0ProfileSyncStatus;
+  auth0ProfileSyncMessage?: string | null;
+  diagnosticsTraceId: string;
+}

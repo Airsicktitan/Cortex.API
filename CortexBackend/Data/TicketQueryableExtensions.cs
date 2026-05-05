@@ -18,6 +18,10 @@ internal static class TicketQueryableExtensions
         return ctx.Scope switch
         {
             TicketVisibilityScope.All => query,
+            TicketVisibilityScope.PendingApprover => query.Where(t =>
+                t.CreatedBy == ctx.UserId ||
+                t.ApprovalStatus == ApprovalStatus.PendingApproval ||
+                t.ApprovalStatus == ApprovalStatus.NeedsMoreInfo),
             TicketVisibilityScope.CreatedByCurrentUser => query.Where(t => t.CreatedBy == ctx.UserId),
             TicketVisibilityScope.AssignedToCurrentUser => WhereAssignedToCurrentUser(query, ctx),
             _ => query.Where(t => t.CreatedBy == ctx.UserId)
@@ -63,6 +67,8 @@ internal static class TicketQueryableExtensions
         return ctx.Scope switch
         {
             TicketVisibilityScope.All => query,
+            TicketVisibilityScope.PendingApprover =>
+                query.Where(t => t.CreatedBy == ctx.UserId),
             TicketVisibilityScope.CreatedByCurrentUser => query.Where(t => t.CreatedBy == ctx.UserId),
             TicketVisibilityScope.AssignedToCurrentUser => WhereArchivedAssignedToCurrentUser(query, ctx),
             _ => query.Where(t => t.CreatedBy == ctx.UserId)

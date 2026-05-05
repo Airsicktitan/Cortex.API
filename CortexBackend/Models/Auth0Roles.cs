@@ -8,6 +8,7 @@ public static class Auth0Roles
     public const string Admin = "Admin";
     public const string Developer = "Developer";
     public const string BusinessManager = "Business Manager";
+    public const string Approver = "Approver";
     public const string User = "User";
     public const string Guest = "Guest";
 
@@ -17,6 +18,7 @@ public static class Auth0Roles
         Admin,
         Developer,
         BusinessManager,
+        Approver,
         User,
         Guest
     ];

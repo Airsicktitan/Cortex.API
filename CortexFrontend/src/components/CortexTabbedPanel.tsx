@@ -24,12 +24,11 @@ import { ScrollToBottomButton } from "./ui/ScrollToBottomButton";
 
 const API_AUDIENCE = "https://cortex-api";
 
-type CortexTab = "decision" | "source" | "sap" | "intake" | "evidence" | "history";
+type CortexTab = "decision" | "source" | "intake" | "evidence" | "history";
 
 const TAB_LABELS: Record<CortexTab, string> = {
   decision: "Decision",
   source: "Source",
-  sap: "SAP",
   intake: "Intake",
   evidence: "Evidence",
   history: "History",
@@ -54,9 +53,17 @@ export interface CortexTabbedPanelProps {
    */
   sourceContextSlot?: ReactNode;
   /**
-   * SAP reference context (reviewer rail). When set, adds SAP tab after Source (or after Decision if no Source).
+   * SAP reference context surfaced in the Evidence tab (reviewer rail).
    */
-  sapContextSlot?: ReactNode;
+  sapReferenceEvidenceSlot?: ReactNode;
+  /**
+   * Bridges SAP + Syniti reference signals at top of Evidence (reviewer rail).
+   */
+  governanceContextEvidenceSlot?: ReactNode;
+  /**
+   * Syniti / DSP glossary context in the Evidence tab, below SAP (reviewer rail).
+   */
+  synitiKnowledgeEvidenceSlot?: ReactNode;
   /**
    * SAP reference matches for advisory Decision assist (successful load only; parent omits while loading/error).
    */
@@ -80,7 +87,9 @@ export function CortexTabbedPanel({
   intakeSlot,
   evidenceSlot,
   sourceContextSlot,
-  sapContextSlot,
+  sapReferenceEvidenceSlot,
+  governanceContextEvidenceSlot,
+  synitiKnowledgeEvidenceSlot,
   sapDecisionAssistMatches,
   sapIntentOnly = false,
   sapDecisionAssistTicketText,
@@ -94,22 +103,16 @@ export function CortexTabbedPanel({
     if (sourceContextSlot) {
       tabs.push("source");
     }
-    if (sapContextSlot) {
-      tabs.push("sap");
-    }
     tabs.push(...TAIL_TABS);
     return tabs;
-  }, [sourceContextSlot, sapContextSlot]);
+  }, [sourceContextSlot]);
 
   useEffect(() => {
     if (activeTab === "source" && !sourceContextSlot) {
       setActiveTab("decision");
       return;
     }
-    if (activeTab === "sap" && !sapContextSlot) {
-      setActiveTab("decision");
-    }
-  }, [activeTab, sourceContextSlot, sapContextSlot]);
+  }, [activeTab, sourceContextSlot]);
 
   const [visited, setVisited] = useState<ReadonlySet<CortexTab>>(
     new Set<CortexTab>(["decision"]),
@@ -232,36 +235,16 @@ export function CortexTabbedPanel({
         </p>
         <p className="mb-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400 lg:mb-3">
           Decision controls routing and reviewer actions.
-          {sourceContextSlot || sapContextSlot ? (
+          {sourceContextSlot ? (
             <span className="hidden lg:inline">
-              {sourceContextSlot && sapContextSlot ? (
-                <>
-                  {" "}
-                  <span className="font-medium text-slate-600 dark:text-slate-300">
-                    Source
-                  </span>{" "}
-                  is provenance;{" "}
-                  <span className="font-medium text-slate-600 dark:text-slate-300">SAP</span> is
-                  data reference context.
-                </>
-              ) : sourceContextSlot ? (
-                <>
-                  {" "}
-                  <span className="font-medium text-slate-600 dark:text-slate-300">Source</span>{" "}
-                  shows external provenance.
-                </>
-              ) : (
-                <>
-                  {" "}
-                  <span className="font-medium text-slate-600 dark:text-slate-300">SAP</span> shows
-                  data reference context.
-                </>
-              )}
+              {" "}
+              <span className="font-medium text-slate-600 dark:text-slate-300">Source</span>{" "}
+              shows external provenance.
             </span>
           ) : null}{" "}
           <span className="hidden lg:inline">
-            Intake, Evidence, and History provide advisory context; workload and SLAs live under
-            Decision.
+            Intake, Evidence (including SAP Reference Context when present), and History provide
+            advisory context; workload and SLAs live under Decision.
           </span>
           <span className="lg:hidden">Use the tabs below for details.</span>
         </p>
@@ -354,12 +337,6 @@ export function CortexTabbedPanel({
           </div>
         )}
 
-        {sapContextSlot && visited.has("sap") && (
-          <div className={activeTab === "sap" ? undefined : "hidden"}>
-            <div className="px-4 py-3">{sapContextSlot}</div>
-          </div>
-        )}
-
         {visited.has("intake") && (
           <div className={activeTab === "intake" ? undefined : "hidden"}>
             <div className="px-4 py-3">
@@ -380,7 +357,10 @@ export function CortexTabbedPanel({
 
         {visited.has("evidence") && (
           <div className={activeTab === "evidence" ? undefined : "hidden"}>
-            <div className="px-4 py-3">
+            <div className="space-y-4 px-4 py-3">
+              {governanceContextEvidenceSlot}
+              {sapReferenceEvidenceSlot}
+              {synitiKnowledgeEvidenceSlot}
               {evidenceSlot ?? (
                 <div className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
                   <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">

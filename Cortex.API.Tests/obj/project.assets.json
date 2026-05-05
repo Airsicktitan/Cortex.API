@@ -9048,17 +9048,17 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\adamc\\.nuget\\packages\\": {},
+    "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\43662f1b6f4d268791dbfd866d27d417\\nuget": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
+      "projectUniqueName": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
       "projectName": "Cortex.API.Tests",
-      "projectPath": "c:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
-      "packagesPath": "C:\\Users\\adamc\\.nuget\\packages\\",
-      "outputPath": "c:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\obj\\",
+      "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\Cortex.API.Tests.csproj",
+      "packagesPath": "C:\\Users\\adamc\\AppData\\Local\\Temp\\cursor-sandbox-cache\\43662f1b6f4d268791dbfd866d27d417\\nuget",
+      "outputPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\Cortex.API.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -9080,8 +9080,8 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "c:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj": {
-              "projectPath": "c:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj"
+            "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj": {
+              "projectPath": "C:\\Users\\adamc\\Documents\\Cortex.API\\CortexBackend\\Cortex.API.csproj"
             }
           }
         }

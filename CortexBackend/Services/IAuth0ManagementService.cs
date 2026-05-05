@@ -5,7 +5,14 @@ namespace Cortex.API.Services;
 public interface IAuth0ManagementService
 {
     Task<string> CreateUserAsync(CreateUserRequest request, CancellationToken cancellationToken = default);
+    /// <summary>DELETE /api/v2/users/{id} — permanently remove tenant user.</summary>
     Task DeleteUserAsync(string auth0UserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// PATCH /api/v2/users/{id} — root <c>name</c> / <c>nickname</c> (omit null props).
+    /// Requires <c>update:users</c> Management API permission.
+    /// </summary>
+    Task PatchUserRootProfileAsync(string auth0UserId, string? name, string? nickname, CancellationToken cancellationToken = default);
 
     /// <summary>GET /api/v2/roles — all roles defined in the Auth0 tenant (for admin UI).</summary>
     Task<IReadOnlyList<Auth0RoleDto>> GetAllRolesAsync(CancellationToken cancellationToken = default);
