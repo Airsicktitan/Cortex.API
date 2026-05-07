@@ -26,6 +26,8 @@ import {
   ApiError,
 } from "../services/api";
 import { AUTH0_ROLES, normalizeRoles } from "../utils/role";
+import { showAdminUserUpdateToast } from "../utils/adminUserUpdateToast";
+import { sanitizeOptionalProfileNameFieldsForApi } from "../utils/optionalProfileFieldsPayload";
 import toast from "react-hot-toast";
 
 function isForbiddenError(error: unknown): boolean {
@@ -527,12 +529,12 @@ export function useUsers({
       setAdminAccessFeedback(null);
       setAdminAccessError(null);
       const token = await getApiToken();
-      const payload: AdminUpdateUserInput = {
+      const payload: AdminUpdateUserInput = sanitizeOptionalProfileNameFieldsForApi({
         ...adminUserDraft,
         expiryDate: adminUserDraft.expiryDate?.trim()
           ? adminUserDraft.expiryDate
           : null,
-      };
+      });
       const result = await userService.updateUser(
         editingAdminUser.id,
         payload,
@@ -555,15 +557,7 @@ export function useUsers({
 
       setAdminAccessFeedback("User saved.");
       closeAdminUserModal();
-      toast.success("User updated.");
-      const syncMsg = result.auth0ProfileSyncMessage?.trim();
-      if (syncMsg) {
-        if (result.auth0ProfileSyncStatus === "Failed") {
-          toast.error(syncMsg);
-        } else {
-          toast(syncMsg, { duration: 6500 });
-        }
-      }
+      showAdminUserUpdateToast(result);
     } catch (error) {
       console.error("Failed to update user", error);
       const message = getUserFacingErrorMessage(

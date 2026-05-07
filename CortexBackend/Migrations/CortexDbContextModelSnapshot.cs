@@ -1497,6 +1497,10 @@ namespace Cortex.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Aliases")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
                     b.Property<string>("BusinessMeaning")
                         .HasMaxLength(8000)
                         .HasColumnType("nvarchar(max)");
@@ -1517,12 +1521,20 @@ namespace Cortex.API.Migrations
                         .HasMaxLength(8000)
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("MissingContextQuestions")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("RelatedTerms")
                         .HasMaxLength(8000)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("ShortDefinition")
                         .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SuggestedReviewerChecks")
                         .HasMaxLength(8000)
                         .HasColumnType("nvarchar(max)");
 

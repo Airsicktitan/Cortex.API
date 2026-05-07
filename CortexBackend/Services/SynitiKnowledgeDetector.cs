@@ -18,7 +18,10 @@ public readonly record struct SynitiKnowledgeCatalogRow(
     string? BusinessMeaning,
     string? TechnicalMeaning,
     string? RelatedTerms,
-    string? ExamplePhrases);
+    string? ExamplePhrases,
+    string? Aliases,
+    string? SuggestedReviewerChecks,
+    string? MissingContextQuestions);
 
 public readonly record struct SynitiKnowledgeCandidate(
     SynitiKnowledgeCatalogRow Row,
@@ -29,7 +32,7 @@ public readonly record struct SynitiKnowledgeCandidate(
 /// <summary>Deterministic Syniti/DSP knowledge matching from text (unit-testable).</summary>
 public static class SynitiKnowledgeDetector
 {
-    public const int MaxMatches = 5;
+    public const int MaxMatches = 3;
 
     private static readonly Regex SplitExamples = new(
         @"[\r\n;]+",
@@ -50,14 +53,8 @@ public static class SynitiKnowledgeDetector
         // Longer glossary terms first to prefer specific phrases (e.g. "value mapping" before loose overlaps).
         foreach (var row in catalog.OrderByDescending(r => r.Term.Trim().Length))
         {
-            if (MatchesPhraseDeterministic(hay, row.Term, out var viaBoundary))
+            if (TryAddTermOrAliasMatch(hay, row, unordered))
             {
-                _ = viaBoundary;
-                unordered.Add(new SynitiKnowledgeCandidate(
-                    row,
-                    SynitiKnowledgeMatchStrength.Strong,
-                    row.Term.Trim(),
-                    MatchedViaExamplePhrase: false));
                 continue;
             }
 
@@ -105,6 +102,51 @@ public static class SynitiKnowledgeDetector
             .ThenByDescending(c => c.Row.Term.Trim().Length)
             .Take(MaxMatches)
             .ToList();
+    }
+
+    /// <returns><c>true</c> when a strong (term/alias) match was added and example phrases should be skipped.</returns>
+    private static bool TryAddTermOrAliasMatch(
+        string hayLower,
+        SynitiKnowledgeCatalogRow row,
+        List<SynitiKnowledgeCandidate> unordered)
+    {
+        if (MatchesPhraseDeterministic(hayLower, row.Term, out _))
+        {
+            unordered.Add(new SynitiKnowledgeCandidate(
+                row,
+                SynitiKnowledgeMatchStrength.Strong,
+                row.Term.Trim(),
+                MatchedViaExamplePhrase: false));
+            return true;
+        }
+
+        foreach (var a in ExpandAliases(row.Aliases))
+        {
+            if (!MatchesPhraseDeterministic(hayLower, a, out _))
+            {
+                continue;
+            }
+
+            unordered.Add(new SynitiKnowledgeCandidate(
+                row,
+                SynitiKnowledgeMatchStrength.Strong,
+                a.Trim(),
+                MatchedViaExamplePhrase: false));
+            return true;
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> ExpandAliases(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+
+        return raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => s.Length >= 2);
     }
 
     private static IEnumerable<string> ExpandExamplePhrases(string? raw)

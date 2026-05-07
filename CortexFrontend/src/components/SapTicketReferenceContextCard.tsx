@@ -12,17 +12,17 @@ import {
 } from "../utils/sapReviewerGuidance";
 
 const HELPER_COPY =
-  "Guidance is derived from the Cortex SAP reference catalog (advisory). It reflects governance readiness, not a live SAP system check.";
+  "From the SAP reference catalog (advisory). Supports review — it does not replace routing or approval decisions.";
 const EVIDENCE_HELPER =
-  "Deterministic SAP catalog references only — advisory and not connected to live SAP.";
+  "SAP reference catalog matches shown here are advisory — they do not connect to a production SAP system.";
 const NO_LIVE_SAP_FOOTER =
-  "Cortex uses stored SAP reference catalog metadata only and does not perform a live SAP lookup.";
+  "Advisory catalog references only — not connected to a production SAP system.";
 
 const SAP_INTAKE_HELPER =
   "SAP-related wording is present, but no table or field matched the SAP reference catalog for this ticket.";
 
 const SAP_REFERENCE_EMPTY_COPY =
-  "No SAP reference metadata was found for this ticket yet.";
+  "No SAP reference catalog matches were found for this ticket yet.";
 
 const INITIAL_SHOW = 5;
 
@@ -109,13 +109,13 @@ function MatchBlock({
     m.businessObject ? `Business object: ${m.businessObject}` : null,
   ].filter(Boolean);
 
-  const confidenceLabel =
+  const catalogMatchLabel =
     (m.matchStrengthLabel && m.matchStrengthLabel.trim()) ||
     (m.confidence === "High"
-      ? "High confidence"
+      ? "Strong catalog match"
       : m.confidence === "Medium"
-        ? "Medium confidence"
-        : "Low confidence");
+        ? "Moderate catalog match"
+        : "Weaker catalog match");
 
   const extensionHint =
     Boolean(m.likelyCustomerExtensionField) || isCustomFieldSignal(m);
@@ -146,17 +146,19 @@ function MatchBlock({
           <>
             <Pill kind="field">Field</Pill>
             {extensionHint ? (
-              <Pill kind="custom">Likely extension / custom</Pill>
+              <Pill kind="custom">Likely custom SAP field</Pill>
             ) : null}
           </>
         )}
-        <Pill kind="confidence">{confidenceLabel}</Pill>
+        {layout !== "evidence" ? (
+          <Pill kind="confidence">{catalogMatchLabel}</Pill>
+        ) : null}
       </div>
 
       {meaningLine && layout === "evidence" ? (
         <>
           <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Meaning
+            Catalog description
           </p>
           <p className="mt-0.5 text-[11px] leading-snug text-gray-700 dark:text-slate-300">
             {meaningLine}
@@ -175,7 +177,7 @@ function MatchBlock({
       {layout === "default" && isTable && moduleLineParts.length > 0 ? (
         <p className="mt-2 text-[11px] leading-snug text-gray-600 dark:text-slate-400">
           <span className="font-medium text-gray-500 dark:text-slate-500">
-            Metadata:{" "}
+            Context:{" "}
           </span>
           {moduleLineParts.join(" · ")}
         </p>
@@ -184,7 +186,7 @@ function MatchBlock({
       {whyText ? (
         <>
           <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Why Cortex surfaced it
+            Match detail
           </p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-gray-700 dark:text-slate-300">
             {whyText}
@@ -262,13 +264,13 @@ function ReviewerGuidanceBlock({
         Reviewer guidance
       </h4>
       <p className="mt-1 text-[11px] leading-4 text-gray-600 dark:text-slate-500">
-        Suggested from stored SAP reference metadata.
+        Advisory only — does not assign owners or change routing.
       </p>
 
       {sVis.length > 0 ? (
         <div className="mt-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
-            What Cortex inferred
+            SAP context
           </p>
           {list(sVis)}
         </div>
@@ -277,7 +279,7 @@ function ReviewerGuidanceBlock({
       {qVis.length > 0 ? (
         <div className="mt-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
-            Questions to confirm
+            Reviewer checks
           </p>
           {list(qVis)}
         </div>
@@ -286,7 +288,7 @@ function ReviewerGuidanceBlock({
       {pVis.length > 0 ? (
         <div className="mt-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
-            Suggested investigation path
+            Suggested follow-up
           </p>
           {list(pVis)}
         </div>
@@ -295,7 +297,7 @@ function ReviewerGuidanceBlock({
       {oVis.length > 0 ? (
         <div className="mt-3 border-t border-gray-200/80 pt-3 dark:border-slate-600/60">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
-            Ownership hints
+            Potential ownership areas
           </p>
           {list(oVis)}
         </div>
@@ -455,7 +457,7 @@ export function SapTicketReferenceContextCard({
           </p>
         </header>
         <p className="mt-2 border-t border-gray-200/90 pt-2 text-[10px] leading-4 text-gray-500 dark:border-slate-700 dark:text-slate-500">
-          Stored catalog references only — advisory and not a live SAP lookup.
+          {NO_LIVE_SAP_FOOTER}
         </p>
       </section>
     );
@@ -518,9 +520,7 @@ export function SapTicketReferenceContextCard({
 
   const footer = (
     <p className="border-t border-gray-200/90 pt-2 text-[11px] leading-4 text-gray-500 dark:border-slate-700 dark:text-slate-500">
-      {isEvidencePurpose
-        ? "Stored catalog references only — advisory and not a live SAP lookup."
-        : NO_LIVE_SAP_FOOTER}
+      {NO_LIVE_SAP_FOOTER}
     </p>
   );
 

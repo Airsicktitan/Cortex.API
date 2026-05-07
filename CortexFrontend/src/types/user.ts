@@ -77,6 +77,7 @@ export interface SyncUsersFromAuth0Result {
 }
 
 export interface AdminUpdateUserInput {
+  displayName?: string;
   nickName?: string;
   phoneNumber?: string;
   department?: string;

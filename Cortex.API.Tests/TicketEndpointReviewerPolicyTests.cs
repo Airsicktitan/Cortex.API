@@ -1,6 +1,8 @@
 using Cortex.API.Authorization;
 using Cortex.API.Configuration;
+using Cortex.API.Data;
 using Cortex.API.Extensions;
+using Cortex.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;

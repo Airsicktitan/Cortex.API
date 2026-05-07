@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Cortex.API.DTO;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -17,10 +16,6 @@ public class Auth0ManagementService(
     private readonly HttpClient _httpClient = httpClient;
     private readonly Auth0ManagementOptions _options = options.Value;
     private readonly ILogger<Auth0ManagementService> _logger = logger;
-    private static readonly JsonSerializerOptions PatchJsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
 
     public async Task<string> CreateUserAsync(
         CreateUserRequest request,
@@ -29,6 +24,13 @@ public class Auth0ManagementService(
         EnsureConfigured();
 
         var accessToken = await GetManagementTokenAsync(cancellationToken);
+        var emailTrimmed = request.Email.Trim();
+        var emailLocal = emailTrimmed;
+        var at = emailLocal.IndexOf('@', StringComparison.Ordinal);
+        if (at > 0)
+        {
+            emailLocal = emailLocal[..at];
+        }
 
         using var httpRequest = new HttpRequestMessage(
             HttpMethod.Post,
@@ -39,11 +41,11 @@ public class Auth0ManagementService(
                     new
                     {
                         connection = _options.DatabaseConnection,
-                        email = request.Email.Trim(),
+                        email = emailTrimmed,
                         password = request.Password,
                         name = request.DisplayName.Trim(),
                         nickname = string.IsNullOrWhiteSpace(request.NickName)
-                            ? request.DisplayName.Trim()
+                            ? emailLocal
                             : request.NickName.Trim(),
                         blocked = !request.IsActive,
                         email_verified = false,
@@ -109,34 +111,57 @@ public class Auth0ManagementService(
     /// <inheritdoc />
     public async Task PatchUserRootProfileAsync(
         string auth0UserId,
+        bool includeName,
         string? name,
+        bool includeNickname,
         string? nickname,
         CancellationToken cancellationToken = default)
     {
         EnsureManagementApiConfigured();
         ArgumentException.ThrowIfNullOrWhiteSpace(auth0UserId);
 
-        var accessToken = await GetManagementTokenAsync(cancellationToken);
-
-        var body = new Auth0UserPatchBody
-        {
-            Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim(),
-            Nickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim(),
-        };
-
-        if (body.Name is null && body.Nickname is null)
+        if (!includeName && !includeNickname)
         {
             return;
+        }
+
+        var accessToken = await GetManagementTokenAsync(cancellationToken);
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            if (includeName)
+            {
+                writer.WriteString(
+                    "name",
+                    string.IsNullOrWhiteSpace(name) ? "" : name.Trim());
+            }
+
+            if (includeNickname)
+            {
+                writer.WritePropertyName("nickname");
+                if (string.IsNullOrWhiteSpace(nickname))
+                {
+                    writer.WriteNullValue();
+                }
+                else
+                {
+                    writer.WriteStringValue(nickname.Trim());
+                }
+            }
+
+            writer.WriteEndObject();
         }
 
         using var httpRequest = new HttpRequestMessage(
             HttpMethod.Patch,
             BuildPath($"/api/v2/users/{Uri.EscapeDataString(auth0UserId)}"))
         {
-            Content = new StringContent(
-                JsonSerializer.Serialize(body, PatchJsonOptions),
-                Encoding.UTF8,
-                "application/json"),
+            Content = new ByteArrayContent(stream.ToArray())
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("application/json") },
+            },
         };
 
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -146,15 +171,6 @@ public class Auth0ManagementService(
         {
             throw await CreateExceptionAsync(response, "Failed to update Auth0 user profile.", cancellationToken);
         }
-    }
-
-    private sealed class Auth0UserPatchBody
-    {
-        [JsonPropertyName("name")]
-        public string? Name { get; init; }
-
-        [JsonPropertyName("nickname")]
-        public string? Nickname { get; init; }
     }
 
     public async Task<IReadOnlyList<Auth0RoleDto>> GetAllRolesAsync(CancellationToken cancellationToken = default)

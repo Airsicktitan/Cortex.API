@@ -32,7 +32,7 @@ public sealed class UpdateUserProfileAuth0SyncTests
         var user = SeedUser(displayNameBeforeSave: "Local");
         var userContext = UserContextMutatingStub(user);
 
-        using var strictAuth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        var strictAuth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
 
         var http = new DefaultHttpContext
         {
@@ -61,7 +61,9 @@ public sealed class UpdateUserProfileAuth0SyncTests
         strictAuth0.Verify(
             service => service.PatchUserRootProfileAsync(
                 It.IsAny<string>(),
+                It.IsAny<bool>(),
                 It.IsAny<string?>(),
+                It.IsAny<bool>(),
                 It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
@@ -80,7 +82,7 @@ public sealed class UpdateUserProfileAuth0SyncTests
         var user = SeedUser(displayNameBeforeSave: "Keep", nickname: null, auth0Id: "auth0|x");
         var userContext = UserContextMutatingStub(user);
 
-        using var strictAuth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        var strictAuth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
 
         var http = new DefaultHttpContext
         {
@@ -108,7 +110,9 @@ public sealed class UpdateUserProfileAuth0SyncTests
         strictAuth0.Verify(
             service => service.PatchUserRootProfileAsync(
                 It.IsAny<string>(),
+                It.IsAny<bool>(),
                 It.IsAny<string?>(),
+                It.IsAny<bool>(),
                 It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
@@ -132,7 +136,9 @@ public sealed class UpdateUserProfileAuth0SyncTests
         auth0Mock
             .Setup(service => service.PatchUserRootProfileAsync(
                 user.Auth0Id!,
+                true,
                 "Next",
+                false,
                 It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -180,7 +186,9 @@ public sealed class UpdateUserProfileAuth0SyncTests
         auth0Mock
             .Setup(service => service.PatchUserRootProfileAsync(
                 user.Auth0Id!,
+                true,
                 "Bad",
+                false,
                 It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Auth0ManagementException("upstream-leak-detail", StatusCodes.Status400BadRequest));
@@ -211,6 +219,350 @@ public sealed class UpdateUserProfileAuth0SyncTests
         Assert.DoesNotContain("upstream-leak-detail", dto.Auth0ProfileSyncMessage, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task UpdateUserProfile_EnableSync_UnchangedDisplayName_SkipsPatch()
+    {
+        var management = Options.Create(new Auth0ManagementOptions
+        {
+            EnableProfileWriteBack = true,
+            Domain = "tenant.auth0.com",
+            ManagementClientId = "id",
+            ManagementClientSecret = "secret",
+        });
+
+        var user = SeedUser(displayNameBeforeSave: "Same", nickname: "nick", auth0Id: "auth0|same");
+        var userContext = UserContextMutatingStub(user);
+
+        var auth0Mock = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+
+        var http = new DefaultHttpContext
+        {
+            TraceIdentifier = "trace-unchanged-display",
+            RequestServices = new ServiceCollection()
+                .AddLogging()
+                .BuildServiceProvider(),
+        };
+        var accessorMock = new Mock<IHttpContextAccessor>();
+        accessorMock.Setup(a => a.HttpContext).Returns(http);
+
+        var result = await UserHandlers.UpdateUserProfile(
+            new UpdateUserProfileRequest { DisplayName = "Same" },
+            userContext.Object,
+            auth0Mock.Object,
+            management,
+            accessorMock.Object,
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var (_, dto) = await ReadUpdateProfileEnvelopeAsync(result);
+        Assert.Equal(Auth0ProfileSyncStatus.Skipped, dto!.Auth0ProfileSyncStatus);
+        auth0Mock.Verify(
+            service => service.PatchUserRootProfileAsync(
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateUserProfile_EnableSync_UnchangedNickName_SkipsPatch()
+    {
+        var management = Options.Create(new Auth0ManagementOptions
+        {
+            EnableProfileWriteBack = true,
+            Domain = "tenant.auth0.com",
+            ManagementClientId = "id",
+            ManagementClientSecret = "secret",
+        });
+
+        var user = SeedUser(displayNameBeforeSave: "Who", nickname: "bob", auth0Id: "auth0|bob");
+        var userContext = UserContextMutatingStub(user);
+
+        var auth0Mock = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+
+        var http = new DefaultHttpContext
+        {
+            TraceIdentifier = "trace-unchanged-nick",
+            RequestServices = new ServiceCollection()
+                .AddLogging()
+                .BuildServiceProvider(),
+        };
+        var accessorMock = new Mock<IHttpContextAccessor>();
+        accessorMock.Setup(a => a.HttpContext).Returns(http);
+
+        var result = await UserHandlers.UpdateUserProfile(
+            new UpdateUserProfileRequest { NickName = "bob" },
+            userContext.Object,
+            auth0Mock.Object,
+            management,
+            accessorMock.Object,
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var (_, dto) = await ReadUpdateProfileEnvelopeAsync(result);
+        Assert.Equal(Auth0ProfileSyncStatus.Skipped, dto!.Auth0ProfileSyncStatus);
+        auth0Mock.Verify(
+            service => service.PatchUserRootProfileAsync(
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateUserProfile_BlankNickName_ClearsNickName_Syncs_PatchesAuth0()
+    {
+        var management = Options.Create(new Auth0ManagementOptions
+        {
+            EnableProfileWriteBack = true,
+            Domain = "tenant.auth0.com",
+            ManagementClientId = "id",
+            ManagementClientSecret = "secret",
+        });
+
+        var user = SeedUser(displayNameBeforeSave: "Who", nickname: "bob", auth0Id: "auth0|blank-n");
+        var userContext = UserContextMutatingStub(user);
+
+        var auth0Mock = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0Mock
+            .Setup(service => service.PatchUserRootProfileAsync(
+                user.Auth0Id!,
+                false,
+                It.IsAny<string?>(),
+                true,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var http = new DefaultHttpContext
+        {
+            TraceIdentifier = "trace-blank-nick",
+            RequestServices = new ServiceCollection()
+                .AddLogging()
+                .BuildServiceProvider(),
+        };
+        var accessorMock = new Mock<IHttpContextAccessor>();
+        accessorMock.Setup(a => a.HttpContext).Returns(http);
+
+        var result = await UserHandlers.UpdateUserProfile(
+            new UpdateUserProfileRequest { NickName = "" },
+            userContext.Object,
+            auth0Mock.Object,
+            management,
+            accessorMock.Object,
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var (_, dto) = await ReadUpdateProfileEnvelopeAsync(result);
+        Assert.Null(user.NickName);
+        Assert.Equal(Auth0ProfileSyncStatus.Synced, dto!.Auth0ProfileSyncStatus);
+        auth0Mock.VerifyAll();
+    }
+
+    [Fact]
+    public async Task UpdateUserProfile_WhitespaceNickName_ClearsNickName_Syncs_PatchesAuth0()
+    {
+        var management = Options.Create(new Auth0ManagementOptions
+        {
+            EnableProfileWriteBack = true,
+            Domain = "tenant.auth0.com",
+            ManagementClientId = "id",
+            ManagementClientSecret = "secret",
+        });
+
+        var user = SeedUser(displayNameBeforeSave: "Who", nickname: "bob", auth0Id: "auth0|ws-n");
+        var userContext = UserContextMutatingStub(user);
+
+        var auth0Mock = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0Mock
+            .Setup(service => service.PatchUserRootProfileAsync(
+                user.Auth0Id!,
+                false,
+                It.IsAny<string?>(),
+                true,
+                null,
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var http = new DefaultHttpContext
+        {
+            TraceIdentifier = "trace-ws-nick",
+            RequestServices = new ServiceCollection()
+                .AddLogging()
+                .BuildServiceProvider(),
+        };
+        var accessorMock = new Mock<IHttpContextAccessor>();
+        accessorMock.Setup(a => a.HttpContext).Returns(http);
+
+        var result = await UserHandlers.UpdateUserProfile(
+            new UpdateUserProfileRequest { NickName = "  \t " },
+            userContext.Object,
+            auth0Mock.Object,
+            management,
+            accessorMock.Object,
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var (_, dto) = await ReadUpdateProfileEnvelopeAsync(result);
+        Assert.Null(user.NickName);
+        Assert.Equal(Auth0ProfileSyncStatus.Synced, dto!.Auth0ProfileSyncStatus);
+        auth0Mock.VerifyAll();
+    }
+
+    [Fact]
+    public async Task UpdateUserProfile_OmittedNickName_LeavesNickname_Unchanged_NoPatch()
+    {
+        var management = Options.Create(new Auth0ManagementOptions
+        {
+            EnableProfileWriteBack = true,
+            Domain = "tenant.auth0.com",
+            ManagementClientId = "id",
+            ManagementClientSecret = "secret",
+        });
+
+        var user = SeedUser(displayNameBeforeSave: "Who", nickname: "bob", auth0Id: "auth0|omit-nick");
+        var userContext = UserContextMutatingStub(user);
+
+        var auth0Mock = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+
+        var http = new DefaultHttpContext
+        {
+            TraceIdentifier = "trace-omit-nick",
+            RequestServices = new ServiceCollection()
+                .AddLogging()
+                .BuildServiceProvider(),
+        };
+        var accessorMock = new Mock<IHttpContextAccessor>();
+        accessorMock.Setup(a => a.HttpContext).Returns(http);
+
+        var result = await UserHandlers.UpdateUserProfile(
+            new UpdateUserProfileRequest { DisplayName = "Who" },
+            userContext.Object,
+            auth0Mock.Object,
+            management,
+            accessorMock.Object,
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var (_, dto) = await ReadUpdateProfileEnvelopeAsync(result);
+        Assert.Equal("bob", user.NickName);
+        Assert.Equal(Auth0ProfileSyncStatus.Skipped, dto!.Auth0ProfileSyncStatus);
+        auth0Mock.Verify(
+            service => service.PatchUserRootProfileAsync(
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateUserProfile_BlankDisplayName_DoesNotClear_SyncSkipped_NoPatch()
+    {
+        var management = Options.Create(new Auth0ManagementOptions
+        {
+            EnableProfileWriteBack = true,
+            Domain = "tenant.auth0.com",
+            ManagementClientId = "id",
+            ManagementClientSecret = "secret",
+        });
+
+        var user = SeedUser(displayNameBeforeSave: "Keep Name", nickname: "n", auth0Id: "auth0|blank-d");
+        var userContext = UserContextMutatingStub(user);
+
+        var auth0Mock = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+
+        var http = new DefaultHttpContext
+        {
+            TraceIdentifier = "trace-blank-disp",
+            RequestServices = new ServiceCollection()
+                .AddLogging()
+                .BuildServiceProvider(),
+        };
+        var accessorMock = new Mock<IHttpContextAccessor>();
+        accessorMock.Setup(a => a.HttpContext).Returns(http);
+
+        var result = await UserHandlers.UpdateUserProfile(
+            new UpdateUserProfileRequest { DisplayName = "" },
+            userContext.Object,
+            auth0Mock.Object,
+            management,
+            accessorMock.Object,
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var (_, dto) = await ReadUpdateProfileEnvelopeAsync(result);
+        Assert.Equal("Keep Name", user.DisplayName);
+        Assert.Equal(Auth0ProfileSyncStatus.Skipped, dto!.Auth0ProfileSyncStatus);
+        auth0Mock.Verify(
+            service => service.PatchUserRootProfileAsync(
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateUserProfile_TrimmedNickName_StillSyncs_WhenValueChanges()
+    {
+        var management = Options.Create(new Auth0ManagementOptions
+        {
+            EnableProfileWriteBack = true,
+            Domain = "tenant.auth0.com",
+            ManagementClientId = "id",
+            ManagementClientSecret = "secret",
+        });
+
+        var user = SeedUser(displayNameBeforeSave: "Who", nickname: "was", auth0Id: "auth0|trim");
+        var userContext = UserContextMutatingStub(user);
+
+        var auth0Mock = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0Mock
+            .Setup(service => service.PatchUserRootProfileAsync(
+                user.Auth0Id!,
+                false,
+                It.IsAny<string?>(),
+                true,
+                "edge",
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var http = new DefaultHttpContext
+        {
+            TraceIdentifier = "trace-trim-nick",
+            RequestServices = new ServiceCollection()
+                .AddLogging()
+                .BuildServiceProvider(),
+        };
+        var accessorMock = new Mock<IHttpContextAccessor>();
+        accessorMock.Setup(a => a.HttpContext).Returns(http);
+
+        var result = await UserHandlers.UpdateUserProfile(
+            new UpdateUserProfileRequest { NickName = "  edge  " },
+            userContext.Object,
+            auth0Mock.Object,
+            management,
+            accessorMock.Object,
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var (_, dto) = await ReadUpdateProfileEnvelopeAsync(result);
+        Assert.Equal("edge", user.NickName);
+        Assert.Equal(Auth0ProfileSyncStatus.Synced, dto!.Auth0ProfileSyncStatus);
+        auth0Mock.VerifyAll();
+    }
+
     private static User SeedUser(
         string displayNameBeforeSave,
         string? nickname = null,
@@ -235,14 +587,18 @@ public sealed class UpdateUserProfileAuth0SyncTests
             .Setup(c => c.UpdateProfileAsync(user, It.IsAny<UpdateUserProfileRequest>()))
             .Callback<User, UpdateUserProfileRequest>((u, request) =>
             {
-                if (!string.IsNullOrWhiteSpace(request.DisplayName))
+                var requestedDisplay =
+                    OptionalProfileFieldNormalization.NormalizeOptionalProfileUpdate(request.DisplayName);
+                if (requestedDisplay is not null)
                 {
-                    u.DisplayName = request.DisplayName.Trim();
+                    u.DisplayName = requestedDisplay;
                 }
 
-                u.NickName = string.IsNullOrWhiteSpace(request.NickName)
-                    ? null
-                    : request.NickName.Trim();
+                if (request.NickName is not null)
+                {
+                    var trimmedNick = request.NickName.Trim();
+                    u.NickName = trimmedNick.Length == 0 ? null : trimmedNick;
+                }
 
                 if (!string.IsNullOrWhiteSpace(request.PhoneNumber))
                 {

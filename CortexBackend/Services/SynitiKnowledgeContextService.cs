@@ -63,7 +63,10 @@ public sealed class SynitiKnowledgeContextService(
                 e.BusinessMeaning,
                 e.TechnicalMeaning,
                 e.RelatedTerms,
-                e.ExamplePhrases))
+                e.ExamplePhrases,
+                e.Aliases,
+                e.SuggestedReviewerChecks,
+                e.MissingContextQuestions))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -87,34 +90,45 @@ public sealed class SynitiKnowledgeContextService(
 
         var strengthLabel = hit.Strength switch
         {
-            SynitiKnowledgeMatchStrength.Strong => "Strong reference match",
-            _ => "Supporting phrase match",
+            SynitiKnowledgeMatchStrength.Strong => "Strong catalog match",
+            _ => "Phrase match",
         };
 
         var relatedPreview = FormatRelatedTermsPreview(row.RelatedTerms);
 
+        var reviewerGuidanceText = FormatReviewerGuidance(row);
+
         var sourceReason = ComposeSourceReason(
             row,
             hit,
-            strengthLabel,
             ticketHit,
             externHit,
             mappingHit);
+
+        var business = string.IsNullOrWhiteSpace(row.BusinessMeaning)
+            ? null
+            : row.BusinessMeaning.Trim();
+        if (business is not null &&
+            string.Equals(business, reviewerGuidanceText, StringComparison.Ordinal))
+        {
+            business = null;
+        }
 
         return new SynitiKnowledgeContextMatchDto
         {
             Term = row.Term.Trim(),
             Category = row.Category.ToString(),
             ShortDefinition = row.ShortDefinition.Trim(),
-            BusinessMeaning = string.IsNullOrWhiteSpace(row.BusinessMeaning)
-                ? null
-                : row.BusinessMeaning.Trim(),
+            ReviewerGuidance = reviewerGuidanceText,
+            BusinessMeaning = business,
             TechnicalMeaning = string.IsNullOrWhiteSpace(row.TechnicalMeaning)
                 ? null
                 : row.TechnicalMeaning.Trim(),
             RelatedTermsPreview = relatedPreview,
             SourceReason = sourceReason,
             MatchStrengthLabel = strengthLabel,
+            SuggestedReviewerChecks = ParseDelimitedLines(row.SuggestedReviewerChecks),
+            MissingContextQuestions = ParseDelimitedLines(row.MissingContextQuestions),
         };
     }
 
@@ -132,6 +146,33 @@ public sealed class SynitiKnowledgeContextService(
             .ToList();
 
         return parts.Count == 0 ? null : string.Join(", ", parts);
+    }
+
+    private static string FormatReviewerGuidance(SynitiKnowledgeCatalogRow row)
+    {
+        if (!string.IsNullOrWhiteSpace(row.BusinessMeaning))
+        {
+            return row.BusinessMeaning.Trim();
+        }
+
+        return row.ShortDefinition.Trim();
+    }
+
+    private static IReadOnlyList<string> ParseDelimitedLines(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+
+        var parts = raw
+            .Split(new[] { '|', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(static s => s.Trim())
+            .Where(static s => s.Length > 0)
+            .Take(12)
+            .ToList();
+
+        return parts;
     }
 
     private static bool Hits(string? segment, HashSet<string> needles)
@@ -161,7 +202,6 @@ public sealed class SynitiKnowledgeContextService(
     private static string ComposeSourceReason(
         SynitiKnowledgeCatalogRow row,
         SynitiKnowledgeCandidate hit,
-        string strengthLabel,
         bool ticketHit,
         bool externHit,
         bool mappingHit)
@@ -172,18 +212,18 @@ public sealed class SynitiKnowledgeContextService(
         string location;
         if (!ticketHit && !externHit && !mappingHit)
         {
-            location = "Cortex’s combined ticket, board, and integration scan";
+            location = "the combined request and integration context";
         }
         else if (ticketHit && !externHit && !mappingHit)
         {
-            location = "the request details";
+            location = "the request wording";
         }
         else
         {
             var bits = new List<string>();
             if (ticketHit)
             {
-                bits.Add("the ticket wording");
+                bits.Add("the ticket");
             }
 
             if (externHit)
@@ -203,14 +243,22 @@ public sealed class SynitiKnowledgeContextService(
             location = joined;
         }
 
-        var defPreview = Truncate(row.ShortDefinition.Trim(), 220);
-        var via = hit.MatchedViaExamplePhrase
-            ? $"A seeded example phrase (“{displayPhrase}”) pointed to the glossary entry “{glossaryTerm}”."
-            : $"The term “{displayPhrase}” matches the glossary entry “{glossaryTerm}”.";
+        var defPreview = Truncate(row.ShortDefinition.Trim(), 200);
+        string via;
+        if (hit.MatchedViaExamplePhrase)
+        {
+            via =
+                $"This appears related to “{displayPhrase}”, which maps to the catalog term “{glossaryTerm}”. ";
+        }
+        else
+        {
+            via =
+                $"The text references “{displayPhrase}”, aligned with “{glossaryTerm}” in the reference catalog. ";
+        }
 
         var body =
-            $"Cortex found “{displayPhrase}” while scanning {location}. {via} " +
-            $"Summary: {defPreview} This is {strengthLabel.ToLowerInvariant()} reference context from “{row.SourceName.Trim()}” (advisory only).";
+            $"Review context from “{row.SourceName.Trim()}”: wording in {location} suggests this theme. {via}" +
+            $"Summary: {defPreview} Reference material only — routing and ownership stay unchanged.";
 
         return SpaceCollapse.Replace(body.Trim(), " ");
     }

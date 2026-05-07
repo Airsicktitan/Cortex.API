@@ -66,6 +66,8 @@ public static class UserHandlers
     private static async Task<(Auth0ProfileSyncStatus SyncStatus, string? SyncMessage)> TryResolveAuth0ProfileWriteBackAsync(
         User user,
         bool considerPatchingAuth0NameFields,
+        bool displayNameChanged,
+        bool nicknameChanged,
         Auth0ManagementOptions mgmtOpts,
         IAuth0ManagementService auth0Management,
         string traceId,
@@ -73,8 +75,17 @@ public static class UserHandlers
         string skippedNoRelevantNameFieldsMessage,
         CancellationToken cancellationToken)
     {
+        var hasAuth0Link = !string.IsNullOrWhiteSpace(user.Auth0Id);
+
         if (!mgmtOpts.EnableProfileWriteBack)
         {
+            logger.LogInformation(
+                "Auth0 profile write-back skipped: not enabled. CortexUserId={CortexUserId}, HasAuth0UserId={HasAuth0UserId}, DisplayNameChanged={DisplayNameChanged}, NicknameChanged={NicknameChanged}, SyncStatus={SyncStatus}",
+                user.Id,
+                hasAuth0Link,
+                displayNameChanged,
+                nicknameChanged,
+                Auth0ProfileSyncStatus.NotConfigured);
             return (
                 Auth0ProfileSyncStatus.NotConfigured,
                 "Saved in Cortex. Auth0 profile sync is not enabled.");
@@ -82,6 +93,13 @@ public static class UserHandlers
 
         if (!mgmtOpts.IsManagementApiClientConfigured)
         {
+            logger.LogInformation(
+                "Auth0 profile write-back skipped: Management API not configured. CortexUserId={CortexUserId}, HasAuth0UserId={HasAuth0UserId}, DisplayNameChanged={DisplayNameChanged}, NicknameChanged={NicknameChanged}, SyncStatus={SyncStatus}",
+                user.Id,
+                hasAuth0Link,
+                displayNameChanged,
+                nicknameChanged,
+                Auth0ProfileSyncStatus.NotConfigured);
             return (
                 Auth0ProfileSyncStatus.NotConfigured,
                 "Saved in Cortex. Auth0 profile sync requires Management API credentials; configuration is incomplete.");
@@ -89,11 +107,24 @@ public static class UserHandlers
 
         if (!considerPatchingAuth0NameFields)
         {
+            logger.LogInformation(
+                "Auth0 profile write-back skipped: name fields unchanged or not applicable. CortexUserId={CortexUserId}, HasAuth0UserId={HasAuth0UserId}, DisplayNameChanged={DisplayNameChanged}, NicknameChanged={NicknameChanged}, SyncStatus={SyncStatus}",
+                user.Id,
+                hasAuth0Link,
+                displayNameChanged,
+                nicknameChanged,
+                Auth0ProfileSyncStatus.Skipped);
             return (Auth0ProfileSyncStatus.Skipped, skippedNoRelevantNameFieldsMessage);
         }
 
-        if (string.IsNullOrWhiteSpace(user.Auth0Id))
+        if (!hasAuth0Link)
         {
+            logger.LogInformation(
+                "Auth0 profile write-back skipped: no Auth0 user id on local user. CortexUserId={CortexUserId}, HasAuth0UserId=false, DisplayNameChanged={DisplayNameChanged}, NicknameChanged={NicknameChanged}, SyncStatus={SyncStatus}",
+                user.Id,
+                displayNameChanged,
+                nicknameChanged,
+                Auth0ProfileSyncStatus.Skipped);
             return (
                 Auth0ProfileSyncStatus.Skipped,
                 "Saved in Cortex. This account is not linked to an Auth0 user id, so profile sync was skipped.");
@@ -101,34 +132,56 @@ public static class UserHandlers
 
         try
         {
+            logger.LogInformation(
+                "Auth0 profile PATCH starting. CortexUserId={CortexUserId}, HasAuth0UserId=true, DisplayNameChanged={DisplayNameChanged}, NicknameChanged={NicknameChanged}",
+                user.Id,
+                displayNameChanged,
+                nicknameChanged);
             await auth0Management
                 .PatchUserRootProfileAsync(
                     user.Auth0Id!,
+                    displayNameChanged,
                     user.DisplayName,
+                    nicknameChanged,
                     user.NickName,
                     cancellationToken)
                 .ConfigureAwait(false);
+            logger.LogInformation(
+                "Auth0 profile PATCH succeeded. CortexUserId={CortexUserId}, SyncStatus={SyncStatus}, DisplayNameChanged={DisplayNameChanged}, NicknameChanged={NicknameChanged}",
+                user.Id,
+                Auth0ProfileSyncStatus.Synced,
+                displayNameChanged,
+                nicknameChanged);
             return (
                 Auth0ProfileSyncStatus.Synced,
-                "Display updates were mirrored to Auth0 (subject to tenant connection and identity-provider rules).");
+                "Saved in Cortex. Display name and nickname were mirrored to Auth0 (subject to tenant connection and identity-provider rules).");
         }
         catch (Auth0ManagementException ex)
         {
             logger.LogWarning(
                 ex,
-                "Auth0 profile PATCH failed TraceId={TraceId} HttpStatus={Status}",
+                "Auth0 profile PATCH failed TraceId={TraceId} CortexUserId={CortexUserId} HttpStatus={Status} DisplayNameChanged={DisplayNameChanged} NicknameChanged={NicknameChanged}",
                 traceId,
-                ex.StatusCode);
+                user.Id,
+                ex.StatusCode,
+                displayNameChanged,
+                nicknameChanged);
             return (
                 Auth0ProfileSyncStatus.Failed,
-                "Saved in Cortex. Auth0 could not apply the profile update from this deployment (check administrator configuration or connection behavior).");
+                "Saved in Cortex, but Auth0 profile sync failed. Reimport may restore the previous Auth0 display name or nickname until sync is fixed.");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Auth0 profile PATCH unexpected error TraceId={TraceId}", traceId);
+            logger.LogError(
+                ex,
+                "Auth0 profile PATCH unexpected error TraceId={TraceId} CortexUserId={CortexUserId} DisplayNameChanged={DisplayNameChanged} NicknameChanged={NicknameChanged}",
+                traceId,
+                user.Id,
+                displayNameChanged,
+                nicknameChanged);
             return (
                 Auth0ProfileSyncStatus.Failed,
-                "Saved in Cortex. Auth0 profile sync failed due to an unexpected error.");
+                "Saved in Cortex, but Auth0 profile sync failed. Reimport may restore the previous Auth0 display name or nickname until sync is fixed.");
         }
     }
 
@@ -468,21 +521,32 @@ public static class UserHandlers
 
             var user = await userContext.GetCurrentUserAsync();
 
+            var previousDisplayName = user.DisplayName;
+            var previousNickName = user.NickName;
+
             await userContext.UpdateProfileAsync(user, request);
 
             var dto = user.ToResponse();
-            var touchedNames =
-                !string.IsNullOrWhiteSpace(request.DisplayName) ||
-                request.NickName is not null;
+            var displayNameChanged = !string.Equals(
+                previousDisplayName ?? "",
+                user.DisplayName ?? "",
+                StringComparison.Ordinal);
+            var nicknameChanged = !string.Equals(
+                previousNickName ?? "",
+                user.NickName ?? "",
+                StringComparison.Ordinal);
+            var profileNamesTouched = displayNameChanged || nicknameChanged;
 
             var (syncStatus, syncMessage) = await TryResolveAuth0ProfileWriteBackAsync(
                 user,
-                touchedNames,
+                profileNamesTouched,
+                displayNameChanged,
+                nicknameChanged,
                 mgmtOpts,
                 auth0Management,
                 traceId,
                 logger,
-                "Saved in Cortex. No display name or nickname fields were supplied, so Auth0 profile sync was skipped.",
+                "Saved in Cortex. Display name and nickname were unchanged, so Auth0 profile sync was skipped.",
                 cancellationToken);
 
             return Results.Ok(
@@ -589,7 +653,19 @@ public static class UserHandlers
             var previousNickName = user.NickName;
             var previousDisplayName = user.DisplayName;
 
-            user.NickName = NormalizeOptionalValue(request.NickName);
+            var requestedDisplayName = OptionalProfileFieldNormalization.NormalizeOptionalProfileUpdate(
+                request.DisplayName);
+            if (requestedDisplayName is not null)
+            {
+                user.DisplayName = requestedDisplayName;
+            }
+
+            if (request.NickName is not null)
+            {
+                var trimmedNick = request.NickName.Trim();
+                user.NickName = trimmedNick.Length == 0 ? null : trimmedNick;
+            }
+
             user.PhoneNumber = NormalizeOptionalValue(request.PhoneNumber);
             user.Department = UserDepartmentPolicy.ApplyDeveloperDepartmentDefault(
                 NormalizeOptionalValue(request.Department),
@@ -607,9 +683,15 @@ public static class UserHandlers
             user.ExpiryDate = request.ExpiryDate;
             user.LastModifiedDate = DateTime.UtcNow;
 
-            var profileNamesTouched =
-                !string.Equals(previousNickName ?? "", user.NickName ?? "", StringComparison.Ordinal) ||
-                !string.Equals(previousDisplayName ?? "", user.DisplayName ?? "", StringComparison.Ordinal);
+            var displayNameChanged = !string.Equals(
+                previousDisplayName ?? "",
+                user.DisplayName ?? "",
+                StringComparison.Ordinal);
+            var nicknameChanged = !string.Equals(
+                previousNickName ?? "",
+                user.NickName ?? "",
+                StringComparison.Ordinal);
+            var profileNamesTouched = displayNameChanged || nicknameChanged;
 
             await repo.SaveChangesAsync();
             if (roleExplicitlyChanged)
@@ -626,6 +708,8 @@ public static class UserHandlers
             var (syncStatus, syncMessage) = await TryResolveAuth0ProfileWriteBackAsync(
                 user,
                 profileNamesTouched,
+                displayNameChanged,
+                nicknameChanged,
                 mgmtOpts,
                 auth0Management,
                 traceId,

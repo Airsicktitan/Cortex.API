@@ -7,6 +7,7 @@ import type { SessionConfiguration } from "./types/sessionConfiguration";
 import type { TicketBoardDefinition } from "./types/ticketBoard";
 import type { TicketStatusDefinition } from "./types/ticketStatus";
 import type { UpdateUserProfileInput, UserProfile } from "./types/user";
+import { sanitizeOptionalProfileNameFieldsForApi } from "./utils/optionalProfileFieldsPayload";
 import {
   API_USER_MESSAGES,
   ApiError,
@@ -2682,7 +2683,10 @@ function App() {
     try {
       setProfileSaving(true);
       const token = await getApiToken();
-      const result = await userService.updateProfile(profileDraft, token);
+      const result = await userService.updateProfile(
+        sanitizeOptionalProfileNameFieldsForApi(profileDraft),
+        token,
+      );
 
       setCurrentUser(result.user);
       updateUserRecord(result.user);

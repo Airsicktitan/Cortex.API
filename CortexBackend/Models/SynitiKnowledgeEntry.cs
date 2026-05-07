@@ -26,6 +26,15 @@ public class SynitiKnowledgeEntry
     /// <summary>Semicolon or newline separated example phrases for deterministic matching.</summary>
     public string? ExamplePhrases { get; set; }
 
+    /// <summary>Optional semicolon-separated alternate phrases to match (same strength as term match).</summary>
+    public string? Aliases { get; set; }
+
+    /// <summary>Optional pipe-separated reviewer action items (curated, safe text only).</summary>
+    public string? SuggestedReviewerChecks { get; set; }
+
+    /// <summary>Optional pipe-separated prompts for missing clarification (curated, safe text only).</summary>
+    public string? MissingContextQuestions { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     public DateTime? UpdatedAtUtc { get; set; }

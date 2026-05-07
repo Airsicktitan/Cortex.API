@@ -83,7 +83,7 @@ public class Auth0UserDirectorySyncService(
                 Auth0Id = auth0Id,
                 Email = normalizedEmail,
                 DisplayName = displayName,
-                NickName = NormalizeOptional(remote.Nickname),
+                NickName = ResolveNicknameForNewUser(remote, normalizedEmail),
                 PhoneNumber = null,
                 Department = UserDepartmentPolicy.ApplyDeveloperDepartmentDefault(null, resolvedRole),
                 Role = resolvedRole,
@@ -149,11 +149,10 @@ public class Auth0UserDirectorySyncService(
             changed = true;
         }
 
-        var nick = NormalizeOptional(remote.Nickname);
-        if (nick is not null &&
-            !string.Equals(local.NickName, nick, StringComparison.Ordinal))
+        if (TryGetSyncedNicknameFromDirectory(remote, out var syncedNick) &&
+            !string.Equals(local.NickName, syncedNick, StringComparison.Ordinal))
         {
-            local.NickName = nick;
+            local.NickName = syncedNick;
             changed = true;
         }
 
@@ -182,10 +181,9 @@ public class Auth0UserDirectorySyncService(
             local.DisplayName = displayName;
         }
 
-        var nick = NormalizeOptional(remote.Nickname);
-        if (nick is not null)
+        if (TryGetSyncedNicknameFromDirectory(remote, out var linkedNick))
         {
-            local.NickName = nick;
+            local.NickName = linkedNick;
         }
     }
 
@@ -196,17 +194,43 @@ public class Auth0UserDirectorySyncService(
             return remote.Name.Trim();
         }
 
-        if (!string.IsNullOrWhiteSpace(remote.Nickname))
-        {
-            return remote.Nickname.Trim();
-        }
-
         var at = normalizedEmail.IndexOf('@', StringComparison.Ordinal);
         return at > 0 ? normalizedEmail[..at] : normalizedEmail;
     }
 
-    private static string? NormalizeOptional(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    /// <summary>
+    /// When Auth0 includes a root <c>nickname</c> JSON member (including explicit
+    /// <c>null</c> or <c>""</c>), mirror it to Cortex. When the member is omitted
+    /// (<see cref="Auth0NicknameField.IsSpecified"/> is <see langword="false"/> on the
+    /// default field), do not change the local nickname.
+    /// </summary>
+    private static bool TryGetSyncedNicknameFromDirectory(Auth0DirectoryUserDto remote, out string? nickname)
+    {
+        if (!remote.Nickname.IsSpecified)
+        {
+            nickname = null;
+            return false;
+        }
+
+        nickname = remote.Nickname.NormalizedValue;
+        return true;
+    }
+
+    private static string? ResolveNicknameForNewUser(Auth0DirectoryUserDto remote, string normalizedEmail)
+    {
+        if (!remote.Nickname.IsSpecified)
+        {
+            return EmailLocalPart(normalizedEmail);
+        }
+
+        return remote.Nickname.NormalizedValue;
+    }
+
+    private static string EmailLocalPart(string normalizedEmail)
+    {
+        var at = normalizedEmail.IndexOf('@', StringComparison.Ordinal);
+        return at > 0 ? normalizedEmail[..at] : normalizedEmail;
+    }
 
     private async Task<List<string>> GetCanonicalRoleNamesAsync(string auth0UserId, CancellationToken cancellationToken)
     {

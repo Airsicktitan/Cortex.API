@@ -9,7 +9,7 @@ import {
 
 /** Advisory SAP / data governance assist for the Decision tab. */
 export type SapDecisionAssist = {
-  /** Can this move forward, and at what confidence? */
+/** How ready this appears for approval — not model confidence. */
   reviewReadinessLines: string[];
   /** Business-facing SAP scope (not raw “detection” wording). */
   dataContextLines: string[];
@@ -68,7 +68,7 @@ export function buildSapIntentOnlyDecisionAssist(
   }
   return {
     reviewReadinessLines: [
-      "This request is not ready for approval because the SAP table, field, affected records, current value, requested value, and business reason are missing.",
+      "SAP-related context is present, but catalog-linked table or field detail is missing — scope may need clarification before approval.",
     ],
     dataContextLines: [
       "SAP-related intake is present, but no catalog-linked table or field is available for reviewers yet.",
@@ -262,7 +262,7 @@ export function buildSapDecisionAssist(
     pushDedupe(
       reviewReadinessLines,
       seenR,
-      "Not ready for approval — SAP table, field, or record detail is still too thin for a confident review.",
+      "Appears thin on SAP detail — table, field, or record scope may need clarification before approval.",
     );
     beforeSegments.push([
       "Provide SAP table and field names, affected records, and the requested change.",
@@ -274,7 +274,7 @@ export function buildSapDecisionAssist(
     pushDedupe(
       reviewReadinessLines,
       seenR,
-      "Ready for review with minor gaps — confirm the items below before approval.",
+      "Appears reviewable once the checklist items below are confirmed.",
     );
   }
 

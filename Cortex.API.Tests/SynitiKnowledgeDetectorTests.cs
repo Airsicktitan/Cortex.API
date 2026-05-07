@@ -9,8 +9,9 @@ public class SynitiKnowledgeDetectorTests
         int id,
         string term,
         SynitiKnowledgeCategory cat,
-        string? examples = null) =>
-        new(id, "Seed", term, cat, "Def", null, null, null, examples);
+        string? examples = null,
+        string? aliases = null) =>
+        new(id, "Seed", term, cat, "Def", null, null, null, examples, aliases, null, null);
 
     [Fact]
     public void FindMatches_DspToken_MatchesDsp()
@@ -51,6 +52,20 @@ public class SynitiKnowledgeDetectorTests
     }
 
     [Fact]
+    public void FindMatches_AliasMatchesAdmmToAdm()
+    {
+        var hay = "issue in ADMM for vendor master";
+        var catalog = new[]
+        {
+            R(1, "ADM", SynitiKnowledgeCategory.Platform, aliases: "ADMM"),
+        };
+        var hits = SynitiKnowledgeDetector.FindMatches(hay, catalog);
+        Assert.Single(hits);
+        Assert.Equal("ADM", hits[0].Row.Term);
+        Assert.Equal(SynitiKnowledgeMatchStrength.Strong, hits[0].Strength);
+    }
+
+    [Fact]
     public void FindMatches_RespectsMaxMatches()
     {
         var hay =
@@ -65,6 +80,6 @@ public class SynitiKnowledgeDetectorTests
             R(6, "Syniti", SynitiKnowledgeCategory.Platform),
         };
         var hits = SynitiKnowledgeDetector.FindMatches(hay, catalog);
-        Assert.Equal(SynitiKnowledgeDetector.MaxMatches, hits.Count);
+        Assert.Equal(3, hits.Count);
     }
 }

@@ -1279,6 +1279,9 @@ public class CortexDbContext : DbContext
             entity.Property(e => e.CommonSignals).HasMaxLength(8000);
             entity.Property(e => e.RelatedTerms).HasMaxLength(8000);
             entity.Property(e => e.ExamplePhrases).HasMaxLength(8000);
+            entity.Property(e => e.Aliases).HasMaxLength(2000);
+            entity.Property(e => e.SuggestedReviewerChecks).HasMaxLength(8000);
+            entity.Property(e => e.MissingContextQuestions).HasMaxLength(8000);
             entity.Property(e => e.CreatedAtUtc).IsRequired();
             entity.HasIndex(e => e.SynitiKnowledgeSourceId);
             entity.HasIndex(e => new { e.SynitiKnowledgeSourceId, e.Term })

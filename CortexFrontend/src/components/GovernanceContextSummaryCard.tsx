@@ -2,6 +2,11 @@ import type { SapTicketReferenceMatch } from "../types/sapTicketReference";
 import type { SynitiKnowledgeContextMatch } from "../types/synitiKnowledgeContext";
 import { formatDisplayValue } from "../utils/presentation";
 import { isCustomFieldSignal } from "../utils/sapReferenceMetadataSignals";
+import {
+  getSapGovernanceCardPrimaryContext,
+  getSapGovernanceCardReviewerChecks,
+} from "../utils/sapReviewerGuidance";
+import { mergeGovernanceReviewerChecks, buildSynitiPrimarySummaryLine } from "../utils/synitiKnowledgeGovernance";
 
 function truncateReviewLine(text: string, maxLen: number): string {
   const t = text.trim();
@@ -20,7 +25,7 @@ function sapFieldTrail(m: SapTicketReferenceMatch): string {
   const ext =
     Boolean(m.likelyCustomerExtensionField) || isCustomFieldSignal(m);
   if (ext) {
-    return "Likely extension or customer-specific field";
+    return "Likely custom SAP field (extension / customer-specific)";
   }
 
   const bo = formatDisplayValue(m.businessObject);
@@ -30,7 +35,7 @@ function sapFieldTrail(m: SapTicketReferenceMatch): string {
 
   const mod = formatDisplayValue(m.module);
   if (mod !== "—") {
-    return truncateReviewLine(`${mod} metadata context`, 72);
+    return truncateReviewLine(`${mod} in SAP`, 72);
   }
 
   const td = m.tableDescription?.trim();
@@ -144,13 +149,27 @@ function buildSapDataSignals(matches: SapTicketReferenceMatch[]): DataSignalRow[
   return out;
 }
 
-function buildGovernanceSignals(
+function buildGovernanceSynitiBlock(
   matches: SynitiKnowledgeContextMatch[],
-): DataSignalRow[] {
-  return matches.slice(0, 2).map((m) => ({
+  sapPrimaryShown: boolean,
+): {
+  sectionPrimaryLine: string | null;
+  secondaryLines: { headline: string; trail: string }[];
+} {
+  if (matches.length === 0) {
+    return { sectionPrimaryLine: null, secondaryLines: [] };
+  }
+
+  const sectionPrimaryLine = sapPrimaryShown
+    ? buildSynitiPrimarySummaryLine(matches[0])
+    : null;
+
+  const secondaryLines = matches.slice(1, 3).map((m) => ({
     headline: m.term.trim(),
-    trail: truncateReviewLine(m.shortDefinition.trim(), 110),
+    trail: truncateReviewLine(m.shortDefinition.trim(), 100),
   }));
+
+  return { sectionPrimaryLine, secondaryLines };
 }
 
 function buildReviewerFocusBullets(args: {
@@ -163,12 +182,11 @@ function buildReviewerFocusBullets(args: {
   const hasSapField = sapMatches.some((m) => m.matchType === "Field");
   const hasSapDomain = sapMatches.some((m) => m.matchType === "DomainValue");
   const domPreview = sapMatches.some((m) => Boolean(m.domainValuesPreview?.trim()));
-  const hasSyniti = synitiMatches.length > 0;
   const hasSapRef = sapMatches.length > 0;
 
   if (hasSapField) {
     bullets.push(
-      "Confirm whether the referenced SAP field is standard or customer-specific.",
+      "Confirm whether the referenced field is standard SAP or a customer extension.",
     );
   }
 
@@ -176,9 +194,9 @@ function buildReviewerFocusBullets(args: {
     bullets.push("Check whether domain values or lookup values are required.");
   }
 
-  if (hasSyniti || hasSapRef) {
+  if (hasSapRef && synitiMatches.length === 0) {
     bullets.push(
-      "Confirm whether this request affects mapping, validation, migration execution, or governance ownership.",
+      "Consider mapping, validation, migration paths, and governance ownership if the request affects those areas.",
     );
   }
 
@@ -202,27 +220,52 @@ export function GovernanceContextSummaryCard({
     return null;
   }
 
+  const primarySapContext =
+    sapMatches.length > 0 ? getSapGovernanceCardPrimaryContext(sapMatches) : null;
+  const synitiOnlyPrimary =
+    !primarySapContext && synitiMatches.length > 0
+      ? buildSynitiPrimarySummaryLine(synitiMatches[0])
+      : null;
+  const sapReviewerChecks =
+    sapMatches.length > 0 ? getSapGovernanceCardReviewerChecks(sapMatches) : [];
   const dataSignals = buildSapDataSignals(sapMatches);
-  const governanceSignals = buildGovernanceSignals(synitiMatches);
-  const reviewerFocus = buildReviewerFocusBullets({ sapMatches, synitiMatches });
+  const { sectionPrimaryLine: synitiSectionPrimary, secondaryLines: synitiSecondary } =
+    buildGovernanceSynitiBlock(synitiMatches, Boolean(primarySapContext));
+  const extraFocus = buildReviewerFocusBullets({ sapMatches, synitiMatches });
+  const reviewerFocus = mergeGovernanceReviewerChecks({
+    sapChecks: sapReviewerChecks,
+    synitiMatches,
+    extraBullets: extraFocus,
+    maxTotal: 5,
+  });
 
   return (
     <section className="rounded-md border border-slate-400/55 bg-white/90 px-3 py-2.5 shadow-sm ring-1 ring-slate-900/[0.05] dark:border-slate-500/60 dark:bg-slate-900/55 dark:ring-white/[0.06]">
       <header className="space-y-1">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-slate-300">
-          Governance Context Summary
+          Governance summary
         </h3>
         <p className="text-[11px] leading-snug text-gray-600 dark:text-slate-400">
-          Cortex found reference context that may help the reviewer understand the data,
-          migration, or governance impact of this ticket.
+          Reference context only — advisory. Uses stored catalogs (no live connection to SAP or Syniti).
         </p>
       </header>
 
       <div className="mt-3 space-y-3">
+        {primarySapContext || synitiOnlyPrimary ? (
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Primary context
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-gray-800 dark:text-slate-200">
+              {primarySapContext ?? synitiOnlyPrimary}
+            </p>
+          </div>
+        ) : null}
+
         {dataSignals.length > 0 ? (
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Data signals
+              Referenced objects
             </p>
             <ul className="mt-1.5 list-outside list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-gray-800 dark:text-slate-200">
               {dataSignals.map((row) => (
@@ -238,29 +281,36 @@ export function GovernanceContextSummaryCard({
           </div>
         ) : null}
 
-        {governanceSignals.length > 0 ? (
+        {synitiSectionPrimary || synitiSecondary.length > 0 ? (
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Governance signals
+              Syniti knowledge
             </p>
-            <ul className="mt-1.5 list-outside list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-gray-800 dark:text-slate-200">
-              {governanceSignals.map((row) => (
-                <li key={`${row.headline}:${row.trail}`}>
-                  <span className="font-semibold text-gray-900 dark:text-slate-100">
-                    {row.headline}
-                  </span>
-                  {" — "}
-                  <span className="text-gray-700 dark:text-slate-300">{row.trail}</span>
-                </li>
-              ))}
-            </ul>
+            {synitiSectionPrimary ? (
+              <p className="mt-1 text-[11px] leading-relaxed text-gray-800 dark:text-slate-200">
+                {synitiSectionPrimary}
+              </p>
+            ) : null}
+            {synitiSecondary.length > 0 ? (
+              <ul className="mt-1.5 list-outside list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-gray-800 dark:text-slate-200">
+                {synitiSecondary.map((row) => (
+                  <li key={`${row.headline}:${row.trail}`}>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100">
+                      {row.headline}
+                    </span>
+                    {" — "}
+                    <span className="text-gray-700 dark:text-slate-300">{row.trail}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : null}
 
         {reviewerFocus.length > 0 ? (
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Reviewer focus
+              Suggested reviewer checks
             </p>
             <ul className="mt-1.5 list-outside list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-gray-700 dark:text-slate-300">
               {reviewerFocus.map((line) => (
@@ -272,8 +322,7 @@ export function GovernanceContextSummaryCard({
       </div>
 
       <p className="mt-3 border-t border-gray-200/90 pt-2 text-[10px] leading-snug text-gray-500 dark:border-slate-700 dark:text-slate-500">
-        Reference context only — advisory. Cortex does not connect to live SAP or Syniti
-        runtime environments.
+        Does not assign owners, change routing, or replace your approval judgment.
       </p>
     </section>
   );

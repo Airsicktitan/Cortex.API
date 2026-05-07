@@ -44,11 +44,12 @@ public sealed class TicketVisibilityApproverTests
 
         Assert.Equal(TicketVisibilityScope.PendingApprover, visibility.Scope);
 
-        Assert.True(
-            visibility.CanView(
-                createdBy: 999,
-                synitiOwner: null,
-                businessOwner: null));
+        var strangerPending = new Ticket
+        {
+            CreatedBy = 999,
+            ApprovalStatus = ApprovalStatus.PendingApproval,
+        };
+        Assert.True(visibility.CanView(strangerPending));
     }
 
     [Fact]

@@ -53,15 +53,18 @@ public class UserContextService(
             ? null
             : email.Trim();
 
+        // display_name and root `name` map to Cortex DisplayName only — never use nickname (or display_name) as NickName.
         var displayName = principal.FindFirst("https://cortex-api/display_name")?.Value ??
                         principal.FindFirst("name")?.Value ??
-                        principal.FindFirst("nickname")?.Value ??
                         principal.FindFirst("preferred_username")?.Value ??
                         principal.FindFirst("username")?.Value ??
                         principal.FindFirst(ClaimTypes.Name)?.Value ??
                         normalizedEmail?.Split('@')[0] ?? // Fallback to email prefix if no name claim is found
                         auth0Id;
-        var nickName = principal.FindFirst("nickname")?.Value;
+        var nickClaim =
+            principal.FindFirst("https://cortex-api/nickname")?.Value ??
+            principal.FindFirst("nickname")?.Value;
+        var nickName = nickClaim;
         var phoneNumber = principal.FindFirst("phone_number")?.Value ??
                           principal.FindFirst(ClaimTypes.MobilePhone)?.Value;
 
@@ -290,13 +293,21 @@ public class UserContextService(
             request.SlaRiskNotificationChannel,
             nameof(request.SlaRiskNotificationChannel));
 
-        // Update only allowed fields
-        if (!string.IsNullOrWhiteSpace(request.DisplayName))
+        // Display name: omit / null / blank does not change (display should stay populated).
+        var requestedDisplayName = OptionalProfileFieldNormalization.NormalizeOptionalProfileUpdate(
+            request.DisplayName);
+        if (requestedDisplayName is not null)
         {
-            user.DisplayName = request.DisplayName;
+            user.DisplayName = requestedDisplayName;
         }
 
-        user.NickName = NormalizeOptionalValue(request.NickName);
+        // Nickname: null/omitted → unchanged; blank or whitespace → clear; otherwise trim and set.
+        if (request.NickName is not null)
+        {
+            var trimmedNick = request.NickName.Trim();
+            user.NickName = trimmedNick.Length == 0 ? null : trimmedNick;
+        }
+
         user.PhoneNumber = NormalizeOptionalValue(request.PhoneNumber);
         user.Department = NormalizeOptionalValue(request.Department);
         user.AssignmentNotificationChannel = assignmentNotificationChannel;

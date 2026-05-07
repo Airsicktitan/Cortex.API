@@ -13,6 +13,9 @@ public sealed record SynitiKnowledgeContextMatchDto
 
     public required string ShortDefinition { get; init; }
 
+    /// <summary>Reviewer-first guidance (curated catalog text).</summary>
+    public required string ReviewerGuidance { get; init; }
+
     public string? BusinessMeaning { get; init; }
 
     public string? TechnicalMeaning { get; init; }
@@ -22,4 +25,8 @@ public sealed record SynitiKnowledgeContextMatchDto
     public required string SourceReason { get; init; }
 
     public required string MatchStrengthLabel { get; init; }
+
+    public IReadOnlyList<string> SuggestedReviewerChecks { get; init; } = [];
+
+    public IReadOnlyList<string> MissingContextQuestions { get; init; } = [];
 }

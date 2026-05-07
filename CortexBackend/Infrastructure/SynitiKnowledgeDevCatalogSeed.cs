@@ -4,91 +4,68 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Infrastructure;
 
-/// <summary>Development-only Syniti/DSP glossary rows when the catalog is empty.</summary>
+/// <summary>
+/// Idempotently ensures a curated Syniti knowledge catalog exists (safe, generic entries only).
+/// </summary>
 public static class SynitiKnowledgeDevCatalogSeed
 {
+    private const string CuratedSourceName = "Cortex safe Syniti knowledge (curated v1)";
+
     public static async Task EnsureAsync(CortexDbContext db, CancellationToken cancellationToken = default)
     {
-        if (await db.SynitiKnowledgeSources.AnyAsync(cancellationToken))
+        var now = DateTime.UtcNow;
+
+        var source = await db.SynitiKnowledgeSources
+            .FirstOrDefaultAsync(s => s.Name == CuratedSourceName, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (source is null)
         {
-            return;
+            source = new SynitiKnowledgeSource
+            {
+                Name = CuratedSourceName,
+                SourceType = SynitiKnowledgeSourceType.Manual,
+                Version = "v1",
+                IsEnabled = true,
+                CreatedAtUtc = now,
+            };
+            db.SynitiKnowledgeSources.Add(source);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var now = DateTime.UtcNow;
-        var src = new SynitiKnowledgeSource
-        {
-            Name = "Demo Syniti knowledge (local)",
-            SourceType = SynitiKnowledgeSourceType.Manual,
-            Version = "dev-seed",
-            IsEnabled = true,
-            CreatedAtUtc = now,
-        };
-        db.SynitiKnowledgeSources.Add(src);
-        await db.SaveChangesAsync(cancellationToken);
+        var termList = await db.SynitiKnowledgeEntries
+            .Select(e => e.Term)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var takenTerms = termList.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        void Entry(
-            string term,
-            SynitiKnowledgeCategory category,
-            string shortDef,
-            string? businessMeaning,
-            string? related,
-            string? examples)
+        foreach (var def in SynitiKnowledgeCuratedCatalog.CuratedEntries)
         {
+            if (takenTerms.Contains(def.Term))
+            {
+                continue;
+            }
+
             db.SynitiKnowledgeEntries.Add(new SynitiKnowledgeEntry
             {
-                SynitiKnowledgeSourceId = src.Id,
-                Term = term,
-                Category = category,
-                ShortDefinition = shortDef,
-                BusinessMeaning = businessMeaning,
+                SynitiKnowledgeSourceId = source.Id,
+                Term = def.Term,
+                Category = def.Category,
+                ShortDefinition = def.ShortDefinition,
+                BusinessMeaning = def.ReviewerGuidance,
                 TechnicalMeaning = null,
                 CommonSignals = null,
-                RelatedTerms = related,
-                ExamplePhrases = examples,
+                RelatedTerms = def.RelatedTerms,
+                ExamplePhrases = def.ExamplePhrases,
+                Aliases = def.Aliases,
+                SuggestedReviewerChecks = def.SuggestedReviewerChecks,
+                MissingContextQuestions = def.MissingContextQuestions,
                 CreatedAtUtc = now,
             });
+
+            takenTerms.Add(def.Term);
         }
 
-        Entry(
-            "DSP",
-            SynitiKnowledgeCategory.Platform,
-            "Syniti’s data migration and governance platform used to manage migration, validation, mapping, construction, and related data processes.",
-            "Typically refers to orchestrating repeatable migration waves, validations, mappings, and construction activities with reviewer oversight.",
-            "ADM; Governance; Waves",
-            "Syniti DSP; data governance platform");
-
-        Entry(
-            "ADM",
-            SynitiKnowledgeCategory.Platform,
-            "Advanced Data Migration context used to support structured migration execution and governance.",
-            null,
-            "DSP; Waves; Scenarios",
-            "advanced data migration; ADMM");
-
-        Entry(
-            "Value Mapping",
-            SynitiKnowledgeCategory.Mapping,
-            "A mapping process that translates source values into target values using controlled business rules or lookup references.",
-            null,
-            "Lookup tables; Transform rules",
-            "value mappings; translate source values to target");
-
-        Entry(
-            "Data Quality Rule",
-            SynitiKnowledgeCategory.DataQuality,
-            "A validation rule used to identify whether source or target data meets expected business requirements.",
-            null,
-            "Validation; DQ checks",
-            "data quality rules; dq rule");
-
-        Entry(
-            "Wave",
-            SynitiKnowledgeCategory.Migration,
-            "A planned migration or rollout grouping used to organize scope, timing, objects, and execution.",
-            null,
-            "Scenario; Cutover",
-            "migration wave; rollout wave");
-
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 }

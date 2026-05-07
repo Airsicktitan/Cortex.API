@@ -36,7 +36,7 @@ export function SapDecisionAssistCard({ assist }: { assist: SapDecisionAssist })
         </h3>
         <p className="mt-1 text-[11px] leading-4 text-amber-950/85 dark:text-amber-100/75">
           Advisory context from the Cortex SAP reference catalog. Routing and approval rules are
-          unchanged; this is not a live SAP lookup.
+          unchanged; uses stored catalog data only (not a production SAP connection).
         </p>
       </div>
 
@@ -70,7 +70,7 @@ export function SapDecisionAssistCard({ assist }: { assist: SapDecisionAssist })
       {assist.governanceConcernLines.length > 0 ? (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/80 dark:text-amber-200/85">
-            Governance concern
+            Potential governance impact
           </p>
           <BulletList items={assist.governanceConcernLines} />
         </div>

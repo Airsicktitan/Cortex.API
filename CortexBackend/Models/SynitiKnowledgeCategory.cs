@@ -13,4 +13,10 @@ public enum SynitiKnowledgeCategory
     Security = 8,
     Workflow = 9,
     Other = 10,
+    Reconciliation = 11,
+    Readiness = 12,
+    FieldOwnership = 13,
+    LoadProcessing = 14,
+    Cutover = 15,
+    Support = 16,
 }

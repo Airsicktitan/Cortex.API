@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Cortex.API.Data;
 using Cortex.API.DTO;
 using Cortex.API.Models;
@@ -14,6 +15,87 @@ namespace Cortex.API.Tests;
 /// </summary>
 public class Auth0UserDirectorySyncServiceTests
 {
+    private static Auth0NicknameField MirrorNick(string normalizedValue) => new(IsSpecified: true, NormalizedValue: normalizedValue);
+
+    private static Auth0NicknameField MirrorNickCleared() => new(IsSpecified: true, NormalizedValue: null);
+
+    [Fact]
+    public void Auth0DirectoryUserDto_OmittedNickname_StaysNull_Element()
+    {
+        var dto = JsonSerializer.Deserialize<Auth0DirectoryUserDto>(
+            """{"user_id":"auth0|x","email":"a@b.com","name":"A"}""");
+        Assert.False(dto!.Nickname.IsSpecified);
+    }
+
+    [Fact]
+    public void Auth0DirectoryUserDto_ExplicitNullNickname_IsNotPropertyOmitted()
+    {
+        var dto = JsonSerializer.Deserialize<Auth0DirectoryUserDto>(
+            """{"user_id":"auth0|x","email":"a@b.com","nickname":null}""");
+        Assert.True(dto!.Nickname.IsSpecified);
+        Assert.Null(dto.Nickname.NormalizedValue);
+    }
+
+    [Fact]
+    public async Task Sync_ExistingUser_RootNicknameExplicitJsonNull_ClearsLocalNickName()
+    {
+        var existing = new User
+        {
+            Id = 1,
+            Email = "jsonnull@acme.com",
+            Auth0Id = "auth0|jsonnull",
+            DisplayName = "Who",
+            NickName = "was-here",
+            IsActive = true,
+        };
+        var remote = new Auth0DirectoryUserDto
+        {
+            UserId = "auth0|jsonnull",
+            Email = "jsonnull@acme.com",
+            Name = "Who",
+            Nickname = MirrorNickCleared(),
+            Blocked = false,
+        };
+
+        var fake = new FakeUserRepository(existing);
+        var auth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0.Setup(a => a.GetAllDirectoryUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Auth0DirectoryUserDto> { remote });
+
+        var sut = new Auth0UserDirectorySyncService(fake, auth0.Object);
+
+        await sut.SyncFromAuth0Async();
+
+        Assert.Null(fake.Users.Single().NickName);
+    }
+
+    [Fact]
+    public async Task Sync_NewUser_RootNicknameExplicitJsonNull_DoesNotFallbackToEmailLocalPart()
+    {
+        var remote = new Auth0DirectoryUserDto
+        {
+            UserId = "auth0|new-null-nick",
+            Email = "new.null@acme.com",
+            Name = "New User",
+            Nickname = MirrorNickCleared(),
+            Blocked = false,
+        };
+
+        var fake = new FakeUserRepository();
+        var auth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0.Setup(a => a.GetAllDirectoryUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Auth0DirectoryUserDto> { remote });
+        auth0.Setup(a => a.GetUserRolesAsync(remote.UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Auth0RoleDto>());
+
+        var sut = new Auth0UserDirectorySyncService(fake, auth0.Object);
+
+        await sut.SyncFromAuth0Async();
+
+        var created = Assert.Single(fake.Users);
+        Assert.Null(created.NickName);
+    }
+
     [Fact]
     public async Task Sync_CreatesNewUserAsInactive_EvenWhenRemoteNotBlocked()
     {
@@ -41,6 +123,177 @@ public class Auth0UserDirectorySyncServiceTests
         Assert.False(created.IsActive);
         Assert.Equal("auth0|new-user", created.Auth0Id);
         Assert.Equal("new.user@acme.com", created.Email);
+        Assert.Equal("new.user", created.NickName);
+    }
+
+    [Fact]
+    public async Task Sync_UpdatesNickName_FromAuth0RootNickname()
+    {
+        var existing = new User
+        {
+            Id = 1,
+            Email = "sync.nick@acme.com",
+            Auth0Id = "auth0|nick-sync",
+            DisplayName = "Old Display",
+            NickName = "old-nick",
+            IsActive = true,
+        };
+        var remote = new Auth0DirectoryUserDto
+        {
+            UserId = "auth0|nick-sync",
+            Email = "sync.nick@acme.com",
+            Name = "Fresh Display",
+            Nickname = MirrorNick("auth0-nick-value"),
+            Blocked = false,
+        };
+
+        var fake = new FakeUserRepository(existing);
+        var auth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0.Setup(a => a.GetAllDirectoryUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Auth0DirectoryUserDto> { remote });
+
+        var sut = new Auth0UserDirectorySyncService(fake, auth0.Object);
+
+        await sut.SyncFromAuth0Async();
+
+        var u = fake.Users.Single();
+        Assert.Equal("auth0-nick-value", u.NickName);
+        Assert.Equal("Fresh Display", u.DisplayName);
+    }
+
+    [Fact]
+    public async Task Sync_DisplayName_UsesRootName_NotNickname_WhenTheyDiffer()
+    {
+        var existing = new User
+        {
+            Id = 1,
+            Email = "split@acme.com",
+            Auth0Id = "auth0|split",
+            DisplayName = "Previous",
+            NickName = "local-nick",
+            IsActive = true,
+        };
+        var remote = new Auth0DirectoryUserDto
+        {
+            UserId = "auth0|split",
+            Email = "split@acme.com",
+            Name = "Full Legal Name",
+            Nickname = MirrorNick("shorty"),
+            Blocked = false,
+        };
+
+        var fake = new FakeUserRepository(existing);
+        var auth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0.Setup(a => a.GetAllDirectoryUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Auth0DirectoryUserDto> { remote });
+
+        var sut = new Auth0UserDirectorySyncService(fake, auth0.Object);
+
+        await sut.SyncFromAuth0Async();
+
+        var u = fake.Users.Single();
+        Assert.Equal("Full Legal Name", u.DisplayName);
+        Assert.Equal("shorty", u.NickName);
+    }
+
+    [Fact]
+    public async Task Sync_ExistingUser_RootNicknameEmptyString_ClearsLocalNickName()
+    {
+        var existing = new User
+        {
+            Id = 1,
+            Email = "clearnick@acme.com",
+            Auth0Id = "auth0|clearnick",
+            DisplayName = "Keep Display",
+            NickName = "old-nick",
+            IsActive = true,
+        };
+        var remote = new Auth0DirectoryUserDto
+        {
+            UserId = "auth0|clearnick",
+            Email = "clearnick@acme.com",
+            Name = "Keep Display",
+            Nickname = MirrorNickCleared(),
+            Blocked = false,
+        };
+
+        var fake = new FakeUserRepository(existing);
+        var auth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0.Setup(a => a.GetAllDirectoryUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Auth0DirectoryUserDto> { remote });
+
+        var sut = new Auth0UserDirectorySyncService(fake, auth0.Object);
+
+        await sut.SyncFromAuth0Async();
+
+        var u = fake.Users.Single();
+        Assert.Null(u.NickName);
+        Assert.Equal("Keep Display", u.DisplayName);
+    }
+
+    [Fact]
+    public async Task Sync_ExistingUser_RootNicknamePropertyAbsent_DoesNotChangeLocalNickName()
+    {
+        var existing = new User
+        {
+            Id = 1,
+            Email = "absent@acme.com",
+            Auth0Id = "auth0|absent",
+            DisplayName = "Who",
+            NickName = "preserve-me",
+            IsActive = true,
+        };
+        var remote = new Auth0DirectoryUserDto
+        {
+            UserId = "auth0|absent",
+            Email = "absent@acme.com",
+            Name = "Who",
+            Blocked = false,
+        };
+
+        var fake = new FakeUserRepository(existing);
+        var auth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0.Setup(a => a.GetAllDirectoryUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Auth0DirectoryUserDto> { remote });
+
+        var sut = new Auth0UserDirectorySyncService(fake, auth0.Object);
+
+        await sut.SyncFromAuth0Async();
+
+        Assert.Equal("preserve-me", fake.Users.Single().NickName);
+    }
+
+    [Fact]
+    public async Task Sync_ExistingUser_DoesNotFillNicknameFromDisplayName_WhenRemoteNicknameEmpty()
+    {
+        var existing = new User
+        {
+            Id = 1,
+            Email = "nodisplaynick@acme.com",
+            Auth0Id = "auth0|nodn",
+            DisplayName = "Legal Name Here",
+            NickName = null,
+            IsActive = true,
+        };
+        var remote = new Auth0DirectoryUserDto
+        {
+            UserId = "auth0|nodn",
+            Email = "nodisplaynick@acme.com",
+            Name = "Legal Name Here",
+            Nickname = MirrorNickCleared(),
+            Blocked = false,
+        };
+
+        var fake = new FakeUserRepository(existing);
+        var auth0 = new Mock<IAuth0ManagementService>(MockBehavior.Strict);
+        auth0.Setup(a => a.GetAllDirectoryUsersAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Auth0DirectoryUserDto> { remote });
+
+        var sut = new Auth0UserDirectorySyncService(fake, auth0.Object);
+
+        await sut.SyncFromAuth0Async();
+
+        Assert.Null(fake.Users.Single().NickName);
     }
 
     [Fact]

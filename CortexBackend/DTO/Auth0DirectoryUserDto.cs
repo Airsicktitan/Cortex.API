@@ -14,8 +14,12 @@ public sealed class Auth0DirectoryUserDto
     [JsonPropertyName("name")]
     public string? Name { get; set; }
 
+    /// <summary>Auth0 root <c>nickname</c>. Default = JSON property omitted.</summary>
     [JsonPropertyName("nickname")]
-    public string? Nickname { get; set; }
+    public Auth0NicknameField Nickname { get; set; }
+
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
 
     [JsonPropertyName("blocked")]
     public bool Blocked { get; set; }

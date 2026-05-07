@@ -9,10 +9,19 @@ public interface IAuth0ManagementService
     Task DeleteUserAsync(string auth0UserId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// PATCH /api/v2/users/{id} — root <c>name</c> / <c>nickname</c> (omit null props).
+    /// PATCH /api/v2/users/{id} — root <c>name</c> / <c>nickname</c>.
+    /// Each field is sent only when its <c>include*</c> flag is true (partial update).
+    /// When <c>includeNickname</c> is true, <c>nickname</c> null/empty/whitespace clears Auth0 nickname
+    /// by sending <c>nickname</c> as JSON <c>null</c> (not an empty string).
     /// Requires <c>update:users</c> Management API permission.
     /// </summary>
-    Task PatchUserRootProfileAsync(string auth0UserId, string? name, string? nickname, CancellationToken cancellationToken = default);
+    Task PatchUserRootProfileAsync(
+        string auth0UserId,
+        bool includeName,
+        string? name,
+        bool includeNickname,
+        string? nickname,
+        CancellationToken cancellationToken = default);
 
     /// <summary>GET /api/v2/roles — all roles defined in the Auth0 tenant (for admin UI).</summary>
     Task<IReadOnlyList<Auth0RoleDto>> GetAllRolesAsync(CancellationToken cancellationToken = default);
