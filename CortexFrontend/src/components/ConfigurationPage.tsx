@@ -39,7 +39,7 @@ import TicketRoutingSection from "./TicketRoutingSection";
 import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
 import CortexAutonomyControlSection from "./CortexAutonomyControlSection";
 import IntegrationsPage from "./IntegrationsPage";
-import SapReferencePage from "./SapReferencePage";
+import SapReferenceSection from "./SapReferenceSection";
 import SynitiKnowledgeCatalogPage from "./SynitiKnowledgeCatalogPage";
 
 interface ConfigurationPageProps {
@@ -659,7 +659,7 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
               />
             )}
 
-            {activeSection === "sapReference" && <SapReferencePage />}
+            {activeSection === "sapReference" && <SapReferenceSection />}
 
             {activeSection === "referenceCatalogs" && (
               <SynitiKnowledgeCatalogPage

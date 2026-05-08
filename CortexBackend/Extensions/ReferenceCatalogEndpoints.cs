@@ -15,5 +15,9 @@ public static class ReferenceCatalogEndpoints
         g.MapGet("/syniti-knowledge", ReferenceCatalogHandlers.GetSynitiKnowledgeCatalog)
             .WithName("GetSynitiKnowledgeCatalog")
             .Produces<SynitiKnowledgeCatalogListResponse>(StatusCodes.Status200OK);
+
+        g.MapGet("/sap-reference", ReferenceCatalogHandlers.GetSapReferenceCatalog)
+            .WithName("GetSapReferenceCatalog")
+            .Produces<SapReferenceCatalogListResponse>(StatusCodes.Status200OK);
     }
 }

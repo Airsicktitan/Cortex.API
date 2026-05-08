@@ -14,4 +14,12 @@ public static class ReferenceCatalogHandlers
         var dto = await catalogReadService.ListAsync(q, category, cancellationToken).ConfigureAwait(false);
         return Results.Ok(dto);
     }
+
+    public static async Task<IResult> GetSapReferenceCatalog(
+        ISapReferenceCatalogReadService catalogReadService,
+        CancellationToken cancellationToken)
+    {
+        var dto = await catalogReadService.ListAsync(cancellationToken).ConfigureAwait(false);
+        return Results.Ok(dto);
+    }
 }

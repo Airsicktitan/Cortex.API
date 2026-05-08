@@ -308,7 +308,7 @@ export default function SynitiKnowledgeCatalogPage({
 
         <div className="mb-6 rounded-xl border border-slate-200/90 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-800/35">
           <p className="text-sm text-gray-800 dark:text-slate-200">
-            SAP table and field reference metadata is managed separately.{" "}
+            SAP table and field reference metadata lives in the SAP Reference Catalog.{" "}
             {onOpenSapReference ? (
               <button
                 type="button"

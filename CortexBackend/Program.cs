@@ -108,6 +108,7 @@ builder.Services.AddScoped<ReviewerTicketContextAssembler>();
 builder.Services.AddScoped<ISapReferenceContextService, SapReferenceContextService>();
 builder.Services.AddScoped<ISynitiKnowledgeContextService, SynitiKnowledgeContextService>();
 builder.Services.AddScoped<ISynitiKnowledgeCatalogReadService, SynitiKnowledgeCatalogReadService>();
+builder.Services.AddScoped<ISapReferenceCatalogReadService, SapReferenceCatalogReadService>();
 builder.Services.AddScoped<ITicketCreationApplicationService, TicketCreationApplicationService>();
 builder.Services.AddScoped<SharePointExternalWorkSourceAdapter>();
 builder.Services.AddScoped<IExternalWorkSourceAdapter>(sp => sp.GetRequiredService<SharePointExternalWorkSourceAdapter>());
