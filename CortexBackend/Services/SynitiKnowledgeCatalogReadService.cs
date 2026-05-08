@@ -58,8 +58,11 @@ public sealed class SynitiKnowledgeCatalogReadService(CortexDbContext db) : ISyn
                     EF.Functions.Like(x.Entry.MissingContextQuestions, pattern)));
         }
 
-        var rawRows = await query
-            .OrderBy(x => x.Entry.Term)
+        var orderedQuery = normalizedSearch.Length > 0
+            ? query.OrderBy(x => x.Entry.Id)
+            : query.OrderBy(x => x.Entry.Term);
+
+        var rawRows = await orderedQuery
             .Select(x => new
             {
                 x.Entry.Term,
@@ -99,6 +102,15 @@ public sealed class SynitiKnowledgeCatalogReadService(CortexDbContext db) : ISyn
                 x.CreatedAtUtc,
                 x.UpdatedAtUtc))
             .ToList();
+
+        if (normalizedSearch.Length > 0)
+        {
+            var qn = CatalogSearchRanking.NormalizeSearchText(normalizedSearch);
+            rows = rows
+                .OrderBy(e => CatalogSearchRanking.GetSynitiSortKey(e, qn))
+                .ThenBy(e => e.Term, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
 
         return new SynitiKnowledgeCatalogListResponse(rows);
     }

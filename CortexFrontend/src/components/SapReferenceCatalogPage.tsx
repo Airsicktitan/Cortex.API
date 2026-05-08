@@ -4,6 +4,7 @@ import type { SapReferenceCatalogEntry } from "../types/sapReferenceCatalog";
 import { getUserFacingErrorMessage } from "../services/api";
 import { sapReferenceCatalogService } from "../services/sapReferenceCatalogService";
 import { GOVERNANCE_ADVISORY_BOUNDARY } from "../utils/governanceAdvisoryCopy";
+import { getSapSortKey, normalizeSearchText } from "../utils/catalogSearchRanking";
 import {
   ConfigDetailCard,
   ConfigErrorBanner,
@@ -208,8 +209,9 @@ export default function SapReferenceCatalogPage() {
   }, [allEntries]);
 
   const filteredEntries = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return allEntries.filter((e) => {
+    const qRaw = search.trim().toLowerCase();
+    const qNorm = normalizeSearchText(search);
+    const fromFilter = allEntries.filter((e) => {
       if (tableFilter && e.tableName !== tableFilter) {
         return false;
       }
@@ -219,7 +221,7 @@ export default function SapReferenceCatalogPage() {
           return false;
         }
       }
-      if (!q) {
+      if (!qRaw) {
         return true;
       }
       const hay = [
@@ -237,7 +239,31 @@ export default function SapReferenceCatalogPage() {
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
-      return hay.includes(q);
+      return hay.includes(qRaw);
+    });
+
+    if (!qNorm) {
+      return fromFilter;
+    }
+
+    return [...fromFilter].sort((a, b) => {
+      const ka = getSapSortKey(a, qNorm);
+      const kb = getSapSortKey(b, qNorm);
+      if (ka !== kb) {
+        return ka - kb;
+      }
+      const rowOrder = (x: SapReferenceCatalogEntry) => (x.rowKind.toLowerCase() === "table" ? 0 : 1);
+      const ro = rowOrder(a) - rowOrder(b);
+      if (ro !== 0) {
+        return ro;
+      }
+      const tt = a.tableName.localeCompare(b.tableName, undefined, { sensitivity: "base" });
+      if (tt !== 0) {
+        return tt;
+      }
+      const fa = a.fieldName ?? "";
+      const fb = b.fieldName ?? "";
+      return fa.localeCompare(fb, undefined, { sensitivity: "base" });
     });
   }, [allEntries, search, tableFilter, contextFilter]);
 

@@ -7,13 +7,17 @@ namespace Cortex.API.Services;
 
 public interface ISapReferenceCatalogReadService
 {
-    Task<SapReferenceCatalogListResponse> ListAsync(CancellationToken cancellationToken = default);
+    Task<SapReferenceCatalogListResponse> ListAsync(
+        string? search,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Read-only SAP table/field rows for admin/catalog visibility.</summary>
 public sealed class SapReferenceCatalogReadService(CortexDbContext db) : ISapReferenceCatalogReadService
 {
-    public async Task<SapReferenceCatalogListResponse> ListAsync(CancellationToken cancellationToken = default)
+    public async Task<SapReferenceCatalogListResponse> ListAsync(
+        string? search,
+        CancellationToken cancellationToken = default)
     {
         var tables = await db.SapTables.AsNoTracking()
             .Include(t => t.SapReferenceSource)
@@ -46,7 +50,21 @@ public sealed class SapReferenceCatalogReadService(CortexDbContext db) : ISapRef
             }
         }
 
-        return new SapReferenceCatalogListResponse(entries);
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            return new SapReferenceCatalogListResponse(entries);
+        }
+
+        var qn = CatalogSearchRanking.NormalizeSearchText(search);
+        var filtered = entries.Where(e => CatalogSearchRanking.SapEntryMatchesSearch(e, qn)).ToList();
+        var sorted = filtered
+            .OrderBy(e => CatalogSearchRanking.GetSapSortKey(e, qn))
+            .ThenBy(e => e.TableName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.RowKind.Equals("Table", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(e => e.FieldName ?? "", StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new SapReferenceCatalogListResponse(sorted);
     }
 
     private static SapReferenceCatalogEntryDto BuildTableRow(

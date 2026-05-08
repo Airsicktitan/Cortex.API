@@ -4,6 +4,7 @@ import type { SynitiKnowledgeCatalogEntry } from "../types/synitiKnowledgeCatalo
 import { getUserFacingErrorMessage } from "../services/api";
 import { synitiKnowledgeCatalogService } from "../services/synitiKnowledgeCatalogService";
 import { GOVERNANCE_ADVISORY_BOUNDARY } from "../utils/governanceAdvisoryCopy";
+import { getSynitiSortKey, normalizeSearchText } from "../utils/catalogSearchRanking";
 import {
   ConfigDetailCard,
   ConfigErrorBanner,
@@ -253,13 +254,14 @@ export default function SynitiKnowledgeCatalogPage({
   }, [allEntries]);
 
   const filteredEntries = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return allEntries.filter((e) => {
+    const qRaw = search.trim();
+    const qNorm = normalizeSearchText(search);
+    const fromFilter = allEntries.filter((e) => {
       if (category && e.category !== category) {
         return false;
       }
 
-      if (!q) {
+      if (!qRaw) {
         return true;
       }
 
@@ -279,7 +281,20 @@ export default function SynitiKnowledgeCatalogPage({
         .join(" ")
         .toLowerCase();
 
-      return hay.includes(q);
+      return hay.includes(qRaw.toLowerCase());
+    });
+
+    if (!qNorm) {
+      return fromFilter;
+    }
+
+    return [...fromFilter].sort((a, b) => {
+      const ka = getSynitiSortKey(a, qNorm);
+      const kb = getSynitiSortKey(b, qNorm);
+      if (ka !== kb) {
+        return ka - kb;
+      }
+      return a.term.localeCompare(b.term, undefined, { sensitivity: "base" });
     });
   }, [allEntries, search, category]);
 
