@@ -20,7 +20,11 @@ public record IntegrationConnectionResponse(
     IReadOnlyDictionary<string, string> SafeProviderSettings,
     bool CredentialConfigured,
     string? CredentialType,
-    DateTime? LastValidatedAtUtc);
+    DateTime? LastValidatedAtUtc,
+    string CredentialStatus,
+    IReadOnlyList<string> ConfiguredCredentialFieldLabels,
+    DateTime? LastCredentialUpdatedAtUtc,
+    DateTime? LastCredentialRotatedAtUtc);
 
 public record CreateIntegrationConnectionRequest
 {

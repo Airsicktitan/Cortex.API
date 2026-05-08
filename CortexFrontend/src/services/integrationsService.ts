@@ -13,7 +13,11 @@ import type {
   ExternalWorkSourceResponse,
   IntegrationActivityLogEntry,
   IntegrationActivityType,
+  ClearIntegrationCredentialResponse,
+  ConfigureIntegrationCredentialRequestBody,
+  ConfigureIntegrationCredentialResponse,
   IntegrationConnectionResponse,
+  IntegrationCredentialStatusDto,
   IntegrationProviderDefinitionsResponse,
   ManualUpsertExternalWorkItemInput,
   SharePointDiscoveredFieldResponse,
@@ -97,6 +101,47 @@ export const integrationsService = {
       body: JSON.stringify({ isEnabled }),
     });
     await ensureSuccess(response, "Unable to update connection status");
+    return response.json();
+  },
+
+  async getCredentialStatus(
+    token: string,
+    connectionId: number,
+  ): Promise<IntegrationCredentialStatusDto> {
+    const response = await fetch(
+      `${integrationsBase}/connections/${connectionId}/credentials/status`,
+      { headers: authHeaders(token) },
+    );
+    await ensureSuccess(response, "Unable to load credential status");
+    return response.json();
+  },
+
+  async configureCredentials(
+    token: string,
+    connectionId: number,
+    body: ConfigureIntegrationCredentialRequestBody,
+  ): Promise<ConfigureIntegrationCredentialResponse> {
+    const response = await fetch(
+      `${integrationsBase}/connections/${connectionId}/credentials`,
+      {
+        method: "PUT",
+        headers: authHeaders(token, true),
+        body: JSON.stringify(body),
+      },
+    );
+    await ensureSuccess(response, "Unable to save credentials");
+    return response.json();
+  },
+
+  async clearCredentials(
+    token: string,
+    connectionId: number,
+  ): Promise<ClearIntegrationCredentialResponse> {
+    const response = await fetch(
+      `${integrationsBase}/connections/${connectionId}/credentials`,
+      { method: "DELETE", headers: authHeaders(token) },
+    );
+    await ensureSuccess(response, "Unable to clear credentials");
     return response.json();
   },
 

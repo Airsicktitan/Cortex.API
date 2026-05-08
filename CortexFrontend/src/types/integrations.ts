@@ -51,6 +51,10 @@ export interface IntegrationConnectionResponse {
   credentialConfigured?: boolean;
   credentialType?: string | null;
   lastValidatedAtUtc?: string | null;
+  credentialStatus?: string;
+  configuredCredentialFieldLabels?: string[];
+  lastCredentialUpdatedAtUtc?: string | null;
+  lastCredentialRotatedAtUtc?: string | null;
 }
 
 export interface SharePointDiscoveredFieldResponse {
@@ -174,6 +178,32 @@ export interface IntegrationProviderDefinitionDto {
 
 export interface IntegrationProviderDefinitionsResponse {
   providers: IntegrationProviderDefinitionDto[];
+}
+
+export interface IntegrationCredentialStatusDto {
+  connectionId: number;
+  provider: IntegrationProvider;
+  credentialConfigured: boolean;
+  credentialStatus: string;
+  configuredSecretFieldLabels: string[];
+  authMode: IntegrationAuthMode;
+  credentialType?: string | null;
+  lastConfiguredAtUtc?: string | null;
+  lastRotatedAtUtc?: string | null;
+  lastValidatedAtUtc?: string | null;
+}
+
+export interface ConfigureIntegrationCredentialResponse {
+  status: IntegrationCredentialStatusDto;
+}
+
+export interface ClearIntegrationCredentialResponse {
+  status: IntegrationCredentialStatusDto;
+}
+
+/** PUT /api/integrations/connections/{id}/credentials */
+export interface ConfigureIntegrationCredentialRequestBody {
+  secrets?: Record<string, string | null>;
 }
 
 export interface ExternalWorkSourceResponse {

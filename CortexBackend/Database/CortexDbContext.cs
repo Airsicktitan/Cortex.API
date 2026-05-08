@@ -44,6 +44,7 @@ public class CortexDbContext : DbContext
     public DbSet<CortexAutonomyDecision> CortexAutonomyDecisions => Set<CortexAutonomyDecision>();
     public DbSet<CortexAutonomyConfiguration> CortexAutonomyConfigurations => Set<CortexAutonomyConfiguration>();
     public DbSet<IntegrationConnection> IntegrationConnections => Set<IntegrationConnection>();
+    public DbSet<IntegrationConnectionCredential> IntegrationConnectionCredentials => Set<IntegrationConnectionCredential>();
     public DbSet<ExternalWorkSource> ExternalWorkSources => Set<ExternalWorkSource>();
     public DbSet<ExternalBoardMapping> ExternalBoardMappings => Set<ExternalBoardMapping>();
     public DbSet<ExternalFieldMapping> ExternalFieldMappings => Set<ExternalFieldMapping>();
@@ -1019,6 +1020,31 @@ public class CortexDbContext : DbContext
                 .WithOne(s => s.IntegrationConnection)
                 .HasForeignKey(s => s.IntegrationConnectionId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(c => c.Credential)
+                .WithOne(s => s.IntegrationConnection)
+                .HasForeignKey<IntegrationConnectionCredential>(s => s.IntegrationConnectionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<IntegrationConnectionCredential>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.IntegrationConnectionId).IsUnique();
+            entity.Property(e => e.Provider)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(e => e.AuthModeSnapshot)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(e => e.SecretKeysJson)
+                .IsRequired()
+                .HasMaxLength(2000);
+            entity.Property(e => e.ProtectedPayload)
+                .IsRequired();
+            entity.Property(e => e.CreatedAtUtc).IsRequired();
+            entity.Property(e => e.UpdatedAtUtc).IsRequired();
         });
 
         modelBuilder.Entity<ExternalWorkSource>(entity =>

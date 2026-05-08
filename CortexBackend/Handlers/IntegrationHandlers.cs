@@ -306,4 +306,39 @@ public static class IntegrationHandlers
             cancellationToken);
         return rows is null ? Results.NotFound() : Results.Ok(rows);
     }
+
+    public static async Task<IResult> GetCredentialStatus(
+        int connectionId,
+        IIntegrationCredentialAdminService credentialAdminService,
+        CancellationToken cancellationToken)
+    {
+        var status = await credentialAdminService.GetStatusAsync(connectionId, cancellationToken);
+        return status is null ? Results.NotFound() : Results.Ok(status);
+    }
+
+    public static async Task<IResult> PutCredentials(
+        int connectionId,
+        ConfigureIntegrationCredentialRequest request,
+        IIntegrationCredentialAdminService credentialAdminService,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await credentialAdminService.ConfigureAsync(connectionId, request, cancellationToken);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        }
+        catch (IntegrationApiException ex)
+        {
+            return SafeErrorResponses.IntegrationApi(ex);
+        }
+    }
+
+    public static async Task<IResult> DeleteCredentials(
+        int connectionId,
+        IIntegrationCredentialAdminService credentialAdminService,
+        CancellationToken cancellationToken)
+    {
+        var result = await credentialAdminService.ClearAsync(connectionId, cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    }
 }

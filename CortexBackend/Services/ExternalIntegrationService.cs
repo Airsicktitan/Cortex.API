@@ -46,7 +46,12 @@ public sealed class ExternalIntegrationService(
                 select new { Connection = c, SourceCount = count })
             .ToListAsync(cancellationToken);
 
-        return rows.Select(r => MapConnection(r.Connection, r.SourceCount)).ToList();
+        var ids = rows.Select(r => r.Connection.Id).ToList();
+        var creds = await _db.IntegrationConnectionCredentials.AsNoTracking()
+            .Where(x => ids.Contains(x.IntegrationConnectionId))
+            .ToDictionaryAsync(x => x.IntegrationConnectionId, cancellationToken);
+
+        return rows.Select(r => MapConnection(r.Connection, r.SourceCount, creds.GetValueOrDefault(r.Connection.Id))).ToList();
     }
 
     public async Task<IntegrationConnectionResponse?> GetConnectionAsync(int id, CancellationToken cancellationToken = default)
@@ -58,7 +63,14 @@ public sealed class ExternalIntegrationService(
                 select new { Connection = c, SourceCount = count })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return row is null ? null : MapConnection(row.Connection, row.SourceCount);
+        if (row is null)
+        {
+            return null;
+        }
+
+        var cred = await _db.IntegrationConnectionCredentials.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.IntegrationConnectionId == id, cancellationToken);
+        return MapConnection(row.Connection, row.SourceCount, cred);
     }
 
     public async Task<IntegrationConnectionResponse> CreateConnectionAsync(
@@ -88,7 +100,7 @@ public sealed class ExternalIntegrationService(
         _db.IntegrationConnections.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return MapConnection(entity, 0);
+        return MapConnection(entity, 0, null);
     }
 
     public async Task<IntegrationConnectionResponse?> UpdateConnectionAsync(
@@ -132,7 +144,9 @@ public sealed class ExternalIntegrationService(
         await _db.SaveChangesAsync(cancellationToken);
 
         var count = await _db.ExternalWorkSources.CountAsync(s => s.IntegrationConnectionId == id, cancellationToken);
-        return MapConnection(entity, count);
+        var cred = await _db.IntegrationConnectionCredentials.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.IntegrationConnectionId == id, cancellationToken);
+        return MapConnection(entity, count, cred);
     }
 
     public async Task<IntegrationConnectionResponse?> SetConnectionEnabledAsync(
@@ -151,7 +165,9 @@ public sealed class ExternalIntegrationService(
         await _db.SaveChangesAsync(cancellationToken);
 
         var count = await _db.ExternalWorkSources.CountAsync(s => s.IntegrationConnectionId == id, cancellationToken);
-        return MapConnection(entity, count);
+        var cred = await _db.IntegrationConnectionCredentials.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.IntegrationConnectionId == id, cancellationToken);
+        return MapConnection(entity, count, cred);
     }
 
     public async Task<IReadOnlyList<ExternalWorkSourceResponse>?> ListSourcesAsync(
@@ -1548,14 +1564,21 @@ public sealed class ExternalIntegrationService(
         return Task.FromResult(new IntegrationProviderDefinitionsResponse(list));
     }
 
-    private IntegrationConnectionResponse MapConnection(IntegrationConnection c, int sourceCount)
+    private IntegrationConnectionResponse MapConnection(
+        IntegrationConnection c,
+        int sourceCount,
+        IntegrationConnectionCredential? cred)
     {
         var profile = IntegrationProviderCatalog.TryGet(c.Provider);
         IReadOnlyDictionary<string, string> safe = profile is null
             ? new Dictionary<string, string>()
             : new Dictionary<string, string>(
                 IntegrationConnectionConfigValidator.ToSafeDisplayMap(c, profile));
-        var (credentialConfigured, credentialType) = ResolveCredentialIndicators(c);
+        var hasStored = IntegrationCredentialPresentation.HasStoredCredential(cred);
+        var (credentialConfigured, credentialType) = ResolveCredentialIndicators(c, hasStored);
+        var keys = IntegrationCredentialPresentation.ParseSecretKeys(cred?.SecretKeysJson);
+        var labels = IntegrationCredentialPresentation.LabelsForKeys(keys, profile);
+        var credentialStatus = credentialConfigured ? "Configured" : "NotConfigured";
         return new IntegrationConnectionResponse(
             c.Id,
             c.Provider,
@@ -1574,17 +1597,32 @@ public sealed class ExternalIntegrationService(
             safe,
             credentialConfigured,
             credentialType,
-            LastValidatedAtUtc: null);
+            cred?.LastValidatedAtUtc,
+            credentialStatus,
+            labels,
+            cred?.UpdatedAtUtc,
+            cred?.LastRotatedAtUtc);
     }
 
-    private (bool Configured, string? Type) ResolveCredentialIndicators(IntegrationConnection c)
+    private (bool Configured, string? Type) ResolveCredentialIndicators(IntegrationConnection c, bool hasStoredCredential)
     {
         if (c.Provider == IntegrationProvider.SharePoint)
         {
             var hasApp = !string.IsNullOrWhiteSpace(_sharePointGraphOptions.ClientSecret) &&
                          !string.IsNullOrWhiteSpace(_sharePointGraphOptions.ClientId);
             var hasTenant = !string.IsNullOrWhiteSpace(c.TenantId);
-            return (hasApp && hasTenant, hasApp ? "MicrosoftGraphAppRegistration" : null);
+            var globalOk = hasApp && hasTenant;
+            if (globalOk || hasStoredCredential)
+            {
+                return (true, globalOk ? "MicrosoftGraphAppRegistration" : "ConnectionCredential");
+            }
+
+            return (false, null);
+        }
+
+        if (hasStoredCredential)
+        {
+            return (true, "ConnectionCredential");
         }
 
         return (false, null);

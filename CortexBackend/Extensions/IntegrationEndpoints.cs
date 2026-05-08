@@ -43,6 +43,22 @@ public static class IntegrationEndpoints
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        connections.MapGet("/{connectionId:int}/credentials/status", IntegrationHandlers.GetCredentialStatus)
+            .WithName("GetIntegrationConnectionCredentialStatus")
+            .Produces<IntegrationCredentialStatusDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
+        connections.MapPut("/{connectionId:int}/credentials", IntegrationHandlers.PutCredentials)
+            .WithName("ConfigureIntegrationConnectionCredentials")
+            .Produces<ConfigureIntegrationCredentialResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status400BadRequest);
+
+        connections.MapDelete("/{connectionId:int}/credentials", IntegrationHandlers.DeleteCredentials)
+            .WithName("ClearIntegrationConnectionCredentials")
+            .Produces<ClearIntegrationCredentialResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         connections.MapGet("/{connectionId:int}/sources", IntegrationHandlers.ListSources)
             .WithName("ListExternalWorkSources")
             .Produces(StatusCodes.Status200OK)

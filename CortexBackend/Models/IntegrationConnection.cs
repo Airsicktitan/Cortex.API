@@ -30,4 +30,6 @@ public class IntegrationConnection
     public DateTime? UpdatedAtUtc { get; set; }
 
     public ICollection<ExternalWorkSource> ExternalWorkSources { get; set; } = [];
+
+    public IntegrationConnectionCredential? Credential { get; set; }
 }

@@ -19,6 +19,7 @@ import type {
   IntegrationActivityType,
   IntegrationAuthMode,
   IntegrationConnectionResponse,
+  IntegrationCredentialStatusDto,
   IntegrationProviderDefinitionDto,
   IntegrationProvider,
   IntegrationReadinessCheckStatus,
@@ -246,13 +247,17 @@ type ConnectionModalCreateDraft = CreateIntegrationConnectionInput & { providerS
 type ConnectionModalEditDraft = UpdateIntegrationConnectionInput & {
   provider: IntegrationProvider;
   providerSettings: Record<string, string>;
-  credentialConfigured?: boolean;
-  credentialType?: string | null;
 };
 
-function buildProviderSettingsPayload(settings: Record<string, string>): Record<string, string> {
+function buildProviderSettingsPayload(
+  settings: Record<string, string>,
+  excludedKeys: ReadonlySet<string> = new Set(),
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(settings)) {
+    if (excludedKeys.has(k)) {
+      continue;
+    }
     const t = v.trim();
     if (t) {
       out[k] = t;
@@ -463,6 +468,12 @@ export default function IntegrationsPage({
     | null
   >(null);
 
+  const [credentialStatusDetail, setCredentialStatusDetail] = useState<IntegrationCredentialStatusDto | null>(null);
+  const [credentialDraft, setCredentialDraft] = useState<Record<string, string>>({});
+  const [credentialStatusLoading, setCredentialStatusLoading] = useState(false);
+  const [credentialStatusError, setCredentialStatusError] = useState<string | null>(null);
+  const [credentialSaveLoading, setCredentialSaveLoading] = useState(false);
+  const [credentialClearLoading, setCredentialClearLoading] = useState(false);
   const [sourceModal, setSourceModal] = useState<
     | { mode: "create"; draft: CreateExternalWorkSourceInput }
     | { mode: "edit"; id: number; draft: UpdateExternalWorkSourceInput & { provider: IntegrationProvider; sourceType: ExternalSourceType; externalSourceId: string } }
@@ -509,6 +520,19 @@ export default function IntegrationsPage({
   const selectedConnection = useMemo(
     () => connections.find((c) => c.id === selectedConnectionId) ?? null,
     [connections, selectedConnectionId],
+  );
+
+  const credentialConnDef = useMemo(
+    () =>
+      selectedConnection !== null
+        ? providerDefinitions?.find((d) => d.provider === selectedConnection.provider)
+        : undefined,
+    [providerDefinitions, selectedConnection],
+  );
+
+  const credentialSecretFields = useMemo(
+    () => (credentialConnDef?.fields ?? []).filter((f) => f.isSecret),
+    [credentialConnDef],
   );
 
   const selectedSource = useMemo(
@@ -620,6 +644,43 @@ export default function IntegrationsPage({
       setConnectionsLoading(false);
     }
   }, [getToken]);
+
+  const refreshCredentialStatus = useCallback(async () => {
+    if (selectedConnectionId === null) {
+      setCredentialStatusDetail(null);
+      setCredentialStatusError(null);
+      setCredentialDraft({});
+      return;
+    }
+    setCredentialStatusLoading(true);
+    setCredentialStatusError(null);
+    try {
+      const token = await getToken();
+      const s = await integrationsService.getCredentialStatus(token, selectedConnectionId);
+      setCredentialStatusDetail(s);
+    } catch {
+      setCredentialStatusDetail(null);
+      setCredentialStatusError(
+        "Unable to load credential status. Administrator access may be required.",
+      );
+    } finally {
+      setCredentialStatusLoading(false);
+    }
+  }, [getToken, selectedConnectionId]);
+
+  useEffect(() => {
+    if (tab !== "connections" || selectedConnectionId === null || connections.length === 0) {
+      setCredentialStatusDetail(null);
+      setCredentialStatusError(null);
+      setCredentialDraft({});
+      return;
+    }
+    void refreshCredentialStatus();
+  }, [tab, selectedConnectionId, connections.length, refreshCredentialStatus]);
+
+  useEffect(() => {
+    setCredentialDraft({});
+  }, [selectedConnectionId]);
 
   const loadSources = useCallback(
     async (connectionId: number) => {
@@ -983,8 +1044,6 @@ export default function IntegrationsPage({
         syncMode: c.syncMode,
         isEnabled: c.isEnabled,
         providerSettings: settings,
-        credentialConfigured: c.credentialConfigured ?? false,
-        credentialType: c.credentialType,
       },
     });
   };
@@ -993,6 +1052,10 @@ export default function IntegrationsPage({
     if (!connectionModal) {
       return;
     }
+    const def = providerDefinitions?.find((d) => d.provider === connectionModal.draft.provider);
+    const secretKeySet = new Set(
+      (def?.fields ?? []).filter((f) => f.isSecret).map((f) => f.key),
+    );
     try {
       const token = await getToken();
       if (connectionModal.mode === "create") {
@@ -1001,7 +1064,7 @@ export default function IntegrationsPage({
           showBanner("err", "Display name is required.");
           return;
         }
-        const psPayload = buildProviderSettingsPayload(d.providerSettings);
+        const psPayload = buildProviderSettingsPayload(d.providerSettings, secretKeySet);
         await integrationsService.createConnection(token, {
           provider: d.provider,
           displayName: d.displayName.trim(),
@@ -1012,14 +1075,17 @@ export default function IntegrationsPage({
           syncMode: d.syncMode ?? "ReadOnly",
           isEnabled: d.isEnabled ?? true,
         });
-        showBanner("ok", "Connection created.");
+        showBanner(
+          "ok",
+          "Connection created. Configure any required credentials under Connection credentials below.",
+        );
       } else {
         const d = connectionModal.draft;
         if (!d.displayName.trim()) {
           showBanner("err", "Display name is required.");
           return;
         }
-        const psPayload = buildProviderSettingsPayload(d.providerSettings);
+        const psPayload = buildProviderSettingsPayload(d.providerSettings, secretKeySet);
         await integrationsService.updateConnection(token, connectionModal.id, {
           displayName: d.displayName.trim(),
           tenantId: d.provider === "SharePoint" ? psPayload.tenantId?.trim() || null : undefined,
@@ -1036,8 +1102,70 @@ export default function IntegrationsPage({
       if (selectedSourceId !== null) {
         void loadSourceReadiness(selectedSourceId);
       }
+      if (tab === "connections") {
+        void refreshCredentialStatus();
+      }
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to save connection."));
+    }
+  };
+
+  const saveConnectionCredentials = async () => {
+    if (selectedConnectionId === null || credentialSecretFields.length === 0) {
+      return;
+    }
+    const secrets: Record<string, string | null> = {};
+    for (const f of credentialSecretFields) {
+      const v = credentialDraft[f.key]?.trim();
+      if (v) {
+        secrets[f.key] = v;
+      }
+    }
+    if (Object.keys(secrets).length === 0) {
+      showBanner("err", "Enter a new credential value to configure or rotate this connection.");
+      return;
+    }
+    setCredentialSaveLoading(true);
+    try {
+      const token = await getToken();
+      await integrationsService.configureCredentials(token, selectedConnectionId, { secrets });
+      setCredentialDraft({});
+      showBanner(
+        "ok",
+        "Credential saved. Cortex will not show the current value. Use Rotate to supply a new value when needed.",
+      );
+      await refreshCredentialStatus();
+      await loadConnections();
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to save credentials."));
+    } finally {
+      setCredentialSaveLoading(false);
+    }
+  };
+
+  const clearConnectionCredentials = async () => {
+    if (selectedConnectionId === null) {
+      return;
+    }
+    if (
+      !window.confirm(
+        "Clearing this credential may prevent Cortex from testing or syncing this connection until a new credential is configured.",
+      )
+    ) {
+      return;
+    }
+    setCredentialClearLoading(true);
+    try {
+      const token = await getToken();
+      await integrationsService.clearCredentials(token, selectedConnectionId);
+      setCredentialDraft({});
+      showBanner("ok", "Credential cleared.");
+      await refreshCredentialStatus();
+      await loadConnections();
+    } catch (e) {
+      showBanner("err", getUserFacingErrorMessage(e, "Unable to clear credentials."));
+    } finally {
+      setCredentialClearLoading(false);
     }
   };
 
@@ -1545,9 +1673,9 @@ export default function IntegrationsPage({
                   </p>
                 </div>
                 <Callout title="Security">
-                  Secrets are stored securely and are never shown after saving. External integrations are read-only by
-                  default. Imported context does not change routing, owners, or approvals unless approved Cortex rules
-                  apply.
+                  Secrets are submitted through a dedicated credential flow below and are never displayed after saving. External
+                  integrations are read-only by default. Imported context does not change routing, owners, or approvals unless
+                  approved Cortex rules apply.
                 </Callout>
                 <div className="flex justify-end">
                   <ConfigPrimaryButton onClick={openCreateConnection}>Add connection</ConfigPrimaryButton>
@@ -1571,6 +1699,7 @@ export default function IntegrationsPage({
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Auth</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Sync</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Enabled</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Credentials</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Last sync</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Created</th>
                           <th className="px-4 py-3 text-right font-medium text-gray-700 dark:text-slate-300">Actions</th>
@@ -1586,6 +1715,18 @@ export default function IntegrationsPage({
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationAuthMode(c.authMode)}</td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationSyncMode(c.syncMode)}</td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{c.isEnabled ? "Yes" : "No"}</td>
+                            <td className="max-w-[200px] px-4 py-3 text-gray-700 dark:text-slate-300">
+                              {c.credentialConfigured ? (
+                                <span className="font-medium text-green-800 dark:text-green-200/90">Credential configured</span>
+                              ) : (
+                                <span>Credential not configured</span>
+                              )}
+                              {c.lastCredentialUpdatedAtUtc ? (
+                                <div className="mt-0.5 text-xs text-gray-500 dark:text-slate-500">
+                                  Updated {formatWhen(c.lastCredentialUpdatedAtUtc)}
+                                </div>
+                              ) : null}
+                            </td>
                             <td
                               className="max-w-[220px] px-4 py-3 text-gray-700 dark:text-slate-300"
                               title={
@@ -1629,6 +1770,167 @@ export default function IntegrationsPage({
                     </table>
                   </div>
                 )}
+                {!connectionsLoading && connections.length > 0 ? (
+                  <ConfigDetailCard
+                    title="Connection credentials"
+                    subtitle="Configure or rotate secrets for a connection. Values are sent only to the credential endpoint and are never returned or shown in this UI."
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Connection</label>
+                        <select
+                          className={configFieldClass}
+                          value={selectedConnectionId ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setSelectedConnectionId(raw ? Number(raw) : null);
+                          }}
+                        >
+                          {connections.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.displayName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {selectedConnection ? (
+                        <>
+                          {credentialSecretFields.length === 0 ? (
+                            <Callout title="No stored secrets required for this provider profile">
+                              {selectedConnection.provider === "SapReference" ? (
+                                <>
+                                  SAP Reference is metadata-only in Cortex. Do not enter live SAP credentials; reference data is
+                                  managed separately.
+                                </>
+                              ) : selectedConnection.provider === "SharePoint" ? (
+                                <>
+                                  SharePoint can rely on the host Microsoft Graph app registration and tenant scope you
+                                  already configured. Per-connection stored credentials are optional—use them only when your
+                                  governance model requires it.
+                                </>
+                              ) : (
+                                <>
+                                  This provider does not expose secret fields for the secure credential store in this
+                                  release. Non-secret settings remain in the connection editor.
+                                </>
+                              )}
+                            </Callout>
+                          ) : (
+                            <>
+                              <Callout title="Dedicated credential flow">
+                                Enter a new credential value to configure or rotate this connection. Cortex will not show the
+                                current value. After saving, fields clear automatically.
+                              </Callout>
+                              {credentialStatusError ? (
+                                <p className="text-sm text-amber-800 dark:text-amber-200/90">{credentialStatusError}</p>
+                              ) : null}
+                              {credentialStatusLoading ? (
+                                <p className="text-sm text-gray-500 dark:text-slate-400">Loading credential status…</p>
+                              ) : credentialStatusDetail ? (
+                                <div className="rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <DetailField label="Credential status">
+                                      {credentialStatusDetail.credentialConfigured
+                                        ? "Credential configured"
+                                        : "Credential not configured"}
+                                    </DetailField>
+                                    <DetailField label="Auth mode">
+                                      {humanizeIntegrationAuthMode(credentialStatusDetail.authMode)}
+                                    </DetailField>
+                                    <DetailField label="Last updated">
+                                      {formatWhen(
+                                        credentialStatusDetail.lastRotatedAtUtc ??
+                                          credentialStatusDetail.lastConfiguredAtUtc ??
+                                          null,
+                                      )}
+                                    </DetailField>
+                                    <DetailField label="Last validated">
+                                      {formatWhen(credentialStatusDetail.lastValidatedAtUtc)}
+                                    </DetailField>
+                                  </div>
+                                  {credentialStatusDetail.configuredSecretFieldLabels.length > 0 ? (
+                                    <p className="mt-3 text-xs text-gray-600 dark:text-slate-400">
+                                      <span className="font-medium text-gray-800 dark:text-slate-200">Configured fields: </span>
+                                      {credentialStatusDetail.configuredSecretFieldLabels.join(", ")}
+                                    </p>
+                                  ) : null}
+                                  {credentialStatusDetail.credentialStatus.trim() &&
+                                  credentialStatusDetail.credentialStatus !== "NotConfigured" &&
+                                  credentialStatusDetail.credentialStatus !== "Configured" ? (
+                                    <p className="mt-2 text-xs text-gray-600 dark:text-slate-400">
+                                      {credentialStatusDetail.credentialStatus}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              <div className="space-y-3">
+                                {credentialSecretFields.map((field) => (
+                                  <div key={field.key}>
+                                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
+                                      {field.label}
+                                      {field.required ? <span className="text-red-600 dark:text-red-400"> *</span> : null}
+                                      <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200/90">
+                                        Secret
+                                      </span>
+                                    </label>
+                                    {field.fieldType === "textarea" ? (
+                                      <textarea
+                                        className={configFieldClass}
+                                        rows={3}
+                                        autoComplete="off"
+                                        placeholder="Enter new value. Existing secrets are never displayed."
+                                        value={credentialDraft[field.key] ?? ""}
+                                        onChange={(e) =>
+                                          setCredentialDraft((d) => ({ ...d, [field.key]: e.target.value }))
+                                        }
+                                      />
+                                    ) : (
+                                      <input
+                                        className={configFieldClass}
+                                        type="password"
+                                        autoComplete="off"
+                                        placeholder="Enter new value. Existing secrets are never displayed."
+                                        value={credentialDraft[field.key] ?? ""}
+                                        onChange={(e) =>
+                                          setCredentialDraft((d) => ({ ...d, [field.key]: e.target.value }))
+                                        }
+                                      />
+                                    )}
+                                    {field.helpText ? (
+                                      <p className="mt-1 text-xs text-gray-500 dark:text-slate-500">{field.helpText}</p>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex flex-wrap justify-end gap-2">
+                                {(credentialStatusDetail?.credentialConfigured ||
+                                  selectedConnection?.credentialConfigured) ? (
+                                  <ConfigSecondaryButton
+                                    disabled={credentialClearLoading || credentialSaveLoading}
+                                    onClick={() => void clearConnectionCredentials()}
+                                  >
+                                    {credentialClearLoading ? "Clearing…" : "Clear credential"}
+                                  </ConfigSecondaryButton>
+                                ) : null}
+                                <ConfigPrimaryButton
+                                  disabled={credentialSaveLoading || credentialClearLoading}
+                                  onClick={() => void saveConnectionCredentials()}
+                                >
+                                  {credentialSaveLoading
+                                    ? "Saving…"
+                                    : (credentialStatusDetail?.credentialConfigured ??
+                                        selectedConnection?.credentialConfigured)
+                                      ? "Rotate credential"
+                                      : "Configure credential"}
+                                </ConfigPrimaryButton>
+                              </div>
+                            </>
+                          )}
+                        </>
+                      ) : null}
+                    </div>
+                  </ConfigDetailCard>
+                ) : null}
               </div>
             )}
 
@@ -2558,39 +2860,22 @@ export default function IntegrationsPage({
                   This provider stores reference metadata only. It is not a live line-of-business connector.
                 </Callout>
               ) : null}
-              {(modalConnDef?.fields ?? []).map((field) => (
+              {(modalConnDef?.fields ?? []).some((f) => f.isSecret) ? (
+                <Callout title="Credentials">
+                  Create or update the connection with non-secret settings first, then configure secrets under{" "}
+                  <strong>Connection credentials</strong> on this tab. Secrets are submitted through a dedicated endpoint and
+                  are never displayed after saving.
+                </Callout>
+              ) : null}
+              {(modalConnDef?.fields ?? [])
+                .filter((field) => !field.isSecret)
+                .map((field) => (
                 <div key={field.key}>
                   <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
                     {field.label}
                     {field.required ? <span className="text-red-600 dark:text-red-400"> *</span> : null}
-                    {field.isSecret ? (
-                      <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200/90">
-                        Secret
-                      </span>
-                    ) : null}
                   </label>
-                  {field.isSecret ? (
-                    <div className="space-y-2 rounded-lg border border-amber-200/80 bg-amber-50/50 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/30">
-                      <p className="text-xs text-amber-950 dark:text-amber-100/90">
-                        Secrets are never shown after they are saved. Per-connection secret storage from this screen is
-                        not enabled yet—use your secure host configuration or vault.
-                      </p>
-                      {connectionModal.mode === "edit" && connectionModal.draft.credentialConfigured === true ? (
-                        <p className="text-xs font-medium text-green-800 dark:text-green-200/90">Credential configured</p>
-                      ) : (
-                        <p className="text-xs text-gray-700 dark:text-slate-300">Credential not configured</p>
-                      )}
-                      <input
-                        className={`${configFieldClass} cursor-not-allowed opacity-70`}
-                        type="password"
-                        autoComplete="off"
-                        readOnly
-                        value=""
-                        aria-label={`${field.label} (not editable)`}
-                        placeholder="Secret entry is not available in this version"
-                      />
-                    </div>
-                  ) : field.fieldType === "textarea" ? (
+                  {field.fieldType === "textarea" ? (
                     <textarea
                       className={configFieldClass}
                       rows={3}
