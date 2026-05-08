@@ -66,10 +66,24 @@ public class SynitiKnowledgeDetectorTests
     }
 
     [Fact]
+    public void FindMatches_WhenSapLikely_DemotesStrongPlatform_ForReadinessPhrase()
+    {
+        var hay = "MARC rehearsal load support from syniti team";
+        var catalog = new[]
+        {
+            R(1, "Syniti", SynitiKnowledgeCategory.Platform),
+            R(2, "Mock load", SynitiKnowledgeCategory.Readiness, examples: "rehearsal load"),
+        };
+        var hits = SynitiKnowledgeDetector.FindMatches(hay, catalog);
+        Assert.True(hits.Count >= 2);
+        Assert.Equal("Mock load", hits[0].Row.Term);
+    }
+
+    [Fact]
     public void FindMatches_RespectsMaxMatches()
     {
         var hay =
-            "dsp adm value mapping data quality rule wave and syniti glossary overflow";
+            "dsp adm value mapping data quality rule wave syniti glossary overflow support defect";
         var catalog = new[]
         {
             R(1, "DSP", SynitiKnowledgeCategory.Platform),
@@ -78,8 +92,9 @@ public class SynitiKnowledgeDetectorTests
             R(4, "Data Quality Rule", SynitiKnowledgeCategory.DataQuality, "quality rule"),
             R(5, "Wave", SynitiKnowledgeCategory.Migration),
             R(6, "Syniti", SynitiKnowledgeCategory.Platform),
+            R(7, "Defect", SynitiKnowledgeCategory.DataQuality, "support defect"),
         };
         var hits = SynitiKnowledgeDetector.FindMatches(hay, catalog);
-        Assert.Equal(3, hits.Count);
+        Assert.Equal(6, hits.Count);
     }
 }

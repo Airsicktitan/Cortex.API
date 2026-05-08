@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type {
   SapTicketReferenceContext,
   SapTicketReferenceMatch,
@@ -10,13 +10,13 @@ import {
   buildSapReviewerGuidance,
   type SapReviewerGuidance,
 } from "../utils/sapReviewerGuidance";
+import { GOVERNANCE_ADVISORY_BOUNDARY } from "../utils/governanceAdvisoryCopy";
 
 const HELPER_COPY =
-  "From the SAP reference catalog (advisory). Supports review — it does not replace routing or approval decisions.";
+  "SAP reference context from the stored Cortex catalog (advisory). Supports review and does not change routing, owners, or approvals.";
 const EVIDENCE_HELPER =
-  "SAP reference catalog matches shown here are advisory — they do not connect to a production SAP system.";
-const NO_LIVE_SAP_FOOTER =
-  "Advisory catalog references only — not connected to a production SAP system.";
+  "SAP reference matches from the stored catalog (advisory). Does not change routing, owners, or approvals.";
+const SAP_REFERENCE_FOOTER = GOVERNANCE_ADVISORY_BOUNDARY;
 
 const SAP_INTAKE_HELPER =
   "SAP-related wording is present, but no table or field matched the SAP reference catalog for this ticket.";
@@ -218,18 +218,8 @@ function MatchBlock({
   );
 }
 
-function ReviewerGuidanceBlock({
-  guidance,
-  ticketId,
-}: {
-  guidance: SapReviewerGuidance;
-  ticketId: string;
-}) {
+function ReviewerGuidanceBlock({ guidance }: { guidance: SapReviewerGuidance }) {
   const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    setExpanded(false);
-  }, [ticketId]);
 
   const list = (items: string[]) => (
     <ul className="mt-1 list-outside list-disc space-y-1 pl-3.5 text-xs leading-5 text-gray-700 dark:text-slate-300">
@@ -264,7 +254,7 @@ function ReviewerGuidanceBlock({
         Reviewer guidance
       </h4>
       <p className="mt-1 text-[11px] leading-4 text-gray-600 dark:text-slate-500">
-        Advisory only — does not assign owners or change routing.
+        Advisory context only. Does not assign owners, change routing, or approvals.
       </p>
 
       {sVis.length > 0 ? (
@@ -341,10 +331,6 @@ export function SapTicketReferenceContextCard({
   const isEvidencePurpose = purpose === "evidence";
   const matchLayout = isEvidencePurpose ? "evidence" : "default";
   const [showAll, setShowAll] = useState(false);
-
-  useEffect(() => {
-    setShowAll(false);
-  }, [context?.ticketId]);
 
   const matches = context?.matches ?? [];
   const isSapIntentOnly =
@@ -457,7 +443,7 @@ export function SapTicketReferenceContextCard({
           </p>
         </header>
         <p className="mt-2 border-t border-gray-200/90 pt-2 text-[10px] leading-4 text-gray-500 dark:border-slate-700 dark:text-slate-500">
-          {NO_LIVE_SAP_FOOTER}
+          {SAP_REFERENCE_FOOTER}
         </p>
       </section>
     );
@@ -520,7 +506,7 @@ export function SapTicketReferenceContextCard({
 
   const footer = (
     <p className="border-t border-gray-200/90 pt-2 text-[11px] leading-4 text-gray-500 dark:border-slate-700 dark:text-slate-500">
-      {NO_LIVE_SAP_FOOTER}
+      {SAP_REFERENCE_FOOTER}
     </p>
   );
 
@@ -533,10 +519,7 @@ export function SapTicketReferenceContextCard({
         {!isSapIntentOnly ? matchList : null}
         {!isSapIntentOnly ? showAllControl : null}
         {!isEvidencePurpose && reviewerGuidance ? (
-          <ReviewerGuidanceBlock
-            guidance={reviewerGuidance}
-            ticketId={context.ticketId}
-          />
+          <ReviewerGuidanceBlock guidance={reviewerGuidance} />
         ) : null}
         {footer}
       </div>
@@ -552,10 +535,7 @@ export function SapTicketReferenceContextCard({
       ) : null}
       {reviewerGuidance ? (
         <div className="mt-3">
-          <ReviewerGuidanceBlock
-            guidance={reviewerGuidance}
-            ticketId={context.ticketId}
-          />
+          <ReviewerGuidanceBlock guidance={reviewerGuidance} />
         </div>
       ) : null}
       <div className="mt-3">{footer}</div>

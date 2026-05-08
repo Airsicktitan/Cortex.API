@@ -4,16 +4,78 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Cortex.API.Infrastructure;
 
-/// <summary>Development-only demo SAP reference rows when the catalog is empty.</summary>
+/// <summary>
+/// Development-only demo SAP reference rows when the catalog is empty, plus idempotent
+/// enrichment so existing local databases pick up standard MARC fields (e.g. MATNR) without a reset.
+/// </summary>
 public static class SapReferenceDevCatalogSeed
 {
     public static async Task EnsureAsync(CortexDbContext db, CancellationToken cancellationToken = default)
     {
-        if (await db.SapReferenceSources.AnyAsync(cancellationToken))
+        if (!await db.SapReferenceSources.AnyAsync(cancellationToken).ConfigureAwait(false))
+        {
+            await SeedDemoCatalogWhenEmptyAsync(db, cancellationToken).ConfigureAwait(false);
+        }
+
+        await EnsureMarcMatnrOnAllMarcTablesAsync(db, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Ensures MATNR exists on every MARC table row (any catalog source) — fixes older dev DBs seeded before MATNR existed.
+    /// </summary>
+    private static async Task EnsureMarcMatnrOnAllMarcTablesAsync(
+        CortexDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var marcTableIds = await db.SapTables.AsNoTracking()
+            .Where(t => t.TableName.ToUpper() == "MARC")
+            .Select(t => t.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (marcTableIds.Count == 0)
         {
             return;
         }
 
+        var now = DateTime.UtcNow;
+        var added = false;
+
+        foreach (var tableId in marcTableIds)
+        {
+            var hasMatnr = await db.SapFields.AnyAsync(
+                    f => f.SapTableMetadataId == tableId && f.FieldName.ToUpper() == "MATNR",
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (hasMatnr)
+            {
+                continue;
+            }
+
+            db.SapFields.Add(new SapFieldMetadata
+            {
+                SapTableMetadataId = tableId,
+                FieldName = "MATNR",
+                Description = "Material Number",
+                IsKey = true,
+                IsCustom = false,
+                BusinessMeaning = "Material identifier at plant level",
+                CreatedAtUtc = now,
+            });
+            added = true;
+        }
+
+        if (added)
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task SeedDemoCatalogWhenEmptyAsync(
+        CortexDbContext db,
+        CancellationToken cancellationToken)
+    {
         var now = DateTime.UtcNow;
         var src = new SapReferenceSource
         {
@@ -25,7 +87,7 @@ public static class SapReferenceDevCatalogSeed
             CreatedAtUtc = now,
         };
         db.SapReferenceSources.Add(src);
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         static SapTableMetadata T(
             int sourceId,
@@ -75,17 +137,20 @@ public static class SapReferenceDevCatalogSeed
             db.SapTables.Add(t);
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         var marc = await db.SapTables.AsNoTracking().FirstAsync(
-            x => x.SapReferenceSourceId == src.Id && x.TableName == "MARC",
-            cancellationToken);
+                x => x.SapReferenceSourceId == src.Id && x.TableName == "MARC",
+                cancellationToken)
+            .ConfigureAwait(false);
         var lfa1 = await db.SapTables.AsNoTracking().FirstAsync(
-            x => x.SapReferenceSourceId == src.Id && x.TableName == "LFA1",
-            cancellationToken);
+                x => x.SapReferenceSourceId == src.Id && x.TableName == "LFA1",
+                cancellationToken)
+            .ConfigureAwait(false);
         var kna1 = await db.SapTables.AsNoTracking().FirstAsync(
-            x => x.SapReferenceSourceId == src.Id && x.TableName == "KNA1",
-            cancellationToken);
+                x => x.SapReferenceSourceId == src.Id && x.TableName == "KNA1",
+                cancellationToken)
+            .ConfigureAwait(false);
 
         SapFieldMetadata F(
             int tableId,
@@ -106,10 +171,11 @@ public static class SapReferenceDevCatalogSeed
             };
 
         db.SapFields.Add(F(marc.Id, "WERKS", "Plant", true, false, "Plant code"));
+        db.SapFields.Add(F(marc.Id, "MATNR", "Material Number", true, false, "Material identifier at plant level"));
         db.SapFields.Add(F(marc.Id, "MMSTA", "Plant-specific material status", false, false, null));
         db.SapFields.Add(F(marc.Id, "YYNGM_ACTIVE", "Custom active flag (example)", false, true, "Active flag for NGM process"));
         db.SapFields.Add(F(lfa1.Id, "LIFNR", "Vendor account number", true, false, null));
         db.SapFields.Add(F(kna1.Id, "KUNNR", "Customer number", true, false, null));
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 }

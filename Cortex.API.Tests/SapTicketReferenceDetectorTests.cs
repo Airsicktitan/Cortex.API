@@ -32,6 +32,53 @@ public class SapTicketReferenceDetectorTests
         DomainName: null,
         FieldIsCustom: true);
 
+    private static readonly SapTicketCatalogField WerksField = new(
+        Id: 101,
+        TableMetadataId: 1,
+        SourceId: 10,
+        SourceName: "Demo",
+        TableName: "MARC",
+        TableDescription: "Plant Data for Material",
+        Module: "MM",
+        BusinessObject: "Material Master",
+        DataDomain: null,
+        TableIsCustom: false,
+        FieldName: "WERKS",
+        FieldDescription: "Plant",
+        DomainName: null,
+        FieldIsCustom: false);
+
+    private static readonly SapTicketCatalogField MatnrField = new(
+        Id: 102,
+        TableMetadataId: 1,
+        SourceId: 10,
+        SourceName: "Demo",
+        TableName: "MARC",
+        TableDescription: "Plant Data for Material",
+        Module: "MM",
+        BusinessObject: "Material Master",
+        DataDomain: null,
+        TableIsCustom: false,
+        FieldName: "MATNR",
+        FieldDescription: "Material Number",
+        DomainName: null,
+        FieldIsCustom: false);
+
+    [Fact]
+    public void TicketMentioningMarcMatnrAndWerks_ReturnsFieldMatches()
+    {
+        var text =
+            "During mock load readiness validation, MARC plant-level material data is failing checks for several materials. The affected records include MATNR and WERKS.";
+        var fields = new[] { YyngmField, WerksField, MatnrField };
+        var matches = SapTicketReferenceDetector.DetectMatches(text, [DemoTable], fields);
+        Assert.Contains(
+            matches,
+            m => m is { MatchType: SapTicketReferenceMatchType.Field, FieldName: "MATNR", TableName: "MARC" });
+        Assert.Contains(
+            matches,
+            m => m is { MatchType: SapTicketReferenceMatchType.Field, FieldName: "WERKS", TableName: "MARC" });
+    }
+
     [Fact]
     public void TicketMentioningMarc_ReturnsTableMatch()
     {

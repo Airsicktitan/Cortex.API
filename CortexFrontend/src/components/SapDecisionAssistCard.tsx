@@ -35,8 +35,8 @@ export function SapDecisionAssistCard({ assist }: { assist: SapDecisionAssist })
           SAP / data governance assist
         </h3>
         <p className="mt-1 text-[11px] leading-4 text-amber-950/85 dark:text-amber-100/75">
-          Advisory context from the Cortex SAP reference catalog. Routing and approval rules are
-          unchanged; uses stored catalog data only (not a production SAP connection).
+          Advisory SAP reference from the stored Cortex catalog. Does not change routing, owners, or
+          approvals.
         </p>
       </div>
 

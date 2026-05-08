@@ -40,6 +40,7 @@ import TicketStatusRegistrySection from "./TicketStatusRegistrySection";
 import CortexAutonomyControlSection from "./CortexAutonomyControlSection";
 import IntegrationsPage from "./IntegrationsPage";
 import SapReferencePage from "./SapReferencePage";
+import SynitiKnowledgeCatalogPage from "./SynitiKnowledgeCatalogPage";
 
 interface ConfigurationPageProps {
   slaConfigurations: SlaConfiguration[];
@@ -230,6 +231,7 @@ type ConfigSection =
   | "general"
   | "integrations"
   | "sapReference"
+  | "referenceCatalogs"
   | "boards"
   | "statuses"
   | "routing"
@@ -453,6 +455,11 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
         label: "SAP reference",
         description: "SAP table and field reference knowledge (metadata only—not a live SAP connector)",
       },
+      {
+        id: "referenceCatalogs",
+        label: "Reference catalogs",
+        description: "Read-only Syniti knowledge concepts used in reviewer guidance",
+      },
       { id: "boards", label: "Boards", description: "Ticket board setup and behavior" },
       { id: "statuses", label: "Statuses", description: "Define workflow stages for tickets" },
       {
@@ -653,6 +660,12 @@ export default function ConfigurationPage(props: ConfigurationPageProps) {
             )}
 
             {activeSection === "sapReference" && <SapReferencePage />}
+
+            {activeSection === "referenceCatalogs" && (
+              <SynitiKnowledgeCatalogPage
+                onOpenSapReference={() => setActiveSection("sapReference")}
+              />
+            )}
 
             {activeSection === "boards" && (
               <div className="space-y-6">

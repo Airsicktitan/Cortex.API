@@ -32,11 +32,22 @@ public readonly record struct SynitiKnowledgeCandidate(
 /// <summary>Deterministic Syniti/DSP knowledge matching from text (unit-testable).</summary>
 public static class SynitiKnowledgeDetector
 {
-    public const int MaxMatches = 3;
+    public const int MaxMatches = 6;
 
     private static readonly Regex SplitExamples = new(
         @"[\r\n;]+",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// When ticket text looks like SAP metadata is in scope, prefer migration/governance glossary
+    /// matches over generic platform tokens (for example the product name alone) — same detector rules, different ordering.
+    /// </summary>
+    private static readonly HashSet<string> SapContextBoostTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "MARC", "MARA", "MAKT", "MARD", "MBEW", "WERKS", "MATNR", "MEINS",
+        "BUKRS", "LFA1", "KNA1", "EINA", "EINE", "KUNNR", "LIFNR",
+        "BSEG", "BKPF", "VBAP", "VBAK", "AFKO", "QMAT",
+    };
 
     public static IReadOnlyList<SynitiKnowledgeCandidate> FindMatches(
         string combinedText,
@@ -97,11 +108,71 @@ public static class SynitiKnowledgeDetector
                 _ => 1,
             };
 
+        var sapContextLikely = HasSapCatalogContextSignal(combinedText);
+
+        static int EffectiveStrengthRank(SynitiKnowledgeCandidate c, bool sapLikely)
+        {
+            var r = StrengthRank(c.Strength);
+            if (sapLikely &&
+                c.Strength == SynitiKnowledgeMatchStrength.Strong &&
+                c.Row.Category == SynitiKnowledgeCategory.Platform)
+            {
+                // Keeps the same match set; only deprioritizes generic product-name hits when SAP metadata is in play.
+                return 1;
+            }
+
+            return r;
+        }
+
         return deduped.Values
-            .OrderBy(c => StrengthRank(c.Strength))
+            .OrderBy(c => EffectiveStrengthRank(c, sapContextLikely))
+            .ThenByDescending(c => GovernanceCategoryPriorityWhenSapLikely(c.Row.Category, sapContextLikely))
             .ThenByDescending(c => c.Row.Term.Trim().Length)
             .Take(MaxMatches)
             .ToList();
+    }
+
+    private static bool HasSapCatalogContextSignal(string combinedText)
+    {
+        if (string.IsNullOrWhiteSpace(combinedText))
+        {
+            return false;
+        }
+
+        var hay = combinedText.Trim().ToUpperInvariant();
+        foreach (var token in SapContextBoostTokens)
+        {
+            var esc = Regex.Escape(token);
+            if (Regex.IsMatch(
+                    hay,
+                    $@"(?<![A-Z0-9_]){esc}(?![A-Z0-9_])",
+                    RegexOptions.CultureInvariant))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Higher values sort earlier when <paramref name="sapContextLikely"/> is true.
+    /// </summary>
+    private static int GovernanceCategoryPriorityWhenSapLikely(
+        SynitiKnowledgeCategory category,
+        bool sapContextLikely)
+    {
+        if (!sapContextLikely)
+        {
+            return 0;
+        }
+
+        return category switch
+        {
+            SynitiKnowledgeCategory.Platform => 0,
+            SynitiKnowledgeCategory.Module or SynitiKnowledgeCategory.Job => 4,
+            _ => 10,
+        };
     }
 
     /// <returns><c>true</c> when a strong (term/alias) match was added and example phrases should be skipped.</returns>

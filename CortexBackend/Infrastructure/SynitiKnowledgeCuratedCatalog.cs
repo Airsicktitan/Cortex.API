@@ -75,7 +75,8 @@ public static class SynitiKnowledgeCuratedCatalog
             ReviewerGuidance:
             "Confirm source field, target field, transformation or defaulting logic, and who validated business correctness before approval.",
             RelatedTerms: "Value mapping; transform logic; rules",
-            ExamplePhrases: "source-to-target; source to target mapping; s2t mapping",
+            ExamplePhrases:
+            "source-to-target; source to target mapping; s2t mapping; mapping issue; incorrectly mapped; mapping completeness",
             Aliases: null,
             SuggestedReviewerChecks:
             "Confirm source and target fields are identified.|Confirm transformation or defaulting logic is documented.|Confirm business owner has reviewed the mapping.|Confirm downstream load or reconciliation impact is understood.",
@@ -195,7 +196,7 @@ public static class SynitiKnowledgeCuratedCatalog
             ReviewerGuidance:
             "Confirm objectives, success criteria, and whether issues require mapping fixes versus data fixes.",
             RelatedTerms: "Cutover readiness; load error",
-            ExamplePhrases: "mock load cycle; rehearsal load; trial load",
+            ExamplePhrases: "mock load cycle; rehearsal load; trial load; failing readiness checks before mock load; mock load readiness",
             Aliases: null,
             SuggestedReviewerChecks:
             "Confirm mock environment and cutover relevance.|List top failures and owners.|Confirm retest plan.",
@@ -210,7 +211,7 @@ public static class SynitiKnowledgeCuratedCatalog
             ReviewerGuidance:
             "Identify blocking vs non-blocking items; confirm rollback and communication expectations.",
             RelatedTerms: "Mock load; wave; cutover",
-            ExamplePhrases: "go-live readiness; cutover checklist",
+            ExamplePhrases: "go-live readiness; cutover checklist; readiness validation; readiness checks",
             Aliases: null,
             SuggestedReviewerChecks:
             "Confirm which readiness gate is blocked.|Confirm owners and dates.|Confirm dependencies on migrations, reporting, or integrations.",
@@ -225,7 +226,7 @@ public static class SynitiKnowledgeCuratedCatalog
             ReviewerGuidance:
             "Confirm accountable owner versus contributors; aligns governance approvals to the right forum.",
             RelatedTerms: "Data steward review; business validation",
-            ExamplePhrases: "field-level ownership; owning team for field",
+            ExamplePhrases: "field-level ownership; owning team for field; data ownership; missing field ownership",
             Aliases: null,
             SuggestedReviewerChecks:
             "Name the data steward or business owner for the field.|Confirm escalation when owners disagree.|Confirm impact on downstream consumers.",
@@ -315,7 +316,7 @@ public static class SynitiKnowledgeCuratedCatalog
             ReviewerGuidance:
             "Clarify freeze windows, rollback triggers, and communication plans; avoid mixing readiness discussion with unrelated defects.",
             RelatedTerms: "Cutover readiness; mock load",
-            ExamplePhrases: "cutover weekend; cut-over window",
+            ExamplePhrases: "cutover weekend; cut-over window; post-cutover; after cutover",
             Aliases: null,
             SuggestedReviewerChecks:
             "Confirm scope of cutover versus hypercare.|Confirm decision makers on go/no-go.|Confirm parallel run expectations if any.",

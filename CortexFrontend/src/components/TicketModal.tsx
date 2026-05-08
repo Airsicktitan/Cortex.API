@@ -849,6 +849,7 @@ export default function TicketModal({
   const sapTicketReferenceContextSection = useMemo(
     () => (
       <SapTicketReferenceContextCard
+        key={ticket.id}
         context={sapReferenceContext}
         loading={sapReferenceContextLoading}
         loadError={sapReferenceContextError}
@@ -963,6 +964,7 @@ export default function TicketModal({
 
     return (
       <SapTicketReferenceContextCard
+        key={ticket.id}
         purpose="evidence"
         variant="embedded"
         context={sapReferenceContext}
@@ -1017,6 +1019,7 @@ export default function TicketModal({
 
     return (
       <SynitiKnowledgeContextCard
+        key={ticket.id}
         context={synitiKnowledgeContext}
         loading={synitiKnowledgeContextLoading}
         loadError={synitiKnowledgeContextError}
@@ -3546,7 +3549,7 @@ export default function TicketModal({
                       }}
                       className="rounded-md border border-amber-300 bg-amber-50/80 px-3 py-1.5 text-xs font-semibold text-amber-950 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
                     >
-                      Return for Detail
+                      Request Details
                     </button>
                     <button
                       type="button"

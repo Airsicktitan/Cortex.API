@@ -258,7 +258,7 @@ public sealed class SynitiKnowledgeContextService(
 
         var body =
             $"Review context from “{row.SourceName.Trim()}”: wording in {location} suggests this theme. {via}" +
-            $"Summary: {defPreview} Reference material only — routing and ownership stay unchanged.";
+            $"Summary: {defPreview} Stored reference catalog only — does not change routing, owners, or approvals.";
 
         return SpaceCollapse.Replace(body.Trim(), " ");
     }

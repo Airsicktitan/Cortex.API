@@ -244,7 +244,7 @@ export default function ApprovalQueuePage({
                       }}
                       className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
                     >
-                      Return for Detail
+                      Request Details
                     </button>
                     <button
                       type="button"

@@ -7,6 +7,7 @@ import {
   getSapGovernanceCardReviewerChecks,
 } from "../utils/sapReviewerGuidance";
 import { mergeGovernanceReviewerChecks, buildSynitiPrimarySummaryLine } from "../utils/synitiKnowledgeGovernance";
+import { GOVERNANCE_ADVISORY_BOUNDARY } from "../utils/governanceAdvisoryCopy";
 
 function truncateReviewLine(text: string, maxLen: number): string {
   const t = text.trim();
@@ -73,7 +74,10 @@ type DataSignalRow = {
   trail: string;
 };
 
-function buildSapDataSignals(matches: SapTicketReferenceMatch[]): DataSignalRow[] {
+function buildSapDataSignals(
+  matches: SapTicketReferenceMatch[],
+  maxRows: number,
+): DataSignalRow[] {
   const out: DataSignalRow[] = [];
   const seen = new Set<string>();
 
@@ -87,7 +91,7 @@ function buildSapDataSignals(matches: SapTicketReferenceMatch[]): DataSignalRow[
   };
 
   for (const m of matches) {
-    if (out.length >= 2) {
+    if (out.length >= maxRows) {
       break;
     }
 
@@ -105,9 +109,9 @@ function buildSapDataSignals(matches: SapTicketReferenceMatch[]): DataSignalRow[
     }
   }
 
-  if (out.length < 2) {
+  if (out.length < maxRows) {
     for (const m of matches) {
-      if (out.length >= 2) {
+      if (out.length >= maxRows) {
         break;
       }
 
@@ -126,9 +130,9 @@ function buildSapDataSignals(matches: SapTicketReferenceMatch[]): DataSignalRow[
     }
   }
 
-  if (out.length < 2) {
+  if (out.length < maxRows) {
     for (const m of matches) {
-      if (out.length >= 2) {
+      if (out.length >= maxRows) {
         break;
       }
 
@@ -164,7 +168,7 @@ function buildGovernanceSynitiBlock(
     ? buildSynitiPrimarySummaryLine(matches[0])
     : null;
 
-  const secondaryLines = matches.slice(1, 3).map((m) => ({
+  const secondaryLines = matches.slice(1, 6).map((m) => ({
     headline: m.term.trim(),
     trail: truncateReviewLine(m.shortDefinition.trim(), 100),
   }));
@@ -228,7 +232,8 @@ export function GovernanceContextSummaryCard({
       : null;
   const sapReviewerChecks =
     sapMatches.length > 0 ? getSapGovernanceCardReviewerChecks(sapMatches) : [];
-  const dataSignals = buildSapDataSignals(sapMatches);
+  const sapDataSignalBudget = synitiMatches.length > 0 ? 3 : 2;
+  const dataSignals = buildSapDataSignals(sapMatches, sapDataSignalBudget);
   const { sectionPrimaryLine: synitiSectionPrimary, secondaryLines: synitiSecondary } =
     buildGovernanceSynitiBlock(synitiMatches, Boolean(primarySapContext));
   const extraFocus = buildReviewerFocusBullets({ sapMatches, synitiMatches });
@@ -246,7 +251,7 @@ export function GovernanceContextSummaryCard({
           Governance summary
         </h3>
         <p className="text-[11px] leading-snug text-gray-600 dark:text-slate-400">
-          Reference context only — advisory. Uses stored catalogs (no live connection to SAP or Syniti).
+          {GOVERNANCE_ADVISORY_BOUNDARY}
         </p>
       </header>
 
