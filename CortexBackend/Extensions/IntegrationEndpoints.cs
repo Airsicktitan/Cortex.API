@@ -59,6 +59,11 @@ public static class IntegrationEndpoints
             .Produces<ClearIntegrationCredentialResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        connections.MapGet("/{connectionId:int}/activity", IntegrationHandlers.GetConnectionActivity)
+            .WithName("GetIntegrationConnectionActivity")
+            .Produces<IntegrationActivityLogResponse[]>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         connections.MapGet("/{connectionId:int}/sources", IntegrationHandlers.ListSources)
             .WithName("ListExternalWorkSources")
             .Produces(StatusCodes.Status200OK)

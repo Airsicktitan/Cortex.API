@@ -14,16 +14,37 @@ public sealed class IntegrationActivityService(CortexDbContext db) : IIntegratio
 
     public async Task RecordAsync(IntegrationActivityLogRecordRequest request, CancellationToken cancellationToken = default)
     {
-        if (!await db.ExternalWorkSources.AsNoTracking().AnyAsync(s => s.Id == request.ExternalWorkSourceId, cancellationToken))
-        {
-            return;
-        }
+        int? connectionId;
+        int? externalWorkSourceId = request.ExternalWorkSourceId;
 
-        var connectionId = request.IntegrationConnectionId
-            ?? await db.ExternalWorkSources.AsNoTracking()
-                .Where(s => s.Id == request.ExternalWorkSourceId)
-                .Select(s => (int?)s.IntegrationConnectionId)
-                .FirstAsync(cancellationToken);
+        if (externalWorkSourceId is int sid)
+        {
+            if (!await db.ExternalWorkSources.AsNoTracking().AnyAsync(s => s.Id == sid, cancellationToken))
+            {
+                return;
+            }
+
+            connectionId = request.IntegrationConnectionId
+                ?? await db.ExternalWorkSources.AsNoTracking()
+                    .Where(s => s.Id == sid)
+                    .Select(s => (int?)s.IntegrationConnectionId)
+                    .FirstAsync(cancellationToken);
+        }
+        else
+        {
+            if (request.IntegrationConnectionId is not int cid)
+            {
+                return;
+            }
+
+            if (!await db.IntegrationConnections.AsNoTracking().AnyAsync(c => c.Id == cid, cancellationToken))
+            {
+                return;
+            }
+
+            connectionId = cid;
+            externalWorkSourceId = null;
+        }
 
         var completed = request.CompletedAtUtc;
         var started = request.StartedAtUtc;
@@ -34,7 +55,7 @@ public sealed class IntegrationActivityService(CortexDbContext db) : IIntegratio
         var entity = new IntegrationActivityLog
         {
             IntegrationConnectionId = connectionId,
-            ExternalWorkSourceId = request.ExternalWorkSourceId,
+            ExternalWorkSourceId = externalWorkSourceId,
             ActivityType = request.ActivityType,
             Status = request.Status,
             TriggeredByUserId = request.TriggeredByUserId,
@@ -79,6 +100,38 @@ public sealed class IntegrationActivityService(CortexDbContext db) : IIntegratio
             query = query.Where(a => a.ActivityType == parsed);
         }
 
+        return await MaterializeActivityQueryAsync(query, limit, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<IntegrationActivityLogResponse>?> GetConnectionActivityAsync(
+        int connectionId,
+        int take = 20,
+        string? activityType = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await db.IntegrationConnections.AsNoTracking().AnyAsync(c => c.Id == connectionId, cancellationToken))
+        {
+            return null;
+        }
+
+        var limit = Math.Clamp(take, 1, 100);
+        var query = db.IntegrationActivityLogs.AsNoTracking()
+            .Where(a => a.IntegrationConnectionId == connectionId);
+
+        if (!string.IsNullOrWhiteSpace(activityType)
+            && Enum.TryParse<IntegrationActivityType>(activityType.Trim(), ignoreCase: true, out var parsed))
+        {
+            query = query.Where(a => a.ActivityType == parsed);
+        }
+
+        return await MaterializeActivityQueryAsync(query, limit, cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<IntegrationActivityLogResponse>> MaterializeActivityQueryAsync(
+        IQueryable<IntegrationActivityLog> query,
+        int limit,
+        CancellationToken cancellationToken)
+    {
         var rows = await query
             .OrderByDescending(a => a.StartedAtUtc)
             .ThenByDescending(a => a.Id)

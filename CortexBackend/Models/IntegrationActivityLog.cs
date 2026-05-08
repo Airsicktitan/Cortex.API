@@ -10,7 +10,8 @@ public class IntegrationActivityLog
     /// <summary>FK when known; optional for resilience.</summary>
     public int? IntegrationConnectionId { get; set; }
 
-    public int ExternalWorkSourceId { get; set; }
+    /// <summary>FK when activity is scoped to a source; null for connection-only events (e.g. credentials).</summary>
+    public int? ExternalWorkSourceId { get; set; }
 
     public IntegrationActivityType ActivityType { get; set; }
 

@@ -5,7 +5,8 @@ namespace Cortex.API.DTO;
 /// <summary>Input for persisting one completed integration activity row.</summary>
 public sealed class IntegrationActivityLogRecordRequest
 {
-    public int ExternalWorkSourceId { get; set; }
+    /// <summary>When null, <see cref="IntegrationConnectionId"/> must be set (connection-scoped activity).</summary>
+    public int? ExternalWorkSourceId { get; set; }
 
     public int? IntegrationConnectionId { get; set; }
 
@@ -44,7 +45,7 @@ public sealed class IntegrationActivityLogRecordRequest
 
 public sealed record IntegrationActivityLogResponse(
     int Id,
-    int SourceId,
+    int? SourceId,
     int? ConnectionId,
     IntegrationActivityType ActivityType,
     IntegrationActivityStatus Status,

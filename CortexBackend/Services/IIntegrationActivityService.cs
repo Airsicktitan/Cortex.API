@@ -12,4 +12,11 @@ public interface IIntegrationActivityService
         int take = 20,
         string? activityType = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Returns newest-first activity for the connection (any source under it plus connection-only rows), or null if the connection does not exist.</summary>
+    Task<IReadOnlyList<IntegrationActivityLogResponse>?> GetConnectionActivityAsync(
+        int connectionId,
+        int take = 20,
+        string? activityType = null,
+        CancellationToken cancellationToken = default);
 }

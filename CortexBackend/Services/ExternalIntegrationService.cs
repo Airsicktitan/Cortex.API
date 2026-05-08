@@ -1464,8 +1464,9 @@ public sealed class ExternalIntegrationService(
         {
             _logger.LogWarning(
                 ex,
-                "Failed to persist integration activity for source {SourceId}, type {ActivityType}.",
+                "Failed to persist integration activity (source {SourceId}, connection {ConnectionId}, type {ActivityType}).",
                 request.ExternalWorkSourceId,
+                request.IntegrationConnectionId,
                 request.ActivityType);
         }
     }

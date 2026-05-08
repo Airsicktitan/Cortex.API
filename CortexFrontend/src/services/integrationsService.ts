@@ -281,6 +281,27 @@ export const integrationsService = {
     return response.json();
   },
 
+  async getConnectionActivity(
+    token: string,
+    connectionId: number,
+    options?: { take?: number; activityType?: IntegrationActivityType },
+  ): Promise<IntegrationActivityLogEntry[]> {
+    const params = new URLSearchParams();
+    if (options?.take != null) {
+      params.set("take", String(options.take));
+    }
+    if (options?.activityType?.trim()) {
+      params.set("activityType", options.activityType.trim());
+    }
+    const qs = params.toString();
+    const url = `${integrationsBase}/connections/${connectionId}/activity${qs ? `?${qs}` : ""}`;
+    const response = await fetch(url, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load integration activity.");
+    return response.json();
+  },
+
   async listWorkItems(
     token: string,
     sourceId: number,

@@ -307,6 +307,21 @@ public static class IntegrationHandlers
         return rows is null ? Results.NotFound() : Results.Ok(rows);
     }
 
+    public static async Task<IResult> GetConnectionActivity(
+        int connectionId,
+        int? take,
+        string? activityType,
+        IIntegrationActivityService integrationActivityService,
+        CancellationToken cancellationToken)
+    {
+        var rows = await integrationActivityService.GetConnectionActivityAsync(
+            connectionId,
+            take ?? 20,
+            activityType,
+            cancellationToken);
+        return rows is null ? Results.NotFound() : Results.Ok(rows);
+    }
+
     public static async Task<IResult> GetCredentialStatus(
         int connectionId,
         IIntegrationCredentialAdminService credentialAdminService,

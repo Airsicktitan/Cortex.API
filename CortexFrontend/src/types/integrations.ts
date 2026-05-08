@@ -82,13 +82,20 @@ export interface ExternalSourceSyncResponse {
   message?: string | null;
 }
 
-export type IntegrationActivityType = "DiscoverFields" | "SyncSource" | "ManualUpsert";
+export type IntegrationActivityType =
+  | "DiscoverFields"
+  | "SyncSource"
+  | "ManualUpsert"
+  | "CredentialConfigured"
+  | "CredentialRotated"
+  | "CredentialCleared";
 
 export type IntegrationActivityStatus = "Success" | "Failed" | "Partial";
 
 export interface IntegrationActivityLogEntry {
   id: number;
-  sourceId: number;
+  /** Present when the activity is tied to an external source; omitted for connection-only events (e.g. credentials). */
+  sourceId?: number | null;
   connectionId?: number | null;
   activityType: IntegrationActivityType;
   status: IntegrationActivityStatus;

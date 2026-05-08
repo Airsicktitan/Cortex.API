@@ -10,7 +10,9 @@ using Cortex.API.Tests.TestDoubles;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Moq;
 
 namespace Cortex.API.Tests;
 
@@ -34,7 +36,26 @@ public class IntegrationCredentialLifecycleTests
     private static IIntegrationCredentialAdminService CreateAdmin(CortexDbContext ctx, SharePointGraphOptions? spo = null)
     {
         var store = new EncryptedIntegrationCredentialStore(ctx, CreateTestProtector());
-        return new IntegrationCredentialAdminService(ctx, store, Options.Create(spo ?? new SharePointGraphOptions()));
+        var activity = new IntegrationActivityService(ctx);
+        var userMock = new Mock<IUserContextService>(MockBehavior.Strict);
+        userMock
+            .Setup(u => u.GetCurrentUserAsync())
+            .ReturnsAsync(
+                new User
+                {
+                    Id = 42,
+                    DisplayName = "Audit actor",
+                    Email = "audit.actor@cortex.test",
+                    Role = Auth0Roles.Admin,
+                    CreatedDate = DateTime.UtcNow,
+                });
+        return new IntegrationCredentialAdminService(
+            ctx,
+            store,
+            activity,
+            userMock.Object,
+            Options.Create(spo ?? new SharePointGraphOptions()),
+            NullLogger<IntegrationCredentialAdminService>.Instance);
     }
 
     [Fact]

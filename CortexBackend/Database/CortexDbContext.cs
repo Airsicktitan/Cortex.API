@@ -1168,9 +1168,11 @@ public class CortexDbContext : DbContext
             entity.Property(a => a.ErrorMessage).HasMaxLength(2000);
             entity.Property(a => a.MetadataJson).HasMaxLength(2000);
             entity.HasIndex(a => new { a.ExternalWorkSourceId, a.StartedAtUtc });
+            entity.HasIndex(a => new { a.IntegrationConnectionId, a.StartedAtUtc });
             entity.HasOne(a => a.ExternalWorkSource)
                 .WithMany()
                 .HasForeignKey(a => a.ExternalWorkSourceId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(a => a.IntegrationConnection)
                 .WithMany()

@@ -120,6 +120,12 @@ function humanizeIntegrationActivityType(t: IntegrationActivityType): string {
       return "Sync history";
     case "ManualUpsert":
       return "Manual upsert";
+    case "CredentialConfigured":
+      return "Credential configured";
+    case "CredentialRotated":
+      return "Credential rotated";
+    case "CredentialCleared":
+      return "Credential cleared";
     default:
       return t;
   }
@@ -157,6 +163,13 @@ function integrationActivityResultSummary(row: IntegrationActivityLogEntry): str
   }
   if (row.activityType === "ManualUpsert") {
     return row.message?.trim() || "Manual upsert completed.";
+  }
+  if (
+    row.activityType === "CredentialConfigured" ||
+    row.activityType === "CredentialRotated" ||
+    row.activityType === "CredentialCleared"
+  ) {
+    return row.message?.trim() || humanizeIntegrationActivityType(row.activityType);
   }
   const c = row.createdCount ?? 0;
   const u = row.updatedCount ?? 0;
@@ -776,12 +789,12 @@ export default function IntegrationsPage({
   );
 
   const loadActivity = useCallback(
-    async (sourceId: number) => {
+    async (connectionId: number) => {
       setActivityLoading(true);
       setActivityError(null);
       try {
         const token = await getToken();
-        const rows = await integrationsService.getSourceActivity(token, sourceId, { take: 50 });
+        const rows = await integrationsService.getConnectionActivity(token, connectionId, { take: 50 });
         setActivityRows(rows);
       } catch {
         setActivityError("Unable to load integration activity.");
@@ -837,10 +850,10 @@ export default function IntegrationsPage({
   }, [tab, selectedSourceId, loadItems]);
 
   useEffect(() => {
-    if (tab === "activity" && selectedSourceId !== null) {
-      void loadActivity(selectedSourceId);
+    if (tab === "activity" && selectedConnectionId !== null) {
+      void loadActivity(selectedConnectionId);
     }
-  }, [tab, selectedSourceId, loadActivity]);
+  }, [tab, selectedConnectionId, loadActivity]);
 
   useEffect(() => {
     setDiscoveredFields([]);
@@ -1136,6 +1149,9 @@ export default function IntegrationsPage({
       );
       await refreshCredentialStatus();
       await loadConnections();
+      if (tab === "activity") {
+        void loadActivity(selectedConnectionId);
+      }
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to save credentials."));
     } finally {
@@ -1162,6 +1178,9 @@ export default function IntegrationsPage({
       showBanner("ok", "Credential cleared.");
       await refreshCredentialStatus();
       await loadConnections();
+      if (tab === "activity") {
+        void loadActivity(selectedConnectionId);
+      }
     } catch (e) {
       showBanner("err", getUserFacingErrorMessage(e, "Unable to clear credentials."));
     } finally {
@@ -1387,8 +1406,8 @@ export default function IntegrationsPage({
       setUpsertOpen(false);
       showBanner("ok", "External work item saved.");
       await loadItems(selectedSourceId);
-      if (tab === "activity") {
-        void loadActivity(selectedSourceId);
+      if (tab === "activity" && selectedConnectionId !== null) {
+        void loadActivity(selectedConnectionId);
       }
       setUpsertDraft({
         externalItemId: "",
@@ -1437,8 +1456,8 @@ export default function IntegrationsPage({
     } finally {
       setDiscoverLoading(false);
       void loadSourceReadiness(selectedSourceId);
-      if (tab === "activity" && selectedSourceId !== null) {
-        void loadActivity(selectedSourceId);
+      if (tab === "activity" && selectedConnectionId !== null) {
+        void loadActivity(selectedConnectionId);
       }
     }
   };
@@ -1493,8 +1512,8 @@ export default function IntegrationsPage({
     } finally {
       setSyncLoading(false);
       void loadSourceReadiness(selectedSourceId);
-      if (tab === "activity" && selectedSourceId !== null) {
-        void loadActivity(selectedSourceId);
+      if (tab === "activity" && selectedConnectionId !== null) {
+        void loadActivity(selectedConnectionId);
       }
     }
   };
@@ -2624,16 +2643,17 @@ export default function IntegrationsPage({
             {tab === "activity" && (
               <div className="min-w-0 max-w-full space-y-4">
                 <Callout title="Activity">
-                  Sync history shows who ran discovery, read-only sync, and manual item updates for this source. Read-only
-                  sync does not change the external system and does not create Cortex tickets automatically.
+                  Integration activity for the selected connection includes discovery, read-only sync, manual item updates,
+                  and credential lifecycle events (configure, rotate, clear). Read-only sync does not change the external
+                  system and does not create Cortex tickets automatically.
                 </Callout>
-                {!selectedSourceId ? (
-                  <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
+                {!selectedConnectionId ? (
+                  <p className="text-sm text-gray-600 dark:text-slate-400">Select a connection above.</p>
                 ) : (
                   <>
                     <div className="flex flex-wrap justify-end gap-2">
                       <ConfigSecondaryButton
-                        onClick={() => void loadActivity(selectedSourceId)}
+                        onClick={() => void loadActivity(selectedConnectionId)}
                         disabled={activityLoading}
                       >
                         Refresh activity
@@ -2647,11 +2667,11 @@ export default function IntegrationsPage({
                     ) : activityRows.length === 0 ? (
                       <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
                         <p className="font-medium text-gray-800 dark:text-slate-200">
-                          No integration activity has been recorded for this source yet.
+                          No integration activity has been recorded for this connection yet.
                         </p>
                         <p className="mx-auto mt-2 max-w-lg text-gray-600 dark:text-slate-400">
-                          Run discovery, sync, or a manual upsert to build a trail. No source data was modified by Cortex
-                          beyond the actions you trigger from Integrations.
+                          Run discovery, sync, manual upserts, or credential changes to build a trail. No source data was
+                          modified by Cortex beyond the actions you trigger from Integrations.
                         </p>
                       </div>
                     ) : (
@@ -2662,6 +2682,9 @@ export default function IntegrationsPage({
                               <tr>
                                 <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
                                   Activity
+                                </th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
+                                  Source
                                 </th>
                                 <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
                                   Status
@@ -2685,6 +2708,9 @@ export default function IntegrationsPage({
                                 <tr key={row.id} className="bg-white dark:bg-slate-900">
                                   <td className="px-4 py-3 text-gray-900 dark:text-slate-100">
                                     {humanizeIntegrationActivityType(row.activityType)}
+                                  </td>
+                                  <td className="whitespace-nowrap px-4 py-3 text-gray-600 dark:text-slate-400">
+                                    {row.sourceId != null ? `#${row.sourceId}` : "—"}
                                   </td>
                                   <td className={`px-4 py-3 font-medium ${activityStatusRowClass(row.status)}`}>
                                     {humanizeIntegrationActivityStatus(row.status)}

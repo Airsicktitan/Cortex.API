@@ -1,9 +1,11 @@
+using System.Text.Json;
 using Cortex.API.Configuration;
 using Cortex.API.Database;
 using Cortex.API.DTO;
 using Cortex.API.Models;
 using Cortex.API.Services.Integrations;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Cortex.API.Services;
@@ -23,11 +25,17 @@ public interface IIntegrationCredentialAdminService
 public sealed class IntegrationCredentialAdminService(
     CortexDbContext db,
     IIntegrationCredentialStore credentialStore,
-    IOptions<SharePointGraphOptions> sharePointGraphOptions) : IIntegrationCredentialAdminService
+    IIntegrationActivityService integrationActivity,
+    IUserContextService userContext,
+    IOptions<SharePointGraphOptions> sharePointGraphOptions,
+    ILogger<IntegrationCredentialAdminService> logger) : IIntegrationCredentialAdminService
 {
     private readonly CortexDbContext _db = db;
     private readonly IIntegrationCredentialStore _credentialStore = credentialStore;
+    private readonly IIntegrationActivityService _integrationActivity = integrationActivity;
+    private readonly IUserContextService _userContext = userContext;
     private readonly SharePointGraphOptions _spo = sharePointGraphOptions.Value;
+    private readonly ILogger<IntegrationCredentialAdminService> _logger = logger;
 
     public async Task<IntegrationCredentialStatusDto?> GetStatusAsync(int connectionId, CancellationToken cancellationToken = default)
     {
@@ -53,6 +61,9 @@ public sealed class IntegrationCredentialAdminService(
             return null;
         }
 
+        var hadStoredCredentialRow = await _db.IntegrationConnectionCredentials.AsNoTracking()
+            .AnyAsync(x => x.IntegrationConnectionId == connectionId, cancellationToken);
+
         IntegrationCredentialSecretValidator.ValidateSecretsForConfigure(conn.Provider, request.Secrets);
         var patch = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var kv in request.Secrets!)
@@ -65,8 +76,32 @@ public sealed class IntegrationCredentialAdminService(
             patch[kv.Key.Trim()] = kv.Value?.Trim() ?? string.Empty;
         }
 
+        var submittedKeyNames = patch
+            .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
+            .Select(kv => kv.Key)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         await _credentialStore.MergeAndPersistAsync(connectionId, conn.Provider, conn.AuthMode, patch, cancellationToken);
         var status = await GetStatusAsync(connectionId, cancellationToken);
+
+        var activityType = hadStoredCredentialRow
+            ? IntegrationActivityType.CredentialRotated
+            : IntegrationActivityType.CredentialConfigured;
+        var message = hadStoredCredentialRow ? "Credential rotated" : "Credential configured";
+        var metadata = BuildCredentialAuditMetadata(
+            conn,
+            submittedKeyNames,
+            status?.CredentialConfigured ?? false);
+
+        await TryRecordCredentialActivityAsync(
+            connectionId,
+            activityType,
+            message,
+            metadata,
+            cancellationToken);
+
         return new ConfigureIntegrationCredentialResponse(status!);
     }
 
@@ -78,8 +113,24 @@ public sealed class IntegrationCredentialAdminService(
             return null;
         }
 
+        var credRow = await _db.IntegrationConnectionCredentials.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.IntegrationConnectionId == connectionId, cancellationToken);
+        var hadStored = IntegrationCredentialPresentation.HasStoredCredential(credRow);
+
         await _credentialStore.ClearAsync(connectionId, cancellationToken);
         var status = await GetStatusAsync(connectionId, cancellationToken);
+
+        if (hadStored)
+        {
+            var metadata = BuildCredentialAuditMetadata(conn, [], status?.CredentialConfigured ?? false);
+            await TryRecordCredentialActivityAsync(
+                connectionId,
+                IntegrationActivityType.CredentialCleared,
+                "Credential cleared",
+                metadata,
+                cancellationToken);
+        }
+
         return new ClearIntegrationCredentialResponse(status!);
     }
 
@@ -126,5 +177,75 @@ public sealed class IntegrationCredentialAdminService(
         }
 
         return (false, null);
+    }
+
+    private static string? BuildCredentialAuditMetadata(
+        IntegrationConnection conn,
+        IReadOnlyList<string> updatedSecretKeys,
+        bool credentialConfiguredAfter)
+    {
+        var d = new Dictionary<string, object?>
+        {
+            ["connectionId"] = conn.Id,
+            ["connectionDisplayName"] = conn.DisplayName,
+            ["provider"] = conn.Provider.ToString(),
+            ["authMode"] = conn.AuthMode.ToString(),
+            ["credentialConfigured"] = credentialConfiguredAfter,
+            ["updatedSecretKeys"] = updatedSecretKeys,
+        };
+
+        return JsonSerializer.Serialize(d, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private async Task TryRecordCredentialActivityAsync(
+        int connectionId,
+        IntegrationActivityType activityType,
+        string message,
+        string? metadataJson,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var actor = await TryGetActorAsync();
+            var now = DateTime.UtcNow;
+            await _integrationActivity.RecordAsync(
+                new IntegrationActivityLogRecordRequest
+                {
+                    ExternalWorkSourceId = null,
+                    IntegrationConnectionId = connectionId,
+                    ActivityType = activityType,
+                    Status = IntegrationActivityStatus.Success,
+                    TriggeredByUserId = actor?.Id,
+                    TriggeredByDisplayName = actor?.DisplayName,
+                    TriggeredByEmail = string.IsNullOrEmpty(actor?.Email) ? null : actor?.Email,
+                    StartedAtUtc = now,
+                    CompletedAtUtc = now,
+                    Message = message,
+                    MetadataJson = metadataJson,
+                },
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to record integration credential activity {ActivityType} for connection {ConnectionId}.",
+                activityType,
+                connectionId);
+        }
+    }
+
+    private async Task<(int Id, string DisplayName, string Email)?> TryGetActorAsync()
+    {
+        try
+        {
+            var u = await _userContext.GetCurrentUserAsync();
+            var email = u.Email ?? "";
+            return (u.Id, u.DisplayName ?? email, email);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
