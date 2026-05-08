@@ -102,6 +102,7 @@ public class FieldMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -134,6 +135,7 @@ public class FieldMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -169,6 +171,7 @@ public class FieldMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -218,6 +221,7 @@ public class FieldMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {

@@ -1,11 +1,17 @@
 /** Align with backend enums (JSON string values as emitted by System.Text.Json + JsonStringEnumConverter). */
 
 import type { ApprovalStatus } from "./ticket";
-export type IntegrationProvider = "SharePoint" | "Jira" | "ServiceNow";
+export type IntegrationProvider = "SharePoint" | "Jira" | "ServiceNow" | "SapReference";
 
-export type IntegrationAuthMode = "Manual" | "OAuth" | "AppRegistration";
+export type IntegrationAuthMode =
+  | "Manual"
+  | "OAuth"
+  | "AppRegistration"
+  | "ApiToken"
+  | "OAuthClientCredentials"
+  | "ReferenceMetadata";
 
-export type IntegrationSyncMode = "ReadOnly" | "ImportToCortex" | "TwoWay";
+export type IntegrationSyncMode = "ReadOnly" | "ImportToCortex" | "TwoWay" | "Manual";
 
 export type ExternalSourceType = "SharePointList" | "JiraProject" | "ServiceNowTable";
 
@@ -40,6 +46,11 @@ export interface IntegrationConnectionResponse {
   createdAtUtc: string;
   updatedAtUtc?: string | null;
   externalWorkSourceCount: number;
+  /** Non-secret provider fields only; never includes tokens or passwords. */
+  safeProviderSettings?: Record<string, string>;
+  credentialConfigured?: boolean;
+  credentialType?: string | null;
+  lastValidatedAtUtc?: string | null;
 }
 
 export interface SharePointDiscoveredFieldResponse {
@@ -119,6 +130,8 @@ export interface CreateIntegrationConnectionInput {
   authMode?: IntegrationAuthMode | null;
   syncMode?: IntegrationSyncMode | null;
   isEnabled?: boolean | null;
+  /** Non-secret keys only; server rejects secret payloads. */
+  providerSettings?: Record<string, string | null> | null;
 }
 
 export interface UpdateIntegrationConnectionInput {
@@ -131,6 +144,36 @@ export interface UpdateIntegrationConnectionInput {
   lastSyncUtc?: string | null;
   lastSyncStatus?: string | null;
   lastSyncMessage?: string | null;
+  providerSettings?: Record<string, string | null> | null;
+}
+
+export interface IntegrationProviderFieldDefinitionDto {
+  key: string;
+  label: string;
+  helpText: string;
+  fieldType: string;
+  required: boolean;
+  isSecret: boolean;
+  allowedValues?: string[] | null;
+  placeholder?: string | null;
+  validationHint?: string | null;
+}
+
+export interface IntegrationProviderDefinitionDto {
+  provider: IntegrationProvider;
+  displayName: string;
+  description: string;
+  allowedAuthModes: IntegrationAuthMode[];
+  allowedSyncModes: IntegrationSyncMode[];
+  fields: IntegrationProviderFieldDefinitionDto[];
+  supportsFieldDiscovery: boolean;
+  supportsSync: boolean;
+  supportsTicketCreationFromExternalItem: boolean;
+  referenceMetadataOnly: boolean;
+}
+
+export interface IntegrationProviderDefinitionsResponse {
+  providers: IntegrationProviderDefinitionDto[];
 }
 
 export interface ExternalWorkSourceResponse {
@@ -293,11 +336,19 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   "SharePoint",
   "Jira",
   "ServiceNow",
+  "SapReference",
 ];
 
-export const AUTH_MODES: IntegrationAuthMode[] = ["Manual", "OAuth", "AppRegistration"];
+export const AUTH_MODES: IntegrationAuthMode[] = [
+  "Manual",
+  "OAuth",
+  "AppRegistration",
+  "ApiToken",
+  "OAuthClientCredentials",
+  "ReferenceMetadata",
+];
 
-export const SYNC_MODES: IntegrationSyncMode[] = ["ReadOnly", "ImportToCortex", "TwoWay"];
+export const SYNC_MODES: IntegrationSyncMode[] = ["ReadOnly", "ImportToCortex", "TwoWay", "Manual"];
 
 export const SOURCE_TYPES: ExternalSourceType[] = [
   "SharePointList",

@@ -35,6 +35,7 @@ public class SharePointSyncTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "Conn",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
             IsEnabled = true,
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
@@ -132,6 +133,7 @@ public class SharePointSyncTests
         {
             Provider = IntegrationProvider.Jira,
             DisplayName = "Jira",
+            ProviderSettings = IntegrationConnectionTestDefaults.JiraMinimalSettings(),
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
         {
@@ -285,6 +287,7 @@ public class SharePointSyncTests
         {
             Provider = IntegrationProvider.Jira,
             DisplayName = "J",
+            ProviderSettings = IntegrationConnectionTestDefaults.JiraMinimalSettings(),
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
         {
@@ -320,6 +323,7 @@ public class SharePointSyncTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
         {

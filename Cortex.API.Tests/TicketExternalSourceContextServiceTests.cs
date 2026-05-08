@@ -26,6 +26,7 @@ public class TicketExternalSourceContextServiceTests
             {
                 Provider = IntegrationProvider.SharePoint,
                 DisplayName = "Conn",
+                TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
             });
 
         return await service.CreateSourceAsync(

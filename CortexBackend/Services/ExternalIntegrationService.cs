@@ -70,15 +70,17 @@ public sealed class ExternalIntegrationService(
             throw new ArgumentException("DisplayName is required.", nameof(request));
         }
 
+        var normalized = IntegrationConnectionConfigValidator.ValidateAndNormalizeCreate(request);
         var now = DateTime.UtcNow;
         var entity = new IntegrationConnection
         {
             Provider = request.Provider,
             DisplayName = request.DisplayName.Trim(),
-            TenantId = request.TenantId?.Trim(),
-            OrganizationId = request.OrganizationId?.Trim(),
-            AuthMode = request.AuthMode ?? IntegrationAuthMode.Manual,
-            SyncMode = request.SyncMode ?? IntegrationSyncMode.ReadOnly,
+            TenantId = normalized.TenantId,
+            OrganizationId = normalized.OrganizationId,
+            PublicSettingsJson = normalized.PublicSettingsJson,
+            AuthMode = normalized.AuthMode,
+            SyncMode = normalized.SyncMode,
             IsEnabled = request.IsEnabled ?? true,
             CreatedAtUtc = now,
         };
@@ -105,18 +107,17 @@ public sealed class ExternalIntegrationService(
             throw new ArgumentException("DisplayName is required.", nameof(request));
         }
 
-        entity.DisplayName = request.DisplayName.Trim();
-        entity.TenantId = request.TenantId?.Trim();
-        entity.OrganizationId = request.OrganizationId?.Trim();
-        if (request.AuthMode is { } authMode)
-        {
-            entity.AuthMode = authMode;
-        }
+        var normalized = IntegrationConnectionConfigValidator.ValidateAndNormalizeUpdate(
+            entity.Provider,
+            request,
+            entity);
 
-        if (request.SyncMode is { } syncMode)
-        {
-            entity.SyncMode = syncMode;
-        }
+        entity.DisplayName = request.DisplayName.Trim();
+        entity.TenantId = normalized.TenantId;
+        entity.OrganizationId = normalized.OrganizationId;
+        entity.PublicSettingsJson = normalized.PublicSettingsJson;
+        entity.AuthMode = normalized.AuthMode;
+        entity.SyncMode = normalized.SyncMode;
 
         if (request.IsEnabled is { } enabled)
         {
@@ -1519,8 +1520,43 @@ public sealed class ExternalIntegrationService(
         }
     }
 
-    private static IntegrationConnectionResponse MapConnection(IntegrationConnection c, int sourceCount) =>
-        new(
+    public Task<IntegrationProviderDefinitionsResponse> GetProviderDefinitionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        var list = IntegrationProviderCatalog.All.Select(static p => new IntegrationProviderDefinitionDto(
+            Provider: p.Provider.ToString(),
+            DisplayName: p.DisplayName,
+            Description: p.Description,
+            AllowedAuthModes: p.AllowedAuthModes.Select(a => a.ToString()).ToList(),
+            AllowedSyncModes: p.AllowedSyncModes.Select(s => s.ToString()).ToList(),
+            Fields: p.Fields.Select(static f => new IntegrationProviderFieldDefinitionDto(
+                Key: f.Key,
+                Label: f.Label,
+                HelpText: f.HelpText,
+                FieldType: f.FieldType,
+                Required: f.Required,
+                IsSecret: f.IsSecret,
+                AllowedValues: f.AllowedValues,
+                Placeholder: f.Placeholder,
+                ValidationHint: f.ValidationHint)).ToList(),
+            SupportsFieldDiscovery: p.SupportsFieldDiscovery,
+            SupportsSync: p.SupportsSync,
+            SupportsTicketCreationFromExternalItem: p.SupportsTicketCreationFromExternalItem,
+            ReferenceMetadataOnly: p.ReferenceMetadataOnly)).ToList();
+
+        return Task.FromResult(new IntegrationProviderDefinitionsResponse(list));
+    }
+
+    private IntegrationConnectionResponse MapConnection(IntegrationConnection c, int sourceCount)
+    {
+        var profile = IntegrationProviderCatalog.TryGet(c.Provider);
+        IReadOnlyDictionary<string, string> safe = profile is null
+            ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(
+                IntegrationConnectionConfigValidator.ToSafeDisplayMap(c, profile));
+        var (credentialConfigured, credentialType) = ResolveCredentialIndicators(c);
+        return new IntegrationConnectionResponse(
             c.Id,
             c.Provider,
             c.DisplayName,
@@ -1534,7 +1570,25 @@ public sealed class ExternalIntegrationService(
             c.LastSyncMessage,
             c.CreatedAtUtc,
             c.UpdatedAtUtc,
-            sourceCount);
+            sourceCount,
+            safe,
+            credentialConfigured,
+            credentialType,
+            LastValidatedAtUtc: null);
+    }
+
+    private (bool Configured, string? Type) ResolveCredentialIndicators(IntegrationConnection c)
+    {
+        if (c.Provider == IntegrationProvider.SharePoint)
+        {
+            var hasApp = !string.IsNullOrWhiteSpace(_sharePointGraphOptions.ClientSecret) &&
+                         !string.IsNullOrWhiteSpace(_sharePointGraphOptions.ClientId);
+            var hasTenant = !string.IsNullOrWhiteSpace(c.TenantId);
+            return (hasApp && hasTenant, hasApp ? "MicrosoftGraphAppRegistration" : null);
+        }
+
+        return (false, null);
+    }
 
     private static ExternalWorkSourceResponse MapSource(
         ExternalWorkSource s,

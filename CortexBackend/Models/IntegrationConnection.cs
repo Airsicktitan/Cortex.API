@@ -16,6 +16,10 @@ public class IntegrationConnection
     public string DisplayName { get; set; } = string.Empty;
     public string? TenantId { get; set; }
     public string? OrganizationId { get; set; }
+
+    /// <summary>Non-secret provider settings as JSON (validated keys only; never store secrets here).</summary>
+    public string? PublicSettingsJson { get; set; }
+
     public IntegrationAuthMode AuthMode { get; set; } = IntegrationAuthMode.Manual;
     public IntegrationSyncMode SyncMode { get; set; } = IntegrationSyncMode.ReadOnly;
     public bool IsEnabled { get; set; } = true;

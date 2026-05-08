@@ -1002,6 +1002,7 @@ public class CortexDbContext : DbContext
                 .HasMaxLength(200);
             entity.Property(c => c.TenantId).HasMaxLength(200);
             entity.Property(c => c.OrganizationId).HasMaxLength(200);
+            entity.Property(c => c.PublicSettingsJson).HasMaxLength(8000);
             entity.Property(c => c.AuthMode)
                 .HasConversion<string>()
                 .HasMaxLength(32)

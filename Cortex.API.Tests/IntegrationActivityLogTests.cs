@@ -26,6 +26,7 @@ public class IntegrationActivityLogTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
             IsEnabled = true,
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
@@ -57,6 +58,7 @@ public class IntegrationActivityLogTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
         {
@@ -86,6 +88,7 @@ public class IntegrationActivityLogTests
         {
             Provider = IntegrationProvider.Jira,
             DisplayName = "J",
+            ProviderSettings = IntegrationConnectionTestDefaults.JiraMinimalSettings(),
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
         {
@@ -122,6 +125,7 @@ public class IntegrationActivityLogTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
             IsEnabled = true,
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
@@ -163,6 +167,7 @@ public class IntegrationActivityLogTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
             IsEnabled = true,
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
@@ -204,6 +209,7 @@ public class IntegrationActivityLogTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(conn.Id, new CreateExternalWorkSourceRequest
         {

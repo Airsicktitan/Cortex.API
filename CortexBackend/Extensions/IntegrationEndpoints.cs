@@ -14,6 +14,10 @@ public static class IntegrationEndpoints
 
         var connections = integrations.MapGroup("/connections");
 
+        connections.MapGet("/provider-definitions", IntegrationHandlers.ListProviderDefinitions)
+            .WithName("ListIntegrationProviderDefinitions")
+            .Produces<IntegrationProviderDefinitionsResponse>(StatusCodes.Status200OK);
+
         connections.MapGet("/", IntegrationHandlers.ListConnections)
             .WithName("ListIntegrationConnections")
             .Produces(StatusCodes.Status200OK);

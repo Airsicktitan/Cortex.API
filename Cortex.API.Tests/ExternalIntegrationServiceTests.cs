@@ -53,6 +53,7 @@ public class ExternalIntegrationServiceTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "Conn",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
 
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
@@ -81,6 +82,7 @@ public class ExternalIntegrationServiceTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "Conn",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -127,6 +129,7 @@ public class ExternalIntegrationServiceTests
         {
             Provider = IntegrationProvider.Jira,
             DisplayName = "Jira",
+            ProviderSettings = IntegrationConnectionTestDefaults.JiraMinimalSettings(),
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -330,6 +333,7 @@ public class ExternalIntegrationServiceTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "SPO",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         return await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {

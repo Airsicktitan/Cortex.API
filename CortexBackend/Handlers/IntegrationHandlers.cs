@@ -10,6 +10,12 @@ namespace Cortex.API.Handlers;
 
 public static class IntegrationHandlers
 {
+    public static async Task<IResult> ListProviderDefinitions(IExternalIntegrationService integrationService)
+    {
+        var dto = await integrationService.GetProviderDefinitionsAsync();
+        return Results.Ok(dto);
+    }
+
     public static async Task<IResult> ListConnections(IExternalIntegrationService integrationService) =>
         Results.Ok(await integrationService.ListConnectionsAsync());
 
@@ -28,6 +34,10 @@ public static class IntegrationHandlers
             var created = await integrationService.CreateConnectionAsync(request);
             return Results.Created($"/api/integrations/connections/{created.Id}", created);
         }
+        catch (IntegrationApiException ex)
+        {
+            return SafeErrorResponses.IntegrationApi(ex);
+        }
         catch (ArgumentException)
         {
             return SafeErrorResponses.BadRequest();
@@ -43,6 +53,10 @@ public static class IntegrationHandlers
         {
             var updated = await integrationService.UpdateConnectionAsync(id, request);
             return updated is null ? Results.NotFound() : Results.Ok(updated);
+        }
+        catch (IntegrationApiException ex)
+        {
+            return SafeErrorResponses.IntegrationApi(ex);
         }
         catch (ArgumentException)
         {

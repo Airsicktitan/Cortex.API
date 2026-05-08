@@ -19,6 +19,8 @@ public interface IExternalIntegrationService
     Task<IntegrationConnectionResponse?> UpdateConnectionAsync(int id, UpdateIntegrationConnectionRequest request, CancellationToken cancellationToken = default);
     Task<IntegrationConnectionResponse?> SetConnectionEnabledAsync(int id, bool isEnabled, CancellationToken cancellationToken = default);
 
+    Task<IntegrationProviderDefinitionsResponse> GetProviderDefinitionsAsync(CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ExternalWorkSourceResponse>?> ListSourcesAsync(int connectionId, CancellationToken cancellationToken = default);
     Task<ExternalWorkSourceResponse?> CreateSourceAsync(int connectionId, CreateExternalWorkSourceRequest request, CancellationToken cancellationToken = default);
     Task<ExternalWorkSourceResponse?> UpdateSourceAsync(int sourceId, UpdateExternalWorkSourceRequest request, CancellationToken cancellationToken = default);

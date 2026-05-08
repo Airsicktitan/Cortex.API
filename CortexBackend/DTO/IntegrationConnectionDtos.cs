@@ -16,7 +16,11 @@ public record IntegrationConnectionResponse(
     string? LastSyncMessage,
     DateTime CreatedAtUtc,
     DateTime? UpdatedAtUtc,
-    int ExternalWorkSourceCount);
+    int ExternalWorkSourceCount,
+    IReadOnlyDictionary<string, string> SafeProviderSettings,
+    bool CredentialConfigured,
+    string? CredentialType,
+    DateTime? LastValidatedAtUtc);
 
 public record CreateIntegrationConnectionRequest
 {
@@ -27,6 +31,9 @@ public record CreateIntegrationConnectionRequest
     public IntegrationAuthMode? AuthMode { get; init; }
     public IntegrationSyncMode? SyncMode { get; init; }
     public bool? IsEnabled { get; init; }
+
+    /// <summary>Provider-specific non-secret fields. Secret keys are rejected by the server.</summary>
+    public Dictionary<string, string?>? ProviderSettings { get; init; }
 }
 
 public record UpdateIntegrationConnectionRequest
@@ -40,6 +47,9 @@ public record UpdateIntegrationConnectionRequest
     public DateTime? LastSyncUtc { get; init; }
     public string? LastSyncStatus { get; init; }
     public string? LastSyncMessage { get; init; }
+
+    /// <summary>Optional partial update. Null values remove keys; omitted keys leave prior values.</summary>
+    public Dictionary<string, string?>? ProviderSettings { get; init; }
 }
 
 public record SetIntegrationEnabledRequest(bool IsEnabled);

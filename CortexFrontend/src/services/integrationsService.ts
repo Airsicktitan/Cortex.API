@@ -14,6 +14,7 @@ import type {
   IntegrationActivityLogEntry,
   IntegrationActivityType,
   IntegrationConnectionResponse,
+  IntegrationProviderDefinitionsResponse,
   ManualUpsertExternalWorkItemInput,
   SharePointDiscoveredFieldResponse,
   UpdateExternalWorkSourceInput,
@@ -31,6 +32,14 @@ const authHeaders = (token: string, json = false): HeadersInit => ({
 const integrationsBase = `${API_BASE_URL}/integrations`;
 
 export const integrationsService = {
+  async listProviderDefinitions(token: string): Promise<IntegrationProviderDefinitionsResponse> {
+    const response = await fetch(`${integrationsBase}/connections/provider-definitions`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load integration provider definitions");
+    return response.json();
+  },
+
   async listConnections(token: string): Promise<IntegrationConnectionResponse[]> {
     const response = await fetch(`${integrationsBase}/connections`, {
       headers: authHeaders(token),

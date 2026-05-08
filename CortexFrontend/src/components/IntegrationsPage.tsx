@@ -19,6 +19,7 @@ import type {
   IntegrationActivityType,
   IntegrationAuthMode,
   IntegrationConnectionResponse,
+  IntegrationProviderDefinitionDto,
   IntegrationProvider,
   IntegrationReadinessCheckStatus,
   IntegrationSyncMode,
@@ -202,6 +203,8 @@ function humanizeIntegrationSyncMode(syncMode: IntegrationSyncMode): string {
       return "Import to Cortex";
     case "TwoWay":
       return "Two-way";
+    case "Manual":
+      return "Manual (operator-triggered)";
     default:
       return syncMode;
   }
@@ -215,6 +218,12 @@ function humanizeIntegrationAuthMode(authMode: IntegrationAuthMode): string {
       return "OAuth";
     case "AppRegistration":
       return "App registration";
+    case "ApiToken":
+      return "API token";
+    case "OAuthClientCredentials":
+      return "OAuth (client credentials)";
+    case "ReferenceMetadata":
+      return "Reference metadata";
     default:
       return authMode;
   }
@@ -231,6 +240,32 @@ function humanizeExternalBoardMappingMode(mode: ExternalBoardMappingMode): strin
     default:
       return mode;
   }
+}
+
+type ConnectionModalCreateDraft = CreateIntegrationConnectionInput & { providerSettings: Record<string, string> };
+type ConnectionModalEditDraft = UpdateIntegrationConnectionInput & {
+  provider: IntegrationProvider;
+  providerSettings: Record<string, string>;
+  credentialConfigured?: boolean;
+  credentialType?: string | null;
+};
+
+function buildProviderSettingsPayload(settings: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(settings)) {
+    const t = v.trim();
+    if (t) {
+      out[k] = t;
+    }
+  }
+  return out;
+}
+
+function connectionProviderLabel(
+  defs: IntegrationProviderDefinitionDto[] | null,
+  provider: IntegrationProvider,
+): string {
+  return defs?.find((d) => d.provider === provider)?.displayName ?? provider;
 }
 
 /** Readable Cortex field labels in dropdowns; values stay PascalCase enums. */
@@ -348,6 +383,28 @@ export default function IntegrationsPage({
     });
   }, [getAccessTokenSilently]);
 
+  const [providerDefinitions, setProviderDefinitions] = useState<IntegrationProviderDefinitionDto[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getToken();
+        const res = await integrationsService.listProviderDefinitions(token);
+        if (!cancelled) {
+          setProviderDefinitions(res.providers);
+        }
+      } catch {
+        if (!cancelled) {
+          setProviderDefinitions(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
   const [tab, setTab] = useState<IntegrationsTab>("connections");
   const [banner, setBanner] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
@@ -401,8 +458,8 @@ export default function IntegrationsPage({
   const [createTicketError, setCreateTicketError] = useState<string | null>(null);
 
   const [connectionModal, setConnectionModal] = useState<
-    | { mode: "create"; draft: CreateIntegrationConnectionInput }
-    | { mode: "edit"; id: number; draft: UpdateIntegrationConnectionInput & { provider: IntegrationProvider } }
+    | { mode: "create"; draft: ConnectionModalCreateDraft }
+    | { mode: "edit"; id: number; draft: ConnectionModalEditDraft }
     | null
   >(null);
 
@@ -879,32 +936,55 @@ export default function IntegrationsPage({
   ]);
 
   const openCreateConnection = () => {
+    const providers = providerDefinitions?.length
+      ? providerDefinitions
+      : INTEGRATION_PROVIDERS.map((p) => ({
+          provider: p,
+          displayName: p,
+          description: "",
+          allowedAuthModes: ["Manual" as IntegrationAuthMode],
+          allowedSyncModes: ["ReadOnly" as IntegrationSyncMode],
+          fields: [],
+          supportsFieldDiscovery: false,
+          supportsSync: false,
+          supportsTicketCreationFromExternalItem: false,
+          referenceMetadataOnly: false,
+        }));
+    const first = providers.find((d) => d.provider === "SharePoint") ?? providers[0];
+    const auth0 = first.allowedAuthModes[0] ?? "Manual";
+    const sync0 = first.allowedSyncModes[0] ?? "ReadOnly";
     setConnectionModal({
       mode: "create",
       draft: {
-        provider: "SharePoint",
+        provider: first.provider,
         displayName: "",
-        tenantId: "",
-        organizationId: "",
-        authMode: "Manual",
-        syncMode: "ReadOnly",
+        authMode: auth0,
+        syncMode: sync0,
         isEnabled: true,
+        providerSettings: {},
       },
     });
   };
 
   const openEditConnection = (c: IntegrationConnectionResponse) => {
+    const settings: Record<string, string> = {};
+    for (const [k, v] of Object.entries(c.safeProviderSettings ?? {})) {
+      if (v != null && String(v).length > 0) {
+        settings[k] = String(v);
+      }
+    }
     setConnectionModal({
       mode: "edit",
       id: c.id,
       draft: {
         provider: c.provider,
         displayName: c.displayName,
-        tenantId: c.tenantId ?? "",
-        organizationId: c.organizationId ?? "",
         authMode: c.authMode,
         syncMode: c.syncMode,
         isEnabled: c.isEnabled,
+        providerSettings: settings,
+        credentialConfigured: c.credentialConfigured ?? false,
+        credentialType: c.credentialType,
       },
     });
   };
@@ -921,11 +1001,13 @@ export default function IntegrationsPage({
           showBanner("err", "Display name is required.");
           return;
         }
+        const psPayload = buildProviderSettingsPayload(d.providerSettings);
         await integrationsService.createConnection(token, {
           provider: d.provider,
           displayName: d.displayName.trim(),
-          tenantId: d.tenantId?.trim() || null,
-          organizationId: d.organizationId?.trim() || null,
+          tenantId: d.provider === "SharePoint" ? psPayload.tenantId?.trim() || null : null,
+          organizationId: d.provider === "SharePoint" ? psPayload.siteUrl?.trim() || null : null,
+          providerSettings: psPayload,
           authMode: d.authMode ?? "Manual",
           syncMode: d.syncMode ?? "ReadOnly",
           isEnabled: d.isEnabled ?? true,
@@ -937,10 +1019,12 @@ export default function IntegrationsPage({
           showBanner("err", "Display name is required.");
           return;
         }
+        const psPayload = buildProviderSettingsPayload(d.providerSettings);
         await integrationsService.updateConnection(token, connectionModal.id, {
           displayName: d.displayName.trim(),
-          tenantId: d.tenantId?.trim() || null,
-          organizationId: d.organizationId?.trim() || null,
+          tenantId: d.provider === "SharePoint" ? psPayload.tenantId?.trim() || null : undefined,
+          organizationId: d.provider === "SharePoint" ? psPayload.siteUrl?.trim() || null : undefined,
+          providerSettings: psPayload,
           authMode: d.authMode ?? undefined,
           syncMode: d.syncMode ?? undefined,
           isEnabled: d.isEnabled ?? undefined,
@@ -977,6 +1061,13 @@ export default function IntegrationsPage({
   const openCreateSource = () => {
     if (!selectedConnection) {
       showBanner("err", "Select a connection first.");
+      return;
+    }
+    if (selectedConnection.provider === "SapReference") {
+      showBanner(
+        "err",
+        "SAP Reference connections document stored metadata and do not use external work sources here. Use SAP reference catalog administration instead.",
+      );
       return;
     }
     setSourceModal({
@@ -1294,6 +1385,31 @@ export default function IntegrationsPage({
     { id: "activity", label: "Activity" },
   ];
 
+  const modalConnDef =
+    connectionModal !== null
+      ? providerDefinitions?.find((d) => d.provider === connectionModal.draft.provider)
+      : undefined;
+  const modalProviderChoices =
+    providerDefinitions?.map((d) => ({ value: d.provider, label: d.displayName })) ??
+    INTEGRATION_PROVIDERS.map((p) => ({ value: p, label: p }));
+  const modalAuthChoices =
+    modalConnDef?.allowedAuthModes?.length ? modalConnDef.allowedAuthModes : AUTH_MODES;
+  const modalSyncChoices =
+    modalConnDef?.allowedSyncModes?.length ? modalConnDef.allowedSyncModes : SYNC_MODES;
+
+  const updateConnectionDraftSettings = (key: string, value: string) => {
+    setConnectionModal((m) => {
+      if (!m) {
+        return m;
+      }
+      const nextSettings = { ...m.draft.providerSettings, [key]: value };
+      if (m.mode === "create") {
+        return { mode: "create" as const, draft: { ...m.draft, providerSettings: nextSettings } };
+      }
+      return { mode: "edit" as const, id: m.id, draft: { ...m.draft, providerSettings: nextSettings } };
+    });
+  };
+
   return (
     <div className="min-w-0 max-w-full space-y-6">
       {banner ? (
@@ -1419,8 +1535,19 @@ export default function IntegrationsPage({
 
             {tab === "connections" && (
               <div className="space-y-4">
-                <Callout title="Connections represent systems Cortex can read from.">
-                  Live authentication is not connected yet. Manual mode lets Cortex model and test external sources safely.
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">
+                    Integration connection setup
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                    Configure provider-specific connection details for read-only external work intake and reference
+                    context.
+                  </p>
+                </div>
+                <Callout title="Security">
+                  Secrets are stored securely and are never shown after saving. External integrations are read-only by
+                  default. Imported context does not change routing, owners, or approvals unless approved Cortex rules
+                  apply.
                 </Callout>
                 <div className="flex justify-end">
                   <ConfigPrimaryButton onClick={openCreateConnection}>Add connection</ConfigPrimaryButton>
@@ -1453,7 +1580,9 @@ export default function IntegrationsPage({
                         {connections.map((c) => (
                           <tr key={c.id} className="bg-white dark:bg-slate-900">
                             <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{c.displayName}</td>
-                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{c.provider}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
+                              {connectionProviderLabel(providerDefinitions, c.provider)}
+                            </td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationAuthMode(c.authMode)}</td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationSyncMode(c.syncMode)}</td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{c.isEnabled ? "Yes" : "No"}</td>
@@ -2299,43 +2428,82 @@ export default function IntegrationsPage({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-              {connectionModal.mode === "create" ? "Add connection" : "Edit connection"}
+              Integration connection setup
             </h3>
+            <p className="mt-1 text-xs text-gray-600 dark:text-slate-400">
+              {connectionModal.mode === "create" ? "Register a new governed provider connection." : "Update this connection."}
+            </p>
+            {modalConnDef?.description ? (
+              <p className="mt-2 text-sm text-gray-700 dark:text-slate-300">{modalConnDef.description}</p>
+            ) : null}
+            {!providerDefinitions ? (
+              <p className="mt-2 text-xs text-amber-800 dark:text-amber-200/90">
+                Loading provider setup definitions… If this message remains, verify your connection and try again.
+              </p>
+            ) : null}
             <div className="mt-4 space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Display name</label>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
+                  Display name<span className="text-red-600 dark:text-red-400"> *</span>
+                </label>
                 <input
                   className={configFieldClass}
                   value={connectionModal.draft.displayName}
                   onChange={(e) => {
-                    if (connectionModal.mode === "create") {
-                      setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, displayName: e.target.value } });
-                    } else {
-                      setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, displayName: e.target.value } });
-                    }
+                    const v = e.target.value;
+                    setConnectionModal((m) => {
+                      if (!m) return m;
+                      if (m.mode === "create") {
+                        return { mode: "create", draft: { ...m.draft, displayName: v } };
+                      }
+                      return { mode: "edit", id: m.id, draft: { ...m.draft, displayName: v } };
+                    });
                   }}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Provider</label>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
+                  Provider<span className="text-red-600 dark:text-red-400"> *</span>
+                </label>
                 <select
                   className={configFieldClass}
                   value={connectionModal.draft.provider}
                   onChange={(e) => {
                     const v = e.target.value as IntegrationProvider;
-                    setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, provider: v } });
+                    const nextDef = providerDefinitions?.find((p) => p.provider === v);
+                    const authN = nextDef?.allowedAuthModes[0] ?? "Manual";
+                    const syncN = nextDef?.allowedSyncModes[0] ?? "ReadOnly";
+                    setConnectionModal((m) => {
+                      if (!m || m.mode !== "create") {
+                        return m;
+                      }
+                      return {
+                        mode: "create" as const,
+                        draft: {
+                          ...m.draft,
+                          provider: v,
+                          providerSettings: {},
+                          authMode: authN,
+                          syncMode: syncN,
+                        },
+                      };
+                    });
                   }}
                   disabled={connectionModal.mode === "edit"}
                 >
-                  {INTEGRATION_PROVIDERS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
+                  {modalProviderChoices.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
                     </option>
                   ))}
                 </select>
                 {connectionModal.mode === "edit" ? (
                   <p className="mt-1 text-xs text-gray-500 dark:text-slate-500">Provider cannot be changed after creation.</p>
-                ) : null}
+                ) : (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-500">
+                    Changing the provider clears unsaved provider-specific values.
+                  </p>
+                )}
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
@@ -2345,10 +2513,16 @@ export default function IntegrationsPage({
                     value={connectionModal.draft.authMode ?? "Manual"}
                     onChange={(e) => {
                       const v = e.target.value as IntegrationAuthMode;
-                      setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, authMode: v } });
+                      setConnectionModal((m) => {
+                        if (!m) return m;
+                        if (m.mode === "create") {
+                          return { mode: "create", draft: { ...m.draft, authMode: v } };
+                        }
+                        return { mode: "edit", id: m.id, draft: { ...m.draft, authMode: v } };
+                      });
                     }}
                   >
-                    {AUTH_MODES.map((a) => (
+                    {modalAuthChoices.map((a) => (
                       <option key={a} value={a}>
                         {humanizeIntegrationAuthMode(a)}
                       </option>
@@ -2362,10 +2536,16 @@ export default function IntegrationsPage({
                     value={connectionModal.draft.syncMode ?? "ReadOnly"}
                     onChange={(e) => {
                       const v = e.target.value as IntegrationSyncMode;
-                      setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, syncMode: v } });
+                      setConnectionModal((m) => {
+                        if (!m) return m;
+                        if (m.mode === "create") {
+                          return { mode: "create", draft: { ...m.draft, syncMode: v } };
+                        }
+                        return { mode: "edit", id: m.id, draft: { ...m.draft, syncMode: v } };
+                      });
                     }}
                   >
-                    {SYNC_MODES.map((s) => (
+                    {modalSyncChoices.map((s) => (
                       <option key={s} value={s}>
                         {humanizeIntegrationSyncMode(s)}
                       </option>
@@ -2373,32 +2553,90 @@ export default function IntegrationsPage({
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Tenant ID</label>
-                <input
-                  className={configFieldClass}
-                  value={connectionModal.draft.tenantId ?? ""}
-                  onChange={(e) =>
-                    setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, tenantId: e.target.value } })
-                  }
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Organization ID</label>
-                <input
-                  className={configFieldClass}
-                  value={connectionModal.draft.organizationId ?? ""}
-                  onChange={(e) =>
-                    setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, organizationId: e.target.value } })
-                  }
-                />
-              </div>
+              {modalConnDef?.referenceMetadataOnly ? (
+                <Callout title="Read-only reference">
+                  This provider stores reference metadata only. It is not a live line-of-business connector.
+                </Callout>
+              ) : null}
+              {(modalConnDef?.fields ?? []).map((field) => (
+                <div key={field.key}>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">
+                    {field.label}
+                    {field.required ? <span className="text-red-600 dark:text-red-400"> *</span> : null}
+                    {field.isSecret ? (
+                      <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200/90">
+                        Secret
+                      </span>
+                    ) : null}
+                  </label>
+                  {field.isSecret ? (
+                    <div className="space-y-2 rounded-lg border border-amber-200/80 bg-amber-50/50 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/30">
+                      <p className="text-xs text-amber-950 dark:text-amber-100/90">
+                        Secrets are never shown after they are saved. Per-connection secret storage from this screen is
+                        not enabled yet—use your secure host configuration or vault.
+                      </p>
+                      {connectionModal.mode === "edit" && connectionModal.draft.credentialConfigured === true ? (
+                        <p className="text-xs font-medium text-green-800 dark:text-green-200/90">Credential configured</p>
+                      ) : (
+                        <p className="text-xs text-gray-700 dark:text-slate-300">Credential not configured</p>
+                      )}
+                      <input
+                        className={`${configFieldClass} cursor-not-allowed opacity-70`}
+                        type="password"
+                        autoComplete="off"
+                        readOnly
+                        value=""
+                        aria-label={`${field.label} (not editable)`}
+                        placeholder="Secret entry is not available in this version"
+                      />
+                    </div>
+                  ) : field.fieldType === "textarea" ? (
+                    <textarea
+                      className={configFieldClass}
+                      rows={3}
+                      placeholder={field.placeholder ?? ""}
+                      value={connectionModal.draft.providerSettings[field.key] ?? ""}
+                      onChange={(e) => updateConnectionDraftSettings(field.key, e.target.value)}
+                    />
+                  ) : field.fieldType === "select" && field.allowedValues?.length ? (
+                    <select
+                      className={configFieldClass}
+                      value={connectionModal.draft.providerSettings[field.key] ?? ""}
+                      onChange={(e) => updateConnectionDraftSettings(field.key, e.target.value)}
+                    >
+                      <option value="">—</option>
+                      {field.allowedValues.map((av) => (
+                        <option key={av} value={av}>
+                          {av}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className={configFieldClass}
+                      type={field.fieldType === "url" ? "url" : "text"}
+                      placeholder={field.placeholder ?? ""}
+                      value={connectionModal.draft.providerSettings[field.key] ?? ""}
+                      onChange={(e) => updateConnectionDraftSettings(field.key, e.target.value)}
+                    />
+                  )}
+                  {field.helpText ? (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-slate-500">{field.helpText}</p>
+                  ) : null}
+                </div>
+              ))}
               <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-slate-200">
                 <input
                   type="checkbox"
                   checked={connectionModal.draft.isEnabled ?? true}
                   onChange={(e) =>
-                    setConnectionModal({ ...connectionModal, draft: { ...connectionModal.draft, isEnabled: e.target.checked } })
+                    setConnectionModal((m) => {
+                      if (!m) return m;
+                      if (m.mode === "create") {
+                        return { mode: "create", draft: { ...m.draft, isEnabled: e.target.checked } };
+                      }
+                      return { mode: "edit", id: m.id, draft: { ...m.draft, isEnabled: e.target.checked } };
+                    })
                   }
                   className="h-4 w-4 rounded border-gray-300 dark:border-slate-600"
                 />
@@ -2407,9 +2645,7 @@ export default function IntegrationsPage({
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <ConfigSecondaryButton onClick={() => setConnectionModal(null)}>Cancel</ConfigSecondaryButton>
-              <ConfigPrimaryButton onClick={() => void saveConnectionModal()}>
-                Save
-              </ConfigPrimaryButton>
+              <ConfigPrimaryButton onClick={() => void saveConnectionModal()}>Save</ConfigPrimaryButton>
             </div>
           </div>
         </div>

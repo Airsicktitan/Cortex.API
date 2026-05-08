@@ -78,6 +78,7 @@ public class BoardMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -116,6 +117,7 @@ public class BoardMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -150,6 +152,7 @@ public class BoardMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -203,6 +206,7 @@ public class BoardMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {
@@ -231,6 +235,7 @@ public class BoardMappingRequestParserTests
         {
             Provider = IntegrationProvider.SharePoint,
             DisplayName = "C",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
         });
         var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
         {

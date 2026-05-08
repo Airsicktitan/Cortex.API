@@ -22,4 +22,7 @@ public enum IntegrationProvider
     SharePoint = 0,
     Jira = 1,
     ServiceNow = 2,
+
+    /// <summary>Stored SAP reference metadata (not a live SAP ERP connection).</summary>
+    SapReference = 3,
 }
