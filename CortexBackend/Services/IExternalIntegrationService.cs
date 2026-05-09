@@ -27,6 +27,11 @@ public interface IExternalIntegrationService
     Task<ExternalWorkSourceResponse?> SetSourceEnabledAsync(int sourceId, bool isEnabled, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ExternalFieldMappingResponse>?> GetFieldMappingsAsync(int sourceId, CancellationToken cancellationToken = default);
+
+    Task<IntegrationSourceFieldsOverviewResponse?> GetSourceFieldsOverviewAsync(
+        int sourceId,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ExternalFieldMappingResponse>?> ReplaceFieldMappingsAsync(
         int sourceId,
         IReadOnlyList<ExternalFieldMappingItemRequest> mappings,

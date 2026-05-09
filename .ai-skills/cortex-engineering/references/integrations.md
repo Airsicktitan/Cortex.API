@@ -2,64 +2,59 @@
 
 ## Purpose
 
-Enable Cortex to connect with external systems.
+Cortex connects to external systems through **governed, read-only / reference-first** integration paths. The platform remains the **decision layer**; external tools supply **context and intake**, not automatic routing authority.
+
+**Authoritative architecture, security boundaries, and provider maturity:** see **[integration-architecture.md](./integration-architecture.md)**. Treat that document as source of truth for agents and engineers.
 
 ---
 
-## Strategy
+## Strategy (Current Product)
 
-Cortex enhances—not replaces—existing tools.
-
----
-
-## Target Integrations
-
-### Jira / ServiceNow
-
-- import tickets
-- sync status
-- push routing decisions
+- **Augment** existing tools (SharePoint lists, future Jira/ServiceNow read paths)—do **not** replace Cortex routing or approvals with provider fields.
+- External data flows: **setup → credentials → health/test → (discovery or planning) → mappings → explicit Cortex actions**.
+- **Never** wire provider columns directly to routing, owner assignment, or approval state without mapping through canonical Cortex fields and existing rules.
 
 ---
 
-### SAP (Key Advantage)
+## Target Integrations (Maturity)
 
-- integrate with support workflows
-- attach ticket context to SAP issues
-- sync ownership
+Summarized here; details in `integration-architecture.md`:
 
----
-
-### Email
-
-- create tickets from email
-- notify users
-- send updates
+| Provider | Summary |
+|----------|---------|
+| **SharePoint** | Supported **read-only** path; Graph; discovery/sync where implemented |
+| **Jira** | **Setup-ready**; credentials + planning; **not** live sync/discovery |
+| **ServiceNow** | **Setup-ready**; same boundaries as Jira |
+| **SAP Reference** | **Metadata/catalog-only**; not a live SAP connector |
 
 ---
 
 ## Integration Pattern
 
-- ingestion → normalize → process → output
+`Intake → normalize (via mappings) → Cortex ticket/context → governed workflows`
+
+Not: `External system → auto-owner / auto-routing / silent tickets`.
 
 ---
 
 ## Requirements
 
-- mapping layer (external → Cortex)
-- idempotent operations
-- error handling
+- Mapping layer (**external → Cortex canonical**), admin-governed
+- Idempotent, auditable operations where sync exists
+- Safe error handling; **no secret leakage** in logs or DTOs
 
 ---
 
 ## Anti-Patterns
 
-- ❌ tightly coupling to one system
-- ❌ duplicating external data unnecessarily
-- ❌ breaking core logic for integrations
+- Tightly coupling routing logic to one provider’s schema
+- Duplicating external data without a clear governance story
+- Breaking core Cortex logic or **bypassing approvals** for integration convenience
+- Implementing **full sync**, **bidirectional writes**, or **live discovery** without an explicit approved epic (see `integration-architecture.md` §8)
 
 ---
 
 ## Golden Rule
 
-Cortex remains the decision layer
+**Cortex remains the decision layer.** Integrations feed **context**; they do not override **routing rules**, **ownership decisions**, or **approvals**.
+

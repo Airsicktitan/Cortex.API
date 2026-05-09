@@ -101,6 +101,11 @@ public static class IntegrationEndpoints
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        integrations.MapGet("/sources/{sourceId:int}/fields", IntegrationHandlers.GetSourceFieldsOverview)
+            .WithName("GetIntegrationSourceFieldsOverview")
+            .Produces<IntegrationSourceFieldsOverviewResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         integrations.MapPut("/sources/{sourceId:int}/field-mappings", IntegrationHandlers.ReplaceFieldMappings)
             .WithName("ReplaceExternalFieldMappings")
             .Accepts<ExternalFieldMappingItemRequest[]>("application/json")

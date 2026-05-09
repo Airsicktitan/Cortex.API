@@ -99,6 +99,37 @@ export interface SharePointDiscoveredFieldResponse {
   isHidden: boolean;
   isReadOnly: boolean;
   suggestedCortexField?: CortexField | null;
+  recommendationReason?: string | null;
+  confidenceLabel?: string | null;
+  isCustom?: boolean;
+  isRequired?: boolean;
+}
+
+export type IntegrationFieldDiscoveryMode = "LiveSharePointList" | "PlanningStatic" | "NotApplicable";
+
+export interface PlanningFieldDefinitionDto {
+  fieldKey: string;
+  displayName: string;
+  dataType: string;
+  isCustom: boolean;
+  isRequired: boolean;
+  recommendedCortexField?: CortexField | null;
+  recommendationReason?: string | null;
+  confidenceLabel: string;
+}
+
+export interface IntegrationSourceFieldsOverviewResponse {
+  sourceId: number;
+  sourceName: string;
+  sourceType: ExternalSourceType;
+  provider: IntegrationProvider;
+  connectionDisplayName?: string | null;
+  discoveryMode: IntegrationFieldDiscoveryMode;
+  discoveryStatusMessage: string;
+  mappedFieldCount: number;
+  planningFieldCount: number;
+  currentMappings: ExternalFieldMappingResponse[];
+  planningFields: PlanningFieldDefinitionDto[];
 }
 
 export interface ExternalSourceSyncResponse {

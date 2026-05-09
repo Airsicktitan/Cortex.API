@@ -145,6 +145,7 @@ Prefer:
 
 Located in: ./references/
 
+- integration-architecture.md
 - ui-language.md
 - ui-standards.md
 - decision-engine.md

@@ -360,12 +360,100 @@ public sealed class ExternalIntegrationService(
         return maps.Select(MapFieldMapping).ToList();
     }
 
+    public async Task<IntegrationSourceFieldsOverviewResponse?> GetSourceFieldsOverviewAsync(
+        int sourceId,
+        CancellationToken cancellationToken = default)
+    {
+        var source = await _db.ExternalWorkSources.AsNoTracking()
+            .Include(s => s.IntegrationConnection)
+            .FirstOrDefaultAsync(s => s.Id == sourceId, cancellationToken);
+        if (source is null)
+        {
+            return null;
+        }
+
+        var maps = await GetFieldMappingsAsync(sourceId, cancellationToken) ?? [];
+        var planning = StaticPlanningFieldCatalog.ForProvider(source.Provider);
+
+        return source.Provider switch
+        {
+            IntegrationProvider.SharePoint when source.SourceType == ExternalSourceType.SharePointList =>
+                new IntegrationSourceFieldsOverviewResponse(
+                    source.Id,
+                    source.Name,
+                    source.SourceType,
+                    source.Provider,
+                    source.IntegrationConnection?.DisplayName,
+                    IntegrationFieldDiscoveryMode.LiveSharePointList,
+                    "SharePoint fields can be discovered from the connected list. Run Discover fields to load current columns, then save mappings using those internal names.",
+                    maps.Count,
+                    0,
+                    maps,
+                    []),
+            IntegrationProvider.Jira =>
+                new IntegrationSourceFieldsOverviewResponse(
+                    source.Id,
+                    source.Name,
+                    source.SourceType,
+                    source.Provider,
+                    source.IntegrationConnection?.DisplayName,
+                    IntegrationFieldDiscoveryMode.PlanningStatic,
+                    "Live Jira field discovery is not enabled yet. Common Jira field guidance is shown for setup planning.",
+                    maps.Count,
+                    planning.Count,
+                    maps,
+                    planning),
+            IntegrationProvider.ServiceNow =>
+                new IntegrationSourceFieldsOverviewResponse(
+                    source.Id,
+                    source.Name,
+                    source.SourceType,
+                    source.Provider,
+                    source.IntegrationConnection?.DisplayName,
+                    IntegrationFieldDiscoveryMode.PlanningStatic,
+                    "Live ServiceNow field discovery is not enabled yet. Common ServiceNow field guidance is shown for setup planning.",
+                    maps.Count,
+                    planning.Count,
+                    maps,
+                    planning),
+            IntegrationProvider.SapReference =>
+                new IntegrationSourceFieldsOverviewResponse(
+                    source.Id,
+                    source.Name,
+                    source.SourceType,
+                    source.Provider,
+                    source.IntegrationConnection?.DisplayName,
+                    IntegrationFieldDiscoveryMode.NotApplicable,
+                    "SAP Reference metadata is managed through the SAP Reference Catalog, not standard work-item field mapping.",
+                    maps.Count,
+                    0,
+                    maps,
+                    []),
+            _ =>
+                new IntegrationSourceFieldsOverviewResponse(
+                    source.Id,
+                    source.Name,
+                    source.SourceType,
+                    source.Provider,
+                    source.IntegrationConnection?.DisplayName,
+                    IntegrationFieldDiscoveryMode.NotApplicable,
+                    "Field discovery is not configured for this source type.",
+                    maps.Count,
+                    0,
+                    maps,
+                    []),
+        };
+    }
+
     public async Task<IReadOnlyList<ExternalFieldMappingResponse>?> ReplaceFieldMappingsAsync(
         int sourceId,
         IReadOnlyList<ExternalFieldMappingItemRequest> mappings,
         CancellationToken cancellationToken = default)
     {
-        if (!await _db.ExternalWorkSources.AnyAsync(s => s.Id == sourceId, cancellationToken))
+        var source = await _db.ExternalWorkSources
+            .Include(s => s.IntegrationConnection)
+            .FirstOrDefaultAsync(s => s.Id == sourceId, cancellationToken);
+        if (source is null)
         {
             return null;
         }
@@ -388,6 +476,19 @@ public sealed class ExternalIntegrationService(
             if (!seen.Add(item.ExternalFieldName.Trim()))
             {
                 throw new ArgumentException($"Duplicate external field name: {item.ExternalFieldName}");
+            }
+        }
+
+        if (source.Provider == IntegrationProvider.SharePoint &&
+            source.SourceType == ExternalSourceType.SharePointList &&
+            mappings.Count > 0 &&
+            SharePointSiteUrlParser.TryParseListPageUrl(source.ExternalUrl, out _, out _, out _))
+        {
+            var discovered = await _sharePointWorkSourceAdapter.DiscoverFieldsAsync(source, cancellationToken);
+            if (discovered.Count > 0)
+            {
+                var allowed = BuildSharePointDiscoveredFieldKeySet(discovered);
+                ValidateSharePointMappingsAgainstDiscoveredColumns(mappings, allowed);
             }
         }
 
@@ -900,14 +1001,27 @@ public sealed class ExternalIntegrationService(
             }
 
             var discovered = await _sharePointWorkSourceAdapter.DiscoverFieldsAsync(source, cancellationToken);
-            var list = discovered.Select(d => new SharePointDiscoveredFieldResponse(
-                d.FieldName,
-                d.FieldKey,
-                d.DisplayName,
-                d.TypeHint,
-                d.IsHidden,
-                d.IsReadOnly,
-                d.SuggestedCortexField)).ToList();
+            var list = discovered.Select(static d =>
+            {
+                var display = d.DisplayName ?? d.FieldName;
+                var (reason, confidence) = FieldMappingRecommendationHelper.DescribeSharePointSuggestion(
+                    d.SuggestedCortexField,
+                    display,
+                    d.FieldName);
+                var isCustom = FieldMappingRecommendationHelper.IsLikelyCustomSharePointColumn(d.FieldName);
+                return new SharePointDiscoveredFieldResponse(
+                    d.FieldName,
+                    d.FieldKey,
+                    d.DisplayName,
+                    d.TypeHint,
+                    d.IsHidden,
+                    d.IsReadOnly,
+                    d.SuggestedCortexField,
+                    reason,
+                    confidence,
+                    isCustom,
+                    IsRequired: false);
+            }).ToList();
 
             await TryRecordIntegrationActivityAsync(
                 new IntegrationActivityLogRecordRequest
@@ -1690,4 +1804,43 @@ public sealed class ExternalIntegrationService(
             i.LastSeenUtc,
             i.IsDeleted,
             i.CortexTicketId);
+
+    private static HashSet<string> BuildSharePointDiscoveredFieldKeySet(
+        IReadOnlyList<ExternalFieldDiscoveryResult> discovered)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in discovered)
+        {
+            if (!string.IsNullOrWhiteSpace(d.FieldName))
+            {
+                set.Add(d.FieldName.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(d.FieldKey))
+            {
+                set.Add(d.FieldKey.Trim());
+            }
+        }
+
+        return set;
+    }
+
+    private static void ValidateSharePointMappingsAgainstDiscoveredColumns(
+        IReadOnlyList<ExternalFieldMappingItemRequest> mappings,
+        HashSet<string> allowedSharePointColumnKeys)
+    {
+        foreach (var item in mappings)
+        {
+            var name = item.ExternalFieldName.Trim();
+            var key = string.IsNullOrWhiteSpace(item.ExternalFieldKey) ? null : item.ExternalFieldKey.Trim();
+            if (allowedSharePointColumnKeys.Contains(name) || (key != null && allowedSharePointColumnKeys.Contains(key)))
+            {
+                continue;
+            }
+
+            throw new IntegrationApiException(
+                400,
+                "One or more mapped external fields were not found on the SharePoint list. Run Discover fields and use the list column internal names.");
+        }
+    }
 }

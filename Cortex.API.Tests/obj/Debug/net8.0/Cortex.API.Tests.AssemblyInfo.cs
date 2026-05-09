@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Cortex.API.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a312ece692f399817458ff7732f22812cad39710")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+986f9416a800190f241ae67b4b2e10e8984fb2e8")]
 [assembly: System.Reflection.AssemblyProductAttribute("Cortex.API.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Cortex.API.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

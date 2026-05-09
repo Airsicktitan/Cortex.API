@@ -28,6 +28,7 @@ The system produces compliant agent behavior: what to do, what not to do, and wh
 - Tier 9 remains advisory; Tier 10 remains proactive insight only unless explicitly expanded by spec.
 - Must not bypass approval gates, routing rules, or safety controls.
 - If a system already exists, extend it - do not recreate it.
+- **Integrations:** external provider fields and sync paths must not directly control routing, owners, or approvals. Follow `references/integration-architecture.md` for credential handling, health/test honesty, and field-mapping governance. Do not return secrets to clients or log credential payloads.
 
 ## 6. UX Language Rules
 

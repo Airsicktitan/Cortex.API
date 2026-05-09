@@ -16,6 +16,7 @@ Agents MUST treat these files as required context when relevant.
 
 Core references include:
 
+- integration-architecture.md
 - ui-language.md
 - ui-standards.md
 - decision-engine.md

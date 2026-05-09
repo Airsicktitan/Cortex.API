@@ -20,10 +20,12 @@ import type {
   IntegrationAuthMode,
   IntegrationConnectionHealthStatus,
   IntegrationConnectionResponse,
+  IntegrationConnectionTestMode,
   IntegrationCredentialStatusDto,
   IntegrationProviderDefinitionDto,
   IntegrationProvider,
   IntegrationReadinessCheckStatus,
+  IntegrationSourceFieldsOverviewResponse,
   IntegrationSyncMode,
   ManualUpsertExternalWorkItemInput,
   SharePointDiscoveredFieldResponse,
@@ -55,12 +57,20 @@ import {
 
 const API_AUDIENCE = "https://cortex-api";
 
+/**
+ * Manual provider test checklist (QA / smoke):
+ * - SharePoint: add connection → provider settings → optional credentials → test → add list source → discover fields →
+ *   field mapping → sync / external items → activity.
+ * - Jira: add connection → credentials → test (local/metadata-only) → confirm field planning guidance → confirm no live sync/discovery claim.
+ * - ServiceNow: same as Jira with ServiceNow-specific settings.
+ * - SAP Reference: confirm metadata-only messaging → Configuration → SAP Reference (catalog) → no live SAP / no work-item sync expectation.
+ */
 type IntegrationsTab = "connections" | "sources" | "fields" | "boards" | "items" | "activity";
 
 const INTEGRATION_TAB_GUIDANCE: Record<IntegrationsTab, string> = {
   connections: "Create and manage provider-specific connection setup.",
   sources: "Discover and manage external work sources available from a connection.",
-  fields: "Map provider fields to Cortex concepts before importing work.",
+  fields: "Map provider fields into Cortex concepts before external work becomes Cortex context.",
   boards: "Control which Cortex board external work should enter.",
   items: "Review imported external records before creating Cortex tickets.",
   activity: "Review sync, credential, health, and ticket-creation activity.",
@@ -78,6 +88,30 @@ function Callout({
       <p className="font-medium text-sky-900 dark:text-sky-100">{title}</p>
       <div className="mt-1.5 text-sky-800 dark:text-sky-200/90">{children}</div>
     </div>
+  );
+}
+
+function MappingChip({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "sky" | "green" | "amber";
+}) {
+  const cls =
+    tone === "sky"
+      ? "bg-sky-100/90 text-sky-950 dark:bg-sky-900/50 dark:text-sky-100"
+      : tone === "green"
+        ? "bg-emerald-100/90 text-emerald-950 dark:bg-emerald-900/40 dark:text-emerald-100"
+        : tone === "amber"
+          ? "bg-amber-100/90 text-amber-950 dark:bg-amber-900/40 dark:text-amber-100"
+          : "bg-gray-100 text-gray-800 dark:bg-slate-800 dark:text-slate-200";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${cls}`}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -262,6 +296,263 @@ function integrationProviderReadinessPill(provider: IntegrationProvider): { labe
   }
 }
 
+type ProviderReadinessMatrixRow = {
+  providerLabel: string;
+  setupFields: string;
+  credentials: string;
+  healthTest: string;
+  fieldDiscovery: string;
+  sync: string;
+  currentStatus: string;
+};
+
+const PROVIDER_READINESS_MATRIX_ROWS: ProviderReadinessMatrixRow[] = [
+  {
+    providerLabel: "SharePoint",
+    setupFields: "Available",
+    credentials: "App / credential path supported",
+    healthTest: "Available (local fallback when Graph app incomplete)",
+    fieldDiscovery: "Supported (list columns)",
+    sync: "Supported read-only",
+    currentStatus: "Supported read-only path",
+  },
+  {
+    providerLabel: "Jira",
+    setupFields: "Available",
+    credentials: "Available",
+    healthTest: "Local validation only",
+    fieldDiscovery: "Planned (guidance only)",
+    sync: "Not enabled",
+    currentStatus: "Setup-ready",
+  },
+  {
+    providerLabel: "ServiceNow",
+    setupFields: "Available",
+    credentials: "Available",
+    healthTest: "Local validation only",
+    fieldDiscovery: "Planned (guidance only)",
+    sync: "Not enabled",
+    currentStatus: "Setup-ready",
+  },
+  {
+    providerLabel: "SAP Reference",
+    setupFields: "Metadata source only",
+    credentials: "Not required",
+    healthTest: "Metadata check only",
+    fieldDiscovery: "Catalog-driven",
+    sync: "Not applicable",
+    currentStatus: "Metadata-only",
+  },
+];
+
+function ProviderReadinessMatrixSection() {
+  return (
+    <ConfigDetailCard
+      title="Provider readiness"
+      subtitle="Capability summary by provider for this release. Use it to set expectations before wiring live systems."
+    >
+      <div className="max-w-full overflow-x-auto rounded-lg border border-gray-100 dark:border-slate-800">
+        <table className="min-w-[880px] w-full divide-y divide-gray-200 text-xs sm:text-sm dark:divide-slate-700">
+          <thead className="bg-gray-50 dark:bg-slate-800/80">
+            <tr>
+              <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Provider</th>
+              <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">
+                Setup fields
+              </th>
+              <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">
+                Credentials
+              </th>
+              <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">
+                Health test
+              </th>
+              <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">
+                Field discovery
+              </th>
+              <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Sync</th>
+              <th className="min-w-[140px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">
+                Current status
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+            {PROVIDER_READINESS_MATRIX_ROWS.map((row) => (
+              <tr key={row.providerLabel} className="bg-white dark:bg-slate-900">
+                <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900 dark:text-slate-100">
+                  {row.providerLabel}
+                </td>
+                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{row.setupFields}</td>
+                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{row.credentials}</td>
+                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{row.healthTest}</td>
+                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{row.fieldDiscovery}</td>
+                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{row.sync}</td>
+                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{row.currentStatus}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </ConfigDetailCard>
+  );
+}
+
+function sourcesTabIntro(provider: IntegrationProvider | null): string {
+  if (!provider) {
+    return "Register lists, projects, or tables after you select a connection. Capabilities depend on the provider profile.";
+  }
+  switch (provider) {
+    case "SharePoint":
+      return "Register SharePoint lists for this connection. Read-only discovery and sync use the configured Microsoft Graph path from other tabs.";
+    case "Jira":
+      return "Register Jira project sources manually for planning. Live source discovery is not enabled yet; connection setup and credentials are still valuable for future validation.";
+    case "ServiceNow":
+      return "Register ServiceNow table sources manually for planning. Live source discovery is not enabled yet; connection setup and credentials remain available.";
+    case "SapReference":
+      return "SAP Reference metadata is managed through Configuration → SAP Reference (catalog). This tab does not represent a live SAP work feed.";
+    default:
+      return "Register external work sources supported by this provider.";
+  }
+}
+
+function sourcesTabPlanningNote(provider: IntegrationProvider): string {
+  switch (provider) {
+    case "SharePoint":
+      return "Add a SharePoint list source, then use read-only discovery and sync from the Field mapping and External items tabs.";
+    case "Jira":
+      return "Jira live source discovery is not enabled yet. Connection setup and credential storage are available for planning—you can still register a project source manually when your process requires it.";
+    case "ServiceNow":
+      return "ServiceNow live source discovery is not enabled yet. Connection setup and credential storage are available for planning—you can still register a table source manually when your process requires it.";
+    case "SapReference":
+      return "SAP Reference metadata is managed through Configuration → SAP Reference (catalog). This is not a live SAP work source.";
+    default:
+      return "Add a source when your provider supports external work in Cortex.";
+  }
+}
+
+function fieldMappingNoSourceHint(provider: IntegrationProvider): string {
+  switch (provider) {
+    case "Jira":
+      return "Select a source to edit mappings. Live Jira field discovery is not enabled yet—planning guidance still applies.";
+    case "ServiceNow":
+      return "Select a source to edit mappings. Live ServiceNow field discovery is not enabled yet—planning guidance still applies.";
+    case "SapReference":
+      return "SAP Reference follows the catalog model—not standard external work-item field mapping.";
+    default:
+      return "Select a source to load mapping profiles, discovered SharePoint columns, and planning hints.";
+  }
+}
+
+function boardsTabNoSourceHint(provider: IntegrationProvider | undefined): string {
+  if (!provider) {
+    return "Select an external source above.";
+  }
+  switch (provider) {
+    case "Jira":
+    case "ServiceNow":
+      return "Select a source to align boards. Live intake from these providers is not enabled yet—mappings are preparatory.";
+    case "SapReference":
+      return "SAP Reference metadata does not drive standard board intake from external work items.";
+    default:
+      return "Select an external source above.";
+  }
+}
+
+function externalItemsTabCalloutBody(
+  provider: IntegrationProvider | null,
+): React.ReactNode {
+  if (provider === "SharePoint") {
+    return (
+      <>
+        Review imported SharePoint list rows here. Read-only sync refreshes copies; creating Cortex tickets stays an explicit
+        action and does not change routing or approvals by itself.
+      </>
+    );
+  }
+  if (provider === "Jira" || provider === "ServiceNow") {
+    return (
+      <>
+        Automated read-only sync is not enabled for this provider yet. Use <span className="font-medium">Manual upsert</span>{" "}
+        for test records. Creating Cortex tickets from items remains explicit and governed.
+      </>
+    );
+  }
+  if (provider === "SapReference") {
+    return (
+      <>
+        SAP Reference is metadata/catalog-only. External work items and SharePoint-style sync do not apply. Manage tables and
+        fields under <span className="font-medium">Configuration → SAP Reference</span>.
+      </>
+    );
+  }
+  return (
+    <>
+      Review imported records here after you select a connection and source. Provider-specific intake depends on the selected
+      source; tickets are never created automatically from this screen.
+    </>
+  );
+}
+
+function externalItemsSyncStripBody(provider: IntegrationProvider | null): string {
+  if (provider === "SharePoint") {
+    return "Reads the selected SharePoint list and updates external work items. Cortex tickets are not created automatically.";
+  }
+  if (provider === "Jira" || provider === "ServiceNow") {
+    return "Automated sync is not enabled for this provider yet. Use manual upsert to add test rows while planning continues.";
+  }
+  if (provider === "SapReference") {
+    return "SAP Reference does not perform list or ticket sync from Integrations. Use the SAP Reference Catalog for metadata.";
+  }
+  return "Select a SharePoint list source to run read-only sync when mappings and readiness allow.";
+}
+
+function externalItemsEmptySecondary(provider: IntegrationProvider | null): string {
+  if (provider === "SharePoint") {
+    return "Run read-only sync after field mappings are saved, or use manual upsert to insert a test item.";
+  }
+  if (provider === "Jira" || provider === "ServiceNow") {
+    return "Live provider sync is not enabled. Use manual upsert for sample rows while setup continues.";
+  }
+  if (provider === "SapReference") {
+    return "SAP Reference does not populate this queue. Use Configuration → SAP Reference for catalog metadata.";
+  }
+  return "Select a source that supports external items in Cortex.";
+}
+
+function activityEmptySecondary(provider: IntegrationProvider | null): string {
+  if (provider === "SharePoint") {
+    return "After you run discovery, sync, credential changes, or tests, entries appear here with full audit context.";
+  }
+  if (provider === "Jira" || provider === "ServiceNow") {
+    return "Credential and test events still appear here. Live sync and discovery are not enabled yet for this provider.";
+  }
+  if (provider === "SapReference") {
+    return "Expect metadata-safe events only (for example, connection tests). There is no live SAP or work-item sync trail.";
+  }
+  return "Run discovery, sync, manual upserts, or credential changes to build a trail.";
+}
+
+function connectionHealthSupplementaryNote(
+  provider: IntegrationProvider,
+  testMode: IntegrationConnectionTestMode,
+  status: IntegrationConnectionHealthStatus,
+): string | null {
+  if (provider === "SharePoint" && testMode === "LocalValidation" && status === "TestUnavailable") {
+    return "SharePoint settings were checked locally. Complete Microsoft Graph application credentials for live validation, or continue when your host-managed Graph app already covers this connection.";
+  }
+  if (provider === "Jira" && testMode === "NotAvailable") {
+    return "This test records local configuration checks only. Live Jira API validation is not enabled yet.";
+  }
+  if (provider === "ServiceNow" && testMode === "NotAvailable") {
+    return "This test records local configuration checks only. Live ServiceNow API validation is not enabled yet.";
+  }
+  if (provider === "SapReference" && testMode === "LocalValidation") {
+    return "SAP Reference is metadata-only. No live SAP system is contacted from this test.";
+  }
+  if (testMode === "LocalValidation" && status === "TestUnavailable") {
+    return "Configuration checked locally. Live provider validation is limited for this setup.";
+  }
+  return null;
+}
+
 function computeIntegrationNextAction(connection: IntegrationConnectionResponse | null): string {
   if (!connection?.health) {
     return "Select a connection to see recommended next steps.";
@@ -269,26 +560,68 @@ function computeIntegrationNextAction(connection: IntegrationConnectionResponse 
   const { health: h, provider } = connection;
 
   if (provider === "SapReference") {
-    return "Reference metadata is managed in Configuration → SAP Reference (catalog).";
+    return "Manage SAP metadata under Configuration → SAP Reference (catalog). This connection is metadata-only—not a live SAP work feed.";
   }
 
   switch (h.status) {
     case "NotConfigured":
+      if (provider === "SharePoint") {
+        return "Complete required SharePoint settings (tenant, site URL or ID, and permission context).";
+      }
+      if (provider === "Jira") {
+        return "Complete required Jira settings (base URL, project key, and issue type).";
+      }
+      if (provider === "ServiceNow") {
+        return "Complete required ServiceNow settings (instance URL and table).";
+      }
       return "Complete required provider settings.";
     case "MissingCredentials":
+      if (provider === "SharePoint") {
+        return "Configure credentials or Graph app settings before testing or syncing.";
+      }
+      if (provider === "Jira") {
+        return "Configure Jira credentials before future validation or sync.";
+      }
+      if (provider === "ServiceNow") {
+        return "Configure ServiceNow credentials before future validation or sync.";
+      }
       return "Configure credentials before testing or syncing.";
     case "NotTested":
+      if (provider === "SharePoint") {
+        return "Run Test connection to validate settings and Microsoft Graph access when the app registration path is complete.";
+      }
+      if (provider === "Jira" || provider === "ServiceNow") {
+        return "Run Test connection to record local configuration checks (live provider APIs are not invoked yet).";
+      }
       return "Run Test connection.";
     case "TestUnavailable":
+      if (provider === "SharePoint" && h.lastTestedAtUtc) {
+        return "SharePoint completed a local check. Align Graph app registration if you need live validation, or proceed with mappings and read-only sync when ready.";
+      }
+      if (provider === "SharePoint") {
+        return "Run Test connection for local checks; finish Graph application registration to enable live validation.";
+      }
+      if (provider === "Jira") {
+        return "Connection setup is ready. Live Jira validation is not enabled yet.";
+      }
+      if (provider === "ServiceNow") {
+        return "Connection setup is ready. Live ServiceNow validation is not enabled yet.";
+      }
       if (h.lastTestedAtUtc) {
         return "Connection setup is ready for future provider validation.";
       }
       return "Run Test connection.";
     case "Healthy":
+      if (provider === "SharePoint") {
+        return "Connection is ready for supported read-only discovery and sync.";
+      }
+      if (provider === "Jira" || provider === "ServiceNow") {
+        return "Connection is healthy for current checks. Live provider sync is not enabled yet.";
+      }
       return "Connection is ready for supported read-only operations.";
     case "NeedsAttention":
       if (provider === "SharePoint") {
-        return "Review SharePoint Graph configuration or app permissions.";
+        return "Review SharePoint Graph configuration, tenant, site, list, or permissions.";
       }
       return "Review provider settings and credentials, then run Test connection again.";
     default:
@@ -475,9 +808,86 @@ function connectionProviderLabel(
   return defs?.find((d) => d.provider === provider)?.displayName ?? provider;
 }
 
+const CORTEX_FIELD_ADMIN_LABELS: Partial<Record<CortexField, string>> = {
+  Department: "Department / Domain",
+  BusinessOwner: "External owner context",
+  SynitiOwner: "Syniti owner context",
+  Category: "Supporting context",
+};
+
 /** Readable Cortex field labels in dropdowns; values stay PascalCase enums. */
 function humanizeCortexFieldDisplay(field: CortexField): string {
-  return field.replace(/([A-Z])/g, " $1").trim();
+  return CORTEX_FIELD_ADMIN_LABELS[field] ?? field.replace(/([A-Z])/g, " $1").trim();
+}
+
+function providerFieldGuidanceBullets(provider: IntegrationProvider): string[] {
+  switch (provider) {
+    case "Jira":
+      return [
+        "Summary → Cortex Title",
+        "Description → Cortex Description",
+        "Priority → Cortex Priority",
+        "Components / labels → department-style or supporting context (mapping-dependent)",
+        "Epic link and related fields → supporting / related-work context only",
+      ];
+    case "ServiceNow":
+      return [
+        "Short description → Cortex Title",
+        "Description → Cortex Description",
+        "Impact and urgency → inform Cortex Priority (review together; no auto-combine yet)",
+        "Assignment group → external owner context",
+        "Category / subcategory → supporting or domain-style context",
+      ];
+    case "SharePoint":
+      return [
+        "Title → Cortex Title",
+        "Description / details → Cortex Description",
+        "Priority / severity → Cortex Priority",
+        "Business area / department → Department / Domain",
+        "SAP table / SAP field columns → reference context where applicable",
+        "Reconciliation / readiness / cutover-style columns → Syniti knowledge context where applicable",
+      ];
+    case "SapReference":
+      return [
+        "SAP Reference metadata is managed through the SAP Reference Catalog, not standard work-item field mapping.",
+      ];
+    default:
+      return ["Select a supported provider to see mapping guidance."];
+  }
+}
+
+function fieldMappingNextAction(
+  overview: IntegrationSourceFieldsOverviewResponse | null,
+  discoveredFieldCount: number,
+): string | null {
+  if (!overview) {
+    return null;
+  }
+  if (overview.discoveryMode === "LiveSharePointList") {
+    if (discoveredFieldCount === 0) {
+      return "Run Discover fields to load current SharePoint columns, then save mappings that use those internal names.";
+    }
+    return "Review discovered columns against your mapping rows, add mapping notes where needed, then save mapping.";
+  }
+  if (overview.discoveryMode === "PlanningStatic") {
+    return "Live field discovery is not enabled for this provider yet. Use the planning rows as advisory guidance only.";
+  }
+  if (overview.discoveryMode === "NotApplicable" && overview.provider === "SapReference") {
+    return "Use the SAP Reference Catalog for SAP metadata rather than this mapping profile.";
+  }
+  return null;
+}
+
+function findPlanningMappingKey(
+  fieldKey: string,
+  mappings: { externalFieldName: string; externalFieldKey?: string | null }[],
+) {
+  const k = fieldKey.trim().toLowerCase();
+  return mappings.find(
+    (m) =>
+      m.externalFieldName.trim().toLowerCase() === k ||
+      (m.externalFieldKey?.trim().toLowerCase() ?? "") === k,
+  );
 }
 
 function readinessHeadline(r: ExternalSourceReadinessResponse): string {
@@ -630,6 +1040,7 @@ export default function IntegrationsPage({
   const [fieldLoading, setFieldLoading] = useState(false);
   const [fieldSaving, setFieldSaving] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
+  const [fieldsOverview, setFieldsOverview] = useState<IntegrationSourceFieldsOverviewResponse | null>(null);
 
   const [boardDraft, setBoardDraft] = useState<ExternalBoardMappingItemInput[]>([]);
   const [boardLoading, setBoardLoading] = useState(false);
@@ -746,6 +1157,11 @@ export default function IntegrationsPage({
   const selectedSource = useMemo(
     () => sources.find((s) => s.id === selectedSourceId) ?? null,
     [sources, selectedSourceId],
+  );
+
+  const itemsContextProvider = useMemo(
+    () => selectedSource?.provider ?? selectedConnection?.provider ?? null,
+    [selectedSource, selectedConnection],
   );
 
   const externalItemsQueueCounts = useMemo(() => {
@@ -921,7 +1337,10 @@ export default function IntegrationsPage({
       setFieldError(null);
       try {
         const token = await getToken();
-        const list = await integrationsService.getFieldMappings(token, sourceId);
+        const [list, overview] = await Promise.all([
+          integrationsService.getFieldMappings(token, sourceId),
+          integrationsService.getSourceFieldsOverview(token, sourceId),
+        ]);
         setFieldDraft(
           list.map((m) => ({
             externalFieldName: m.externalFieldName,
@@ -931,9 +1350,11 @@ export default function IntegrationsPage({
             transformHint: m.transformHint ?? "",
           })),
         );
+        setFieldsOverview(overview);
       } catch (e) {
         setFieldError(getUserFacingErrorMessage(e, "Unable to load field mappings."));
         setFieldDraft([]);
+        setFieldsOverview(null);
       } finally {
         setFieldLoading(false);
       }
@@ -1076,6 +1497,7 @@ export default function IntegrationsPage({
     setDiscoveredFields([]);
     setDiscoverError(null);
     setSyncSummary(null);
+    setFieldsOverview(null);
   }, [selectedSourceId]);
 
   useEffect(() => {
@@ -1430,7 +1852,7 @@ export default function IntegrationsPage({
     if (selectedConnection.provider === "SapReference") {
       showBanner(
         "err",
-        "SAP Reference connections document stored metadata and do not use external work sources here. Use SAP reference catalog administration instead.",
+        "SAP Reference connections are metadata-only and do not use external work sources here. Manage catalog data under Configuration → SAP Reference.",
       );
       return;
     }
@@ -1547,7 +1969,7 @@ export default function IntegrationsPage({
         transformHint: row.transformHint?.trim() || null,
       }));
       await integrationsService.replaceFieldMappings(token, selectedSourceId, body);
-      showBanner("ok", "Field mappings saved.");
+      showBanner("ok", "Mapping saved.");
       await loadFieldMappings(selectedSourceId);
       void loadSourceReadiness(selectedSourceId);
     } catch (e) {
@@ -1672,6 +2094,7 @@ export default function IntegrationsPage({
       setDiscoveredFields([]);
     } finally {
       setDiscoverLoading(false);
+      void loadFieldMappings(selectedSourceId);
       void loadSourceReadiness(selectedSourceId);
       if (tab === "activity" && selectedConnectionId !== null) {
         void loadActivity(selectedConnectionId);
@@ -1799,12 +2222,13 @@ export default function IntegrationsPage({
       <ConfigPageShell>
         <ConfigPageHeader
           title="External integrations"
-          description="Use the tabs to move from connection setup through sources, mappings, external items, and activity. SharePoint supports read-only field discovery and sync today; other providers are setup-first until live sync is enabled."
+          description="Walk through connection setup, credentials, health tests, sources, mappings, and activity. Use the provider readiness table for an honest view of what each integration supports in this release—SharePoint includes read-only discovery and sync; Jira and ServiceNow are setup-first; SAP Reference stays catalog metadata only."
         />
         <ConfigPageBody>
           <div className="space-y-6">
             <IntegrationSetupFlowGuide />
             <ReadOnlySecurityCallout />
+            <ProviderReadinessMatrixSection />
             <div>
               <div className="flex min-w-0 max-w-full flex-wrap gap-2 border-b border-gray-200 pb-4 dark:border-slate-700">
                 {tabButtons.map((b) => (
@@ -2035,9 +2459,13 @@ export default function IntegrationsPage({
                 {connectionsLoading ? (
                   <p className="text-sm text-gray-500 dark:text-slate-400">Loading connections…</p>
                 ) : connections.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
-                    No connections yet. Add a connection to register an external system.
-                  </p>
+                  <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
+                    <p className="font-medium text-gray-800 dark:text-slate-200">No connections yet</p>
+                    <p className="mx-auto mt-2 max-w-lg">
+                      Add a connection to register an external system. Use the provider readiness table above to compare
+                      capabilities before you invest in governance or credentials.
+                    </p>
+                  </div>
                 ) : (
                   <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-700">
                     <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
@@ -2170,12 +2598,16 @@ export default function IntegrationsPage({
                             )}
                           </div>
                           <p className="text-sm text-gray-800 dark:text-slate-200">{selectedConnection.health.message}</p>
-                          {selectedConnection.health.testMode === "LocalValidation" &&
-                          selectedConnection.health.status === "TestUnavailable" ? (
-                            <p className="text-xs text-gray-600 dark:text-slate-400">
-                              Configuration checked locally. Live provider validation is limited for this setup.
-                            </p>
-                          ) : null}
+                          {(() => {
+                            const sup = connectionHealthSupplementaryNote(
+                              selectedConnection.provider,
+                              selectedConnection.health.testMode,
+                              selectedConnection.health.status,
+                            );
+                            return sup ? (
+                              <p className="text-xs text-gray-600 dark:text-slate-400">{sup}</p>
+                            ) : null;
+                          })()}
                           {selectedConnection.health.missingRequiredSettingKeys.length > 0 ? (
                             <p className="text-xs text-gray-700 dark:text-slate-300">
                               <span className="font-medium">Missing required settings: </span>
@@ -2262,6 +2694,12 @@ export default function IntegrationsPage({
                                 Enter a new credential value to configure or rotate this connection. Cortex will not show the
                                 current value. After saving, fields clear automatically.
                               </Callout>
+                              {selectedConnection.provider === "Jira" || selectedConnection.provider === "ServiceNow" ? (
+                                <p className="text-xs text-gray-600 dark:text-slate-400">
+                                  Secrets are stored for future validation. Cortex does not call live Jira or ServiceNow APIs
+                                  from Integrations in this release.
+                                </p>
+                              ) : null}
                               {credentialStatusError ? (
                                 <p className="text-sm text-amber-800 dark:text-amber-200/90">{credentialStatusError}</p>
                               ) : null}
@@ -2378,8 +2816,7 @@ export default function IntegrationsPage({
             {tab === "sources" && (
               <div className="space-y-4">
                 <p className="text-sm leading-snug text-gray-700 dark:text-slate-300">
-                  Register lists, projects, or tables for this connection. SharePoint lists support read-only discovery and
-                  sync from other tabs; Jira and ServiceNow are setup-first until live sync is enabled.
+                  {sourcesTabIntro(selectedConnection?.provider ?? null)}
                 </p>
                 <div className="flex flex-wrap justify-end gap-2">
                   <ConfigSecondaryButton onClick={() => selectedConnectionId && void loadSources(selectedConnectionId)} disabled={!selectedConnectionId || sourcesLoading}>
@@ -2395,9 +2832,12 @@ export default function IntegrationsPage({
                 ) : sourcesLoading ? (
                   <p className="text-sm text-gray-500 dark:text-slate-400">Loading sources…</p>
                 ) : sources.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
-                    No sources for this connection yet.
-                  </p>
+                  <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
+                    <p className="font-medium text-gray-800 dark:text-slate-200">No sources for this connection yet</p>
+                    <p className="mx-auto mt-2 max-w-lg text-left">
+                      {selectedConnection ? sourcesTabPlanningNote(selectedConnection.provider) : "Add a source when ready."}
+                    </p>
+                  </div>
                 ) : (
                   <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-700">
                     <table className="min-w-[960px] w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
@@ -2455,6 +2895,151 @@ export default function IntegrationsPage({
 
             {tab === "fields" && (
               <div className="space-y-4">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Field mapping profiles</h3>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                    Map provider fields into Cortex concepts before external work becomes Cortex context.
+                  </p>
+                </div>
+
+                <Callout title="Governance boundary">
+                  Mappings help Cortex interpret external records. They do not directly change routing, owners, or
+                  approvals. After mappings are saved, Cortex rules continue to evaluate canonical Cortex fields and
+                  approved ticket creation flows only.
+                </Callout>
+
+                {!selectedSourceId ? (
+                  <div className="space-y-2 text-sm text-gray-600 dark:text-slate-400">
+                    <p>Select a source to view fields and mappings.</p>
+                    {selectedConnection ? (
+                      <p className="text-xs text-gray-500 dark:text-slate-500">{fieldMappingNoSourceHint(selectedConnection.provider)}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+                    {fieldLoading && !fieldsOverview ? (
+                      <p className="text-sm text-gray-500 dark:text-slate-400">Loading source context…</p>
+                    ) : fieldsOverview ? (
+                      <div className="space-y-2 text-sm text-gray-800 dark:text-slate-200">
+                        <p>
+                          <span className="font-medium text-gray-900 dark:text-slate-100">Provider: </span>
+                          {connectionProviderLabel(providerDefinitions, fieldsOverview.provider)} ({fieldsOverview.provider})
+                        </p>
+                        <p>
+                          <span className="font-medium text-gray-900 dark:text-slate-100">Connection: </span>
+                          {fieldsOverview.connectionDisplayName?.trim() || "—"}
+                        </p>
+                        <p>
+                          <span className="font-medium text-gray-900 dark:text-slate-100">Source: </span>
+                          {fieldsOverview.sourceName} · {humanizeExternalSourceType(fieldsOverview.sourceType)}
+                        </p>
+                        <p>
+                          <span className="font-medium text-gray-900 dark:text-slate-100">Field discovery: </span>
+                          {fieldsOverview.discoveryStatusMessage}
+                        </p>
+                        <p className="text-gray-700 dark:text-slate-300">
+                          <span className="font-medium text-gray-900 dark:text-slate-100">Mapped fields: </span>
+                          {fieldsOverview.mappedFieldCount}
+                          {fieldsOverview.discoveryMode === "LiveSharePointList" ? (
+                            <>
+                              <span className="mx-1">·</span>
+                              <span className="font-medium text-gray-900 dark:text-slate-100">Discovered this session: </span>
+                              {discoveredFields.length}
+                            </>
+                          ) : null}
+                          {fieldsOverview.planningFieldCount > 0 ? (
+                            <>
+                              <span className="mx-1">·</span>
+                              <span className="font-medium text-gray-900 dark:text-slate-100">Planning reference fields: </span>
+                              {fieldsOverview.planningFieldCount}
+                            </>
+                          ) : null}
+                        </p>
+                        {fieldMappingNextAction(fieldsOverview, discoveredFields.length) ? (
+                          <p className="text-xs text-gray-600 dark:text-slate-400">
+                            <span className="font-medium text-gray-800 dark:text-slate-200">Next: </span>
+                            {fieldMappingNextAction(fieldsOverview, discoveredFields.length)}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                {fieldsOverview ? (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
+                    <p className="text-sm font-medium text-gray-900 dark:text-slate-100">Provider mapping guidance</p>
+                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-gray-700 dark:text-slate-300">
+                      {providerFieldGuidanceBullets(fieldsOverview.provider).map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {fieldsOverview &&
+                fieldsOverview.discoveryMode === "PlanningStatic" &&
+                fieldsOverview.planningFields.length > 0 ? (
+                  <div className="min-w-0 max-w-full space-y-2 rounded-lg border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Common fields (planning)</h4>
+                    <p className="text-sm text-gray-600 dark:text-slate-400">
+                      These rows are advisory for setup planning. They do not represent live discovered fields for this
+                      provider.
+                    </p>
+                    <div className="max-w-full overflow-x-auto rounded-lg border border-gray-100 dark:border-slate-800">
+                      <table className="min-w-[960px] w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                        <thead className="bg-gray-50 dark:bg-slate-800/80">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">External field</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Field key</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Data type</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Indicators</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Recommended Cortex field</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Mapping note</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
+                          {fieldsOverview.planningFields.map((p) => {
+                            const mapped = findPlanningMappingKey(p.fieldKey, fieldsOverview.currentMappings);
+                            return (
+                              <tr key={p.fieldKey} className="bg-white dark:bg-slate-900">
+                                <td className="px-3 py-2 text-gray-900 dark:text-slate-100">{p.displayName}</td>
+                                <td className="px-3 py-2 font-mono text-xs text-gray-700 dark:text-slate-300">{p.fieldKey}</td>
+                                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{p.dataType}</td>
+                                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">
+                                  <div className="flex flex-wrap gap-1">
+                                    {p.isRequired ? <MappingChip tone="amber">Required</MappingChip> : null}
+                                    {p.isCustom ? <MappingChip tone="sky">Custom</MappingChip> : null}
+                                    {p.recommendedCortexField ? <MappingChip tone="green">Recommended</MappingChip> : null}
+                                    {mapped ? (
+                                      <MappingChip tone="neutral">Mapped</MappingChip>
+                                    ) : (
+                                      <MappingChip tone="neutral">Unmapped</MappingChip>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">
+                                  {p.recommendedCortexField
+                                    ? humanizeCortexFieldDisplay(p.recommendedCortexField)
+                                    : "—"}
+                                  {p.confidenceLabel ? (
+                                    <span className="ml-2 text-xs text-gray-500 dark:text-slate-500">
+                                      ({p.confidenceLabel})
+                                    </span>
+                                  ) : null}
+                                </td>
+                                <td className="max-w-[280px] px-3 py-2 text-xs text-gray-600 dark:text-slate-400">
+                                  {p.recommendationReason ?? "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
                   <div className="flex flex-wrap items-center gap-3">
                     <ConfigPrimaryButton
@@ -2464,7 +3049,8 @@ export default function IntegrationsPage({
                       {discoverLoading ? "Discovering…" : "Discover fields"}
                     </ConfigPrimaryButton>
                     <p className="min-w-0 flex-1 text-sm text-gray-600 dark:text-slate-400">
-                      Read the source schema and suggest Cortex field mappings.
+                      For SharePoint lists, read list columns and surface advisory Cortex targets. Other providers show
+                      planning guidance until live discovery is enabled.
                     </p>
                   </div>
                   {!selectedSourceId ? (
@@ -2479,11 +3065,12 @@ export default function IntegrationsPage({
                     </p>
                   ) : null}
                 </div>
-                <Callout title="Field mapping">
-                  Saving replaces the full mapping list for this source. Map provider fields to Cortex concepts before
-                  importing or syncing work.
+
+                <Callout title="Saving mapping profiles">
+                  Saving replaces the full mapping list for this source. Use mapping notes to document how external values
+                  should be interpreted after they are mapped.
                   <span className="mt-2 block text-sky-900/90 dark:text-sky-200/90">
-                    Optional transform hints describe how Cortex should interpret external values.
+                    Mapping notes are optional guidance for admins and do not bypass Cortex governance.
                   </span>
                 </Callout>
                 {discoverError ? (
@@ -2497,13 +3084,15 @@ export default function IntegrationsPage({
                       mapping table.
                     </p>
                     <div className="max-w-full overflow-x-auto rounded-lg border border-gray-100 dark:border-slate-800">
-                      <table className="min-w-[720px] w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                      <table className="min-w-[900px] w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
                         <thead className="bg-gray-50 dark:bg-slate-800/80">
                           <tr>
-                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Source field</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">External field</th>
                             <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Field key</th>
-                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Type</th>
-                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Suggested Cortex field</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Data type</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Indicators</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Recommended Cortex field</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Advisory note</th>
                             <th className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-300">Action</th>
                           </tr>
                         </thead>
@@ -2516,6 +3105,15 @@ export default function IntegrationsPage({
                                 mappingRowIdentity(row.externalFieldName, row.externalFieldKey)
                                 === mappingRowIdentity(f.externalFieldName, f.externalFieldKey),
                             );
+                            const confLabel = f.confidenceLabel?.trim() ?? "";
+                            const confTone: "sky" | "green" | "amber" | "neutral" =
+                              confLabel === "Strong"
+                                ? "sky"
+                                : confLabel === "Suggested"
+                                  ? "green"
+                                  : confLabel === "Possible"
+                                    ? "amber"
+                                    : "neutral";
                             return (
                               <tr key={`${f.externalFieldName}:${f.externalFieldKey ?? ""}`} className="bg-white dark:bg-slate-900">
                                 <td className="px-3 py-2 text-gray-900 dark:text-slate-100" title={label}>
@@ -2529,13 +3127,28 @@ export default function IntegrationsPage({
                                 </td>
                                 <td className="px-3 py-2 text-gray-700 dark:text-slate-300">{f.type?.trim() || "—"}</td>
                                 <td className="px-3 py-2 text-gray-700 dark:text-slate-300">
+                                  <div className="flex flex-wrap gap-1">
+                                    {f.isReadOnly ? <MappingChip tone="neutral">Read-only</MappingChip> : null}
+                                    {f.isRequired ? <MappingChip tone="amber">Required</MappingChip> : null}
+                                    {f.isCustom ? <MappingChip tone="sky">Custom</MappingChip> : null}
+                                    {f.suggestedCortexField ? <MappingChip tone="green">Recommended</MappingChip> : null}
+                                    {f.confidenceLabel?.trim() ? (
+                                      <MappingChip tone={confTone}>{f.confidenceLabel}</MappingChip>
+                                    ) : null}
+                                    {already ? <MappingChip tone="neutral">Mapped</MappingChip> : null}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-gray-700 dark:text-slate-300">
                                   {f.suggestedCortexField
                                     ? humanizeCortexFieldDisplay(f.suggestedCortexField)
                                     : "—"}
                                 </td>
+                                <td className="max-w-[240px] px-3 py-2 text-xs text-gray-600 dark:text-slate-400">
+                                  {f.recommendationReason?.trim() || "—"}
+                                </td>
                                 <td className="px-3 py-2 text-right">
                                   {already ? (
-                                    <span className="text-xs text-gray-500 dark:text-slate-500">Already mapped</span>
+                                    <span className="text-xs text-gray-500 dark:text-slate-500">In mapping table</span>
                                   ) : (
                                     <ConfigGhostButton className="!py-1" onClick={() => addDiscoveredFieldToMapping(f)}>
                                       Add to mapping
@@ -2551,7 +3164,14 @@ export default function IntegrationsPage({
                   </div>
                 ) : null}
                 {!selectedSourceId ? (
-                  <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
+                  <div className="space-y-1 text-sm text-gray-600 dark:text-slate-400">
+                    <p>Select an external source above.</p>
+                    {selectedConnection ? (
+                      <p className="text-xs text-gray-500 dark:text-slate-500">
+                        {fieldMappingNoSourceHint(selectedConnection.provider)}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : fieldError ? (
                   <p className="text-sm text-red-600 dark:text-red-400">{fieldError}</p>
                 ) : fieldLoading ? (
@@ -2562,8 +3182,8 @@ export default function IntegrationsPage({
                       <table className="min-w-[1200px] w-max max-w-none divide-y divide-gray-200 text-sm dark:divide-slate-700">
                         <thead className="bg-gray-50 dark:bg-slate-800/80">
                           <tr>
-                            <th className="min-w-[220px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">External name</th>
-                            <th className="min-w-[220px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Key</th>
+                            <th className="min-w-[220px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">External field</th>
+                            <th className="min-w-[220px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Field key</th>
                             <th className="min-w-[190px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Cortex field</th>
                             <th className="w-[90px] min-w-[90px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Required</th>
                             <th className="min-w-[280px] px-3 py-2 text-left font-medium text-gray-700 dark:text-slate-300">Mapping note</th>
@@ -2656,7 +3276,7 @@ export default function IntegrationsPage({
                     <div className="flex flex-wrap gap-2">
                       <ConfigSecondaryButton onClick={() => setFieldDraft([...fieldDraft, emptyFieldRow()])}>Add row</ConfigSecondaryButton>
                       <ConfigPrimaryButton onClick={() => void saveFieldMappings()} disabled={fieldSaving}>
-                        {fieldSaving ? "Saving…" : "Save field mappings"}
+                        {fieldSaving ? "Saving…" : "Save mapping"}
                       </ConfigPrimaryButton>
                     </div>
                   </>
@@ -2671,7 +3291,9 @@ export default function IntegrationsPage({
                   automatically.
                 </Callout>
                 {!selectedSourceId ? (
-                  <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
+                  <div className="space-y-1 text-sm text-gray-600 dark:text-slate-400">
+                    <p>{boardsTabNoSourceHint(selectedConnection?.provider)}</p>
+                  </div>
                 ) : boardError ? (
                   <p className="text-sm text-red-600 dark:text-red-400">{boardError}</p>
                 ) : boardLoading || ticketBoardLoading ? (
@@ -2781,10 +3403,7 @@ export default function IntegrationsPage({
 
             {tab === "items" && (
               <div className="min-w-0 max-w-full space-y-4">
-                <Callout title="External items">
-                  Review imported records here. SharePoint sync refreshes read-only copies and never creates Cortex tickets on
-                  its own; creating tickets stays an explicit action from this screen.
-                </Callout>
+                <Callout title="External items">{externalItemsTabCalloutBody(itemsContextProvider)}</Callout>
                 <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
                   <div className="flex flex-wrap items-center gap-3">
                     <ConfigPrimaryButton
@@ -2794,8 +3413,7 @@ export default function IntegrationsPage({
                       {syncLoading ? "Syncing…" : "Sync now"}
                     </ConfigPrimaryButton>
                     <p className="min-w-0 flex-1 text-sm text-gray-600 dark:text-slate-400">
-                      Reads the selected external source and updates external work items. Cortex tickets are not created
-                      automatically.
+                      {externalItemsSyncStripBody(itemsContextProvider)}
                     </p>
                   </div>
                   {!selectedSourceId ? (
@@ -2932,7 +3550,14 @@ export default function IntegrationsPage({
                   </ConfigPrimaryButton>
                 </div>
                 {!selectedSourceId ? (
-                  <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
+                  <div className="space-y-1 text-sm text-gray-600 dark:text-slate-400">
+                    <p>Select an external source above.</p>
+                    {selectedConnection ? (
+                      <p className="text-xs text-gray-500 dark:text-slate-500">
+                        {fieldMappingNoSourceHint(selectedConnection.provider)}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : itemsError ? (
                   <p className="text-sm text-red-600 dark:text-red-400">{itemsError}</p>
                 ) : itemsLoading ? (
@@ -2941,8 +3566,8 @@ export default function IntegrationsPage({
                   <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-600 dark:border-slate-600 dark:text-slate-400">
                     <p className="font-medium text-gray-800 dark:text-slate-200">No external items yet</p>
                     <p className="mx-auto mt-2 max-w-lg">
-                      No external items have been captured for this source yet. Use manual upsert for testing or sync a
-                      configured SharePoint List.
+                      No external items have been captured for this source yet.{" "}
+                      {externalItemsEmptySecondary(itemsContextProvider)}
                     </p>
                   </div>
                 ) : filteredExternalItems.length === 0 ? (
@@ -3071,7 +3696,9 @@ export default function IntegrationsPage({
                   attempts. External systems are not modified beyond the read actions you start from Integrations.
                 </Callout>
                 {!selectedConnectionId ? (
-                  <p className="text-sm text-gray-600 dark:text-slate-400">Select a connection above.</p>
+                  <div className="space-y-1 text-sm text-gray-600 dark:text-slate-400">
+                    <p>Select a connection above.</p>
+                  </div>
                 ) : (
                   <>
                     <div className="flex flex-wrap justify-end gap-2">
@@ -3093,8 +3720,10 @@ export default function IntegrationsPage({
                           No integration activity has been recorded for this connection yet.
                         </p>
                         <p className="mx-auto mt-2 max-w-lg text-gray-600 dark:text-slate-400">
-                          Run discovery, sync, manual upserts, or credential changes to build a trail. No source data was
-                          modified by Cortex beyond the actions you trigger from Integrations.
+                          <span className="block">{activityEmptySecondary(selectedConnection?.provider ?? null)}</span>
+                          <span className="mt-2 block">
+                            External systems are only touched by the explicit read actions you start from Integrations.
+                          </span>
                         </p>
                       </div>
                     ) : (

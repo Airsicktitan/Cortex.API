@@ -126,6 +126,12 @@ public static class IntegrationHandlers
         return mappings is null ? Results.NotFound() : Results.Ok(mappings);
     }
 
+    public static async Task<IResult> GetSourceFieldsOverview(int sourceId, IExternalIntegrationService integrationService)
+    {
+        var overview = await integrationService.GetSourceFieldsOverviewAsync(sourceId);
+        return overview is null ? Results.NotFound() : Results.Ok(overview);
+    }
+
     public static async Task<IResult> ReplaceFieldMappings(
         int sourceId,
         HttpRequest httpRequest,
@@ -155,6 +161,10 @@ public static class IntegrationHandlers
         {
             var result = await integrationService.ReplaceFieldMappingsAsync(sourceId, mappings);
             return result is null ? Results.NotFound() : Results.Ok(result);
+        }
+        catch (IntegrationApiException ex)
+        {
+            return SafeErrorResponses.IntegrationApi(ex);
         }
         catch (ArgumentException)
         {

@@ -9,7 +9,11 @@ public sealed record SharePointDiscoveredFieldResponse(
     string? Type,
     bool IsHidden,
     bool IsReadOnly,
-    CortexField? SuggestedCortexField);
+    CortexField? SuggestedCortexField,
+    string? RecommendationReason = null,
+    string? ConfidenceLabel = null,
+    bool IsCustom = false,
+    bool IsRequired = false);
 
 public sealed record ExternalSourceSyncResponse(
     int SourceId,

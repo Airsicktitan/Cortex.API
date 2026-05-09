@@ -73,6 +73,108 @@ public class ExternalIntegrationServiceTests
     }
 
     [Fact]
+    public async Task GetSourceFieldsOverview_Jira_ReturnsPlanningStaticGuidance()
+    {
+        await using var context = CreateContext();
+        var service = CreateIntegrationService(context);
+        var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
+        {
+            Provider = IntegrationProvider.Jira,
+            DisplayName = "Jira",
+            ProviderSettings = IntegrationConnectionTestDefaults.JiraMinimalSettings(),
+        });
+        var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
+        {
+            Provider = IntegrationProvider.Jira,
+            SourceType = ExternalSourceType.JiraProject,
+            ExternalSourceId = "PROJ",
+            Name = "Operations",
+        });
+
+        var overview = await service.GetSourceFieldsOverviewAsync(source!.Id);
+        Assert.NotNull(overview);
+        Assert.Equal(IntegrationFieldDiscoveryMode.PlanningStatic, overview!.DiscoveryMode);
+        Assert.Contains("Live Jira field discovery is not enabled", overview.DiscoveryStatusMessage, StringComparison.Ordinal);
+        Assert.NotEmpty(overview.PlanningFields);
+        Assert.Equal(0, overview.MappedFieldCount);
+    }
+
+    [Fact]
+    public async Task ReplaceFieldMappings_SharePoint_RejectsUnknownFieldWhenColumnsDiscovered()
+    {
+        const string listUrl = "https://fabrikam.sharepoint.com/sites/support/Lists/Tickets";
+        await using var context = CreateContext();
+        var graph = new FakeSharePointGraphClient
+        {
+            Columns =
+            [
+                FakeSharePointGraphClient.ParseJson("""{"name":"CustomCol","displayName":"Custom"}"""),
+            ],
+        };
+        var service = CreateIntegrationService(context, graph);
+        var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
+        {
+            Provider = IntegrationProvider.SharePoint,
+            DisplayName = "Conn",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
+        });
+        var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
+        {
+            Provider = IntegrationProvider.SharePoint,
+            SourceType = ExternalSourceType.SharePointList,
+            ExternalSourceId = "list-guid",
+            Name = "Issues",
+            ExternalUrl = listUrl,
+        });
+
+        var ex = await Assert.ThrowsAsync<IntegrationApiException>(() => service.ReplaceFieldMappingsAsync(source!.Id,
+        [
+            new ExternalFieldMappingItemRequest { ExternalFieldName = "Title", CortexField = CortexField.Title },
+        ]));
+
+        Assert.Equal(400, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReplaceFieldMappings_SharePoint_AllowsFieldsMatchingDiscoveredColumns()
+    {
+        const string listUrl = "https://fabrikam.sharepoint.com/sites/support/Lists/Tickets";
+        await using var context = CreateContext();
+        var graph = new FakeSharePointGraphClient
+        {
+            Columns =
+            [
+                FakeSharePointGraphClient.ParseJson("""{"name":"Title","displayName":"Title"}"""),
+                FakeSharePointGraphClient.ParseJson("""{"name":"Priority","displayName":"Priority"}"""),
+            ],
+        };
+        var service = CreateIntegrationService(context, graph);
+        var connection = await service.CreateConnectionAsync(new CreateIntegrationConnectionRequest
+        {
+            Provider = IntegrationProvider.SharePoint,
+            DisplayName = "Conn",
+            TenantId = IntegrationConnectionTestDefaults.SharePointTenantId,
+        });
+        var source = await service.CreateSourceAsync(connection.Id, new CreateExternalWorkSourceRequest
+        {
+            Provider = IntegrationProvider.SharePoint,
+            SourceType = ExternalSourceType.SharePointList,
+            ExternalSourceId = "list-guid",
+            Name = "Issues",
+            ExternalUrl = listUrl,
+        });
+
+        var result = await service.ReplaceFieldMappingsAsync(source!.Id,
+        [
+            new ExternalFieldMappingItemRequest { ExternalFieldName = "Title", CortexField = CortexField.Title },
+            new ExternalFieldMappingItemRequest { ExternalFieldName = "Priority", CortexField = CortexField.Priority },
+        ]);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.Count);
+    }
+
+    [Fact]
     public async Task ReplaceFieldMappings_ReplacesMappingSet()
     {
         await using var context = CreateContext();

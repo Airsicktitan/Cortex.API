@@ -20,6 +20,7 @@ import type {
   IntegrationConnectionResponse,
   IntegrationCredentialStatusDto,
   IntegrationProviderDefinitionsResponse,
+  IntegrationSourceFieldsOverviewResponse,
   ManualUpsertExternalWorkItemInput,
   SharePointDiscoveredFieldResponse,
   TestIntegrationConnectionResponse,
@@ -238,6 +239,17 @@ export const integrationsService = {
       { headers: authHeaders(token) },
     );
     await ensureSuccess(response, "Unable to load field mappings");
+    return response.json();
+  },
+
+  async getSourceFieldsOverview(
+    token: string,
+    sourceId: number,
+  ): Promise<IntegrationSourceFieldsOverviewResponse> {
+    const response = await fetch(`${integrationsBase}/sources/${sourceId}/fields`, {
+      headers: authHeaders(token),
+    });
+    await ensureSuccess(response, "Unable to load field mapping overview.");
     return response.json();
   },
 
