@@ -57,6 +57,15 @@ const API_AUDIENCE = "https://cortex-api";
 
 type IntegrationsTab = "connections" | "sources" | "fields" | "boards" | "items" | "activity";
 
+const INTEGRATION_TAB_GUIDANCE: Record<IntegrationsTab, string> = {
+  connections: "Create and manage provider-specific connection setup.",
+  sources: "Discover and manage external work sources available from a connection.",
+  fields: "Map provider fields to Cortex concepts before importing work.",
+  boards: "Control which Cortex board external work should enter.",
+  items: "Review imported external records before creating Cortex tickets.",
+  activity: "Review sync, credential, health, and ticket-creation activity.",
+};
+
 function Callout({
   title,
   children,
@@ -68,6 +77,72 @@ function Callout({
     <div className="rounded-lg border border-sky-200 bg-sky-50/90 px-4 py-3 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
       <p className="font-medium text-sky-900 dark:text-sky-100">{title}</p>
       <div className="mt-1.5 text-sky-800 dark:text-sky-200/90">{children}</div>
+    </div>
+  );
+}
+
+function ReadOnlySecurityCallout() {
+  return (
+    <div className="rounded-lg border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-800/70 dark:bg-amber-950/35 dark:text-amber-100">
+      <p className="font-medium text-amber-900 dark:text-amber-100">Security and read-only posture</p>
+      <p className="mt-1.5 leading-relaxed text-amber-900/95 dark:text-amber-100/90">
+        Secrets are submitted through a dedicated credential flow and are never displayed after saving. External
+        integrations are read-only by default. Imported context does not change routing, owners, or approvals unless
+        approved Cortex rules apply. Jira and ServiceNow live sync is not enabled yet.
+      </p>
+    </div>
+  );
+}
+
+function IntegrationSetupFlowGuide() {
+  const steps: { title: string; description: string }[] = [
+    {
+      title: "Create connection",
+      description: "Choose a provider and enter provider-specific setup details.",
+    },
+    {
+      title: "Configure credentials",
+      description: "Add secrets through the dedicated credential flow. Existing secrets are never displayed.",
+    },
+    {
+      title: "Test connection",
+      description: "Check configuration and available read-only access.",
+    },
+    {
+      title: "Discover sources",
+      description: "Find lists, projects, tables, or work sources supported by the provider.",
+    },
+    {
+      title: "Map fields and boards",
+      description: "Control how external records become Cortex context.",
+    },
+    {
+      title: "Review external items",
+      description: "Inspect imported records before creating Cortex tickets.",
+    },
+  ];
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-4 dark:border-slate-700 dark:bg-slate-900/40">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Integration setup flow</h3>
+      <p className="mt-1 text-xs text-gray-600 dark:text-slate-400">
+        Move through these steps in order; use the tabs for the next stage when you are ready.
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {steps.map((s, idx) => (
+          <div
+            key={s.title}
+            className="flex gap-2.5 rounded-lg border border-gray-200/90 bg-gray-50/80 px-3 py-2.5 dark:border-slate-600 dark:bg-slate-800/50"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cortex-blue/15 text-xs font-bold text-cortex-blue dark:bg-cortex-blue/25 dark:text-cortex-cyan">
+              {idx + 1}
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-900 dark:text-slate-100">{s.title}</p>
+              <p className="mt-0.5 text-xs leading-snug text-gray-600 dark:text-slate-400">{s.description}</p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -133,18 +208,91 @@ function connectionHealthBadgeClasses(status: IntegrationConnectionHealthStatus)
   }
 }
 
-function connectionHealthProviderBlurb(provider: IntegrationProvider): string {
+/** Shared pill layout: avoids awkward wraps in table cells; pair with connectionHealthBadgeClasses. */
+function connectionHealthBadgeLayout(variant: "table" | "card"): string {
+  const sizing =
+    variant === "table"
+      ? "px-3 py-1 text-xs font-medium leading-none"
+      : "px-3 py-1.5 text-sm font-medium leading-none";
+  return `inline-flex max-w-max shrink-0 items-center justify-center whitespace-nowrap rounded-full ${sizing}`;
+}
+
+/** Provider capability / maturity (safe copy for admins). */
+function integrationProviderMaturityMessage(provider: IntegrationProvider): string {
   switch (provider) {
     case "SharePoint":
-      return "Tests the stored SharePoint connection settings and available read-only access.";
+      return "SharePoint supports read-only external work intake using the configured Graph/app registration path.";
     case "Jira":
-      return "Checks Jira connection settings and credential readiness. Live Jira validation is not enabled yet.";
+      return "Jira setup and credential storage are available. Live Jira validation and sync are not enabled yet.";
     case "ServiceNow":
-      return "Checks ServiceNow connection settings and credential readiness. Live ServiceNow validation is not enabled yet.";
+      return "ServiceNow setup and credential storage are available. Live ServiceNow validation and sync are not enabled yet.";
     case "SapReference":
-      return "Checks stored SAP reference setup. This is not a live SAP connection.";
+      return "SAP Reference uses stored metadata only. This is not a live SAP connection.";
     default:
-      return "Runs a safe validation check for this connection.";
+      return "";
+  }
+}
+
+function integrationProviderReadinessPill(provider: IntegrationProvider): { label: string; className: string } {
+  switch (provider) {
+    case "SharePoint":
+      return {
+        label: "Supported read-only path",
+        className:
+          "bg-slate-200/90 text-slate-900 dark:bg-slate-600 dark:text-slate-100",
+      };
+    case "Jira":
+    case "ServiceNow":
+      return {
+        label: "Live validation not enabled",
+        className:
+          "bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-100",
+      };
+    case "SapReference":
+      return {
+        label: "Metadata only",
+        className:
+          "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100",
+      };
+    default:
+      return {
+        label: "Setup",
+        className: "bg-gray-100 text-gray-800 dark:bg-slate-700 dark:text-slate-200",
+      };
+  }
+}
+
+function computeIntegrationNextAction(connection: IntegrationConnectionResponse | null): string {
+  if (!connection?.health) {
+    return "Select a connection to see recommended next steps.";
+  }
+  const { health: h, provider } = connection;
+
+  if (provider === "SapReference") {
+    return "Reference metadata is managed in Configuration → SAP Reference (catalog).";
+  }
+
+  switch (h.status) {
+    case "NotConfigured":
+      return "Complete required provider settings.";
+    case "MissingCredentials":
+      return "Configure credentials before testing or syncing.";
+    case "NotTested":
+      return "Run Test connection.";
+    case "TestUnavailable":
+      if (h.lastTestedAtUtc) {
+        return "Connection setup is ready for future provider validation.";
+      }
+      return "Run Test connection.";
+    case "Healthy":
+      return "Connection is ready for supported read-only operations.";
+    case "NeedsAttention":
+      if (provider === "SharePoint") {
+        return "Review SharePoint Graph configuration or app permissions.";
+      }
+      return "Review provider settings and credentials, then run Test connection again.";
+    default:
+      return "Review connection status and activity.";
   }
 }
 
@@ -575,6 +723,11 @@ export default function IntegrationsPage({
   const selectedConnection = useMemo(
     () => connections.find((c) => c.id === selectedConnectionId) ?? null,
     [connections, selectedConnectionId],
+  );
+
+  const integrationNextAction = useMemo(
+    () => computeIntegrationNextAction(selectedConnection),
+    [selectedConnection],
   );
 
   const credentialConnDef = useMemo(
@@ -1637,38 +1790,158 @@ export default function IntegrationsPage({
 
       <section className="min-w-0 max-w-full rounded-lg border border-gray-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Integrations</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-          Connect external work sources, map their fields to Cortex concepts, and inspect external work items before
-          importing them into Cortex.
+        <p className="mt-1 text-sm leading-relaxed text-gray-600 dark:text-slate-400">
+          Connect external work sources, configure provider-specific setup, and inspect external work before importing it
+          into Cortex.
         </p>
       </section>
 
       <ConfigPageShell>
         <ConfigPageHeader
           title="External integrations"
-          description="Connect SharePoint lists, Jira projects, or ServiceNow tables as external sources. For SharePoint Lists, you can discover fields, map them to Cortex, and run a read-only sync that updates external work items without changing SharePoint or creating Cortex tickets automatically."
+          description="Use the tabs to move from connection setup through sources, mappings, external items, and activity. SharePoint supports read-only field discovery and sync today; other providers are setup-first until live sync is enabled."
         />
         <ConfigPageBody>
-          <div className="flex min-w-0 max-w-full flex-wrap gap-2 border-b border-gray-200 pb-4 dark:border-slate-700">
-            {tabButtons.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => setTab(b.id)}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                  tab === b.id
-                    ? "bg-cortex-blue text-white shadow-sm dark:bg-cortex-blue"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                }`}
-              >
-                {b.label}
-              </button>
-            ))}
-          </div>
+          <div className="space-y-6">
+            <IntegrationSetupFlowGuide />
+            <ReadOnlySecurityCallout />
+            <div>
+              <div className="flex min-w-0 max-w-full flex-wrap gap-2 border-b border-gray-200 pb-4 dark:border-slate-700">
+                {tabButtons.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => setTab(b.id)}
+                    className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                      tab === b.id
+                        ? "bg-cortex-blue text-white shadow-sm dark:bg-cortex-blue"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 text-sm leading-snug text-gray-600 dark:text-slate-400">
+                {INTEGRATION_TAB_GUIDANCE[tab]}
+              </p>
+            </div>
 
-          <div className="mt-6 min-w-0 max-w-full space-y-6">
+            {connections.length > 0 ? (
+              <ConfigDetailCard
+                title="Connection readiness"
+                subtitle="Summary for the connection you have selected below (defaults follow your current table selection)."
+              >
+                {selectedConnection ? (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
+                          {selectedConnection.displayName}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <span className="text-sm text-gray-700 dark:text-slate-300">
+                            {connectionProviderLabel(providerDefinitions, selectedConnection.provider)}
+                          </span>
+                          {(() => {
+                            const readinessPill = integrationProviderReadinessPill(selectedConnection.provider);
+                            return (
+                              <span
+                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${readinessPill.className}`}
+                              >
+                                {readinessPill.label}
+                              </span>
+                            );
+                          })()}
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              selectedConnection.isEnabled
+                                ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
+                                : "bg-slate-200 text-slate-800 dark:bg-slate-600 dark:text-slate-100"
+                            }`}
+                          >
+                            {selectedConnection.isEnabled ? "Enabled" : "Disabled"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-500">
+                          Credentials
+                        </p>
+                        <p className="mt-1 text-sm text-gray-900 dark:text-slate-100">
+                          {selectedConnection.credentialConfigured ? "Configured" : "Not configured"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-500">
+                          Health
+                        </p>
+                        <div className="mt-1">
+                          {selectedConnection.health ? (
+                            <span
+                              title={selectedConnection.health.statusLabel}
+                              className={`${connectionHealthBadgeLayout("table")} ${connectionHealthBadgeClasses(
+                                selectedConnection.health.status,
+                              )}`}
+                            >
+                              {selectedConnection.health.statusLabel}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-500">
+                          Last tested
+                        </p>
+                        <p className="mt-1 text-sm text-gray-900 dark:text-slate-100">
+                          {selectedConnection.health?.lastTestedAtUtc
+                            ? formatWhen(selectedConnection.health.lastTestedAtUtc)
+                            : "—"}
+                        </p>
+                      </div>
+                      <div className="sm:col-span-2 xl:col-span-3">
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-500">
+                          Last sync
+                        </p>
+                        <p className="mt-1 text-sm text-gray-900 dark:text-slate-100">
+                          {!selectedConnection.lastSyncUtc
+                            ? "Never synced"
+                            : `${humanizeConnectionSyncStatus(selectedConnection.lastSyncStatus)} · ${formatWhen(
+                                selectedConnection.lastSyncUtc,
+                              )}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-gray-200 bg-gray-50/90 px-4 py-3 dark:border-slate-600 dark:bg-slate-800/50">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400">
+                        Next recommended action
+                      </p>
+                      <p className="mt-1.5 text-sm font-medium text-gray-900 dark:text-slate-100">
+                        {integrationNextAction}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-600 dark:text-slate-400">
+                    Use the Connections tab to add a connection, or choose a connection from the selector when another tab
+                    is open.
+                  </p>
+                )}
+              </ConfigDetailCard>
+            ) : null}
+
+            <div className="min-w-0 max-w-full space-y-6">
             {tab !== "connections" && (
-              <ConfigDetailCard title="Selection" subtitle="Choose where mapping and items apply.">
+              <ConfigDetailCard
+                title="Selection"
+                subtitle="Choose a connection and an external source for field mapping, external items, and activity tabs."
+              >
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-400">Connection</label>
@@ -1745,22 +2018,15 @@ export default function IntegrationsPage({
             )}
 
             {tab === "connections" && (
-              <div className="space-y-4">
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">
-                    Integration connection setup
-                  </h2>
-                  <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
-                    Configure provider-specific connection details for read-only external work intake and reference
-                    context.
-                  </p>
-                </div>
-                <Callout title="Security">
-                  Secrets are submitted through a dedicated credential flow below and are never displayed after saving. External
-                  integrations are read-only by default. Imported context does not change routing, owners, or approvals unless
-                  approved Cortex rules apply.
-                </Callout>
-                <div className="flex justify-end">
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div className="min-w-0 max-w-2xl">
+                    <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Connections</h2>
+                    <p className="mt-1 text-sm leading-snug text-gray-600 dark:text-slate-400">
+                      Register each external system once, then finish credentials and health checks before adding sources on
+                      the Sources tab.
+                    </p>
+                  </div>
                   <ConfigPrimaryButton onClick={openCreateConnection}>Add connection</ConfigPrimaryButton>
                 </div>
                 {connectionsError ? (
@@ -1779,7 +2045,9 @@ export default function IntegrationsPage({
                         <tr>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Name</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Provider</th>
-                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Health</th>
+                          <th className="min-w-[10.5rem] whitespace-nowrap px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">
+                            Health
+                          </th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Last tested</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Auth</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Sync</th>
@@ -1797,10 +2065,11 @@ export default function IntegrationsPage({
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
                               {connectionProviderLabel(providerDefinitions, c.provider)}
                             </td>
-                            <td className="px-4 py-3">
+                            <td className="align-middle whitespace-nowrap px-4 py-3">
                               {c.health ? (
                                 <span
-                                  className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${connectionHealthBadgeClasses(
+                                  title={c.health.statusLabel}
+                                  className={`${connectionHealthBadgeLayout("table")} ${connectionHealthBadgeClasses(
                                     c.health.status,
                                   )}`}
                                 >
@@ -1876,7 +2145,7 @@ export default function IntegrationsPage({
                     title="Connection health"
                     subtitle={
                       selectedConnection
-                        ? connectionHealthProviderBlurb(selectedConnection.provider)
+                        ? integrationProviderMaturityMessage(selectedConnection.provider)
                         : "Select a connection to review health and run a safe test."
                     }
                   >
@@ -1885,7 +2154,8 @@ export default function IntegrationsPage({
                         <>
                           <div className="flex flex-wrap items-center gap-3">
                             <span
-                              className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${connectionHealthBadgeClasses(
+                              title={selectedConnection.health.statusLabel}
+                              className={`${connectionHealthBadgeLayout("card")} ${connectionHealthBadgeClasses(
                                 selectedConnection.health.status,
                               )}`}
                             >
@@ -2107,10 +2377,10 @@ export default function IntegrationsPage({
 
             {tab === "sources" && (
               <div className="space-y-4">
-                <Callout title="Sources represent boards, lists, projects, or tables inside those systems.">
-                  A SharePoint list can act like a lightweight board. Cortex stores it as an external work source before creating
-                  any Cortex tickets.
-                </Callout>
+                <p className="text-sm leading-snug text-gray-700 dark:text-slate-300">
+                  Register lists, projects, or tables for this connection. SharePoint lists support read-only discovery and
+                  sync from other tabs; Jira and ServiceNow are setup-first until live sync is enabled.
+                </p>
                 <div className="flex flex-wrap justify-end gap-2">
                   <ConfigSecondaryButton onClick={() => selectedConnectionId && void loadSources(selectedConnectionId)} disabled={!selectedConnectionId || sourcesLoading}>
                     Refresh sources
@@ -2209,10 +2479,11 @@ export default function IntegrationsPage({
                     </p>
                   ) : null}
                 </div>
-                <Callout title="Mappings translate customer-specific fields into Cortex concepts.">
-                  Saving replaces the full mapping list for this source. Add every field you need before saving.
+                <Callout title="Field mapping">
+                  Saving replaces the full mapping list for this source. Map provider fields to Cortex concepts before
+                  importing or syncing work.
                   <span className="mt-2 block text-sky-900/90 dark:text-sky-200/90">
-                    Optional note for how Cortex should interpret values from this external field.
+                    Optional transform hints describe how Cortex should interpret external values.
                   </span>
                 </Callout>
                 {discoverError ? (
@@ -2395,8 +2666,9 @@ export default function IntegrationsPage({
 
             {tab === "boards" && (
               <div className="space-y-4">
-                <Callout title="Board mapping tells Cortex where external work belongs conceptually.">
-                  Reference-only mapping does not create Cortex tickets automatically.
+                <Callout title="Board mapping">
+                  Choose how external work aligns with Cortex boards. Reference-only modes do not create Cortex tickets
+                  automatically.
                 </Callout>
                 {!selectedSourceId ? (
                   <p className="text-sm text-gray-600 dark:text-slate-400">Select an external source above.</p>
@@ -2509,9 +2781,9 @@ export default function IntegrationsPage({
 
             {tab === "items" && (
               <div className="min-w-0 max-w-full space-y-4">
-                <Callout title="External items are stored safely before becoming Cortex tickets.">
-                  No automatic Cortex ticket import runs from this screen. Add a manual test item or use Sync now for a
-                  SharePoint List after mappings are saved.
+                <Callout title="External items">
+                  Review imported records here. SharePoint sync refreshes read-only copies and never creates Cortex tickets on
+                  its own; creating tickets stays an explicit action from this screen.
                 </Callout>
                 <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
                   <div className="flex flex-wrap items-center gap-3">
@@ -2795,9 +3067,8 @@ export default function IntegrationsPage({
             {tab === "activity" && (
               <div className="min-w-0 max-w-full space-y-4">
                 <Callout title="Activity">
-                  Integration activity for the selected connection includes discovery, read-only sync, manual item updates,
-                  and credential lifecycle events (configure, rotate, clear). Read-only sync does not change the external
-                  system and does not create Cortex tickets automatically.
+                  Includes discovery, credential lifecycle, connection tests, sync, manual updates, and ticket-creation
+                  attempts. External systems are not modified beyond the read actions you start from Integrations.
                 </Callout>
                 {!selectedConnectionId ? (
                   <p className="text-sm text-gray-600 dark:text-slate-400">Select a connection above.</p>
@@ -2901,6 +3172,7 @@ export default function IntegrationsPage({
               </div>
             )}
           </div>
+          </div>
         </ConfigPageBody>
       </ConfigPageShell>
 
@@ -2984,6 +3256,9 @@ export default function IntegrationsPage({
                     Changing the provider clears unsaved provider-specific values.
                   </p>
                 )}
+                <div className="mt-3 rounded-lg border border-gray-200 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-gray-800 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-200">
+                  {integrationProviderMaturityMessage(connectionModal.draft.provider)}
+                </div>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
