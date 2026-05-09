@@ -4,16 +4,19 @@ using Cortex.API.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
-namespace Cortex.API.Migrations
+namespace Cortex.API.Database.Migrations
 {
     [DbContext(typeof(CortexDbContext))]
-    partial class CortexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260509000415_AddIntegrationConnectionHealthLastTest")]
+    partial class AddIntegrationConnectionHealthLastTest
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -952,10 +955,6 @@ namespace Cortex.API.Migrations
                     b.Property<string>("LastConnectionTestMessage")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
-
-                    b.Property<string>("LastConnectionTestMode")
-                        .HasMaxLength(48)
-                        .HasColumnType("nvarchar(48)");
 
                     b.Property<string>("LastSyncMessage")
                         .HasMaxLength(2000)

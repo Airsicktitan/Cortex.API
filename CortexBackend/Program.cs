@@ -104,6 +104,7 @@ builder.Services.AddRateLimiter(AiRateLimitPolicies.Configure);
 builder.Services.AddDataProtection();
 builder.Services.AddScoped<IIntegrationCredentialStore, EncryptedIntegrationCredentialStore>();
 builder.Services.AddScoped<IIntegrationCredentialAdminService, IntegrationCredentialAdminService>();
+builder.Services.AddScoped<IIntegrationConnectionHealthService, IntegrationConnectionHealthService>();
 builder.Services.AddScoped<IIntegrationActivityService, IntegrationActivityService>();
 builder.Services.AddScoped<IExternalIntegrationService, ExternalIntegrationService>();
 builder.Services.AddScoped<ISapReferenceService, SapReferenceService>();

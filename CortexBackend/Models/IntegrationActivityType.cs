@@ -14,4 +14,7 @@ public enum IntegrationActivityType
 
     /// <summary>Per-connection stored credential removed.</summary>
     CredentialCleared,
+
+    /// <summary>Admin triggered a connection test; result is in message/metadata (safe fields only).</summary>
+    ConnectionTested,
 }

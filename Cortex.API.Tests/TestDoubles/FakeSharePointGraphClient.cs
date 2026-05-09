@@ -21,6 +21,8 @@ public sealed class FakeSharePointGraphClient : ISharePointGraphClient
 
     public Exception? ItemsException { get; set; }
 
+    public Exception? ValidateCredentialsException { get; set; }
+
     public Task<SharePointSiteRef> GetSiteByPathAsync(
         string hostname,
         string siteRelativePath,
@@ -29,6 +31,14 @@ public sealed class FakeSharePointGraphClient : ISharePointGraphClient
     {
         ThrowIf(SiteException);
         return Task.FromResult(Site);
+    }
+
+    public Task ValidateGraphApplicationCredentialsAsync(
+        string? tenantIdOverride,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIf(ValidateCredentialsException);
+        return Task.CompletedTask;
     }
 
     public Task<JsonElement> GetListAsync(

@@ -31,6 +31,39 @@ export type CortexField =
 
 export type ExternalBoardMappingMode = "Mirror" | "Import" | "ReferenceOnly";
 
+export type IntegrationConnectionHealthStatus =
+  | "NotConfigured"
+  | "MissingCredentials"
+  | "NotTested"
+  | "Healthy"
+  | "NeedsAttention"
+  | "TestUnavailable";
+
+export type IntegrationConnectionTestMode =
+  | "LocalValidation"
+  | "LiveProviderValidation"
+  | "NotAvailable";
+
+export interface IntegrationConnectionHealthDto {
+  connectionId: number;
+  provider: IntegrationProvider;
+  status: IntegrationConnectionHealthStatus;
+  statusLabel: string;
+  message: string;
+  lastTestedAtUtc?: string | null;
+  credentialConfigured: boolean;
+  missingRequiredSettingKeys: string[];
+  invalidFormatSettingKeys: string[];
+  missingCredentialFieldKeys: string[];
+  canRunLiveTest: boolean;
+  testMode: IntegrationConnectionTestMode;
+}
+
+export interface TestIntegrationConnectionResponse {
+  health: IntegrationConnectionHealthDto;
+  testSucceeded: boolean;
+}
+
 export interface IntegrationConnectionResponse {
   id: number;
   provider: IntegrationProvider;
@@ -55,6 +88,7 @@ export interface IntegrationConnectionResponse {
   configuredCredentialFieldLabels?: string[];
   lastCredentialUpdatedAtUtc?: string | null;
   lastCredentialRotatedAtUtc?: string | null;
+  health: IntegrationConnectionHealthDto;
 }
 
 export interface SharePointDiscoveredFieldResponse {
@@ -88,7 +122,8 @@ export type IntegrationActivityType =
   | "ManualUpsert"
   | "CredentialConfigured"
   | "CredentialRotated"
-  | "CredentialCleared";
+  | "CredentialCleared"
+  | "ConnectionTested";
 
 export type IntegrationActivityStatus = "Success" | "Failed" | "Partial";
 

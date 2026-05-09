@@ -29,6 +29,18 @@ public class IntegrationConnection
     public DateTime CreatedAtUtc { get; set; }
     public DateTime? UpdatedAtUtc { get; set; }
 
+    /// <summary>UTC when a connection test last completed (success or failure).</summary>
+    public DateTime? LastConnectionTestAtUtc { get; set; }
+
+    /// <summary>Persisted health outcome from the last test.</summary>
+    public string? LastConnectionTestHealthStatus { get; set; }
+
+    /// <summary>Safe summary from the last test; no secrets.</summary>
+    public string? LastConnectionTestMessage { get; set; }
+
+    /// <summary>How the last connection test ran (<see cref="IntegrationConnectionTestMode"/> name).</summary>
+    public string? LastConnectionTestMode { get; set; }
+
     public ICollection<ExternalWorkSource> ExternalWorkSources { get; set; } = [];
 
     public IntegrationConnectionCredential? Credential { get; set; }

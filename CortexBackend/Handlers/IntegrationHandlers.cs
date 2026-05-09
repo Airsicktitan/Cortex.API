@@ -356,4 +356,22 @@ public static class IntegrationHandlers
         var result = await credentialAdminService.ClearAsync(connectionId, cancellationToken);
         return result is null ? Results.NotFound() : Results.Ok(result);
     }
+
+    public static async Task<IResult> GetConnectionHealth(
+        int connectionId,
+        IIntegrationConnectionHealthService healthService,
+        CancellationToken cancellationToken)
+    {
+        var health = await healthService.GetHealthAsync(connectionId, cancellationToken);
+        return health is null ? Results.NotFound() : Results.Ok(health);
+    }
+
+    public static async Task<IResult> TestConnection(
+        int connectionId,
+        IIntegrationConnectionHealthService healthService,
+        CancellationToken cancellationToken)
+    {
+        var result = await healthService.TestConnectionAsync(connectionId, cancellationToken);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    }
 }

@@ -1580,6 +1580,7 @@ public sealed class ExternalIntegrationService(
         var keys = IntegrationCredentialPresentation.ParseSecretKeys(cred?.SecretKeysJson);
         var labels = IntegrationCredentialPresentation.LabelsForKeys(keys, profile);
         var credentialStatus = credentialConfigured ? "Configured" : "NotConfigured";
+        var health = IntegrationConnectionHealthFormatter.Build(c, cred, _sharePointGraphOptions);
         return new IntegrationConnectionResponse(
             c.Id,
             c.Provider,
@@ -1602,7 +1603,8 @@ public sealed class ExternalIntegrationService(
             credentialStatus,
             labels,
             cred?.UpdatedAtUtc,
-            cred?.LastRotatedAtUtc);
+            cred?.LastRotatedAtUtc,
+            health);
     }
 
     private (bool Configured, string? Type) ResolveCredentialIndicators(IntegrationConnection c, bool hasStoredCredential)

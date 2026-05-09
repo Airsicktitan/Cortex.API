@@ -360,4 +360,46 @@ public static class IntegrationConnectionConfigValidator
 
         return map;
     }
+
+    /// <summary>Non-throwing validation for health checks and connection tests.</summary>
+    public static (IReadOnlyList<string> MissingRequiredKeys, IReadOnlyList<string> InvalidFormatKeys) ValidateNonSecretSettingsSoft(
+        IReadOnlyDictionary<string, string> map,
+        IntegrationProviderProfile profile)
+    {
+        var missing = new List<string>();
+        var invalid = new List<string>();
+        foreach (var field in profile.Fields.Where(f => !f.IsSecret))
+        {
+            map.TryGetValue(field.Key, out var raw);
+            var value = raw ?? string.Empty;
+            if (field.Required && string.IsNullOrWhiteSpace(value))
+            {
+                missing.Add(field.Key);
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            if (field.FieldType.Equals("url", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+                    (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                {
+                    invalid.Add(field.Key);
+                }
+            }
+
+            if (field.Key.Equals("projectKey", StringComparison.OrdinalIgnoreCase) &&
+                profile.Provider == IntegrationProvider.Jira &&
+                value.Length > 32)
+            {
+                invalid.Add(field.Key);
+            }
+        }
+
+        return (missing, invalid);
+    }
 }

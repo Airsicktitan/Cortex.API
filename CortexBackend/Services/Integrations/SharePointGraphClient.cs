@@ -23,6 +23,11 @@ public interface ISharePointGraphClient
         string? tenantIdOverride,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Validates application credentials by acquiring a Graph token (no resource-specific reads).</summary>
+    Task ValidateGraphApplicationCredentialsAsync(
+        string? tenantIdOverride,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<JsonElement>> GetListColumnsAsync(
         string siteId,
         string listId,
@@ -91,6 +96,13 @@ public sealed class SharePointGraphClient : ISharePointGraphClient
         {
             return doc.RootElement.Clone();
         }
+    }
+
+    public async Task ValidateGraphApplicationCredentialsAsync(
+        string? tenantIdOverride,
+        CancellationToken cancellationToken = default)
+    {
+        _ = await GetTokenAsync(tenantIdOverride, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<JsonElement>> GetListColumnsAsync(

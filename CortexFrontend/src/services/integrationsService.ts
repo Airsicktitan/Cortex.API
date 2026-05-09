@@ -16,11 +16,13 @@ import type {
   ClearIntegrationCredentialResponse,
   ConfigureIntegrationCredentialRequestBody,
   ConfigureIntegrationCredentialResponse,
+  IntegrationConnectionHealthDto,
   IntegrationConnectionResponse,
   IntegrationCredentialStatusDto,
   IntegrationProviderDefinitionsResponse,
   ManualUpsertExternalWorkItemInput,
   SharePointDiscoveredFieldResponse,
+  TestIntegrationConnectionResponse,
   UpdateExternalWorkSourceInput,
   UpdateIntegrationConnectionInput,
 } from "../types/integrations";
@@ -142,6 +144,31 @@ export const integrationsService = {
       { method: "DELETE", headers: authHeaders(token) },
     );
     await ensureSuccess(response, "Unable to clear credentials");
+    return response.json();
+  },
+
+  async getConnectionHealth(
+    token: string,
+    connectionId: number,
+  ): Promise<IntegrationConnectionHealthDto> {
+    const response = await fetch(
+      `${integrationsBase}/connections/${connectionId}/health`,
+      { headers: authHeaders(token) },
+    );
+    await ensureSuccess(response, "Unable to load connection health");
+    return response.json();
+  },
+
+  async testConnection(
+    token: string,
+    connectionId: number,
+  ): Promise<TestIntegrationConnectionResponse> {
+    const response = await fetch(`${integrationsBase}/connections/${connectionId}/test`, {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: "{}",
+    });
+    await ensureSuccess(response, "Unable to test connection");
     return response.json();
   },
 

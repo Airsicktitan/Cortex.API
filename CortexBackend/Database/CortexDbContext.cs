@@ -1015,6 +1015,9 @@ public class CortexDbContext : DbContext
             entity.Property(c => c.LastSyncStatus).HasMaxLength(50);
             entity.Property(c => c.LastSyncMessage).HasMaxLength(2000);
             entity.Property(c => c.CreatedAtUtc).IsRequired();
+            entity.Property(c => c.LastConnectionTestHealthStatus).HasMaxLength(48);
+            entity.Property(c => c.LastConnectionTestMode).HasMaxLength(48);
+            entity.Property(c => c.LastConnectionTestMessage).HasMaxLength(2000);
             entity.HasIndex(c => c.Provider);
             entity.HasMany(c => c.ExternalWorkSources)
                 .WithOne(s => s.IntegrationConnection)

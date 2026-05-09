@@ -59,6 +59,16 @@ public static class IntegrationEndpoints
             .Produces<ClearIntegrationCredentialResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status404NotFound);
 
+        connections.MapGet("/{connectionId:int}/health", IntegrationHandlers.GetConnectionHealth)
+            .WithName("GetIntegrationConnectionHealth")
+            .Produces<IntegrationConnectionHealthDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
+        connections.MapPost("/{connectionId:int}/test", IntegrationHandlers.TestConnection)
+            .WithName("TestIntegrationConnection")
+            .Produces<TestIntegrationConnectionResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
+
         connections.MapGet("/{connectionId:int}/activity", IntegrationHandlers.GetConnectionActivity)
             .WithName("GetIntegrationConnectionActivity")
             .Produces<IntegrationActivityLogResponse[]>(StatusCodes.Status200OK)

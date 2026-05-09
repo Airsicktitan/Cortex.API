@@ -18,6 +18,7 @@ import type {
   IntegrationActivityStatus,
   IntegrationActivityType,
   IntegrationAuthMode,
+  IntegrationConnectionHealthStatus,
   IntegrationConnectionResponse,
   IntegrationCredentialStatusDto,
   IntegrationProviderDefinitionDto,
@@ -40,6 +41,7 @@ import {
 } from "../types/integrations";
 import { getUserFacingErrorMessage } from "../services/api";
 import { integrationsService } from "../services/integrationsService";
+import toast from "react-hot-toast";
 import {
   ConfigDetailCard,
   ConfigGhostButton,
@@ -112,6 +114,40 @@ function formatDurationMs(ms: number | null | undefined): string {
   return `${m}m ${rem.toFixed(0)}s`;
 }
 
+function connectionHealthBadgeClasses(status: IntegrationConnectionHealthStatus): string {
+  switch (status) {
+    case "Healthy":
+      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100";
+    case "NeedsAttention":
+      return "bg-red-100 text-red-900 dark:bg-red-950/50 dark:text-red-100";
+    case "MissingCredentials":
+      return "bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-100";
+    case "NotConfigured":
+      return "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100";
+    case "NotTested":
+      return "bg-sky-100 text-sky-900 dark:bg-sky-950/40 dark:text-sky-100";
+    case "TestUnavailable":
+      return "bg-violet-100 text-violet-900 dark:bg-violet-950/40 dark:text-violet-100";
+    default:
+      return "bg-gray-100 text-gray-800 dark:bg-slate-700 dark:text-slate-200";
+  }
+}
+
+function connectionHealthProviderBlurb(provider: IntegrationProvider): string {
+  switch (provider) {
+    case "SharePoint":
+      return "Tests the stored SharePoint connection settings and available read-only access.";
+    case "Jira":
+      return "Checks Jira connection settings and credential readiness. Live Jira validation is not enabled yet.";
+    case "ServiceNow":
+      return "Checks ServiceNow connection settings and credential readiness. Live ServiceNow validation is not enabled yet.";
+    case "SapReference":
+      return "Checks stored SAP reference setup. This is not a live SAP connection.";
+    default:
+      return "Runs a safe validation check for this connection.";
+  }
+}
+
 function humanizeIntegrationActivityType(t: IntegrationActivityType): string {
   switch (t) {
     case "DiscoverFields":
@@ -126,6 +162,8 @@ function humanizeIntegrationActivityType(t: IntegrationActivityType): string {
       return "Credential rotated";
     case "CredentialCleared":
       return "Credential cleared";
+    case "ConnectionTested":
+      return "Connection tested";
     default:
       return t;
   }
@@ -170,6 +208,9 @@ function integrationActivityResultSummary(row: IntegrationActivityLogEntry): str
     row.activityType === "CredentialCleared"
   ) {
     return row.message?.trim() || humanizeIntegrationActivityType(row.activityType);
+  }
+  if (row.activityType === "ConnectionTested") {
+    return row.message?.trim() || "Connection test completed.";
   }
   const c = row.createdCount ?? 0;
   const u = row.updatedCount ?? 0;
@@ -487,6 +528,7 @@ export default function IntegrationsPage({
   const [credentialStatusError, setCredentialStatusError] = useState<string | null>(null);
   const [credentialSaveLoading, setCredentialSaveLoading] = useState(false);
   const [credentialClearLoading, setCredentialClearLoading] = useState(false);
+  const [connectionTestLoading, setConnectionTestLoading] = useState(false);
   const [sourceModal, setSourceModal] = useState<
     | { mode: "create"; draft: CreateExternalWorkSourceInput }
     | { mode: "edit"; id: number; draft: UpdateExternalWorkSourceInput & { provider: IntegrationProvider; sourceType: ExternalSourceType; externalSourceId: string } }
@@ -805,6 +847,28 @@ export default function IntegrationsPage({
     },
     [getToken],
   );
+
+  const runConnectionTest = useCallback(async () => {
+    if (selectedConnectionId === null) {
+      return;
+    }
+    setConnectionTestLoading(true);
+    try {
+      const token = await getToken();
+      const r = await integrationsService.testConnection(token, selectedConnectionId);
+      await loadConnections();
+      if (r.testSucceeded) {
+        toast.success("Connection test completed.");
+      } else {
+        toast.error("Connection test completed with issues.");
+      }
+      void loadActivity(selectedConnectionId);
+    } catch (e) {
+      toast.error(getUserFacingErrorMessage(e, "Connection test could not be completed."));
+    } finally {
+      setConnectionTestLoading(false);
+    }
+  }, [getToken, selectedConnectionId, loadConnections, loadActivity]);
 
   useEffect(() => {
     void loadConnections();
@@ -1715,6 +1779,8 @@ export default function IntegrationsPage({
                         <tr>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Name</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Provider</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Health</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Last tested</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Auth</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Sync</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-700 dark:text-slate-300">Enabled</th>
@@ -1730,6 +1796,22 @@ export default function IntegrationsPage({
                             <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{c.displayName}</td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
                               {connectionProviderLabel(providerDefinitions, c.provider)}
+                            </td>
+                            <td className="px-4 py-3">
+                              {c.health ? (
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${connectionHealthBadgeClasses(
+                                    c.health.status,
+                                  )}`}
+                                >
+                                  {c.health.statusLabel}
+                                </span>
+                              ) : (
+                                <span className="text-gray-500 dark:text-slate-500">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
+                              {c.health?.lastTestedAtUtc ? formatWhen(c.health.lastTestedAtUtc) : "—"}
                             </td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationAuthMode(c.authMode)}</td>
                             <td className="px-4 py-3 text-gray-700 dark:text-slate-300">{humanizeIntegrationSyncMode(c.syncMode)}</td>
@@ -1789,6 +1871,76 @@ export default function IntegrationsPage({
                     </table>
                   </div>
                 )}
+                {!connectionsLoading && connections.length > 0 ? (
+                  <ConfigDetailCard
+                    title="Connection health"
+                    subtitle={
+                      selectedConnection
+                        ? connectionHealthProviderBlurb(selectedConnection.provider)
+                        : "Select a connection to review health and run a safe test."
+                    }
+                  >
+                    <div className="space-y-4">
+                      {selectedConnection?.health ? (
+                        <>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${connectionHealthBadgeClasses(
+                                selectedConnection.health.status,
+                              )}`}
+                            >
+                              {selectedConnection.health.statusLabel}
+                            </span>
+                            {selectedConnection.health.lastTestedAtUtc ? (
+                              <span className="text-sm text-gray-600 dark:text-slate-400">
+                                Last tested {formatWhen(selectedConnection.health.lastTestedAtUtc)}
+                              </span>
+                            ) : (
+                              <span className="text-sm text-gray-600 dark:text-slate-400">Not tested yet</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-800 dark:text-slate-200">{selectedConnection.health.message}</p>
+                          {selectedConnection.health.testMode === "LocalValidation" &&
+                          selectedConnection.health.status === "TestUnavailable" ? (
+                            <p className="text-xs text-gray-600 dark:text-slate-400">
+                              Configuration checked locally. Live provider validation is limited for this setup.
+                            </p>
+                          ) : null}
+                          {selectedConnection.health.missingRequiredSettingKeys.length > 0 ? (
+                            <p className="text-xs text-gray-700 dark:text-slate-300">
+                              <span className="font-medium">Missing required settings: </span>
+                              {selectedConnection.health.missingRequiredSettingKeys.join(", ")}
+                            </p>
+                          ) : null}
+                          {selectedConnection.health.invalidFormatSettingKeys.length > 0 ? (
+                            <p className="text-xs text-gray-700 dark:text-slate-300">
+                              <span className="font-medium">Invalid format: </span>
+                              {selectedConnection.health.invalidFormatSettingKeys.join(", ")}
+                            </p>
+                          ) : null}
+                          {selectedConnection.health.missingCredentialFieldKeys.length > 0 ? (
+                            <p className="text-xs text-gray-700 dark:text-slate-300">
+                              <span className="font-medium">Missing credential fields: </span>
+                              {selectedConnection.health.missingCredentialFieldKeys.join(", ")}
+                            </p>
+                          ) : null}
+                          <div className="flex flex-wrap justify-end gap-2 pt-1">
+                            <ConfigPrimaryButton
+                              disabled={connectionTestLoading || selectedConnectionId === null}
+                              onClick={() => void runConnectionTest()}
+                            >
+                              {connectionTestLoading ? "Testing connection..." : "Test connection"}
+                            </ConfigPrimaryButton>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-600 dark:text-slate-400">
+                          Select a connection below to view health details.
+                        </p>
+                      )}
+                    </div>
+                  </ConfigDetailCard>
+                ) : null}
                 {!connectionsLoading && connections.length > 0 ? (
                   <ConfigDetailCard
                     title="Connection credentials"

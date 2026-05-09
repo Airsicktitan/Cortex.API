@@ -24,7 +24,8 @@ public record IntegrationConnectionResponse(
     string CredentialStatus,
     IReadOnlyList<string> ConfiguredCredentialFieldLabels,
     DateTime? LastCredentialUpdatedAtUtc,
-    DateTime? LastCredentialRotatedAtUtc);
+    DateTime? LastCredentialRotatedAtUtc,
+    IntegrationConnectionHealthDto Health);
 
 public record CreateIntegrationConnectionRequest
 {
